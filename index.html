@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>job queue</title>
+<style>
+  :root{
+    --bg: #0B0E14;
+    --panel: #12161F;
+    --border: #232A36;
+    --text: #E6EDF3;
+    --text-dim: #6E7A8A;
+    --queued: #58A6FF;
+    --running: #F2A93B;
+    --done: #3FB950;
+    --failed: #F85149;
+    --interrupted: #A371F7;
+    --mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+    --sans: 'Inter', -apple-system, sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    min-height:100vh;
+  }
+  header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:20px 28px;
+    border-bottom:1px solid var(--border);
+  }
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-family:var(--mono);
+    font-size:15px;
+    letter-spacing:0.02em;
+  }
+  .dot{
+    width:8px; height:8px; border-radius:50%;
+    background:var(--done);
+    box-shadow:0 0 0 0 rgba(63,185,80,0.6);
+    animation:pulse 2s infinite;
+  }
+  @keyframes pulse{
+    0%{ box-shadow:0 0 0 0 rgba(63,185,80,0.5); }
+    70%{ box-shadow:0 0 0 8px rgba(63,185,80,0); }
+    100%{ box-shadow:0 0 0 0 rgba(63,185,80,0); }
+  }
+  .queue-depth{
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--text-dim);
+  }
+  .queue-depth b{ color:var(--text); }
+
+  main{
+    max-width:960px;
+    margin:0 auto;
+    padding:32px 28px 80px;
+    display:flex;
+    flex-direction:column;
+    gap:28px;
+  }
+
+  #dropzone{
+    border:1px dashed var(--border);
+    border-radius:10px;
+    padding:36px 20px;
+    text-align:center;
+    color:var(--text-dim);
+    font-size:14px;
+    cursor:pointer;
+    transition: border-color .15s, background .15s;
+  }
+  #dropzone.drag{
+    border-color:var(--queued);
+    background:rgba(88,166,255,0.06);
+    color:var(--text);
+  }
+  #dropzone strong{ color:var(--text); font-weight:600; }
+  #file-input{ display:none; }
+
+  .section-label{
+    font-family:var(--mono);
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--text-dim);
+    margin-bottom:10px;
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13px;
+  }
+  thead th{
+    text-align:left;
+    font-family:var(--mono);
+    font-weight:400;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--text-dim);
+    padding:0 12px 10px;
+    border-bottom:1px solid var(--border);
+  }
+  tbody tr{
+    cursor:pointer;
+    border-bottom:1px solid var(--border);
+  }
+  tbody tr:hover{ background:rgba(255,255,255,0.02); }
+  tbody td{
+    padding:12px;
+    vertical-align:middle;
+  }
+  .fname{
+    font-family:var(--mono);
+    font-size:12.5px;
+  }
+  .badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-family:var(--mono);
+    font-size:11px;
+    padding:3px 8px;
+    border-radius:20px;
+    border:1px solid currentColor;
+  }
+  .badge.queued{ color:var(--queued); }
+  .badge.running{ color:var(--running); }
+  .badge.done{ color:var(--done); }
+  .badge.failed{ color:var(--failed); }
+  .badge.interrupted{ color:var(--interrupted); }
+  .badge .bdot{ width:5px; height:5px; border-radius:50%; background:currentColor; }
+  .badge.running .bdot{ animation: pulse-run 1.2s infinite; }
+  @keyframes pulse-run{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
+
+  .time-cell{ color:var(--text-dim); font-family:var(--mono); font-size:12px; }
+
+  .empty{
+    text-align:center;
+    padding:40px 0;
+    color:var(--text-dim);
+    font-size:13px;
+  }
+
+  .log-row td{
+    background:#0A0D13;
+    padding:0;
+  }
+  pre.log{
+    margin:0;
+    padding:16px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    line-height:1.5;
+    color:#9FB0C3;
+    white-space:pre-wrap;
+    word-break:break-all;
+    max-height:320px;
+    overflow-y:auto;
+  }
+  .del-btn{
+    background:none;
+    border:1px solid var(--border);
+    color:var(--text-dim);
+    border-radius:6px;
+    font-family:var(--mono);
+    font-size:11px;
+    padding:3px 8px;
+    cursor:pointer;
+  }
+  .del-btn:hover{ border-color:var(--failed); color:var(--failed); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><span class="dot"></span> job queue</div>
+  <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
+</header>
+
+<main>
+  <div>
+    <div class="section-label">새 작업 추가</div>
+    <div id="dropzone">
+      <div><strong>.py 파일을 여기에 끌어다 놓거나 클릭</strong>해서 큐에 추가하세요</div>
+      <div style="margin-top:6px; font-size:12px;">여러 개를 한 번에 올리면 올린 순서대로 실행됩니다</div>
+    </div>
+    <input type="file" id="file-input" accept=".py" multiple>
+  </div>
+
+  <div>
+    <div class="section-label">작업 목록</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:26px;"></th>
+          <th>파일</th>
+          <th>상태</th>
+          <th>대기 등록</th>
+          <th>시작</th>
+          <th>종료</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="job-rows"></tbody>
+    </table>
+    <div class="empty" id="empty-msg" style="display:none;">아직 등록된 작업이 없어요</div>
+  </div>
+</main>
+
+<script>
+const STATUS_LABEL = {
+  queued: "대기중", running: "실행중", done: "완료",
+  failed: "실패", interrupted: "중단됨"
+};
+
+let expandedId = null;
+
+function fmtTime(iso){
+  if(!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleTimeString('ko-KR', {hour12:false});
+}
+
+async function fetchJobs(){
+  const res = await fetch('/api/jobs');
+  const data = await res.json();
+  render(data.jobs, data.pending_count);
+}
+
+function render(jobs, pendingCount){
+  document.getElementById('pending-count').textContent = pendingCount;
+  const tbody = document.getElementById('job-rows');
+  const emptyMsg = document.getElementById('empty-msg');
+
+  if(jobs.length === 0){
+    tbody.innerHTML = '';
+    emptyMsg.style.display = 'block';
+    return;
+  }
+  emptyMsg.style.display = 'none';
+
+  tbody.innerHTML = jobs.map(j => {
+    const isOpen = expandedId === j.id;
+    let rows = `
+      <tr data-id="${j.id}" class="job-row">
+        <td>${isOpen ? '▾' : '▸'}</td>
+        <td class="fname">${j.original_name}</td>
+        <td><span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span></td>
+        <td class="time-cell">${fmtTime(j.queued_at)}</td>
+        <td class="time-cell">${fmtTime(j.started_at)}</td>
+        <td class="time-cell">${fmtTime(j.finished_at)}</td>
+        <td>${j.status !== 'running' ? `<button class="del-btn" data-del="${j.id}">삭제</button>` : ''}</td>
+      </tr>`;
+    if(isOpen){
+      rows += `<tr class="log-row"><td colspan="7"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
+    }
+    return rows;
+  }).join('');
+
+  tbody.querySelectorAll('.job-row').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if(e.target.closest('.del-btn')) return;
+      const id = row.dataset.id;
+      expandedId = expandedId === id ? null : id;
+      render(jobs, pendingCount);
+      if(expandedId) loadLog(expandedId);
+    });
+  });
+
+  tbody.querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await fetch('/api/jobs/' + btn.dataset.del, { method: 'DELETE' });
+      fetchJobs();
+    });
+  });
+}
+
+async function loadLog(id){
+  const res = await fetch(`/api/jobs/${id}/log`);
+  const data = await res.json();
+  const el = document.getElementById('log-' + id);
+  if(el) el.textContent = data.log || '(아직 출력이 없어요)';
+}
+
+async function uploadFiles(files){
+  for(const file of files){
+    if(!file.name.endsWith('.py')) continue;
+    const form = new FormData();
+    form.append('file', file);
+    await fetch('/api/upload', { method: 'POST', body: form });
+  }
+  fetchJobs();
+}
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+
+dropzone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => uploadFiles(e.target.files));
+
+['dragenter','dragover'].forEach(evt =>
+  dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('drag'); })
+);
+['dragleave','drop'].forEach(evt =>
+  dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('drag'); })
+);
+dropzone.addEventListener('drop', (e) => uploadFiles(e.dataTransfer.files));
+
+fetchJobs();
+setInterval(fetchJobs, 2000);
+setInterval(() => { if(expandedId) loadLog(expandedId); }, 2000);
+</script>
+</body>
+</html>
