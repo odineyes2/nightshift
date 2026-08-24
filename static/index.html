@@ -125,6 +125,7 @@
     font-family:var(--mono);
     font-size:12.5px;
   }
+  .fname.dim{ color:var(--text-dim); }
   .badge{
     display:inline-flex;
     align-items:center;
@@ -194,9 +195,9 @@
     <div class="section-label">새 작업 추가</div>
     <div id="dropzone">
       <div><strong>.py 파일을 여기에 끌어다 놓거나 클릭</strong>해서 큐에 추가하세요</div>
-      <div style="margin-top:6px; font-size:12px;">여러 개를 한 번에 올리면 올린 순서대로 실행됩니다</div>
+      <div style="margin-top:6px; font-size:12px;">같은 이름의 .py와 .json(워크플로우)을 함께 올리면 자동으로 짝지어져요 &middot; 여러 개를 한 번에 올리면 올린 순서대로 실행됩니다</div>
     </div>
-    <input type="file" id="file-input" accept=".py" multiple>
+    <input type="file" id="file-input" accept=".py,.json" multiple>
   </div>
 
   <div>
@@ -206,6 +207,7 @@
         <tr>
           <th style="width:26px;"></th>
           <th>파일</th>
+          <th>워크플로우</th>
           <th>상태</th>
           <th>대기 등록</th>
           <th>시작</th>
@@ -257,6 +259,7 @@ function render(jobs, pendingCount){
       <tr data-id="${j.id}" class="job-row">
         <td>${isOpen ? '▾' : '▸'}</td>
         <td class="fname">${j.original_name}</td>
+        <td class="fname${j.workflow_original_name ? '' : ' dim'}">${j.workflow_original_name || '-'}</td>
         <td><span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span></td>
         <td class="time-cell">${fmtTime(j.queued_at)}</td>
         <td class="time-cell">${fmtTime(j.started_at)}</td>
@@ -264,7 +267,7 @@ function render(jobs, pendingCount){
         <td>${j.status !== 'running' ? `<button class="del-btn" data-del="${j.id}">삭제</button>` : ''}</td>
       </tr>`;
     if(isOpen){
-      rows += `<tr class="log-row"><td colspan="7"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
+      rows += `<tr class="log-row"><td colspan="8"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
     }
     return rows;
   }).join('');
@@ -295,11 +298,33 @@ async function loadLog(id){
   if(el) el.textContent = data.log || '(아직 출력이 없어요)';
 }
 
-async function uploadFiles(files){
-  for(const file of files){
-    if(!file.name.endsWith('.py')) continue;
+function baseName(name){
+  const i = name.lastIndexOf('.');
+  return i === -1 ? name : name.slice(0, i);
+}
+
+function pairFiles(fileList){
+  // 같은 이름의 .py + .json을 한 쌍으로 묶는다. 짝 없는 .py는 워크플로우 없이 단독 업로드,
+  // 짝 없는 .json은 스크립트가 아니므로 단독으로는 업로드하지 않는다.
+  const groups = new Map();
+  for(const file of Array.from(fileList)){
+    const lower = file.name.toLowerCase();
+    if(!lower.endsWith('.py') && !lower.endsWith('.json')) continue;
+    const key = baseName(file.name);
+    if(!groups.has(key)) groups.set(key, {});
+    const group = groups.get(key);
+    if(lower.endsWith('.py')) group.py = file;
+    else group.json = file;
+  }
+  return Array.from(groups.values()).filter(g => g.py);
+}
+
+async function uploadFiles(fileList){
+  const pairs = pairFiles(fileList);
+  for(const { py, json } of pairs){
     const form = new FormData();
-    form.append('file', file);
+    form.append('file', py);
+    if(json) form.append('workflow', json);
     await fetch('/api/upload', { method: 'POST', body: form });
   }
   fetchJobs();
