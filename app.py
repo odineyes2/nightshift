@@ -11,6 +11,7 @@ RunPod Job Queue — .py 파일을 큐에 쌓아두면 워커가 순서대로 �
 """
 
 import json
+import os
 import queue
 import subprocess
 import threading
@@ -66,12 +67,18 @@ def worker_loop():
         log_path = LOGS_DIR / f"{job_id}.log"
         script_path = JOBS_DIR / job["filename"]
 
+        env = None
+        if job.get("workflow_filename"):
+            workflow_path = (JOBS_DIR / job["workflow_filename"]).resolve()
+            env = {**os.environ, "WORKFLOW_PATH": str(workflow_path)}
+
         with open(log_path, "w") as logf:
             try:
                 proc = subprocess.run(
                     ["python3", "-u", str(script_path)],
                     stdout=logf,
                     stderr=subprocess.STDOUT,
+                    env=env,
                 )
                 returncode = proc.returncode
             except Exception as e:
@@ -103,9 +110,11 @@ app = FastAPI(title="RunPod Job Queue", lifespan=lifespan)
 
 
 @app.post("/api/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), workflow: UploadFile | None = File(None)):
     if not file.filename.endswith(".py"):
         raise HTTPException(400, "python(.py) 파일만 업로드할 수 있어요.")
+    if workflow is not None and workflow.filename and not workflow.filename.endswith(".json"):
+        raise HTTPException(400, "워크플로우는 json 파일만 업로드할 수 있어요.")
 
     job_id = str(uuid.uuid4())[:8]
     dest_name = f"{job_id}_{file.filename}"
@@ -114,11 +123,21 @@ async def upload(file: UploadFile = File(...)):
     content = await file.read()
     dest_path.write_bytes(content)
 
+    workflow_dest_name = None
+    workflow_original_name = None
+    if workflow is not None and workflow.filename:
+        workflow_dest_name = f"{job_id}_{workflow.filename}"
+        workflow_content = await workflow.read()
+        (JOBS_DIR / workflow_dest_name).write_bytes(workflow_content)
+        workflow_original_name = workflow.filename
+
     with lock:
         jobs[job_id] = {
             "id": job_id,
             "filename": dest_name,
             "original_name": file.filename,
+            "workflow_filename": workflow_dest_name,
+            "workflow_original_name": workflow_original_name,
             "status": "queued",
             "queued_at": now_iso(),
             "started_at": None,
