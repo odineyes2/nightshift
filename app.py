@@ -1,5 +1,5 @@
 """
-RunPod Job Queue — 등록된 스크립트 템플릿(또는 커스텀 .py)을 큐에 쌓아두면 워커가 순서대로 하나씩 실행한다.
+RunPod Job Queue — 등록된 스크립트 템플릿을 큐에 쌓아두면 워커가 순서대로 하나씩 실행한다.
 
 실행:
     pip install -r requirements.txt
@@ -22,9 +22,10 @@ from pathlib import Path
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import UploadFile
 
 BASE_DIR = Path(__file__).parent
 JOBS_DIR = BASE_DIR / "jobs"
@@ -34,8 +35,6 @@ MANIFEST_PATH = TEMPLATES_DIR / "manifest.json"
 STATE_FILE = BASE_DIR / "jobs_state.json"
 JOBS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
-
-CUSTOM_TEMPLATE_ID = "__custom__"
 
 job_queue: "queue.Queue[str]" = queue.Queue()
 jobs: dict[str, dict] = {}
@@ -78,14 +77,15 @@ def worker_loop():
         save_state()
 
         log_path = LOGS_DIR / f"{job_id}.log"
-        script_dir = TEMPLATES_DIR if job.get("template_id") else JOBS_DIR
-        script_path = script_dir / job["script_filename"]
+        script_path = TEMPLATES_DIR / job["script_filename"]
 
         extra_env = {}
         if job.get("workflow_filename"):
             extra_env["WORKFLOW_PATH"] = str((JOBS_DIR / job["workflow_filename"]).resolve())
         if job.get("csv_filename"):
             extra_env["CSV_PATH"] = str((JOBS_DIR / job["csv_filename"]).resolve())
+        for name, value in job.get("options", {}).items():
+            extra_env[name.upper()] = str(value)
         env = {**os.environ, **extra_env} if extra_env else None
 
         with open(log_path, "w") as logf:
@@ -130,53 +130,62 @@ def list_templates():
     return load_templates_list()
 
 
+def coerce_option(option: dict, raw: str | None):
+    if raw is None or raw == "":
+        raw = option.get("default")
+    if option.get("type") == "number":
+        try:
+            num = float(raw)
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"'{option['label']}' 값이 올바른 숫자가 아니에요.")
+        return int(num) if num.is_integer() else num
+    return "" if raw is None else str(raw)
+
+
 @app.post("/api/upload")
-async def upload(
-    template_id: str = Form(...),
-    workflow: UploadFile = File(...),
-    file: UploadFile | None = File(None),
-    csv: UploadFile | None = File(None),
-):
-    if not workflow.filename or not workflow.filename.endswith(".json"):
+async def upload(request: Request):
+    form = await request.form()
+
+    template_id = form.get("template_id")
+    if not template_id:
+        raise HTTPException(400, "template_id는 필수예요.")
+    template = load_templates_map().get(template_id)
+    if template is None:
+        raise HTTPException(400, "존재하지 않는 템플릿이에요.")
+
+    workflow = form.get("workflow")
+    if not isinstance(workflow, UploadFile) or not workflow.filename or not workflow.filename.endswith(".json"):
         raise HTTPException(400, "워크플로우는 json 파일만 업로드할 수 있어요.")
 
-    job_id = str(uuid.uuid4())[:8]
-    is_custom = template_id == CUSTOM_TEMPLATE_ID
+    requires_csv = bool(template.get("requires_csv"))
+    csv_file = form.get("csv")
+    if requires_csv and (not isinstance(csv_file, UploadFile) or not csv_file.filename or not csv_file.filename.endswith(".csv")):
+        raise HTTPException(400, "이 템플릿은 csv 파일이 필요해요.")
 
-    if is_custom:
-        if file is None or not file.filename or not file.filename.endswith(".py"):
-            raise HTTPException(400, "커스텀 스크립트는 python(.py) 파일이 필요해요.")
-        script_filename = f"{job_id}_{file.filename}"
-        (JOBS_DIR / script_filename).write_bytes(await file.read())
-        template_label = None
-        requires_csv = False
-    else:
-        template = load_templates_map().get(template_id)
-        if template is None:
-            raise HTTPException(400, "존재하지 않는 템플릿이에요.")
-        script_filename = template["script_filename"]
-        template_label = template["label"]
-        requires_csv = bool(template.get("requires_csv"))
-        if requires_csv and (csv is None or not csv.filename or not csv.filename.endswith(".csv")):
-            raise HTTPException(400, "이 템플릿은 csv 파일이 필요해요.")
+    options = {}
+    for option in template.get("options", []):
+        raw = form.get(option["name"])
+        options[option["name"]] = coerce_option(option, raw if isinstance(raw, str) else None)
+
+    job_id = str(uuid.uuid4())[:8]
 
     workflow_dest_name = f"{job_id}_{workflow.filename}"
     (JOBS_DIR / workflow_dest_name).write_bytes(await workflow.read())
 
     csv_dest_name = None
     csv_original_name = None
-    if requires_csv and csv is not None and csv.filename:
-        csv_dest_name = f"{job_id}_{csv.filename}"
-        (JOBS_DIR / csv_dest_name).write_bytes(await csv.read())
-        csv_original_name = csv.filename
+    if requires_csv:
+        csv_dest_name = f"{job_id}_{csv_file.filename}"
+        (JOBS_DIR / csv_dest_name).write_bytes(await csv_file.read())
+        csv_original_name = csv_file.filename
 
     with lock:
         jobs[job_id] = {
             "id": job_id,
-            "template_id": None if is_custom else template_id,
-            "template_label": template_label,
-            "script_filename": script_filename,
-            "script_display_name": file.filename if is_custom else script_filename,
+            "template_id": template_id,
+            "template_label": template["label"],
+            "script_filename": template["script_filename"],
+            "options": options,
             "workflow_filename": workflow_dest_name,
             "workflow_original_name": workflow.filename,
             "csv_filename": csv_dest_name,

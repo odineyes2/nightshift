@@ -1,8 +1,20 @@
 [
   {
+    "id": "seed_batch",
+    "label": "시드 반복",
+    "script_filename": "seed_batch.py",
+    "requires_csv": false,
+    "options": [
+      { "name": "seed_count", "label": "시드 개수", "type": "number", "default": 10 }
+    ]
+  },
+  {
     "id": "csv_batch",
     "label": "CSV 배치 (제목/프롬프트 x 시드 반복)",
     "script_filename": "csv_batch.py",
-    "requires_csv": true
+    "requires_csv": true,
+    "options": [
+      { "name": "seeds_per_case", "label": "케이스당 시드 개수", "type": "number", "default": 10 }
+    ]
   }
 ]
