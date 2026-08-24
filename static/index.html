@@ -69,23 +69,81 @@
     gap:28px;
   }
 
-  #dropzone{
-    border:1px dashed var(--border);
-    border-radius:10px;
-    padding:36px 20px;
-    text-align:center;
+  .upload-form{
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+  .field{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .field-label{
+    font-family:var(--mono);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
     color:var(--text-dim);
+  }
+  .field-label .opt{ text-transform:none; letter-spacing:0; color:var(--text-dim); }
+  select#template-select{
+    background:var(--panel);
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:10px 12px;
+    font-family:var(--sans);
     font-size:14px;
     cursor:pointer;
-    transition: border-color .15s, background .15s;
   }
-  #dropzone.drag{
+  select#template-select:focus{ outline:1px solid var(--queued); }
+  .slot{
+    border:1px dashed var(--border);
+    border-radius:8px;
+    padding:16px 14px;
+    text-align:center;
+    color:var(--text-dim);
+    font-size:13px;
+    cursor:pointer;
+    transition: border-color .15s, background .15s, color .15s;
+  }
+  .slot.drag{
     border-color:var(--queued);
     background:rgba(88,166,255,0.06);
     color:var(--text);
   }
-  #dropzone strong{ color:var(--text); font-weight:600; }
-  #file-input{ display:none; }
+  .slot.filled{
+    border-style:solid;
+    border-color:var(--done);
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:12.5px;
+  }
+  .slot-input{ display:none; }
+  .submit-btn{
+    align-self:flex-start;
+    background:var(--queued);
+    color:#0B0E14;
+    border:none;
+    border-radius:8px;
+    padding:10px 22px;
+    font-family:var(--mono);
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .submit-btn:disabled{
+    background:var(--border);
+    color:var(--text-dim);
+    cursor:not-allowed;
+  }
+  .upload-error{
+    color:var(--failed);
+    font-size:12.5px;
+    font-family:var(--mono);
+    min-height:1em;
+  }
 
   .section-label{
     font-family:var(--mono);
@@ -193,11 +251,35 @@
 <main>
   <div>
     <div class="section-label">새 작업 추가</div>
-    <div id="dropzone">
-      <div><strong>.py 파일을 여기에 끌어다 놓거나 클릭</strong>해서 큐에 추가하세요</div>
-      <div style="margin-top:6px; font-size:12px;">같은 이름의 .py와 .json(워크플로우)을 함께 올리면 자동으로 짝지어져요 &middot; 여러 개를 한 번에 올리면 올린 순서대로 실행됩니다</div>
+    <div class="upload-form">
+      <div class="field">
+        <label class="field-label" for="template-select">템플릿</label>
+        <select id="template-select"></select>
+      </div>
+
+      <div class="field" id="script-field" style="display:none;">
+        <label class="field-label">스크립트 (.py)</label>
+        <div class="slot" id="script-slot">.py 파일을 끌어다 놓거나 클릭</div>
+        <input type="file" class="slot-input" id="script-input" accept=".py">
+      </div>
+
+      <div class="field">
+        <label class="field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
+        <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
+        <input type="file" class="slot-input" id="workflow-input" accept=".json">
+      </div>
+
+      <div class="field" id="csv-field" style="display:none;">
+        <label class="field-label">CSV <span class="opt">— 이 템플릿에 필수</span></label>
+        <div class="slot" id="csv-slot">.csv 파일을 끌어다 놓거나 클릭</div>
+        <input type="file" class="slot-input" id="csv-input" accept=".csv">
+      </div>
+
+      <div>
+        <button class="submit-btn" id="submit-btn">큐에 추가</button>
+        <div class="upload-error" id="upload-error"></div>
+      </div>
     </div>
-    <input type="file" id="file-input" accept=".py,.json" multiple>
   </div>
 
   <div>
@@ -207,6 +289,7 @@
         <tr>
           <th style="width:26px;"></th>
           <th>파일</th>
+          <th>템플릿</th>
           <th>워크플로우</th>
           <th>상태</th>
           <th>대기 등록</th>
@@ -258,7 +341,8 @@ function render(jobs, pendingCount){
     let rows = `
       <tr data-id="${j.id}" class="job-row">
         <td>${isOpen ? '▾' : '▸'}</td>
-        <td class="fname">${j.original_name}</td>
+        <td class="fname">${j.script_display_name}</td>
+        <td class="fname${j.template_label ? '' : ' dim'}">${j.template_label || '커스텀'}</td>
         <td class="fname${j.workflow_original_name ? '' : ' dim'}">${j.workflow_original_name || '-'}</td>
         <td><span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span></td>
         <td class="time-cell">${fmtTime(j.queued_at)}</td>
@@ -267,7 +351,7 @@ function render(jobs, pendingCount){
         <td>${j.status !== 'running' ? `<button class="del-btn" data-del="${j.id}">삭제</button>` : ''}</td>
       </tr>`;
     if(isOpen){
-      rows += `<tr class="log-row"><td colspan="8"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
+      rows += `<tr class="log-row"><td colspan="9"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
     }
     return rows;
   }).join('');
@@ -298,52 +382,122 @@ async function loadLog(id){
   if(el) el.textContent = data.log || '(아직 출력이 없어요)';
 }
 
-function baseName(name){
-  const i = name.lastIndexOf('.');
-  return i === -1 ? name : name.slice(0, i);
+const CUSTOM_TEMPLATE_ID = '__custom__';
+let templatesById = {};
+let selectedFiles = { script: null, workflow: null, csv: null };
+
+function setupSlot(slotId, inputId, key, accept){
+  const slot = document.getElementById(slotId);
+  const input = document.getElementById(inputId);
+  const placeholder = slot.textContent;
+
+  function setFile(file){
+    selectedFiles[key] = file || null;
+    if(file){
+      slot.textContent = file.name;
+      slot.classList.add('filled');
+    } else {
+      slot.textContent = placeholder;
+      slot.classList.remove('filled');
+    }
+  }
+
+  slot.addEventListener('click', () => input.click());
+  input.addEventListener('change', (e) => setFile(e.target.files[0]));
+  ['dragenter','dragover'].forEach(evt =>
+    slot.addEventListener(evt, (e) => { e.preventDefault(); slot.classList.add('drag'); })
+  );
+  ['dragleave','drop'].forEach(evt =>
+    slot.addEventListener(evt, (e) => { e.preventDefault(); slot.classList.remove('drag'); })
+  );
+  slot.addEventListener('drop', (e) => {
+    const dropped = e.dataTransfer.files[0];
+    if(dropped && dropped.name.toLowerCase().endsWith(accept)) setFile(dropped);
+  });
+
+  return setFile;
 }
 
-function pairFiles(fileList){
-  // 같은 이름의 .py + .json을 한 쌍으로 묶는다. 짝 없는 .py는 워크플로우 없이 단독 업로드,
-  // 짝 없는 .json은 스크립트가 아니므로 단독으로는 업로드하지 않는다.
-  const groups = new Map();
-  for(const file of Array.from(fileList)){
-    const lower = file.name.toLowerCase();
-    if(!lower.endsWith('.py') && !lower.endsWith('.json')) continue;
-    const key = baseName(file.name);
-    if(!groups.has(key)) groups.set(key, {});
-    const group = groups.get(key);
-    if(lower.endsWith('.py')) group.py = file;
-    else group.json = file;
-  }
-  return Array.from(groups.values()).filter(g => g.py);
+const setScriptFile = setupSlot('script-slot', 'script-input', 'script', '.py');
+const setWorkflowFile = setupSlot('workflow-slot', 'workflow-input', 'workflow', '.json');
+const setCsvFile = setupSlot('csv-slot', 'csv-input', 'csv', '.csv');
+
+function resetForm(){
+  setScriptFile(null);
+  setWorkflowFile(null);
+  setCsvFile(null);
 }
 
-async function uploadFiles(fileList){
-  const pairs = pairFiles(fileList);
-  for(const { py, json } of pairs){
-    const form = new FormData();
-    form.append('file', py);
-    if(json) form.append('workflow', json);
-    await fetch('/api/upload', { method: 'POST', body: form });
+const templateSelect = document.getElementById('template-select');
+const scriptField = document.getElementById('script-field');
+const csvField = document.getElementById('csv-field');
+const uploadError = document.getElementById('upload-error');
+
+function onTemplateChange(){
+  const isCustom = templateSelect.value === CUSTOM_TEMPLATE_ID;
+  const template = templatesById[templateSelect.value];
+  scriptField.style.display = isCustom ? '' : 'none';
+  csvField.style.display = (!isCustom && template && template.requires_csv) ? '' : 'none';
+  uploadError.textContent = '';
+}
+
+async function fetchTemplates(){
+  const res = await fetch('/api/templates');
+  const list = await res.json();
+  templatesById = {};
+  templateSelect.innerHTML = '';
+  for(const t of list){
+    templatesById[t.id] = t;
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.label;
+    templateSelect.appendChild(opt);
   }
+  const customOpt = document.createElement('option');
+  customOpt.value = CUSTOM_TEMPLATE_ID;
+  customOpt.textContent = '커스텀 py 업로드';
+  templateSelect.appendChild(customOpt);
+  onTemplateChange();
+}
+
+templateSelect.addEventListener('change', onTemplateChange);
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  uploadError.textContent = '';
+  const templateId = templateSelect.value;
+  const isCustom = templateId === CUSTOM_TEMPLATE_ID;
+  const template = templatesById[templateId];
+
+  if(isCustom && !selectedFiles.script){
+    uploadError.textContent = '커스텀 스크립트(.py)를 선택해주세요.';
+    return;
+  }
+  if(!selectedFiles.workflow){
+    uploadError.textContent = '워크플로우(.json)는 필수예요.';
+    return;
+  }
+  if(!isCustom && template && template.requires_csv && !selectedFiles.csv){
+    uploadError.textContent = '이 템플릿은 csv 파일이 필요해요.';
+    return;
+  }
+
+  const form = new FormData();
+  form.append('template_id', templateId);
+  form.append('workflow', selectedFiles.workflow);
+  if(isCustom) form.append('file', selectedFiles.script);
+  if(!isCustom && template && template.requires_csv) form.append('csv', selectedFiles.csv);
+
+  const res = await fetch('/api/upload', { method: 'POST', body: form });
+  if(!res.ok){
+    const data = await res.json().catch(() => ({}));
+    uploadError.textContent = data.detail || '업로드에 실패했어요.';
+    return;
+  }
+  resetForm();
   fetchJobs();
-}
+});
 
-const dropzone = document.getElementById('dropzone');
-const fileInput = document.getElementById('file-input');
-
-dropzone.addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', (e) => uploadFiles(e.target.files));
-
-['dragenter','dragover'].forEach(evt =>
-  dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('drag'); })
-);
-['dragleave','drop'].forEach(evt =>
-  dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('drag'); })
-);
-dropzone.addEventListener('drop', (e) => uploadFiles(e.dataTransfer.files));
-
+fetchTemplates();
 fetchJobs();
 setInterval(fetchJobs, 2000);
 setInterval(() => { if(expandedId) loadLog(expandedId); }, 2000);
