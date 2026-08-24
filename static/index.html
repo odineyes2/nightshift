@@ -199,6 +199,31 @@
     margin-bottom:16px;
   }
 
+  .list-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:16px;
+  }
+  .list-header .section-label{ margin-bottom:0; }
+  .start-queue-btn{
+    background:var(--done);
+    color:#fff;
+    border:none;
+    border-radius:8px;
+    padding:8px 16px;
+    font-family:var(--mono);
+    font-size:12.5px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .start-queue-btn:hover{ background:#116C33; }
+  .start-queue-btn:disabled{
+    background:var(--border);
+    color:var(--text-dim);
+    cursor:not-allowed;
+  }
+
   table{
     width:100%;
     border-collapse:collapse;
@@ -301,18 +326,6 @@
     cursor:pointer;
   }
   .edit-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
-  .start-btn{
-    background:var(--panel);
-    border:1px solid var(--done);
-    color:var(--done);
-    border-radius:6px;
-    font-family:var(--mono);
-    font-size:11px;
-    font-weight:600;
-    padding:3px 8px;
-    cursor:pointer;
-  }
-  .start-btn:hover{ background:rgba(var(--done-rgb),0.10); }
 
   .modal-overlay{
     position:fixed;
@@ -449,7 +462,10 @@
   </div>
 
   <div class="panel">
-    <div class="section-label">작업 목록</div>
+    <div class="list-header">
+      <div class="section-label">작업 목록</div>
+      <button class="start-queue-btn" id="start-queue-btn" disabled>▷ 대기중 작업 시작 (<span id="pending-batch-count">0</span>)</button>
+    </div>
     <table>
       <thead>
         <tr>
@@ -518,6 +534,10 @@ function render(jobs, pendingCount){
   const tbody = document.getElementById('job-rows');
   const emptyMsg = document.getElementById('empty-msg');
 
+  const pendingBatchCount = jobs.filter(j => j.status === 'pending').length;
+  document.getElementById('pending-batch-count').textContent = pendingBatchCount;
+  document.getElementById('start-queue-btn').disabled = pendingBatchCount === 0;
+
   if(jobs.length === 0){
     tbody.innerHTML = '';
     emptyMsg.style.display = 'block';
@@ -539,7 +559,6 @@ function render(jobs, pendingCount){
         <td class="time-cell">${fmtTime(j.finished_at)}</td>
         <td>
           <div class="row-actions">
-            ${j.status === 'pending' ? `<button class="start-btn" data-start="${j.id}">▷ 시작</button>` : ''}
             ${j.status === 'pending' ? `<button class="edit-btn" data-editwf="${j.id}">워크플로우 수정</button>` : ''}
             ${j.status !== 'running' && j.status !== 'queued' ? `<button class="del-btn" data-del="${j.id}">삭제</button>` : ''}
           </div>
@@ -573,14 +592,6 @@ function render(jobs, pendingCount){
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       openWorkflowEditor(btn.dataset.editwf);
-    });
-  });
-
-  tbody.querySelectorAll('.start-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      await fetch('/api/jobs/' + btn.dataset.start + '/start', { method: 'POST' });
-      fetchJobs();
     });
   });
 }
@@ -715,6 +726,11 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
     return;
   }
   resetForm();
+  fetchJobs();
+});
+
+document.getElementById('start-queue-btn').addEventListener('click', async () => {
+  await fetch('/api/queue/start', { method: 'POST' });
   fetchJobs();
 });
 
