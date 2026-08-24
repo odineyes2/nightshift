@@ -1,0 +1,38 @@
+{
+  "f58c9b62": {
+    "id": "f58c9b62",
+    "template_id": "seed_batch",
+    "template_label": "\uc2dc\ub4dc \ubc18\ubcf5",
+    "script_filename": "seed_batch.py",
+    "options": {
+      "seed_count": 10
+    },
+    "workflow_filename": "f58c9b62_wf.json",
+    "workflow_original_name": "wf.json",
+    "csv_filename": null,
+    "csv_original_name": null,
+    "status": "failed",
+    "queued_at": "2026-08-24T08:52:36.058566+00:00",
+    "started_at": "2026-08-24T08:52:36.059625+00:00",
+    "finished_at": "2026-08-24T08:52:36.062224+00:00",
+    "returncode": -1
+  },
+  "e0e96e2d": {
+    "id": "e0e96e2d",
+    "template_id": "seed_batch",
+    "template_label": "\uc2dc\ub4dc \ubc18\ubcf5",
+    "script_filename": "seed_batch.py",
+    "options": {
+      "seed_count": 10
+    },
+    "workflow_filename": "e0e96e2d_wf.json",
+    "workflow_original_name": "wf.json",
+    "csv_filename": null,
+    "csv_original_name": null,
+    "status": "failed",
+    "queued_at": "2026-08-24T08:52:44.641628+00:00",
+    "started_at": "2026-08-24T08:52:44.642532+00:00",
+    "finished_at": "2026-08-24T08:52:44.645082+00:00",
+    "returncode": -1
+  }
+}
