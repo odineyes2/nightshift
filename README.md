@@ -25,7 +25,7 @@ GPU 인스턴스(RunPod 등)에서 여러 개의 학습/추론 스크립트를 �
 ## 설치
 
 ```bash
-git clone <this-repo-url>
+git clone https://github.com/odineyes2/nightshift.git
 cd nightshift
 pip install -r requirements.txt
 ```
