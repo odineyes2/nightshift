@@ -10,12 +10,14 @@ RunPod Job Queue — 등록된 스크립트 템플릿을 큐에 쌓아두면 워
     브라우저에서 http://<pod-ip>:8000  (RunPod는 포트 8000을 프록시로 노출해야 함)
 """
 
+import asyncio
 import json
 import os
 import queue
 import subprocess
 import threading
 import time
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +37,12 @@ MANIFEST_PATH = TEMPLATES_DIR / "manifest.json"
 STATE_FILE = BASE_DIR / "jobs_state.json"
 JOBS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
+
+# ComfyUI는 같은 파드 안에서 돌아가지만 설치 방식에 따라 포트가 다를 수 있어, 이 후보들을
+# 순서대로 짧은 타임아웃으로 찔러보고 처음 응답하는 곳을 채택한다. COMFY_URL 환경변수가
+# 명시적으로 설정돼 있으면 이 감지 과정을 건너뛰고 그 값을 그대로 쓴다.
+COMFY_CANDIDATE_URLS = ["http://127.0.0.1:8188", "http://127.0.0.1:8000"]
+COMFY_CHECK_TIMEOUT = 2
 
 job_queue: "queue.Queue[str]" = queue.Queue()
 jobs: dict[str, dict] = {}
@@ -67,6 +75,25 @@ def load_templates_map() -> dict[str, dict]:
     return {t["id"]: t for t in load_templates_list()}
 
 
+def check_comfy_url(url: str) -> bool:
+    try:
+        req = urllib.request.Request(f"{url.rstrip('/')}/system_stats")
+        with urllib.request.urlopen(req, timeout=COMFY_CHECK_TIMEOUT) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def resolve_comfy_url() -> tuple[str | None, bool]:
+    override = os.environ.get("COMFY_URL")
+    if override:
+        return override, check_comfy_url(override)
+    for candidate in COMFY_CANDIDATE_URLS:
+        if check_comfy_url(candidate):
+            return candidate, True
+    return None, False
+
+
 def worker_loop():
     while True:
         job_id = job_queue.get()
@@ -79,14 +106,25 @@ def worker_loop():
         log_path = LOGS_DIR / f"{job_id}.log"
         script_path = TEMPLATES_DIR / job["script_filename"]
 
-        extra_env = {}
+        comfy_url, comfy_connected = resolve_comfy_url()
+        if not comfy_connected:
+            log_path.write_text("ComfyUI 서버에 연결할 수 없습니다\n")
+            with lock:
+                job["status"] = "failed"
+                job["returncode"] = -1
+                job["finished_at"] = now_iso()
+            save_state()
+            job_queue.task_done()
+            continue
+
+        extra_env = {"COMFY_URL": comfy_url}
         if job.get("workflow_filename"):
             extra_env["WORKFLOW_PATH"] = str((JOBS_DIR / job["workflow_filename"]).resolve())
         if job.get("csv_filename"):
             extra_env["CSV_PATH"] = str((JOBS_DIR / job["csv_filename"]).resolve())
         for name, value in job.get("options", {}).items():
             extra_env[name.upper()] = str(value)
-        env = {**os.environ, **extra_env} if extra_env else None
+        env = {**os.environ, **extra_env}
 
         with open(log_path, "w") as logf:
             try:
@@ -128,6 +166,12 @@ app = FastAPI(title="RunPod Job Queue", lifespan=lifespan)
 @app.get("/api/templates")
 def list_templates():
     return load_templates_list()
+
+
+@app.get("/api/comfy-status")
+async def comfy_status():
+    url, connected = await asyncio.to_thread(resolve_comfy_url)
+    return {"url": url, "connected": connected}
 
 
 def coerce_option(option: dict, raw: str | None):

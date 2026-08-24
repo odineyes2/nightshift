@@ -11,6 +11,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
   (매번 `.py`를 업로드할 필요 없이, 정해진 실행 로직을 재사용)
 - 템플릿마다 정의된 옵션(숫자/텍스트)을 선택 즉시 입력 폼으로 보여주고, 기본값을 미리 채워줌
 - 템플릿마다 워크플로우(`.json`, 항상 필수)와 CSV(템플릿이 요구하는 경우에만 필수)를 첨부
+- ComfyUI 서버 주소 자동 감지 — 후보 포트를 순서대로 찔러보고 응답하는 첫 주소를 채택, 상단 인디케이터로 연결 상태 표시
 - 업로드된 순서대로 워커 스레드가 하나씩 `python3`로 실행 (동시 실행 없음)
 - 작업 상태 추적: `queued` → `running` → `done` / `failed` (서버 재시작 시 `interrupted`)
 - 작업별 실행 로그(stdout/stderr)를 실시간에 가깝게 조회 (2초 폴링)
@@ -72,6 +73,21 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 화면은 2초마다 자동으로 갱신되며, 로그를 펼쳐둔 상태에서도 2초마다 갱신됩니다.
 
+### ComfyUI 서버 자동 감지
+
+nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가는 구성을 전제로, 서버 시작 여부와 상관없이
+매번 다음 순서로 ComfyUI 주소를 판별합니다.
+
+1. **`COMFY_URL` 환경변수가 설정돼 있으면** 자동 감지를 건너뛰고 그 값을 그대로 사용합니다 (수동 오버라이드가 항상 최우선).
+2. 그렇지 않으면 후보 주소 `http://127.0.0.1:8188`, `http://127.0.0.1:8000`을 순서대로 `GET /system_stats`로
+   2초 타임아웃으로 찔러보고, 200을 응답하는 첫 번째 주소를 채택합니다.
+3. 둘 다 응답이 없으면 "감지되지 않음"으로 처리됩니다.
+
+화면 상단의 인디케이터가 5초마다 `/api/comfy-status`를 폴링해 연결 상태(연결됨/연결 안 됨)와 감지된 주소를 보여줍니다.
+작업은 실행 직전에도 다시 한번 이 감지를 수행합니다 — 업로드 시점에는 ComfyUI가 떠 있지 않아도 큐에는 정상 등록되지만,
+실제로 실행되는 순간 연결이 안 되면 스크립트를 실행하지 않고 해당 작업을 곧바로 `failed` 처리하며 로그에
+"ComfyUI 서버에 연결할 수 없습니다"를 남깁니다.
+
 ### 스크립트 템플릿 등록하기 (`templates/`)
 
 반복해서 쓰는 실행 로직은 `templates/` 아래에 스크립트 파일로 두고 `templates/manifest.json`에 등록하면
@@ -109,6 +125,7 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 - `WORKFLOW_PATH` — 첨부된 워크플로우(`.json`)의 **절대 경로** (항상 전달됨)
 - `CSV_PATH` — 첨부된 CSV의 **절대 경로** (`requires_csv`가 `true`인 템플릿에서만 전달됨)
+- `COMFY_URL` — 실행 직전에 감지(또는 오버라이드)된 ComfyUI 주소 (연결이 확인된 경우에만 실행되므로 항상 전달됨)
 - 템플릿의 `options`에 정의된 각 옵션 — `name`을 대문자로 바꾼 이름의 환경변수로 전달 (예: `seed_count` 옵션에 `20`을 입력하면 `SEED_COUNT=20`)
 
 ```python
@@ -120,6 +137,7 @@ if workflow_path:
         workflow = json.load(f)
 
 csv_path = os.environ.get("CSV_PATH")     # requires_csv 템플릿에서만 존재
+comfy_url = os.environ.get("COMFY_URL", "http://127.0.0.1:8188")
 seed_count = int(os.environ.get("SEED_COUNT", "10"))
 ```
 
@@ -128,6 +146,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | Method | Path | 설명 |
 |---|---|---|
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
+| `GET` | `/api/comfy-status` | 감지된 ComfyUI 주소(`url`)와 연결 가능 여부(`connected`)를 조회. 매 호출마다 실시간으로 재확인함 |
 | `POST` | `/api/upload` | 작업을 큐에 등록 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨) |
 | `GET` | `/api/jobs` | 전체 작업 목록과 대기 중인 작업 수 조회 |
 | `GET` | `/api/jobs/{job_id}/log?tail=200` | 특정 작업의 로그 조회 (기본 마지막 200줄) |
