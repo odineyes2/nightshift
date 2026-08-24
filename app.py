@@ -234,12 +234,25 @@ async def upload(request: Request):
             "workflow_original_name": workflow.filename,
             "csv_filename": csv_dest_name,
             "csv_original_name": csv_original_name,
-            "status": "queued",
+            "status": "pending",
             "queued_at": now_iso(),
             "started_at": None,
             "finished_at": None,
             "returncode": None,
         }
+    save_state()
+    return jobs[job_id]
+
+
+@app.post("/api/jobs/{job_id}/start")
+def start_job(job_id: str):
+    with lock:
+        job = jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "없는 작업이에요.")
+        if job["status"] != "pending":
+            raise HTTPException(400, "대기 중인 작업만 시작할 수 있어요.")
+        job["status"] = "queued"
     save_state()
     job_queue.put(job_id)
     return jobs[job_id]
@@ -294,7 +307,7 @@ async def update_job_workflow(job_id: str, request: Request):
         job = jobs.get(job_id)
         if not job:
             raise HTTPException(404, "없는 작업이에요.")
-        if job["status"] != "queued":
+        if job["status"] != "pending":
             raise HTTPException(400, "대기 중인 작업만 수정할 수 있어요.")
         workflow_filename = job.get("workflow_filename")
         if not workflow_filename:
@@ -310,8 +323,8 @@ def delete_job(job_id: str):
         job = jobs.get(job_id)
         if not job:
             raise HTTPException(404, "없는 작업이에요.")
-        if job["status"] == "running":
-            raise HTTPException(400, "실행 중인 작업은 지울 수 없어요.")
+        if job["status"] in ("running", "queued"):
+            raise HTTPException(400, "실행 중이거나 이미 시작된 작업은 지울 수 없어요.")
         del jobs[job_id]
     save_state()
     return {"ok": True}
