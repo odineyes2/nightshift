@@ -1,0 +1,8 @@
+[
+  {
+    "id": "csv_batch",
+    "label": "CSV 배치 (제목/프롬프트 x 시드 반복)",
+    "script_filename": "csv_batch.py",
+    "requires_csv": true
+  }
+]

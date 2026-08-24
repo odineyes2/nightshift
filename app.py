@@ -1,5 +1,5 @@
 """
-RunPod Job Queue — .py 파일을 큐에 쌓아두면 워커가 순서대로 하나씩 실행한다.
+RunPod Job Queue — 등록된 스크립트 템플릿(또는 커스텀 .py)을 큐에 쌓아두면 워커가 순서대로 하나씩 실행한다.
 
 실행:
     pip install -r requirements.txt
@@ -22,16 +22,20 @@ from pathlib import Path
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).parent
 JOBS_DIR = BASE_DIR / "jobs"
 LOGS_DIR = BASE_DIR / "logs"
+TEMPLATES_DIR = BASE_DIR / "templates"
+MANIFEST_PATH = TEMPLATES_DIR / "manifest.json"
 STATE_FILE = BASE_DIR / "jobs_state.json"
 JOBS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
+
+CUSTOM_TEMPLATE_ID = "__custom__"
 
 job_queue: "queue.Queue[str]" = queue.Queue()
 jobs: dict[str, dict] = {}
@@ -55,6 +59,15 @@ def load_state():
             jobs.update(json.load(f))
 
 
+def load_templates_list() -> list[dict]:
+    with open(MANIFEST_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def load_templates_map() -> dict[str, dict]:
+    return {t["id"]: t for t in load_templates_list()}
+
+
 def worker_loop():
     while True:
         job_id = job_queue.get()
@@ -65,12 +78,15 @@ def worker_loop():
         save_state()
 
         log_path = LOGS_DIR / f"{job_id}.log"
-        script_path = JOBS_DIR / job["filename"]
+        script_dir = TEMPLATES_DIR if job.get("template_id") else JOBS_DIR
+        script_path = script_dir / job["script_filename"]
 
-        env = None
+        extra_env = {}
         if job.get("workflow_filename"):
-            workflow_path = (JOBS_DIR / job["workflow_filename"]).resolve()
-            env = {**os.environ, "WORKFLOW_PATH": str(workflow_path)}
+            extra_env["WORKFLOW_PATH"] = str((JOBS_DIR / job["workflow_filename"]).resolve())
+        if job.get("csv_filename"):
+            extra_env["CSV_PATH"] = str((JOBS_DIR / job["csv_filename"]).resolve())
+        env = {**os.environ, **extra_env} if extra_env else None
 
         with open(log_path, "w") as logf:
             try:
@@ -109,35 +125,62 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="RunPod Job Queue", lifespan=lifespan)
 
 
+@app.get("/api/templates")
+def list_templates():
+    return load_templates_list()
+
+
 @app.post("/api/upload")
-async def upload(file: UploadFile = File(...), workflow: UploadFile | None = File(None)):
-    if not file.filename.endswith(".py"):
-        raise HTTPException(400, "python(.py) 파일만 업로드할 수 있어요.")
-    if workflow is not None and workflow.filename and not workflow.filename.endswith(".json"):
+async def upload(
+    template_id: str = Form(...),
+    workflow: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    csv: UploadFile | None = File(None),
+):
+    if not workflow.filename or not workflow.filename.endswith(".json"):
         raise HTTPException(400, "워크플로우는 json 파일만 업로드할 수 있어요.")
 
     job_id = str(uuid.uuid4())[:8]
-    dest_name = f"{job_id}_{file.filename}"
-    dest_path = JOBS_DIR / dest_name
+    is_custom = template_id == CUSTOM_TEMPLATE_ID
 
-    content = await file.read()
-    dest_path.write_bytes(content)
+    if is_custom:
+        if file is None or not file.filename or not file.filename.endswith(".py"):
+            raise HTTPException(400, "커스텀 스크립트는 python(.py) 파일이 필요해요.")
+        script_filename = f"{job_id}_{file.filename}"
+        (JOBS_DIR / script_filename).write_bytes(await file.read())
+        template_label = None
+        requires_csv = False
+    else:
+        template = load_templates_map().get(template_id)
+        if template is None:
+            raise HTTPException(400, "존재하지 않는 템플릿이에요.")
+        script_filename = template["script_filename"]
+        template_label = template["label"]
+        requires_csv = bool(template.get("requires_csv"))
+        if requires_csv and (csv is None or not csv.filename or not csv.filename.endswith(".csv")):
+            raise HTTPException(400, "이 템플릿은 csv 파일이 필요해요.")
 
-    workflow_dest_name = None
-    workflow_original_name = None
-    if workflow is not None and workflow.filename:
-        workflow_dest_name = f"{job_id}_{workflow.filename}"
-        workflow_content = await workflow.read()
-        (JOBS_DIR / workflow_dest_name).write_bytes(workflow_content)
-        workflow_original_name = workflow.filename
+    workflow_dest_name = f"{job_id}_{workflow.filename}"
+    (JOBS_DIR / workflow_dest_name).write_bytes(await workflow.read())
+
+    csv_dest_name = None
+    csv_original_name = None
+    if requires_csv and csv is not None and csv.filename:
+        csv_dest_name = f"{job_id}_{csv.filename}"
+        (JOBS_DIR / csv_dest_name).write_bytes(await csv.read())
+        csv_original_name = csv.filename
 
     with lock:
         jobs[job_id] = {
             "id": job_id,
-            "filename": dest_name,
-            "original_name": file.filename,
+            "template_id": None if is_custom else template_id,
+            "template_label": template_label,
+            "script_filename": script_filename,
+            "script_display_name": file.filename if is_custom else script_filename,
             "workflow_filename": workflow_dest_name,
-            "workflow_original_name": workflow_original_name,
+            "workflow_original_name": workflow.filename,
+            "csv_filename": csv_dest_name,
+            "csv_original_name": csv_original_name,
             "status": "queued",
             "queued_at": now_iso(),
             "started_at": None,
