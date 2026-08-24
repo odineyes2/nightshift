@@ -243,6 +243,7 @@
     border-radius:20px;
     border:1px solid currentColor;
   }
+  .badge.pending{ color:var(--queued); background:rgba(var(--queued-rgb),0.10); }
   .badge.queued{ color:var(--queued); background:rgba(var(--queued-rgb),0.10); }
   .badge.running{ color:var(--running); background:rgba(var(--running-rgb),0.10); }
   .badge.done{ color:var(--done); background:rgba(var(--done-rgb),0.10); }
@@ -300,6 +301,18 @@
     cursor:pointer;
   }
   .edit-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
+  .start-btn{
+    background:var(--panel);
+    border:1px solid var(--done);
+    color:var(--done);
+    border-radius:6px;
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    padding:3px 8px;
+    cursor:pointer;
+  }
+  .start-btn:hover{ background:rgba(var(--done-rgb),0.10); }
 
   .modal-overlay{
     position:fixed;
@@ -476,7 +489,7 @@
 
 <script>
 const STATUS_LABEL = {
-  queued: "대기중", running: "실행중", done: "완료",
+  pending: "대기중", queued: "대기중", running: "실행중", done: "완료",
   failed: "실패", interrupted: "중단됨"
 };
 
@@ -526,8 +539,9 @@ function render(jobs, pendingCount){
         <td class="time-cell">${fmtTime(j.finished_at)}</td>
         <td>
           <div class="row-actions">
-            ${j.status === 'queued' ? `<button class="edit-btn" data-editwf="${j.id}">워크플로우 수정</button>` : ''}
-            ${j.status !== 'running' ? `<button class="del-btn" data-del="${j.id}">삭제</button>` : ''}
+            ${j.status === 'pending' ? `<button class="start-btn" data-start="${j.id}">▷ 시작</button>` : ''}
+            ${j.status === 'pending' ? `<button class="edit-btn" data-editwf="${j.id}">워크플로우 수정</button>` : ''}
+            ${j.status !== 'running' && j.status !== 'queued' ? `<button class="del-btn" data-del="${j.id}">삭제</button>` : ''}
           </div>
         </td>
       </tr>`;
@@ -559,6 +573,14 @@ function render(jobs, pendingCount){
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       openWorkflowEditor(btn.dataset.editwf);
+    });
+  });
+
+  tbody.querySelectorAll('.start-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await fetch('/api/jobs/' + btn.dataset.start + '/start', { method: 'POST' });
+      fetchJobs();
     });
   });
 }
