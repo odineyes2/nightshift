@@ -288,6 +288,111 @@
     cursor:pointer;
   }
   .del-btn:hover{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
+  .row-actions{ display:flex; gap:6px; }
+  .edit-btn{
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text-dim);
+    border-radius:6px;
+    font-family:var(--mono);
+    font-size:11px;
+    padding:3px 8px;
+    cursor:pointer;
+  }
+  .edit-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
+
+  .modal-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(17,24,39,0.45);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+    z-index:50;
+  }
+  .modal-panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    box-shadow: 0 8px 24px rgba(16,24,40,0.18);
+    width:100%;
+    max-width:720px;
+    max-height:85vh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .modal-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:16px 20px;
+    border-bottom:1px solid var(--border);
+  }
+  .modal-title{
+    font-family:var(--mono);
+    font-size:13px;
+    font-weight:600;
+    color:var(--text);
+  }
+  .modal-close{
+    background:none;
+    border:none;
+    cursor:pointer;
+    color:var(--text-dim);
+    font-size:20px;
+    line-height:1;
+    padding:4px;
+  }
+  .modal-close:hover{ color:var(--text); }
+  .modal-body{
+    padding:16px 20px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    overflow:auto;
+  }
+  .workflow-textarea{
+    width:100%;
+    min-height:380px;
+    resize:vertical;
+    font-family:var(--mono);
+    font-size:12.5px;
+    line-height:1.5;
+    color:var(--text);
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:12px;
+    tab-size:2;
+  }
+  .workflow-textarea:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
+  .workflow-textarea.invalid{ border-color:var(--failed); }
+  .workflow-error{
+    color:var(--failed);
+    font-family:var(--mono);
+    font-size:12px;
+    min-height:1.2em;
+  }
+  .modal-footer{
+    display:flex;
+    justify-content:flex-end;
+    gap:10px;
+    padding:14px 20px;
+    border-top:1px solid var(--border);
+  }
+  .modal-btn-secondary{
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text-dim);
+    border-radius:8px;
+    padding:8px 16px;
+    font-family:var(--mono);
+    font-size:12.5px;
+    cursor:pointer;
+  }
+  .modal-btn-secondary:hover{ border-color:var(--text-dim); color:var(--text); }
 </style>
 </head>
 <body>
@@ -352,6 +457,23 @@
   </div>
 </main>
 
+<div class="modal-overlay" id="workflow-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title" id="workflow-modal-title">워크플로우 수정</div>
+      <button class="modal-close" id="workflow-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <textarea class="workflow-textarea" id="workflow-editor" spellcheck="false"></textarea>
+      <div class="workflow-error" id="workflow-editor-error"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="workflow-cancel-btn">취소</button>
+      <button class="submit-btn" id="workflow-save-btn">저장</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const STATUS_LABEL = {
   queued: "대기중", running: "실행중", done: "완료",
@@ -402,7 +524,12 @@ function render(jobs, pendingCount){
         <td class="time-cell">${fmtTime(j.queued_at)}</td>
         <td class="time-cell">${fmtTime(j.started_at)}</td>
         <td class="time-cell">${fmtTime(j.finished_at)}</td>
-        <td>${j.status !== 'running' ? `<button class="del-btn" data-del="${j.id}">삭제</button>` : ''}</td>
+        <td>
+          <div class="row-actions">
+            ${j.status === 'queued' ? `<button class="edit-btn" data-editwf="${j.id}">워크플로우 수정</button>` : ''}
+            ${j.status !== 'running' ? `<button class="del-btn" data-del="${j.id}">삭제</button>` : ''}
+          </div>
+        </td>
       </tr>`;
     if(isOpen){
       rows += `<tr class="log-row"><td colspan="9"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
@@ -425,6 +552,13 @@ function render(jobs, pendingCount){
       e.stopPropagation();
       await fetch('/api/jobs/' + btn.dataset.del, { method: 'DELETE' });
       fetchJobs();
+    });
+  });
+
+  tbody.querySelectorAll('.edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openWorkflowEditor(btn.dataset.editwf);
     });
   });
 }
@@ -581,6 +715,105 @@ async function fetchComfyStatus(){
     text.textContent = data.url ? `ComfyUI 연결 안 됨 · ${data.url}` : 'ComfyUI 연결 안 됨';
   }
 }
+
+let editingJobId = null;
+const workflowModal = document.getElementById('workflow-modal');
+const workflowEditor = document.getElementById('workflow-editor');
+const workflowEditorError = document.getElementById('workflow-editor-error');
+const workflowSaveBtn = document.getElementById('workflow-save-btn');
+const workflowModalTitle = document.getElementById('workflow-modal-title');
+
+function computeLineCol(text, pos){
+  const upto = text.slice(0, pos);
+  const lines = upto.split('\n');
+  return { line: lines.length, col: lines[lines.length - 1].length + 1 };
+}
+
+function validateWorkflowEditor(){
+  const text = workflowEditor.value;
+  try{
+    JSON.parse(text);
+    workflowEditor.classList.remove('invalid');
+    workflowEditorError.textContent = '';
+    workflowSaveBtn.disabled = false;
+    return true;
+  }catch(e){
+    workflowEditor.classList.add('invalid');
+    const lineColMatch = e.message.match(/line (\d+) column (\d+)/);
+    const posMatch = e.message.match(/position (\d+)/);
+    let where = '';
+    if(lineColMatch){
+      where = `${lineColMatch[1]}번째 줄, ${lineColMatch[2]}번째 열`;
+    } else if(posMatch){
+      const { line, col } = computeLineCol(text, Number(posMatch[1]));
+      where = `${line}번째 줄, ${col}번째 열`;
+    }
+    workflowEditorError.textContent = where ? `${where} 근처에 JSON 문법 오류가 있어요.` : 'JSON 문법 오류가 있어요.';
+    workflowSaveBtn.disabled = true;
+    return false;
+  }
+}
+
+async function openWorkflowEditor(jobId){
+  editingJobId = jobId;
+  workflowModalTitle.textContent = `워크플로우 수정 · ${jobId}`;
+  workflowEditor.value = '불러오는 중…';
+  workflowEditor.classList.remove('invalid');
+  workflowEditorError.textContent = '';
+  workflowSaveBtn.disabled = true;
+  workflowModal.style.display = 'flex';
+
+  try{
+    const res = await fetch(`/api/jobs/${jobId}/workflow`);
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      workflowEditor.value = '';
+      workflowEditorError.textContent = data.detail || '워크플로우를 불러오지 못했어요.';
+      return;
+    }
+    workflowEditor.value = await res.text();
+    validateWorkflowEditor();
+  }catch(e){
+    workflowEditor.value = '';
+    workflowEditorError.textContent = '워크플로우를 불러오지 못했어요.';
+  }
+}
+
+function closeWorkflowEditor(){
+  workflowModal.style.display = 'none';
+  editingJobId = null;
+}
+
+workflowEditor.addEventListener('input', validateWorkflowEditor);
+document.getElementById('workflow-modal-close').addEventListener('click', closeWorkflowEditor);
+document.getElementById('workflow-cancel-btn').addEventListener('click', closeWorkflowEditor);
+workflowModal.addEventListener('click', (e) => { if(e.target === workflowModal) closeWorkflowEditor(); });
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape' && workflowModal.style.display !== 'none') closeWorkflowEditor();
+});
+
+workflowSaveBtn.addEventListener('click', async () => {
+  if(!editingJobId || !validateWorkflowEditor()) return;
+  workflowSaveBtn.disabled = true;
+  try{
+    const res = await fetch(`/api/jobs/${editingJobId}/workflow`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: workflowEditor.value,
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      workflowEditorError.textContent = data.detail || '저장에 실패했어요.';
+      workflowSaveBtn.disabled = false;
+      return;
+    }
+    closeWorkflowEditor();
+    fetchJobs();
+  }catch(e){
+    workflowEditorError.textContent = '저장에 실패했어요.';
+    workflowSaveBtn.disabled = false;
+  }
+});
 
 fetchTemplates();
 fetchJobs();
