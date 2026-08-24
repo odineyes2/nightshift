@@ -244,18 +244,19 @@ async def upload(request: Request):
     return jobs[job_id]
 
 
-@app.post("/api/jobs/{job_id}/start")
-def start_job(job_id: str):
+@app.post("/api/queue/start")
+def start_queue():
     with lock:
-        job = jobs.get(job_id)
-        if not job:
-            raise HTTPException(404, "없는 작업이에요.")
-        if job["status"] != "pending":
-            raise HTTPException(400, "대기 중인 작업만 시작할 수 있어요.")
-        job["status"] = "queued"
+        pending = sorted(
+            (j for j in jobs.values() if j["status"] == "pending"),
+            key=lambda j: j["queued_at"],
+        )
+        for job in pending:
+            job["status"] = "queued"
     save_state()
-    job_queue.put(job_id)
-    return jobs[job_id]
+    for job in pending:
+        job_queue.put(job["id"])
+    return {"started": len(pending)}
 
 
 @app.get("/api/jobs")
