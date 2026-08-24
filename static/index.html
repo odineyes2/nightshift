@@ -85,7 +85,7 @@
   .comfy-status.disconnected{ color:var(--failed); border-color:currentColor; background:rgba(var(--failed-rgb),0.08); }
 
   main{
-    max-width:1040px;
+    max-width:1180px;
     margin:0 auto;
     padding:32px 28px 80px;
     display:flex;
@@ -224,6 +224,7 @@
     cursor:not-allowed;
   }
 
+  .table-scroll{ overflow-x:auto; }
   table{
     width:100%;
     border-collapse:collapse;
@@ -248,13 +249,17 @@
   tbody tr:last-child{ border-bottom:none; }
   tbody tr:hover{ background:var(--bg); }
   tbody td{
-    padding:12px;
+    padding:10px 8px;
     vertical-align:middle;
   }
   .fname{
     font-family:var(--mono);
     font-size:12.5px;
     color:var(--text);
+    max-width:190px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
   }
   .fname.dim{ color:var(--text-dim); }
   .badge{
@@ -267,6 +272,7 @@
     padding:3px 9px;
     border-radius:20px;
     border:1px solid currentColor;
+    white-space:nowrap;
   }
   .badge.pending{ color:var(--queued); background:rgba(var(--queued-rgb),0.10); }
   .badge.queued{ color:var(--queued); background:rgba(var(--queued-rgb),0.10); }
@@ -278,7 +284,7 @@
   .badge.running .bdot{ animation: pulse-run 1.2s infinite; }
   @keyframes pulse-run{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
 
-  .time-cell{ color:var(--text-dim); font-family:var(--mono); font-size:12px; }
+  .time-cell{ color:var(--text-dim); font-family:var(--mono); font-size:12px; white-space:nowrap; }
 
   .empty{
     text-align:center;
@@ -312,9 +318,10 @@
     font-size:11px;
     padding:3px 8px;
     cursor:pointer;
+    white-space:nowrap;
   }
   .del-btn:hover{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
-  .row-actions{ display:flex; gap:6px; }
+  .row-actions{ display:flex; gap:6px; flex-wrap:nowrap; }
   .edit-btn{
     background:var(--panel);
     border:1px solid var(--border);
@@ -324,6 +331,7 @@
     font-size:11px;
     padding:3px 8px;
     cursor:pointer;
+    white-space:nowrap;
   }
   .edit-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
 
@@ -466,22 +474,25 @@
       <div class="section-label">작업 목록</div>
       <button class="start-queue-btn" id="start-queue-btn" disabled>▷ 대기중 작업 시작 (<span id="pending-batch-count">0</span>)</button>
     </div>
-    <table>
-      <thead>
-        <tr>
-          <th style="width:26px;"></th>
-          <th>템플릿</th>
-          <th>옵션</th>
-          <th>워크플로우</th>
-          <th>상태</th>
-          <th>대기 등록</th>
-          <th>시작</th>
-          <th>종료</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="job-rows"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:26px;"></th>
+            <th>템플릿</th>
+            <th>옵션</th>
+            <th>워크플로우</th>
+            <th>CSV</th>
+            <th>상태</th>
+            <th>대기 등록</th>
+            <th>시작</th>
+            <th>종료</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="job-rows"></tbody>
+      </table>
+    </div>
     <div class="empty" id="empty-msg" style="display:none;">아직 등록된 작업이 없어요</div>
   </div>
 </main>
@@ -523,6 +534,12 @@ function fmtOptions(options){
   return entries.map(([k, v]) => `${k}=${v}`).join(', ');
 }
 
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
 async function fetchJobs(){
   const res = await fetch('/api/jobs');
   const data = await res.json();
@@ -547,25 +564,31 @@ function render(jobs, pendingCount){
 
   tbody.innerHTML = jobs.map(j => {
     const isOpen = expandedId === j.id;
+    const templateText = j.template_label || j.template_id;
+    const optionsText = fmtOptions(j.options);
+    const workflowText = j.workflow_original_name || '-';
+    const csvText = j.csv_original_name || '-';
     let rows = `
       <tr data-id="${j.id}" class="job-row">
         <td>${isOpen ? '▾' : '▸'}</td>
-        <td class="fname">${j.template_label || j.template_id}</td>
-        <td class="fname${Object.keys(j.options || {}).length ? '' : ' dim'}">${fmtOptions(j.options)}</td>
-        <td class="fname${j.workflow_original_name ? '' : ' dim'}">${j.workflow_original_name || '-'}</td>
+        <td class="fname" title="${escapeHtml(templateText)}">${escapeHtml(templateText)}</td>
+        <td class="fname${Object.keys(j.options || {}).length ? '' : ' dim'}" title="${escapeHtml(optionsText)}">${escapeHtml(optionsText)}</td>
+        <td class="fname${j.workflow_original_name ? '' : ' dim'}" title="${escapeHtml(workflowText)}">${escapeHtml(workflowText)}</td>
+        <td class="fname${j.csv_original_name ? '' : ' dim'}" title="${escapeHtml(csvText)}">${escapeHtml(csvText)}</td>
         <td><span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span></td>
         <td class="time-cell">${fmtTime(j.queued_at)}</td>
         <td class="time-cell">${fmtTime(j.started_at)}</td>
         <td class="time-cell">${fmtTime(j.finished_at)}</td>
         <td>
           <div class="row-actions">
-            ${j.status === 'pending' ? `<button class="edit-btn" data-editwf="${j.id}">워크플로우 수정</button>` : ''}
+            ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}">워크플로우 수정</button>` : ''}
+            ${j.status === 'pending' && j.csv_filename ? `<button class="edit-btn" data-editkind="csv" data-editid="${j.id}">CSV 수정</button>` : ''}
             ${j.status !== 'running' && j.status !== 'queued' ? `<button class="del-btn" data-del="${j.id}">삭제</button>` : ''}
           </div>
         </td>
       </tr>`;
     if(isOpen){
-      rows += `<tr class="log-row"><td colspan="9"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
+      rows += `<tr class="log-row"><td colspan="10"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
     }
     return rows;
   }).join('');
@@ -591,7 +614,7 @@ function render(jobs, pendingCount){
   tbody.querySelectorAll('.edit-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      openWorkflowEditor(btn.dataset.editwf);
+      openAttachmentEditor(btn.dataset.editid, btn.dataset.editkind);
     });
   });
 }
@@ -754,7 +777,10 @@ async function fetchComfyStatus(){
   }
 }
 
+const EDITOR_KIND_LABEL = { workflow: '워크플로우', csv: 'CSV' };
+
 let editingJobId = null;
+let editingKind = 'workflow';
 const workflowModal = document.getElementById('workflow-modal');
 const workflowEditor = document.getElementById('workflow-editor');
 const workflowEditorError = document.getElementById('workflow-editor-error');
@@ -792,9 +818,10 @@ function validateWorkflowEditor(){
   }
 }
 
-async function openWorkflowEditor(jobId){
+async function openAttachmentEditor(jobId, kind){
   editingJobId = jobId;
-  workflowModalTitle.textContent = `워크플로우 수정 · ${jobId}`;
+  editingKind = kind;
+  workflowModalTitle.textContent = `${EDITOR_KIND_LABEL[kind]} 수정 · ${jobId}`;
   workflowEditor.value = '불러오는 중…';
   workflowEditor.classList.remove('invalid');
   workflowEditorError.textContent = '';
@@ -802,18 +829,19 @@ async function openWorkflowEditor(jobId){
   workflowModal.style.display = 'flex';
 
   try{
-    const res = await fetch(`/api/jobs/${jobId}/workflow`);
+    const res = await fetch(`/api/jobs/${jobId}/${kind}`);
     if(!res.ok){
       const data = await res.json().catch(() => ({}));
       workflowEditor.value = '';
-      workflowEditorError.textContent = data.detail || '워크플로우를 불러오지 못했어요.';
+      workflowEditorError.textContent = data.detail || `${EDITOR_KIND_LABEL[kind]}를 불러오지 못했어요.`;
       return;
     }
     workflowEditor.value = await res.text();
-    validateWorkflowEditor();
+    if(kind === 'workflow') validateWorkflowEditor();
+    else workflowSaveBtn.disabled = false;
   }catch(e){
     workflowEditor.value = '';
-    workflowEditorError.textContent = '워크플로우를 불러오지 못했어요.';
+    workflowEditorError.textContent = `${EDITOR_KIND_LABEL[kind]}를 불러오지 못했어요.`;
   }
 }
 
@@ -822,7 +850,9 @@ function closeWorkflowEditor(){
   editingJobId = null;
 }
 
-workflowEditor.addEventListener('input', validateWorkflowEditor);
+workflowEditor.addEventListener('input', () => {
+  if(editingKind === 'workflow') validateWorkflowEditor();
+});
 document.getElementById('workflow-modal-close').addEventListener('click', closeWorkflowEditor);
 document.getElementById('workflow-cancel-btn').addEventListener('click', closeWorkflowEditor);
 workflowModal.addEventListener('click', (e) => { if(e.target === workflowModal) closeWorkflowEditor(); });
@@ -831,12 +861,13 @@ document.addEventListener('keydown', (e) => {
 });
 
 workflowSaveBtn.addEventListener('click', async () => {
-  if(!editingJobId || !validateWorkflowEditor()) return;
+  if(!editingJobId) return;
+  if(editingKind === 'workflow' && !validateWorkflowEditor()) return;
   workflowSaveBtn.disabled = true;
   try{
-    const res = await fetch(`/api/jobs/${editingJobId}/workflow`, {
+    const res = await fetch(`/api/jobs/${editingJobId}/${editingKind}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': editingKind === 'workflow' ? 'application/json' : 'text/csv' },
       body: workflowEditor.value,
     });
     if(!res.ok){
