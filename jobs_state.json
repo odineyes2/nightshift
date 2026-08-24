@@ -1,0 +1,38 @@
+{
+  "d8ba2a11": {
+    "id": "d8ba2a11",
+    "template_id": "seed_batch",
+    "template_label": "\uc2dc\ub4dc \ubc18\ubcf5",
+    "script_filename": "seed_batch.py",
+    "options": {
+      "seed_count": 10
+    },
+    "workflow_filename": "d8ba2a11_wf.json",
+    "workflow_original_name": "wf.json",
+    "csv_filename": null,
+    "csv_original_name": null,
+    "status": "failed",
+    "queued_at": "2026-08-24T09:17:25.155589+00:00",
+    "started_at": "2026-08-24T09:18:34.338300+00:00",
+    "finished_at": "2026-08-24T09:18:34.341294+00:00",
+    "returncode": -1
+  },
+  "9a72a9c2": {
+    "id": "9a72a9c2",
+    "template_id": "seed_batch",
+    "template_label": "\uc2dc\ub4dc \ubc18\ubcf5",
+    "script_filename": "seed_batch.py",
+    "options": {
+      "seed_count": 10
+    },
+    "workflow_filename": "9a72a9c2_wf.json",
+    "workflow_original_name": "wf.json",
+    "csv_filename": null,
+    "csv_original_name": null,
+    "status": "failed",
+    "queued_at": "2026-08-24T09:18:29.972195+00:00",
+    "started_at": "2026-08-24T09:18:32.176084+00:00",
+    "finished_at": "2026-08-24T09:18:32.180750+00:00",
+    "returncode": -1
+  }
+}
