@@ -11,6 +11,8 @@ RunPod Job Queue — 등록된 스크립트 템플릿을 큐에 쌓아두면 워
 """
 
 import asyncio
+import csv
+import io
 import json
 import os
 import queue
@@ -276,33 +278,28 @@ def job_log(job_id: str, tail: int = 200):
     return {"log": "\n".join(lines[-tail:])}
 
 
-@app.get("/api/jobs/{job_id}/workflow")
-def get_job_workflow(job_id: str):
+def read_job_attachment(job_id: str, field: str, missing_msg: str) -> str:
     with lock:
         job = jobs.get(job_id)
         if not job:
             raise HTTPException(404, "없는 작업이에요.")
-        workflow_filename = job.get("workflow_filename")
+        filename = job.get(field)
 
-    if not workflow_filename:
-        raise HTTPException(404, "워크플로우 파일이 없어요.")
-    path = JOBS_DIR / workflow_filename
+    if not filename:
+        raise HTTPException(404, missing_msg)
+    path = JOBS_DIR / filename
     if not path.exists():
-        raise HTTPException(404, "워크플로우 파일을 찾을 수 없어요.")
-    return Response(content=path.read_text(encoding="utf-8"), media_type="application/json")
+        raise HTTPException(404, "파일을 찾을 수 없어요.")
+    return path.read_text(encoding="utf-8")
 
 
-@app.put("/api/jobs/{job_id}/workflow")
-async def update_job_workflow(job_id: str, request: Request):
+async def write_job_attachment(job_id: str, field: str, request: Request, validate, missing_msg: str):
     body = await request.body()
     try:
         text = body.decode("utf-8")
     except UnicodeDecodeError:
         raise HTTPException(400, "유효한 UTF-8 텍스트가 아니에요.")
-    try:
-        json.loads(text)
-    except json.JSONDecodeError as e:
-        raise HTTPException(400, f"유효한 JSON이 아니에요: {e}")
+    validate(text)
 
     with lock:
         job = jobs.get(job_id)
@@ -310,11 +307,50 @@ async def update_job_workflow(job_id: str, request: Request):
             raise HTTPException(404, "없는 작업이에요.")
         if job["status"] != "pending":
             raise HTTPException(400, "대기 중인 작업만 수정할 수 있어요.")
-        workflow_filename = job.get("workflow_filename")
-        if not workflow_filename:
-            raise HTTPException(404, "워크플로우 파일이 없어요.")
-        (JOBS_DIR / workflow_filename).write_text(text, encoding="utf-8")
+        filename = job.get(field)
+        if not filename:
+            raise HTTPException(404, missing_msg)
+        (JOBS_DIR / filename).write_text(text, encoding="utf-8")
 
+
+def validate_json_text(text: str):
+    try:
+        json.loads(text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, f"유효한 JSON이 아니에요: {e}")
+
+
+def validate_csv_text(text: str):
+    rows = [row for row in csv.reader(io.StringIO(text)) if row]
+    if not rows:
+        raise HTTPException(400, "CSV 내용이 비어 있어요.")
+    header_len = len(rows[0])
+    for i, row in enumerate(rows[1:], start=2):
+        if len(row) != header_len:
+            raise HTTPException(400, f"{i}번째 줄의 열 개수가 헤더와 맞지 않아요 (헤더 {header_len}개, 이 줄 {len(row)}개).")
+
+
+@app.get("/api/jobs/{job_id}/workflow")
+def get_job_workflow(job_id: str):
+    text = read_job_attachment(job_id, "workflow_filename", "워크플로우 파일이 없어요.")
+    return Response(content=text, media_type="application/json")
+
+
+@app.put("/api/jobs/{job_id}/workflow")
+async def update_job_workflow(job_id: str, request: Request):
+    await write_job_attachment(job_id, "workflow_filename", request, validate_json_text, "워크플로우 파일이 없어요.")
+    return {"ok": True}
+
+
+@app.get("/api/jobs/{job_id}/csv")
+def get_job_csv(job_id: str):
+    text = read_job_attachment(job_id, "csv_filename", "CSV 파일이 없어요.")
+    return Response(content=text, media_type="text/csv")
+
+
+@app.put("/api/jobs/{job_id}/csv")
+async def update_job_csv(job_id: str, request: Request):
+    await write_job_attachment(job_id, "csv_filename", request, validate_csv_text, "CSV 파일이 없어요.")
     return {"ok": True}
 
 
