@@ -25,7 +25,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import UploadFile
 
@@ -260,6 +260,48 @@ def job_log(job_id: str, tail: int = 200):
         return {"log": ""}
     lines = log_path.read_text(errors="replace").splitlines()
     return {"log": "\n".join(lines[-tail:])}
+
+
+@app.get("/api/jobs/{job_id}/workflow")
+def get_job_workflow(job_id: str):
+    with lock:
+        job = jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "없는 작업이에요.")
+        workflow_filename = job.get("workflow_filename")
+
+    if not workflow_filename:
+        raise HTTPException(404, "워크플로우 파일이 없어요.")
+    path = JOBS_DIR / workflow_filename
+    if not path.exists():
+        raise HTTPException(404, "워크플로우 파일을 찾을 수 없어요.")
+    return Response(content=path.read_text(encoding="utf-8"), media_type="application/json")
+
+
+@app.put("/api/jobs/{job_id}/workflow")
+async def update_job_workflow(job_id: str, request: Request):
+    body = await request.body()
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "유효한 UTF-8 텍스트가 아니에요.")
+    try:
+        json.loads(text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, f"유효한 JSON이 아니에요: {e}")
+
+    with lock:
+        job = jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "없는 작업이에요.")
+        if job["status"] != "queued":
+            raise HTTPException(400, "대기 중인 작업만 수정할 수 있어요.")
+        workflow_filename = job.get("workflow_filename")
+        if not workflow_filename:
+            raise HTTPException(404, "워크플로우 파일이 없어요.")
+        (JOBS_DIR / workflow_filename).write_text(text, encoding="utf-8")
+
+    return {"ok": True}
 
 
 @app.delete("/api/jobs/{job_id}")
