@@ -6,16 +6,17 @@
 <title>job queue</title>
 <style>
   :root{
-    --bg: #0B0E14;
-    --panel: #12161F;
-    --border: #232A36;
-    --text: #E6EDF3;
-    --text-dim: #6E7A8A;
-    --queued: #58A6FF;
-    --running: #F2A93B;
-    --done: #3FB950;
-    --failed: #F85149;
-    --interrupted: #A371F7;
+    --bg: #F7F8FA;
+    --panel: #FFFFFF;
+    --border: #E3E6EB;
+    --text: #1B1F24;
+    --text-dim: #6B7280;
+    --log-text: #475467;
+    --queued: #2563EB; --queued-rgb: 37,99,235;
+    --running: #B45309; --running-rgb: 180,83,9;
+    --done: #15803D; --done-rgb: 21,128,61;
+    --failed: #DC2626; --failed-rgb: 220,38,38;
+    --interrupted: #7C3AED; --interrupted-rgb: 124,58,237;
     --mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
     --sans: 'Inter', -apple-system, sans-serif;
   }
@@ -31,7 +32,8 @@
     display:flex;
     align-items:center;
     justify-content:space-between;
-    padding:20px 28px;
+    padding:18px 28px;
+    background:var(--panel);
     border-bottom:1px solid var(--border);
   }
   .brand{
@@ -40,18 +42,19 @@
     gap:10px;
     font-family:var(--mono);
     font-size:15px;
-    letter-spacing:0.02em;
+    font-weight:600;
+    letter-spacing:0.01em;
   }
   .dot{
     width:8px; height:8px; border-radius:50%;
     background:var(--done);
-    box-shadow:0 0 0 0 rgba(63,185,80,0.6);
+    box-shadow:0 0 0 0 rgba(var(--done-rgb),0.5);
     animation:pulse 2s infinite;
   }
   @keyframes pulse{
-    0%{ box-shadow:0 0 0 0 rgba(63,185,80,0.5); }
-    70%{ box-shadow:0 0 0 8px rgba(63,185,80,0); }
-    100%{ box-shadow:0 0 0 0 rgba(63,185,80,0); }
+    0%{ box-shadow:0 0 0 0 rgba(var(--done-rgb),0.45); }
+    70%{ box-shadow:0 0 0 8px rgba(var(--done-rgb),0); }
+    100%{ box-shadow:0 0 0 0 rgba(var(--done-rgb),0); }
   }
   .queue-depth{
     font-family:var(--mono);
@@ -61,12 +64,20 @@
   .queue-depth b{ color:var(--text); }
 
   main{
-    max-width:960px;
+    max-width:1040px;
     margin:0 auto;
     padding:32px 28px 80px;
     display:flex;
     flex-direction:column;
-    gap:28px;
+    gap:24px;
+  }
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:24px;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.03);
   }
 
   .upload-form{
@@ -82,12 +93,19 @@
   .field-label{
     font-family:var(--mono);
     font-size:11px;
+    font-weight:600;
     text-transform:uppercase;
-    letter-spacing:0.06em;
+    letter-spacing:0.05em;
     color:var(--text-dim);
   }
-  .field-label .opt{ text-transform:none; letter-spacing:0; color:var(--text-dim); }
-  select#template-select{
+  .field-label .opt{ text-transform:none; letter-spacing:0; font-weight:400; color:var(--text-dim); }
+  .options-fields{
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+  select#template-select,
+  input.option-input{
     background:var(--panel);
     color:var(--text);
     border:1px solid var(--border);
@@ -97,9 +115,12 @@
     font-size:14px;
     cursor:pointer;
   }
-  select#template-select:focus{ outline:1px solid var(--queued); }
+  input.option-input{ cursor:text; max-width:220px; }
+  select#template-select:focus,
+  input.option-input:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
   .slot{
     border:1px dashed var(--border);
+    background:var(--bg);
     border-radius:8px;
     padding:16px 14px;
     text-align:center;
@@ -110,12 +131,13 @@
   }
   .slot.drag{
     border-color:var(--queued);
-    background:rgba(88,166,255,0.06);
+    background:rgba(var(--queued-rgb),0.06);
     color:var(--text);
   }
   .slot.filled{
     border-style:solid;
     border-color:var(--done);
+    background:rgba(var(--done-rgb),0.05);
     color:var(--text);
     font-family:var(--mono);
     font-size:12.5px;
@@ -124,7 +146,7 @@
   .submit-btn{
     align-self:flex-start;
     background:var(--queued);
-    color:#0B0E14;
+    color:#fff;
     border:none;
     border-radius:8px;
     padding:10px 22px;
@@ -133,6 +155,7 @@
     font-weight:600;
     cursor:pointer;
   }
+  .submit-btn:hover{ background:#1D4ED8; }
   .submit-btn:disabled{
     background:var(--border);
     color:var(--text-dim);
@@ -148,10 +171,11 @@
   .section-label{
     font-family:var(--mono);
     font-size:12px;
+    font-weight:600;
     text-transform:uppercase;
-    letter-spacing:0.08em;
+    letter-spacing:0.06em;
     color:var(--text-dim);
-    margin-bottom:10px;
+    margin-bottom:16px;
   }
 
   table{
@@ -162,19 +186,21 @@
   thead th{
     text-align:left;
     font-family:var(--mono);
-    font-weight:400;
+    font-weight:600;
     font-size:11px;
     text-transform:uppercase;
-    letter-spacing:0.06em;
+    letter-spacing:0.05em;
     color:var(--text-dim);
     padding:0 12px 10px;
     border-bottom:1px solid var(--border);
+    white-space:nowrap;
   }
   tbody tr{
     cursor:pointer;
     border-bottom:1px solid var(--border);
   }
-  tbody tr:hover{ background:rgba(255,255,255,0.02); }
+  tbody tr:last-child{ border-bottom:none; }
+  tbody tr:hover{ background:var(--bg); }
   tbody td{
     padding:12px;
     vertical-align:middle;
@@ -182,6 +208,7 @@
   .fname{
     font-family:var(--mono);
     font-size:12.5px;
+    color:var(--text);
   }
   .fname.dim{ color:var(--text-dim); }
   .badge{
@@ -190,18 +217,19 @@
     gap:6px;
     font-family:var(--mono);
     font-size:11px;
-    padding:3px 8px;
+    font-weight:600;
+    padding:3px 9px;
     border-radius:20px;
     border:1px solid currentColor;
   }
-  .badge.queued{ color:var(--queued); }
-  .badge.running{ color:var(--running); }
-  .badge.done{ color:var(--done); }
-  .badge.failed{ color:var(--failed); }
-  .badge.interrupted{ color:var(--interrupted); }
+  .badge.queued{ color:var(--queued); background:rgba(var(--queued-rgb),0.10); }
+  .badge.running{ color:var(--running); background:rgba(var(--running-rgb),0.10); }
+  .badge.done{ color:var(--done); background:rgba(var(--done-rgb),0.10); }
+  .badge.failed{ color:var(--failed); background:rgba(var(--failed-rgb),0.10); }
+  .badge.interrupted{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.10); }
   .badge .bdot{ width:5px; height:5px; border-radius:50%; background:currentColor; }
   .badge.running .bdot{ animation: pulse-run 1.2s infinite; }
-  @keyframes pulse-run{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
+  @keyframes pulse-run{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
 
   .time-cell{ color:var(--text-dim); font-family:var(--mono); font-size:12px; }
 
@@ -213,7 +241,7 @@
   }
 
   .log-row td{
-    background:#0A0D13;
+    background:var(--bg);
     padding:0;
   }
   pre.log{
@@ -222,14 +250,14 @@
     font-family:var(--mono);
     font-size:11.5px;
     line-height:1.5;
-    color:#9FB0C3;
+    color:var(--log-text);
     white-space:pre-wrap;
     word-break:break-all;
     max-height:320px;
     overflow-y:auto;
   }
   .del-btn{
-    background:none;
+    background:var(--panel);
     border:1px solid var(--border);
     color:var(--text-dim);
     border-radius:6px;
@@ -238,7 +266,7 @@
     padding:3px 8px;
     cursor:pointer;
   }
-  .del-btn:hover{ border-color:var(--failed); color:var(--failed); }
+  .del-btn:hover{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
 </style>
 </head>
 <body>
@@ -249,7 +277,7 @@
 </header>
 
 <main>
-  <div>
+  <div class="panel">
     <div class="section-label">새 작업 추가</div>
     <div class="upload-form">
       <div class="field">
@@ -257,11 +285,7 @@
         <select id="template-select"></select>
       </div>
 
-      <div class="field" id="script-field" style="display:none;">
-        <label class="field-label">스크립트 (.py)</label>
-        <div class="slot" id="script-slot">.py 파일을 끌어다 놓거나 클릭</div>
-        <input type="file" class="slot-input" id="script-input" accept=".py">
-      </div>
+      <div class="options-fields" id="options-fields"></div>
 
       <div class="field">
         <label class="field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
@@ -282,14 +306,14 @@
     </div>
   </div>
 
-  <div>
+  <div class="panel">
     <div class="section-label">작업 목록</div>
     <table>
       <thead>
         <tr>
           <th style="width:26px;"></th>
-          <th>파일</th>
           <th>템플릿</th>
+          <th>옵션</th>
           <th>워크플로우</th>
           <th>상태</th>
           <th>대기 등록</th>
@@ -318,6 +342,12 @@ function fmtTime(iso){
   return d.toLocaleTimeString('ko-KR', {hour12:false});
 }
 
+function fmtOptions(options){
+  const entries = Object.entries(options || {});
+  if(entries.length === 0) return '-';
+  return entries.map(([k, v]) => `${k}=${v}`).join(', ');
+}
+
 async function fetchJobs(){
   const res = await fetch('/api/jobs');
   const data = await res.json();
@@ -341,8 +371,8 @@ function render(jobs, pendingCount){
     let rows = `
       <tr data-id="${j.id}" class="job-row">
         <td>${isOpen ? '▾' : '▸'}</td>
-        <td class="fname">${j.script_display_name}</td>
-        <td class="fname${j.template_label ? '' : ' dim'}">${j.template_label || '커스텀'}</td>
+        <td class="fname">${j.template_label || j.template_id}</td>
+        <td class="fname${Object.keys(j.options || {}).length ? '' : ' dim'}">${fmtOptions(j.options)}</td>
         <td class="fname${j.workflow_original_name ? '' : ' dim'}">${j.workflow_original_name || '-'}</td>
         <td><span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span></td>
         <td class="time-cell">${fmtTime(j.queued_at)}</td>
@@ -382,9 +412,8 @@ async function loadLog(id){
   if(el) el.textContent = data.log || '(아직 출력이 없어요)';
 }
 
-const CUSTOM_TEMPLATE_ID = '__custom__';
 let templatesById = {};
-let selectedFiles = { script: null, workflow: null, csv: null };
+let selectedFiles = { workflow: null, csv: null };
 
 function setupSlot(slotId, inputId, key, accept){
   const slot = document.getElementById(slotId);
@@ -418,26 +447,45 @@ function setupSlot(slotId, inputId, key, accept){
   return setFile;
 }
 
-const setScriptFile = setupSlot('script-slot', 'script-input', 'script', '.py');
 const setWorkflowFile = setupSlot('workflow-slot', 'workflow-input', 'workflow', '.json');
 const setCsvFile = setupSlot('csv-slot', 'csv-input', 'csv', '.csv');
 
 function resetForm(){
-  setScriptFile(null);
   setWorkflowFile(null);
   setCsvFile(null);
 }
 
 const templateSelect = document.getElementById('template-select');
-const scriptField = document.getElementById('script-field');
+const optionsFields = document.getElementById('options-fields');
 const csvField = document.getElementById('csv-field');
 const uploadError = document.getElementById('upload-error');
 
+function renderOptionFields(template){
+  optionsFields.innerHTML = '';
+  for(const opt of (template ? template.options || [] : [])){
+    const field = document.createElement('div');
+    field.className = 'field';
+
+    const label = document.createElement('label');
+    label.className = 'field-label';
+    label.textContent = opt.label;
+
+    const input = document.createElement('input');
+    input.className = 'option-input';
+    input.type = opt.type === 'number' ? 'number' : 'text';
+    input.dataset.name = opt.name;
+    if(opt.default !== undefined && opt.default !== null) input.value = opt.default;
+
+    field.appendChild(label);
+    field.appendChild(input);
+    optionsFields.appendChild(field);
+  }
+}
+
 function onTemplateChange(){
-  const isCustom = templateSelect.value === CUSTOM_TEMPLATE_ID;
   const template = templatesById[templateSelect.value];
-  scriptField.style.display = isCustom ? '' : 'none';
-  csvField.style.display = (!isCustom && template && template.requires_csv) ? '' : 'none';
+  csvField.style.display = (template && template.requires_csv) ? '' : 'none';
+  renderOptionFields(template);
   uploadError.textContent = '';
 }
 
@@ -453,10 +501,6 @@ async function fetchTemplates(){
     opt.textContent = t.label;
     templateSelect.appendChild(opt);
   }
-  const customOpt = document.createElement('option');
-  customOpt.value = CUSTOM_TEMPLATE_ID;
-  customOpt.textContent = '커스텀 py 업로드';
-  templateSelect.appendChild(customOpt);
   onTemplateChange();
 }
 
@@ -465,18 +509,13 @@ templateSelect.addEventListener('change', onTemplateChange);
 document.getElementById('submit-btn').addEventListener('click', async () => {
   uploadError.textContent = '';
   const templateId = templateSelect.value;
-  const isCustom = templateId === CUSTOM_TEMPLATE_ID;
   const template = templatesById[templateId];
 
-  if(isCustom && !selectedFiles.script){
-    uploadError.textContent = '커스텀 스크립트(.py)를 선택해주세요.';
-    return;
-  }
   if(!selectedFiles.workflow){
     uploadError.textContent = '워크플로우(.json)는 필수예요.';
     return;
   }
-  if(!isCustom && template && template.requires_csv && !selectedFiles.csv){
+  if(template && template.requires_csv && !selectedFiles.csv){
     uploadError.textContent = '이 템플릿은 csv 파일이 필요해요.';
     return;
   }
@@ -484,8 +523,10 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   const form = new FormData();
   form.append('template_id', templateId);
   form.append('workflow', selectedFiles.workflow);
-  if(isCustom) form.append('file', selectedFiles.script);
-  if(!isCustom && template && template.requires_csv) form.append('csv', selectedFiles.csv);
+  if(template && template.requires_csv) form.append('csv', selectedFiles.csv);
+  optionsFields.querySelectorAll('.option-input').forEach(input => {
+    form.append(input.dataset.name, input.value);
+  });
 
   const res = await fetch('/api/upload', { method: 'POST', body: form });
   if(!res.ok){
