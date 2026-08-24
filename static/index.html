@@ -63,6 +63,27 @@
   }
   .queue-depth b{ color:var(--text); }
 
+  .header-right{
+    display:flex;
+    align-items:center;
+    gap:16px;
+  }
+  .comfy-status{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    font-weight:600;
+    padding:4px 10px;
+    border-radius:20px;
+    border:1px solid var(--border);
+    color:var(--text-dim);
+  }
+  .comfy-status .cdot{ width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .comfy-status.connected{ color:var(--done); border-color:currentColor; background:rgba(var(--done-rgb),0.08); }
+  .comfy-status.disconnected{ color:var(--failed); border-color:currentColor; background:rgba(var(--failed-rgb),0.08); }
+
   main{
     max-width:1040px;
     margin:0 auto;
@@ -273,7 +294,10 @@
 
 <header>
   <div class="brand"><span class="dot"></span> job queue</div>
-  <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
+  <div class="header-right">
+    <div class="comfy-status" id="comfy-status"><span class="cdot"></span><span id="comfy-status-text">ComfyUI 확인 중…</span></div>
+    <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
+  </div>
 </header>
 
 <main>
@@ -538,10 +562,32 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   fetchJobs();
 });
 
+async function fetchComfyStatus(){
+  const el = document.getElementById('comfy-status');
+  const text = document.getElementById('comfy-status-text');
+  let data;
+  try{
+    const res = await fetch('/api/comfy-status');
+    data = await res.json();
+  }catch(e){
+    data = { url: null, connected: false };
+  }
+  el.classList.remove('connected', 'disconnected');
+  if(data.connected){
+    el.classList.add('connected');
+    text.textContent = `ComfyUI 연결됨 · ${data.url}`;
+  } else {
+    el.classList.add('disconnected');
+    text.textContent = data.url ? `ComfyUI 연결 안 됨 · ${data.url}` : 'ComfyUI 연결 안 됨';
+  }
+}
+
 fetchTemplates();
 fetchJobs();
+fetchComfyStatus();
 setInterval(fetchJobs, 2000);
 setInterval(() => { if(expandedId) loadLog(expandedId); }, 2000);
+setInterval(fetchComfyStatus, 5000);
 </script>
 </body>
 </html>
