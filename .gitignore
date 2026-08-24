@@ -2,3 +2,4 @@
 
 jobs/*
 logs/*
+jobs_state.json
