@@ -22,6 +22,13 @@ CSV 입력과 프롬프트 주입 없이 시드만 바꾸는 가장 단순한 �
     PUT /api/jobs/{job_id}/progress로 {"total": N, "done": M}을 보고한다.
     nightshift 웹 UI가 이 값을 폴링해서 진행률을 보여준다. 보고에 실패해도
     (nightshift가 죽어있거나 JOB_ID가 없는 등) 작업 자체는 계속 진행된다.
+
+결과물 파일명 규칙:
+    SaveImage(SAVE_NODE_TITLE로 찾은 노드)의 filename_prefix를
+    "seed_batch_<순번>_seed<시드값>" 형식으로 채운다 (예: seed_batch_3_seed482913).
+    ComfyUI가 실제 저장 시 여기에 자기 카운터를 덧붙이므로 최종 파일명은
+    "seed_batch_3_seed482913_00001_.png"처럼 나온다 — 파일명만 보고도 몇 번째
+    시도였는지와 어떤 시드였는지 바로 알 수 있다.
 """
 
 import copy
@@ -96,7 +103,7 @@ def report_progress(job_id, nightshift_url, total, done):
         print(f"[seed_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
 
 
-def apply_filename_prefix(workflow, index):
+def apply_filename_prefix(workflow, index, seed):
     node_id, node = find_node(
         workflow,
         title_substring=env("SAVE_NODE_TITLE", "Save"),
@@ -104,7 +111,7 @@ def apply_filename_prefix(workflow, index):
     )
     if node is None:
         return
-    node.setdefault("inputs", {})["filename_prefix"] = f"seed_batch_{index}"
+    node.setdefault("inputs", {})["filename_prefix"] = f"seed_batch_{index}_seed{seed}"
 
 
 def queue_prompt(comfy_url, workflow):
@@ -142,7 +149,7 @@ def wait_for_completion(comfy_url, prompt_id):
 def run_once(base_workflow, comfy_url, seed, index):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
-    apply_filename_prefix(workflow, index)
+    apply_filename_prefix(workflow, index, seed)
 
     prompt_id = queue_prompt(comfy_url, workflow)
     print(f"[seed_batch] [{index}] seed={seed} 큐 등록 (prompt_id={prompt_id})")
