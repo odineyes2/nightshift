@@ -48,7 +48,7 @@ CSV 컬럼:
     batch_no         한 번에 생성할 이미지 수 (EmptyLatentImage류 노드의
                      batch_size에 주입, 선택)
     resolution       해상도. "1024x1024"처럼 WxH 형식이거나 RESOLUTION_PRESETS에
-                     정의된 이름("square"/"portrait"/"landscape") 중 하나 (선택)
+                     정의된 이름("square"/"portrait"/"landscape"/"9:16"/"16:9") 중 하나 (선택)
 """
 
 import copy
@@ -77,6 +77,8 @@ RESOLUTION_PRESETS = {
     "square": (1024, 1024),
     "portrait": (832, 1216),
     "landscape": (1216, 832),
+    "9:16": (768, 1344),   # Portrait Widescreen
+    "16:9": (1344, 768),   # Widescreen
 }
 
 
