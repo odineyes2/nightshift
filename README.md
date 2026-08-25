@@ -125,9 +125,11 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
 현재 등록된 템플릿:
 
 - **`seed_batch`** (`templates/seed_batch.py`) — 워크플로우 하나를 `seed_count`번만큼 시드만 바꿔가며 반복 실행하는 가장 단순한 형태입니다.
-- **`csv_batch`** (`templates/csv_batch.py`) — CSV의 (제목, 프롬프트) 행마다 `seeds_per_case`개의 시드로 반복 제출하는 예시 구현입니다 (CSV 행에 `seed` 컬럼이 있으면 그 값 하나만 사용).
+- **`csv_batch`** (`templates/csv_batch.py`) — CSV 행마다 `seeds_per_case`개의 시드로 반복 제출하는 예시 구현입니다. 프롬프트가 여러 CLIPTextEncode 노드(트리거워드/본문/퀄리티 태그/네거티브 등)로 나뉘어 있는 워크플로우를 전제로, CSV 컬럼 이름과 노드 제목을 매칭해서 각각 주입합니다.
+  - CSV 컬럼: `title`(파일명 접두사), `trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`(각각 같은 이름이 제목에 포함된 CLIPTextEncode 노드에 주입, 없는 컬럼은 건드리지 않음), `prompt`(`main_prompt`가 없을 때 쓰이는 대체 컬럼, 하위 호환용), `seed`(있으면 그 값 하나만, 없으면 `seeds_per_case`개의 랜덤 시드로 반복), `batch_no`(EmptyLatentImage류 노드의 `batch_size`), `resolution`(`1024x1024` 같은 `WxH` 형식 또는 `square`/`portrait`/`landscape` 프리셋 — EmptyLatentImage류 노드의 `width`/`height`)
+  - 프롬프트 노드가 여러 개일 수 있으므로, 컬럼 이름과 제목이 정확히 일치하는 노드를 못 찾으면 다른 CLIPTextEncode로 대체 주입하지 않고 건너뜁니다(엉뚱한 노드를 덮어쓰는 사고 방지). 워크플로우의 실제 노드 제목이 다르면 스크립트 상단의 `PROMPT_FIELD_TITLES`를 맞춰서 조정하세요.
 
-두 템플릿 모두 ComfyUI workflow API를 호출하는 best-effort 구현입니다. 실제 ComfyUI 워크플로우의 노드 제목/구조에 맞춰 `PROMPT_NODE_TITLE`/`SEED_NODE_TITLE`/`SAVE_NODE_TITLE` 등 환경변수나 노드 매칭 로직을 조정해야 할 수 있습니다. 자세한 사용법은 각 스크립트 상단 docstring을 참고하세요.
+두 템플릿 모두 ComfyUI workflow API를 호출하는 best-effort 구현입니다. 실제 ComfyUI 워크플로우의 노드 제목/구조에 맞춰 `SEED_NODE_TITLE`/`LATENT_NODE_TITLE`/`SAVE_NODE_TITLE` 등 환경변수나 노드 매칭 로직을 조정해야 할 수 있습니다. 자세한 사용법은 각 스크립트 상단 docstring을 참고하세요.
 
 새 템플릿을 추가하려면 `templates/`에 스크립트를 넣고 `manifest.json`에 항목을 추가하면 됩니다(서버 재시작 불필요 — `/api/templates`가 매 요청마다 파일을 다시 읽습니다).
 
