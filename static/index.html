@@ -224,7 +224,7 @@
     cursor:not-allowed;
   }
 
-  .table-scroll{ overflow-x:auto; }
+  .table-scroll{ overflow-x:auto; container-type:inline-size; }
   table{
     width:100%;
     border-collapse:collapse;
@@ -296,6 +296,11 @@
   .progress-text{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim); white-space:nowrap; }
 
   .time-cell{ color:var(--text-dim); font-family:var(--mono); font-size:12px; white-space:nowrap; }
+  .time-cell.dim{ color:var(--border); }
+
+  @container (max-width:760px){
+    .time-s{ display:none; }
+  }
 
   .empty{
     text-align:center;
@@ -495,9 +500,10 @@
             <th>워크플로우</th>
             <th>CSV</th>
             <th>상태</th>
-            <th>대기 등록</th>
             <th>시작</th>
             <th>종료</th>
+            <th>예상 작업시간</th>
+            <th>예상 종료</th>
             <th></th>
           </tr>
         </thead>
@@ -533,10 +539,40 @@ const STATUS_LABEL = {
 
 let expandedId = null;
 
+function pad2(n){ return String(n).padStart(2, '0'); }
+
 function fmtTime(iso){
   if(!iso) return "—";
   const d = new Date(iso);
-  return d.toLocaleTimeString('ko-KR', {hour12:false});
+  return `<span class="time-hm">${pad2(d.getHours())}:${pad2(d.getMinutes())}</span><span class="time-s">:${pad2(d.getSeconds())}</span>`;
+}
+
+function fmtDuration(ms){
+  if(ms == null || !isFinite(ms) || ms < 0) return "—";
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `<span class="time-hm">${pad2(h)}:${pad2(m)}</span><span class="time-s">:${pad2(s)}</span>`;
+}
+
+// 실행 중인 작업은 지금까지의 진행 속도(경과 시간 / 완료한 이미지 수)로
+// 남은 시간을 추정하고, 끝난 작업은 실제 걸린 시간을 그대로 보여준다.
+function estimateJob(j){
+  if(j.status === 'done' || j.status === 'failed' || j.status === 'interrupted'){
+    if(j.started_at && j.finished_at){
+      const durationMs = new Date(j.finished_at) - new Date(j.started_at);
+      return { durationMs, finishIso: j.finished_at };
+    }
+    return { durationMs: null, finishIso: null };
+  }
+  if(j.status === 'running' && j.started_at && j.progress && j.progress.total > 0 && j.progress.done > 0){
+    const startMs = new Date(j.started_at).getTime();
+    const elapsedMs = Date.now() - startMs;
+    const estTotalMs = elapsedMs / j.progress.done * j.progress.total;
+    return { durationMs: estTotalMs, finishIso: new Date(startMs + estTotalMs).toISOString() };
+  }
+  return { durationMs: null, finishIso: null };
 }
 
 function fmtOptions(options){
@@ -581,6 +617,7 @@ function render(jobs, pendingCount){
     const csvText = j.csv_original_name || '-';
     const progress = j.progress;
     const progressPct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
+    const est = estimateJob(j);
     let rows = `
       <tr data-id="${j.id}" class="job-row">
         <td>${isOpen ? '▾' : '▸'}</td>
@@ -596,9 +633,10 @@ function render(jobs, pendingCount){
               <span class="progress-text">${progress.done}/${progress.total}</span>
             </div>` : ''}
         </td>
-        <td class="time-cell">${fmtTime(j.queued_at)}</td>
         <td class="time-cell">${fmtTime(j.started_at)}</td>
         <td class="time-cell">${fmtTime(j.finished_at)}</td>
+        <td class="time-cell${est.durationMs == null ? ' dim' : ''}">${fmtDuration(est.durationMs)}</td>
+        <td class="time-cell${est.finishIso == null ? ' dim' : ''}">${fmtTime(est.finishIso)}</td>
         <td>
           <div class="row-actions">
             ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}">워크플로우 수정</button>` : ''}
@@ -608,7 +646,7 @@ function render(jobs, pendingCount){
         </td>
       </tr>`;
     if(isOpen){
-      rows += `<tr class="log-row"><td colspan="10"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
+      rows += `<tr class="log-row"><td colspan="11"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
     }
     return rows;
   }).join('');
