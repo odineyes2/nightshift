@@ -46,6 +46,10 @@ LOGS_DIR.mkdir(exist_ok=True)
 COMFY_CANDIDATE_URLS = ["http://127.0.0.1:8188", "http://127.0.0.1:8000"]
 COMFY_CHECK_TIMEOUT = 2
 
+# 템플릿 스크립트가 자기 자신의 진행 상황(PUT /api/jobs/{job_id}/progress)을
+# 보고할 때 사용하는, nightshift 자신의 주소. 서버가 항상 이 포트로 뜨므로 고정값.
+SELF_URL = "http://127.0.0.1:8000"
+
 job_queue: "queue.Queue[str]" = queue.Queue()
 jobs: dict[str, dict] = {}
 lock = threading.Lock()
@@ -103,6 +107,7 @@ def worker_loop():
             job = jobs[job_id]
             job["status"] = "running"
             job["started_at"] = now_iso()
+            job["progress"] = None
         save_state()
 
         log_path = LOGS_DIR / f"{job_id}.log"
@@ -119,7 +124,7 @@ def worker_loop():
             job_queue.task_done()
             continue
 
-        extra_env = {"COMFY_URL": comfy_url}
+        extra_env = {"COMFY_URL": comfy_url, "JOB_ID": job_id, "NIGHTSHIFT_URL": SELF_URL}
         if job.get("workflow_filename"):
             extra_env["WORKFLOW_PATH"] = str((JOBS_DIR / job["workflow_filename"]).resolve())
         if job.get("csv_filename"):
@@ -241,6 +246,7 @@ async def upload(request: Request):
             "started_at": None,
             "finished_at": None,
             "returncode": None,
+            "progress": None,
         }
     save_state()
     return jobs[job_id]
@@ -276,6 +282,31 @@ def job_log(job_id: str, tail: int = 200):
         return {"log": ""}
     lines = log_path.read_text(errors="replace").splitlines()
     return {"log": "\n".join(lines[-tail:])}
+
+
+@app.put("/api/jobs/{job_id}/progress")
+async def update_job_progress(job_id: str, request: Request):
+    # 실행 중인 템플릿 스크립트가 자기 진행 상황(전체/완료 이미지 수)을 스스로 보고하는
+    # 용도. 매 이미지마다 호출될 수 있어 디스크 쓰기(save_state)는 하지 않고 메모리만 갱신한다
+    # — 서버가 재시작되면 어차피 그 작업은 interrupted 처리되어 진행률의 의미가 없어진다.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+
+    total = data.get("total")
+    done = data.get("done")
+    if not isinstance(total, int) or not isinstance(done, int) or total < 0 or done < 0:
+        raise HTTPException(400, "total/done은 0 이상의 정수여야 해요.")
+
+    with lock:
+        job = jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "없는 작업이에요.")
+        job["progress"] = {"total": total, "done": done}
+
+    return {"ok": True}
 
 
 def read_job_attachment(job_id: str, field: str, missing_msg: str) -> str:

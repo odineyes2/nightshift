@@ -21,6 +21,8 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 - 실행 큐에 들어간 순서대로 워커 스레드가 하나씩 `python3`로 실행 (동시 실행 없음)
 - 작업 상태 추적: `pending`(대기중, 시작 전) → `queued`(배치 시작됨, 워커 차례 대기) → `running` → `done` / `failed` (서버 재시작 시 `queued`/`running`이었던 작업은 `interrupted`)
 - 작업별 실행 로그(stdout/stderr)를 실시간에 가깝게 조회 (2초 폴링)
+- `seed_batch`/`csv_batch` 템플릿은 실행 전에 예상 총 이미지 수(시드/행 수 × batch_size)를 계산해 두고, 이미지가 하나
+  완료될 때마다 진행 상황을 서버에 보고 — 작업 목록에서 상태 배지 아래 진행률 바(`done/total`)로 실시간 확인 가능
 - 시작 전(대기중)이거나 완료/실패/중단된 작업 삭제 (이미 시작됐거나 실행 중인 작업은 삭제 불가)
 - 서버가 재시작되어도 `jobs_state.json`에 저장된 이력은 유지됨 (단, 이미 시작된 상태로 큐에 남아있던 작업은 재실행되지 않고 `interrupted`로 표시됨. 아직 시작하지 않은 `pending` 작업은 그대로 남아 다시 배치를 시작할 수 있음)
 
@@ -141,6 +143,8 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
 - `WORKFLOW_PATH` — 첨부된 워크플로우(`.json`)의 **절대 경로** (항상 전달됨)
 - `CSV_PATH` — 첨부된 CSV의 **절대 경로** (`requires_csv`가 `true`인 템플릿에서만 전달됨)
 - `COMFY_URL` — 실행 직전에 감지(또는 오버라이드)된 ComfyUI 주소 (연결이 확인된 경우에만 실행되므로 항상 전달됨)
+- `JOB_ID` — 이 작업의 id (진행 상황 보고용, 항상 전달됨)
+- `NIGHTSHIFT_URL` — nightshift 자신의 주소, 기본 `http://127.0.0.1:8000` (진행 상황 보고용, 항상 전달됨)
 - 템플릿의 `options`에 정의된 각 옵션 — `name`을 대문자로 바꾼 이름의 환경변수로 전달 (예: `seed_count` 옵션에 `20`을 입력하면 `SEED_COUNT=20`)
 
 ```python
@@ -156,6 +160,16 @@ comfy_url = os.environ.get("COMFY_URL", "http://127.0.0.1:8188")
 seed_count = int(os.environ.get("SEED_COUNT", "10"))
 ```
 
+### 진행 상황 보고 (`seed_batch`/`csv_batch`)
+
+`seed_batch.py`와 `csv_batch.py`는 실행을 시작하기 전에 워크플로우의 `EmptyLatentImage`류 노드에 설정된
+`batch_size`를 읽어 총 이미지 수를 미리 계산합니다 (`seed_batch`는 `seed_count × batch_size`,
+`csv_batch`는 각 행의 `batch_no`(없으면 워크플로우 기본값) × 시드 수의 합). 그 다음 이미지가 하나 완료될
+때마다 `PUT {NIGHTSHIFT_URL}/api/jobs/{JOB_ID}/progress`에 `{"total": N, "done": M}`을 보고하고,
+웹 UI는 이를 폴링해 작업 목록의 상태 배지 아래 진행률 바로 보여줍니다. `JOB_ID`가 없거나 보고에 실패해도
+(예: nightshift가 죽어 있음) 작업 자체는 계속 진행되며, 진행률 바는 단순히 표시되지 않습니다. 직접 새
+템플릿을 작성할 때도 같은 엔드포인트를 호출하면 동일하게 진행률을 표시할 수 있습니다.
+
 ## API
 
 | Method | Path | 설명 |
@@ -166,6 +180,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/queue/start` | 그 시점에 `pending`인 작업 **전체**를 대기 등록 순서대로 실행 큐에 넣음 (상태를 `queued`로 일괄 전환). 응답으로 `{"started": N}`(실제로 시작된 개수)을 반환하며, 대기 중인 작업이 없으면 `N`은 0 |
 | `GET` | `/api/jobs` | 전체 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수 조회 |
 | `GET` | `/api/jobs/{job_id}/log?tail=200` | 특정 작업의 로그 조회 (기본 마지막 200줄) |
+| `PUT` | `/api/jobs/{job_id}/progress` | 실행 중인 템플릿 스크립트가 자기 진행 상황을 스스로 보고하는 용도 (요청 본문: `{"total": N, "done": M}`, 둘 다 0 이상의 정수). 매 이미지마다 호출될 수 있어 디스크에는 쓰지 않고 메모리만 갱신함. 없는 작업 id면 404, total/done이 정수가 아니거나 음수면 400 |
 | `GET` | `/api/jobs/{job_id}/workflow` | 해당 작업의 워크플로우 JSON 원문을 그대로 반환 |
 | `PUT` | `/api/jobs/{job_id}/workflow` | 워크플로우 JSON을 덮어씀 (요청 본문 = 새 JSON 텍스트). 작업 상태가 `pending`이 아니면 400, 유효한 JSON이 아니면 400 |
 | `GET` | `/api/jobs/{job_id}/csv` | 해당 작업의 CSV 원문을 그대로 반환. CSV가 첨부되지 않은 작업이면 404 |

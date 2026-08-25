@@ -9,10 +9,19 @@ CSV 입력과 프롬프트 주입 없이 시드만 바꾸는 가장 단순한 �
     WORKFLOW_PATH   (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
     SEED_COUNT      (필수) 반복할 시드 개수 (nightshift가 템플릿 옵션 "seed_count"로 주입)
     COMFY_URL       ComfyUI 서버 주소 (기본 http://127.0.0.1:8188)
+    JOB_ID          nightshift가 주입하는 이 작업의 id (진행 상황 보고용, 없으면 보고 생략)
+    NIGHTSHIFT_URL  nightshift 자신의 주소 (진행 상황 보고용, 기본 http://127.0.0.1:8000)
     SEED_NODE_TITLE    시드를 주입할 노드의 _meta.title 부분일치 (기본 "KSampler")
     SAVE_NODE_TITLE    파일명 접두사를 주입할 노드의 _meta.title 부분일치 (기본 "Save")
     POLL_INTERVAL_SEC  히스토리 폴링 간격 초 (기본 2)
     POLL_TIMEOUT_SEC   개별 작업 완료 대기 제한 초 (기본 600)
+
+진행 상황 보고:
+    실행 전에 워크플로우의 EmptyLatentImage류 노드에 설정된 batch_size를 읽어
+    (seed_count x batch_size)로 예상 총 이미지 수를 계산하고, nightshift의
+    PUT /api/jobs/{job_id}/progress로 {"total": N, "done": M}을 보고한다.
+    nightshift 웹 UI가 이 값을 폴링해서 진행률을 보여준다. 보고에 실패해도
+    (nightshift가 죽어있거나 JOB_ID가 없는 등) 작업 자체는 계속 진행된다.
 """
 
 import copy
@@ -59,6 +68,32 @@ def apply_seed(workflow, seed):
         print("[seed_batch] 경고: 시드를 넣을 노드를 찾지 못했습니다 (KSampler 없음)", file=sys.stderr)
         return
     node.setdefault("inputs", {})["seed"] = seed
+
+
+def get_default_batch_size(workflow):
+    node_id, node = find_node(workflow, class_types=("EmptyLatentImage",))
+    if node is None:
+        return 1
+    try:
+        return max(1, int(node.get("inputs", {}).get("batch_size", 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def report_progress(job_id, nightshift_url, total, done):
+    if not job_id or not nightshift_url:
+        return
+    try:
+        payload = json.dumps({"total": total, "done": done}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{nightshift_url}/api/jobs/{job_id}/progress",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        urllib.request.urlopen(req, timeout=10).read()
+    except Exception as e:
+        print(f"[seed_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
 
 
 def apply_filename_prefix(workflow, index):
@@ -125,11 +160,21 @@ def main():
     seed_count = int(seed_count_raw)
     base_workflow = load_workflow(workflow_path)
     comfy_url = env("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
+    job_id = env("JOB_ID")
+    nightshift_url = env("NIGHTSHIFT_URL", "http://127.0.0.1:8000")
 
+    default_batch_size = get_default_batch_size(base_workflow)
+    total_images = seed_count * default_batch_size
+    print(f"[seed_batch] 총 {seed_count}건 제출 예정, 이미지 {total_images}장 예상")
+    report_progress(job_id, nightshift_url, total_images, 0)
+
+    done_images = 0
     for index in range(1, seed_count + 1):
         run_once(base_workflow, comfy_url, index - 1, index)
+        done_images += default_batch_size
+        report_progress(job_id, nightshift_url, total_images, done_images)
 
-    print(f"[seed_batch] 총 {seed_count}건 완료")
+    print(f"[seed_batch] 총 {seed_count}건 완료 (이미지 {done_images}장)")
 
 
 if __name__ == "__main__":
