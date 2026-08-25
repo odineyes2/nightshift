@@ -30,11 +30,20 @@ ComfyUI에서 어떻게 워크플로우를 구성했는지에 따라 다르므�
     SEEDS_PER_CASE  (필수) csv 행에 seed 컬럼이 없을 때, 케이스(행)당 반복할 시드 개수
                     (nightshift가 템플릿 옵션 "seeds_per_case"로 주입)
     COMFY_URL       ComfyUI 서버 주소 (기본 http://127.0.0.1:8188)
+    JOB_ID          nightshift가 주입하는 이 작업의 id (진행 상황 보고용, 없으면 보고 생략)
+    NIGHTSHIFT_URL  nightshift 자신의 주소 (진행 상황 보고용, 기본 http://127.0.0.1:8000)
     SEED_NODE_TITLE    시드를 주입할 노드의 _meta.title 부분일치 (기본 "KSampler")
     LATENT_NODE_TITLE  해상도/배치수를 주입할 노드의 _meta.title 부분일치 (기본 "latent")
     SAVE_NODE_TITLE    파일명 접두사를 주입할 노드의 _meta.title 부분일치 (기본 "Save")
     POLL_INTERVAL_SEC  히스토리 폴링 간격 초 (기본 2)
     POLL_TIMEOUT_SEC   개별 작업 완료 대기 제한 초 (기본 600)
+
+진행 상황 보고:
+    실행 전에 제출 계획(각 행 x 시드 조합, batch_no 또는 워크플로우 기본
+    batch_size)을 먼저 세워 예상 총 이미지 수를 계산하고, nightshift의
+    PUT /api/jobs/{job_id}/progress로 {"total": N, "done": M}을 보고한다.
+    nightshift 웹 UI가 이 값을 폴링해서 진행률을 보여준다. 보고에 실패해도
+    (nightshift가 죽어있거나 JOB_ID가 없는 등) 작업 자체는 계속 진행된다.
 
 CSV 컬럼:
     title           결과 파일명 접두사로 쓰일 제목 (선택, name도 허용)
@@ -159,14 +168,31 @@ def apply_seed(workflow, seed):
         print(f"[csv_batch] 경고: seed 값 '{seed}'을 정수로 변환하지 못했습니다", file=sys.stderr)
 
 
-def apply_batch_size(workflow, batch_no):
+def parse_batch_size(batch_no):
     batch_no = (batch_no or "").strip()
     if not batch_no:
-        return
+        return None
     try:
-        batch_size = int(batch_no)
+        value = int(batch_no)
     except ValueError:
         print(f"[csv_batch] 경고: batch_no 값 '{batch_no}'을 정수로 변환하지 못했습니다", file=sys.stderr)
+        return None
+    return max(1, value)
+
+
+def get_default_batch_size(workflow):
+    node_id, node = find_node(workflow, class_types=("EmptyLatentImage",))
+    if node is None:
+        return 1
+    try:
+        return max(1, int(node.get("inputs", {}).get("batch_size", 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def apply_batch_size(workflow, batch_no):
+    batch_size = parse_batch_size(batch_no)
+    if batch_size is None:
         return
     node_id, node = find_node(
         workflow,
@@ -177,6 +203,22 @@ def apply_batch_size(workflow, batch_no):
         print("[csv_batch] 경고: batch_no를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
         return
     node.setdefault("inputs", {})["batch_size"] = batch_size
+
+
+def report_progress(job_id, nightshift_url, total, done):
+    if not job_id or not nightshift_url:
+        return
+    try:
+        payload = json.dumps({"total": total, "done": done}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{nightshift_url}/api/jobs/{job_id}/progress",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        urllib.request.urlopen(req, timeout=10).read()
+    except Exception as e:
+        print(f"[csv_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
 
 
 def apply_resolution(workflow, resolution):
@@ -283,8 +325,13 @@ def main():
 
     seeds_per_case = int(env("SEEDS_PER_CASE", "10"))
     comfy_url = env("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
+    job_id = env("JOB_ID")
+    nightshift_url = env("NIGHTSHIFT_URL", "http://127.0.0.1:8000")
 
-    index = 0
+    # 실행 전에 먼저 제출 계획을 세워서 전체 이미지 수를 계산한다. batch_no가 없는
+    # 행은 워크플로우 자체의 기본 batch_size를 따른다.
+    default_batch_size = get_default_batch_size(base_workflow)
+    plan = []  # [(row, title, seed, batch_size), ...]
     for row in rows:
         title = (row.get("title") or row.get("name") or "").strip()
         main_prompt = (row.get("main_prompt") or row.get("prompt") or "").strip()
@@ -292,16 +339,29 @@ def main():
             print(f"[csv_batch] 건너뜀 (main_prompt/prompt 없음): {row}")
             continue
 
+        batch_size = parse_batch_size(row.get("batch_no"))
+        if batch_size is None:
+            batch_size = default_batch_size
+
         row_seed = (row.get("seed") or "").strip()
         if row_seed:
             seeds = [row_seed]
         else:
             seeds = [random.randint(0, 2**31 - 1) for _ in range(seeds_per_case)]
         for seed in seeds:
-            index += 1
-            run_once(base_workflow, comfy_url, row, title, seed, index)
+            plan.append((row, title, seed, batch_size))
 
-    print(f"[csv_batch] 총 {index}건 완료")
+    total_images = sum(batch_size for _, _, _, batch_size in plan)
+    print(f"[csv_batch] 총 {len(plan)}건 제출 예정, 이미지 {total_images}장 예상")
+    report_progress(job_id, nightshift_url, total_images, 0)
+
+    done_images = 0
+    for index, (row, title, seed, batch_size) in enumerate(plan, start=1):
+        run_once(base_workflow, comfy_url, row, title, seed, index)
+        done_images += batch_size
+        report_progress(job_id, nightshift_url, total_images, done_images)
+
+    print(f"[csv_batch] 총 {len(plan)}건 완료 (이미지 {done_images}장)")
 
 
 if __name__ == "__main__":

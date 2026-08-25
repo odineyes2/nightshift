@@ -284,6 +284,17 @@
   .badge.running .bdot{ animation: pulse-run 1.2s infinite; }
   @keyframes pulse-run{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
 
+  .progress-wrap{ display:flex; align-items:center; gap:6px; margin-top:5px; }
+  .progress-track{ width:64px; height:4px; border-radius:2px; background:var(--border); overflow:hidden; flex-shrink:0; }
+  .progress-fill{ height:100%; border-radius:2px; transition:width .3s ease; }
+  .progress-fill.pending{ background:var(--queued); }
+  .progress-fill.queued{ background:var(--queued); }
+  .progress-fill.running{ background:var(--running); }
+  .progress-fill.done{ background:var(--done); }
+  .progress-fill.failed{ background:var(--failed); }
+  .progress-fill.interrupted{ background:var(--interrupted); }
+  .progress-text{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim); white-space:nowrap; }
+
   .time-cell{ color:var(--text-dim); font-family:var(--mono); font-size:12px; white-space:nowrap; }
 
   .empty{
@@ -568,6 +579,8 @@ function render(jobs, pendingCount){
     const optionsText = fmtOptions(j.options);
     const workflowText = j.workflow_original_name || '-';
     const csvText = j.csv_original_name || '-';
+    const progress = j.progress;
+    const progressPct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
     let rows = `
       <tr data-id="${j.id}" class="job-row">
         <td>${isOpen ? '▾' : '▸'}</td>
@@ -575,7 +588,14 @@ function render(jobs, pendingCount){
         <td class="fname${Object.keys(j.options || {}).length ? '' : ' dim'}" title="${escapeHtml(optionsText)}">${escapeHtml(optionsText)}</td>
         <td class="fname${j.workflow_original_name ? '' : ' dim'}" title="${escapeHtml(workflowText)}">${escapeHtml(workflowText)}</td>
         <td class="fname${j.csv_original_name ? '' : ' dim'}" title="${escapeHtml(csvText)}">${escapeHtml(csvText)}</td>
-        <td><span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span></td>
+        <td>
+          <span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span>
+          ${progress ? `
+            <div class="progress-wrap">
+              <div class="progress-track"><div class="progress-fill ${j.status}" style="width:${progressPct}%"></div></div>
+              <span class="progress-text">${progress.done}/${progress.total}</span>
+            </div>` : ''}
+        </td>
         <td class="time-cell">${fmtTime(j.queued_at)}</td>
         <td class="time-cell">${fmtTime(j.started_at)}</td>
         <td class="time-cell">${fmtTime(j.finished_at)}</td>
