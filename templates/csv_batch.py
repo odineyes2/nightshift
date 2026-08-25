@@ -45,6 +45,13 @@ ComfyUI에서 어떻게 워크플로우를 구성했는지에 따라 다르므�
     nightshift 웹 UI가 이 값을 폴링해서 진행률을 보여준다. 보고에 실패해도
     (nightshift가 죽어있거나 JOB_ID가 없는 등) 작업 자체는 계속 진행된다.
 
+결과물 파일명 규칙:
+    SaveImage(SAVE_NODE_TITLE로 찾은 노드)의 filename_prefix를
+    "<title(안전한 문자로 치환, 없으면 batch_<순번>)>_seed<시드값>" 형식으로 채운다
+    (예: title="고양이"면 "고양이_seed482913"). ComfyUI가 실제 저장 시 여기에 자기
+    카운터를 덧붙이므로 최종 파일명은 "고양이_seed482913_00001_.png"처럼 나온다 —
+    파일명만 보고도 어느 행/시도였는지와 어떤 시드였는지 바로 알 수 있다.
+
 CSV 컬럼:
     title           결과 파일명 접두사로 쓰일 제목 (선택, name도 허용)
     trigger_prompt   트리거워드 프롬프트 (선택)
@@ -253,7 +260,7 @@ def apply_resolution(workflow, resolution):
     inputs["height"] = height
 
 
-def apply_filename_prefix(workflow, title, index):
+def apply_filename_prefix(workflow, title, index, seed):
     node_id, node = find_node(
         workflow,
         title_substring=env("SAVE_NODE_TITLE", "Save"),
@@ -261,7 +268,8 @@ def apply_filename_prefix(workflow, title, index):
     )
     if node is None:
         return
-    node.setdefault("inputs", {})["filename_prefix"] = sanitize_prefix(title, f"batch_{index}")
+    prefix = sanitize_prefix(title, f"batch_{index}")
+    node.setdefault("inputs", {})["filename_prefix"] = f"{prefix}_seed{seed}"
 
 
 def queue_prompt(comfy_url, workflow):
@@ -302,7 +310,7 @@ def run_once(base_workflow, comfy_url, row, title, seed, index):
     apply_seed(workflow, seed)
     apply_batch_size(workflow, row.get("batch_no"))
     apply_resolution(workflow, row.get("resolution"))
-    apply_filename_prefix(workflow, title, index)
+    apply_filename_prefix(workflow, title, index, seed)
 
     prompt_id = queue_prompt(comfy_url, workflow)
     print(f"[csv_batch] [{index}] title={title!r} seed={seed} 큐 등록 (prompt_id={prompt_id})")
