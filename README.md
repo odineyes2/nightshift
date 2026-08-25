@@ -128,6 +128,7 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
 - **`csv_batch`** (`templates/csv_batch.py`) — CSV 행마다 `seeds_per_case`개의 시드로 반복 제출하는 예시 구현입니다. 프롬프트가 여러 CLIPTextEncode 노드(트리거워드/본문/퀄리티 태그/네거티브 등)로 나뉘어 있는 워크플로우를 전제로, CSV 컬럼 이름과 노드 제목을 매칭해서 각각 주입합니다.
   - CSV 컬럼: `title`(파일명 접두사), `trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`(각각 같은 이름이 제목에 포함된 CLIPTextEncode 노드에 주입, 없는 컬럼은 건드리지 않음), `prompt`(`main_prompt`가 없을 때 쓰이는 대체 컬럼, 하위 호환용), `seed`(있으면 그 값 하나만, 없으면 `seeds_per_case`개의 랜덤 시드로 반복), `batch_no`(EmptyLatentImage류 노드의 `batch_size`), `resolution`(`1024x1024` 같은 `WxH` 형식 또는 `square`/`portrait`/`landscape`/`9:16`/`16:9` 프리셋 — EmptyLatentImage류 노드의 `width`/`height`)
   - 프롬프트 노드가 여러 개일 수 있으므로, 컬럼 이름과 제목이 정확히 일치하는 노드를 못 찾으면 다른 CLIPTextEncode로 대체 주입하지 않고 건너뜁니다(엉뚱한 노드를 덮어쓰는 사고 방지). 워크플로우의 실제 노드 제목이 다르면 스크립트 상단의 `PROMPT_FIELD_TITLES`를 맞춰서 조정하세요.
+  - 컬럼 형식을 그대로 보여주는 샘플 파일이 `templates/csv_batch.sample.csv`에 있습니다. CSV 배치 작업을 등록할 때 이 파일을 복사해서 값만 바꾸면 됩니다.
 
 두 템플릿 모두 ComfyUI workflow API를 호출하는 best-effort 구현입니다. 실제 ComfyUI 워크플로우의 노드 제목/구조에 맞춰 `SEED_NODE_TITLE`/`LATENT_NODE_TITLE`/`SAVE_NODE_TITLE` 등 환경변수나 노드 매칭 로직을 조정해야 할 수 있습니다. 자세한 사용법은 각 스크립트 상단 docstring을 참고하세요.
 
@@ -182,7 +183,8 @@ nightshift/
 ├── templates/
 │   ├── manifest.json         # 등록된 스크립트 템플릿 목록 (옵션 스키마 포함)
 │   ├── seed_batch.py         # 템플릿 스크립트
-│   └── csv_batch.py          # 템플릿 스크립트 (필요에 따라 계속 추가)
+│   ├── csv_batch.py          # 템플릿 스크립트 (필요에 따라 계속 추가)
+│   └── csv_batch.sample.csv  # csv_batch용 샘플 CSV
 ├── jobs/                      # 업로드된 워크플로우/CSV가 저장되는 곳 (자동 생성)
 ├── logs/                      # 작업별 실행 로그 (자동 생성)
 └── jobs_state.json            # 작업 이력 저장 파일 (자동 생성)
