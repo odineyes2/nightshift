@@ -1,38 +1,20 @@
 {
-  "d8ba2a11": {
-    "id": "d8ba2a11",
-    "template_id": "seed_batch",
-    "template_label": "\uc2dc\ub4dc \ubc18\ubcf5",
-    "script_filename": "seed_batch.py",
+  "b7570382": {
+    "id": "b7570382",
+    "template_id": "csv_batch",
+    "template_label": "CSV Batch",
+    "script_filename": "csv_batch.py",
     "options": {
-      "seed_count": 10
+      "seeds_per_case": 10
     },
-    "workflow_filename": "d8ba2a11_wf.json",
-    "workflow_original_name": "wf.json",
-    "csv_filename": null,
-    "csv_original_name": null,
-    "status": "failed",
-    "queued_at": "2026-08-24T09:17:25.155589+00:00",
-    "started_at": "2026-08-24T09:18:34.338300+00:00",
-    "finished_at": "2026-08-24T09:18:34.341294+00:00",
-    "returncode": -1
-  },
-  "9a72a9c2": {
-    "id": "9a72a9c2",
-    "template_id": "seed_batch",
-    "template_label": "\uc2dc\ub4dc \ubc18\ubcf5",
-    "script_filename": "seed_batch.py",
-    "options": {
-      "seed_count": 10
-    },
-    "workflow_filename": "9a72a9c2_wf.json",
-    "workflow_original_name": "wf.json",
-    "csv_filename": null,
-    "csv_original_name": null,
-    "status": "failed",
-    "queued_at": "2026-08-24T09:18:29.972195+00:00",
-    "started_at": "2026-08-24T09:18:32.176084+00:00",
-    "finished_at": "2026-08-24T09:18:32.180750+00:00",
-    "returncode": -1
+    "workflow_filename": "b7570382_krea2_basic_nsfw.json",
+    "workflow_original_name": "krea2_basic_nsfw.json",
+    "csv_filename": "b7570382_csv_batch.sample.csv",
+    "csv_original_name": "csv_batch.sample.csv",
+    "status": "done",
+    "queued_at": "2026-08-25T13:18:16.140238+00:00",
+    "started_at": "2026-08-25T13:18:28.482646+00:00",
+    "finished_at": "2026-08-25T13:24:39.783635+00:00",
+    "returncode": 0
   }
 }
