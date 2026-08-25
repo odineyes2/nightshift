@@ -1,20 +1,21 @@
 {
-  "b7570382": {
-    "id": "b7570382",
+  "5600fa74": {
+    "id": "5600fa74",
     "template_id": "csv_batch",
     "template_label": "CSV Batch",
     "script_filename": "csv_batch.py",
     "options": {
-      "seeds_per_case": 10
+      "seeds_per_case": 2
     },
-    "workflow_filename": "b7570382_krea2_basic_nsfw.json",
+    "workflow_filename": "5600fa74_krea2_basic_nsfw.json",
     "workflow_original_name": "krea2_basic_nsfw.json",
-    "csv_filename": "b7570382_csv_batch.sample.csv",
-    "csv_original_name": "csv_batch.sample.csv",
-    "status": "done",
-    "queued_at": "2026-08-25T13:18:16.140238+00:00",
-    "started_at": "2026-08-25T13:18:28.482646+00:00",
-    "finished_at": "2026-08-25T13:24:39.783635+00:00",
-    "returncode": 0
+    "csv_filename": "5600fa74_batch_list_nsfw.csv",
+    "csv_original_name": "batch_list_nsfw.csv",
+    "status": "running",
+    "queued_at": "2026-08-25T16:52:06.265601+00:00",
+    "started_at": "2026-08-25T16:52:12.796216+00:00",
+    "finished_at": null,
+    "returncode": null,
+    "progress": null
   }
 }
