@@ -134,6 +134,17 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
 
 두 템플릿 모두 ComfyUI workflow API를 호출하는 best-effort 구현입니다. 실제 ComfyUI 워크플로우의 노드 제목/구조에 맞춰 `SEED_NODE_TITLE`/`LATENT_NODE_TITLE`/`SAVE_NODE_TITLE` 등 환경변수나 노드 매칭 로직을 조정해야 할 수 있습니다. 자세한 사용법은 각 스크립트 상단 docstring을 참고하세요.
 
+#### 결과물(이미지) 파일명 규칙
+
+두 템플릿 모두 매 제출마다 SaveImage류 노드(`SAVE_NODE_TITLE`로 찾음)의 `filename_prefix`를 아래처럼 채운 뒤 ComfyUI에 넘깁니다. ComfyUI가 실제 저장할 때 여기에 자기 카운터(`_00001_` 등)와 확장자를 붙이므로, **파일명만 보고도 몇 번째 시도였는지와 어떤 시드로 생성됐는지 바로 알 수 있습니다.**
+
+| 템플릿 | `filename_prefix` 형식 | 예시 (실제 저장 파일명) |
+|---|---|---|
+| `seed_batch` | `seed_batch_<순번>_seed<시드값>` | `seed_batch_3_seed482913_00001_.png` |
+| `csv_batch` | `<title(안전한 문자로 치환, 없으면 batch_<순번>)>_seed<시드값>` | `고양이_seed482913_00001_.png` |
+
+`title` 컬럼이 없거나 비어 있으면 `csv_batch`는 `batch_<순번>_seed<시드값>`으로 대체합니다. 이 규칙을 바꾸고 싶다면 각 스크립트의 `apply_filename_prefix()`를 수정하세요.
+
 새 템플릿을 추가하려면 `templates/`에 스크립트를 넣고 `manifest.json`에 항목을 추가하면 됩니다(서버 재시작 불필요 — `/api/templates`가 매 요청마다 파일을 다시 읽습니다).
 
 ### 워크플로우 JSON / CSV / 옵션과 스크립트 연동
