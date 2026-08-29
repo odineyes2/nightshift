@@ -63,8 +63,24 @@ CSV 컬럼:
                      랜덤 시드로 반복 (선택)
     batch_no         한 번에 생성할 이미지 수 (EmptyLatentImage류 노드의
                      batch_size에 주입, 선택)
-    resolution       해상도. "1024x1024"처럼 WxH 형식이거나 RESOLUTION_PRESETS에
-                     정의된 이름("square"/"portrait"/"landscape"/"9:16"/"16:9") 중 하나 (선택)
+    width, height    해상도를 가로/세로 각각 픽셀 값으로 직접 지정 (선택). 둘 다 채워야
+                     적용되며, 채워지면 resolution보다 우선한다
+    resolution       width/height가 비어 있을 때 대신 쓰이는 해상도. "1024x1024"처럼
+                     WxH 형식이거나 RESOLUTION_PRESETS에 정의된 이름
+                     ("square"/"portrait"/"landscape"/"9:16"/"16:9") 중 하나 (선택)
+
+해상도 결정 우선순위:
+    1. width와 height 컬럼이 둘 다 채워져 있으면 그 값을 그대로 사용
+    2. 아니면 resolution 컬럼(프리셋 이름 또는 WxH 형식)을 사용
+    3. 셋 다 비어 있으면 워크플로우에 이미 들어있는 값을 그대로 둠(건드리지 않음)
+
+EmptyLatentImage 노드가 여러 개인 워크플로우:
+    해상도 프리셋을 바꿔가며 테스트하다 보면 EmptyLatentImage 노드가 여러 개
+    남아있고 그 중 하나만 실제로 KSampler에 배선돼 있는 경우가 있다(예: 다른
+    비율을 테스트하려고 만든 노드가 배선만 안 된 채 남음). 이런 경우
+    LATENT_NODE_TITLE로 제목 매칭이 안 되면, 아무 EmptyLatentImage나 고르지
+    않고 실제로 다른 노드의 입력에 연결된(=워크플로우 실행에 쓰이는) 노드를
+    우선으로 고른다.
 """
 
 import copy
@@ -112,9 +128,27 @@ def load_rows(path):
         return list(csv.DictReader(f))
 
 
-def find_node(workflow, title_substring=None, class_types=(), allow_class_fallback=True):
+def connected_node_ids(workflow):
+    """다른 노드의 입력 링크로 실제 연결되어 있는(=출력이 쓰이고 있는) 노드 id 집합.
+    워크플로우를 손으로 편집하다 보면 같은 class_type의 노드가 여럿 남아있는데
+    그 중 하나만 실제로 연결돼 있는 경우가 흔해서(예: 해상도 프리셋을 바꿔보려고
+    EmptyLatentImage를 여러 개 만들어두고 하나만 배선), class_type만으로 노드를
+    고를 때 이 정보로 진짜 쓰이는 노드를 가려낸다."""
+    ids = set()
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        for value in node.get("inputs", {}).values():
+            if isinstance(value, list) and len(value) == 2:
+                ids.add(str(value[0]))
+    return ids
+
+
+def find_node(workflow, title_substring=None, class_types=(), allow_class_fallback=True, prefer_connected=False):
     title_substring = (title_substring or "").lower()
+    connected = connected_node_ids(workflow) if (allow_class_fallback and prefer_connected) else None
     fallback = None
+    fallback_connected = None
     for node_id, node in workflow.items():
         if not isinstance(node, dict):
             continue
@@ -122,8 +156,14 @@ def find_node(workflow, title_substring=None, class_types=(), allow_class_fallba
         class_type = node.get("class_type", "")
         if title_substring and title_substring in meta_title:
             return node_id, node
-        if allow_class_fallback and class_types and class_type in class_types and fallback is None:
-            fallback = (node_id, node)
+        if allow_class_fallback and class_types and class_type in class_types:
+            if connected is not None and node_id in connected:
+                if fallback_connected is None:
+                    fallback_connected = (node_id, node)
+            elif fallback is None:
+                fallback = (node_id, node)
+    if fallback_connected is not None:
+        return fallback_connected
     return fallback if fallback else (None, None)
 
 
@@ -188,7 +228,7 @@ def parse_batch_size(batch_no):
 
 
 def get_default_batch_size(workflow):
-    node_id, node = find_node(workflow, class_types=("EmptyLatentImage",))
+    node_id, node = find_node(workflow, class_types=("EmptyLatentImage",), prefer_connected=True)
     if node is None:
         return 1
     try:
@@ -205,6 +245,7 @@ def apply_batch_size(workflow, batch_no):
         workflow,
         title_substring=env("LATENT_NODE_TITLE", "latent"),
         class_types=("EmptyLatentImage",),
+        prefer_connected=True,
     )
     if node is None:
         print("[csv_batch] 경고: batch_no를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
@@ -228,36 +269,64 @@ def report_progress(job_id, nightshift_url, total, done):
         print(f"[csv_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
 
 
-def apply_resolution(workflow, resolution):
+def resolve_resolution(width, height, resolution):
+    """width/height를 각각 지정했으면 그 값을 최우선으로 쓰고, 둘 중 하나라도
+    비어 있으면 resolution(프리셋 이름 또는 WxH 문자열)을 따른다. 셋 다 없으면
+    None을 반환해 워크플로우에 이미 설정된 값을 그대로 둔다."""
+    width = (width or "").strip()
+    height = (height or "").strip()
     resolution = (resolution or "").strip()
+
+    if width and height:
+        try:
+            return int(width), int(height)
+        except ValueError:
+            print(
+                f"[csv_batch] 경고: width/height 값 '{width}x{height}'을 정수로 변환하지 못했습니다. "
+                "resolution 컬럼으로 대체합니다.",
+                file=sys.stderr,
+            )
+    elif width or height:
+        print(
+            "[csv_batch] 경고: width/height는 둘 다 채워야 적용됩니다 (하나만 비어 있음). "
+            "resolution 컬럼으로 대체합니다.",
+            file=sys.stderr,
+        )
+
     if not resolution:
-        return
+        return None
 
     preset = RESOLUTION_PRESETS.get(resolution.lower())
     if preset:
-        width, height = preset
-    else:
-        match = re.match(r"^(\d+)\s*[xX]\s*(\d+)$", resolution)
-        if not match:
-            print(
-                f"[csv_batch] 경고: resolution 값 '{resolution}'을 해석하지 못했습니다 "
-                f"(WxH 형식이거나 {list(RESOLUTION_PRESETS)} 중 하나여야 함)",
-                file=sys.stderr,
-            )
-            return
-        width, height = int(match.group(1)), int(match.group(2))
+        return preset
+
+    match = re.match(r"^(\d+)\s*[xX]\s*(\d+)$", resolution)
+    if not match:
+        print(
+            f"[csv_batch] 경고: resolution 값 '{resolution}'을 해석하지 못했습니다 "
+            f"(WxH 형식이거나 {list(RESOLUTION_PRESETS)} 중 하나여야 함)",
+            file=sys.stderr,
+        )
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def apply_resolution(workflow, width, height, resolution):
+    resolved = resolve_resolution(width, height, resolution)
+    if resolved is None:
+        return
 
     node_id, node = find_node(
         workflow,
         title_substring=env("LATENT_NODE_TITLE", "latent"),
         class_types=("EmptyLatentImage",),
+        prefer_connected=True,
     )
     if node is None:
-        print("[csv_batch] 경고: resolution을 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
+        print("[csv_batch] 경고: 해상도를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
         return
     inputs = node.setdefault("inputs", {})
-    inputs["width"] = width
-    inputs["height"] = height
+    inputs["width"], inputs["height"] = resolved
 
 
 def apply_filename_prefix(workflow, title, index, seed):
@@ -309,7 +378,7 @@ def run_once(base_workflow, comfy_url, row, title, seed, index):
     apply_prompts(workflow, row)
     apply_seed(workflow, seed)
     apply_batch_size(workflow, row.get("batch_no"))
-    apply_resolution(workflow, row.get("resolution"))
+    apply_resolution(workflow, row.get("width"), row.get("height"), row.get("resolution"))
     apply_filename_prefix(workflow, title, index, seed)
 
     prompt_id = queue_prompt(comfy_url, workflow)
