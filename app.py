@@ -31,6 +31,8 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import UploadFile
 
+from email_sender import EmailSendError, send_output_images
+
 BASE_DIR = Path(__file__).parent
 JOBS_DIR = BASE_DIR / "jobs"
 LOGS_DIR = BASE_DIR / "logs"
@@ -396,6 +398,38 @@ def delete_job(job_id: str):
         del jobs[job_id]
     save_state()
     return {"ok": True}
+
+
+@app.post("/api/send-email")
+async def send_email(request: Request):
+    # SMTP 계정 정보는 이 요청 처리에만 쓰고 어디에도 저장하지 않는다 — jobs_state.json은
+    # git으로 버전 관리되므로 비밀번호를 job 데이터에 남기면 커밋 이력에 그대로 남는다.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+
+    smtp_user = (data.get("smtp_user") or "").strip()
+    smtp_password = data.get("smtp_password") or ""
+    to_email = (data.get("to_email") or "").strip()
+
+    if not smtp_user or not smtp_password or not to_email:
+        raise HTTPException(400, "보내는 메일 계정/비밀번호/받는 메일 계정을 모두 입력하세요.")
+
+    max_mb = data.get("max_mb", 20)
+    try:
+        max_mb = int(max_mb)
+        if max_mb <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise HTTPException(400, "메일당 최대 용량(MB)은 1 이상의 정수여야 해요.")
+
+    try:
+        result = await asyncio.to_thread(send_output_images, smtp_user, smtp_password, to_email, max_mb)
+    except EmailSendError as e:
+        raise HTTPException(400, str(e))
+    return result
 
 
 app.mount("/", StaticFiles(directory=str(BASE_DIR / "static"), html=True), name="static")
