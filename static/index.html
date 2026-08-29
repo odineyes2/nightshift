@@ -188,6 +188,9 @@
     font-family:var(--mono);
     min-height:1em;
   }
+  .email-hint{ font-size:12.5px; color:var(--text-dim); margin:-4px 0 12px; }
+  input.email-input{ max-width:320px; }
+  .email-result{ color:var(--done); font-size:12.5px; font-family:var(--mono); min-height:1em; }
 
   .section-label{
     font-family:var(--mono);
@@ -511,6 +514,34 @@
       </table>
     </div>
     <div class="empty" id="empty-msg" style="display:none;">아직 등록된 작업이 없어요</div>
+  </div>
+
+  <div class="panel">
+    <div class="section-label">결과 이미지 이메일 전송</div>
+    <div class="email-hint">서버에 쌓인 결과 이미지를 모아 이메일로 보냅니다. 계정 정보는 저장하지 않고 발송에만 사용해요.</div>
+    <div class="upload-form">
+      <div class="field">
+        <label class="field-label" for="email-from">보내는 메일 계정</label>
+        <input type="email" class="option-input email-input" id="email-from" placeholder="you@gmail.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label class="field-label" for="email-password">비밀번호 <span class="opt">— Gmail이면 앱 비밀번호. 저장되지 않음</span></label>
+        <input type="password" class="option-input email-input" id="email-password" placeholder="비밀번호" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="field-label" for="email-to">받는 메일 계정</label>
+        <input type="email" class="option-input email-input" id="email-to" placeholder="받을 주소" autocomplete="email">
+      </div>
+      <div class="field">
+        <label class="field-label" for="email-max-mb">메일당 최대 용량(MB) <span class="opt">— 기본 20</span></label>
+        <input type="number" class="option-input" id="email-max-mb" value="20" min="1" style="max-width:100px;">
+      </div>
+      <div>
+        <button class="submit-btn" id="email-send-btn">보내기</button>
+        <div class="upload-error" id="email-error"></div>
+        <div class="email-result" id="email-result"></div>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -941,6 +972,68 @@ workflowSaveBtn.addEventListener('click', async () => {
     workflowSaveBtn.disabled = false;
   }
 });
+
+// 이메일 계정/받는 주소는 편의상 브라우저에만 기억해둔다(비밀번호는 절대 저장하지 않음).
+const EMAIL_PREFS_KEY = 'nightshift_email_prefs';
+
+function loadEmailPrefs(){
+  try{
+    const raw = localStorage.getItem(EMAIL_PREFS_KEY);
+    if(!raw) return;
+    const prefs = JSON.parse(raw);
+    if(prefs.smtp_user) document.getElementById('email-from').value = prefs.smtp_user;
+    if(prefs.to_email) document.getElementById('email-to').value = prefs.to_email;
+  }catch(e){}
+}
+
+function saveEmailPrefs(smtp_user, to_email){
+  try{
+    localStorage.setItem(EMAIL_PREFS_KEY, JSON.stringify({ smtp_user, to_email }));
+  }catch(e){}
+}
+
+document.getElementById('email-send-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('email-send-btn');
+  const errorEl = document.getElementById('email-error');
+  const resultEl = document.getElementById('email-result');
+  errorEl.textContent = '';
+  resultEl.textContent = '';
+
+  const smtp_user = document.getElementById('email-from').value.trim();
+  const smtp_password = document.getElementById('email-password').value;
+  const to_email = document.getElementById('email-to').value.trim();
+  const max_mb = parseInt(document.getElementById('email-max-mb').value, 10) || 20;
+
+  if(!smtp_user || !smtp_password || !to_email){
+    errorEl.textContent = '보내는 메일 계정/비밀번호/받는 메일 계정을 모두 입력하세요.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '발송 중…';
+  try{
+    const res = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ smtp_user, smtp_password, to_email, max_mb }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok){
+      errorEl.textContent = data.detail || '발송에 실패했어요.';
+      return;
+    }
+    resultEl.textContent = `이미지 ${data.total_files}개를 ${data.total_batches}통으로 발송 완료`;
+    saveEmailPrefs(smtp_user, to_email);
+    document.getElementById('email-password').value = '';
+  }catch(e){
+    errorEl.textContent = '발송에 실패했어요.';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '보내기';
+  }
+});
+
+loadEmailPrefs();
 
 fetchTemplates();
 fetchJobs();
