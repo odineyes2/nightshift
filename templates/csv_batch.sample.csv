@@ -1,4 +1,5 @@
-title,trigger_prompt,main_prompt,quality_prompt,negative_prompt,seed,batch_no,resolution
-sunset_mountains,ohwx style,a beautiful sunset over snow-capped mountains,"masterpiece, best quality, ultra detailed","blurry, low quality, watermark",42,1,16:9
-neon_city_night,ohwx style,a cyberpunk city street at night with neon signs and rain,"masterpiece, best quality, cinematic lighting","blurry, low quality, oversaturated",,2,9:16
-cozy_cafe,,a cozy coffee shop interior with warm lighting and plants,best quality,"low quality, deformed",,1,square
+title,trigger_prompt,main_prompt,quality_prompt,negative_prompt,seed,batch_no,width,height,resolution
+sunset_mountains,ohwx style,a beautiful sunset over snow-capped mountains,"masterpiece, best quality, ultra detailed","blurry, low quality, watermark",42,1,,,16:9
+neon_city_night,ohwx style,a cyberpunk city street at night with neon signs and rain,"masterpiece, best quality, cinematic lighting","blurry, low quality, oversaturated",,2,,,9:16
+cozy_cafe,,a cozy coffee shop interior with warm lighting and plants,best quality,"low quality, deformed",,1,,,square
+wide_banner,ohwx style,a panoramic landscape banner,"masterpiece, best quality","blurry, low quality",,1,1536,640,
