@@ -7,7 +7,7 @@ SMTP 계정 정보(보내는 메일 계정/비밀번호/받는 메일 계정)는
 버전 관리되므로, 비밀번호를 job 데이터의 일부로 저장하면 커밋에 그대로 남는다.
 
 환경변수:
-    NIGHTSHIFT_OUTPUT_DIR  이미지가 쌓이는 폴더 (기본 /workspace/output)
+    NIGHTSHIFT_OUTPUT_DIR  이미지가 쌓이는 폴더 (기본 /workspace/output, output_images.py 참고)
     NIGHTSHIFT_SMTP_HOST   SMTP 서버 주소 (기본 smtp.gmail.com)
     NIGHTSHIFT_SMTP_PORT   SMTP 포트 (기본 587)
 """
@@ -20,10 +20,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
+from output_images import OUTPUT_DIR, OutputFolderError, list_output_images
+
 SMTP_HOST = os.environ.get("NIGHTSHIFT_SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get("NIGHTSHIFT_SMTP_PORT", "587"))
-OUTPUT_DIR = os.environ.get("NIGHTSHIFT_OUTPUT_DIR", "/workspace/output")
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 
 
 class EmailSendError(Exception):
@@ -31,13 +31,12 @@ class EmailSendError(Exception):
 
 
 def find_image_files(search_dir: str) -> list[Path]:
-    d = Path(search_dir)
-    if not d.exists():
-        raise EmailSendError(f"폴더를 찾을 수 없습니다: {search_dir}")
-    files = [
-        p for p in sorted(d.iterdir())
-        if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-    ]
+    """list_output_images와 같지만, 이미지가 하나도 없으면 에러로 취급한다
+    (이메일 발송/zip 다운로드처럼 '뭔가 있어야' 의미 있는 동작에서 사용)."""
+    try:
+        files = list_output_images(search_dir)
+    except OutputFolderError as e:
+        raise EmailSendError(str(e)) from e
     if not files:
         raise EmailSendError(f"{search_dir}에서 이미지 파일을 찾지 못했습니다.")
     return files
