@@ -17,10 +17,12 @@ import json
 import os
 import queue
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.request
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,9 +31,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
 
-from email_sender import EmailSendError, send_output_images
+from email_sender import EmailSendError, OUTPUT_DIR, find_image_files, send_output_images
 
 BASE_DIR = Path(__file__).parent
 JOBS_DIR = BASE_DIR / "jobs"
@@ -430,6 +433,35 @@ async def send_email(request: Request):
     except EmailSendError as e:
         raise HTTPException(400, str(e))
     return result
+
+
+def build_output_zip() -> Path:
+    files = find_image_files(OUTPUT_DIR)
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp.close()
+    tmp_path = Path(tmp.name)
+    with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in files:
+            zf.write(f, arcname=f.name)
+    return tmp_path
+
+
+@app.get("/api/download-images")
+async def download_images():
+    # 압축은 시간이 걸릴 수 있으니 이벤트 루프를 막지 않게 스레드에서 처리하고,
+    # 임시로 만든 zip 파일은 응답이 끝난 뒤 백그라운드에서 지운다.
+    try:
+        zip_path = await asyncio.to_thread(build_output_zip)
+    except EmailSendError as e:
+        raise HTTPException(404, str(e))
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=f"nightshift_output_{timestamp}.zip",
+        background=BackgroundTask(lambda: zip_path.unlink(missing_ok=True)),
+    )
 
 
 app.mount("/", StaticFiles(directory=str(BASE_DIR / "static"), html=True), name="static")

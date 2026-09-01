@@ -543,6 +543,15 @@
       </div>
     </div>
   </div>
+
+  <div class="panel">
+    <div class="section-label">결과 이미지 ZIP 다운로드</div>
+    <div class="email-hint">서버에 쌓인 결과 이미지를 모두 zip으로 묶어 바로 다운로드합니다.</div>
+    <div>
+      <button class="submit-btn" id="zip-download-btn">ZIP으로 다운로드</button>
+      <div class="upload-error" id="zip-error"></div>
+    </div>
+  </div>
 </main>
 
 <div class="modal-overlay" id="workflow-modal" style="display:none;">
@@ -1034,6 +1043,39 @@ document.getElementById('email-send-btn').addEventListener('click', async () => 
 });
 
 loadEmailPrefs();
+
+document.getElementById('zip-download-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('zip-download-btn');
+  const errorEl = document.getElementById('zip-error');
+  errorEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = '압축하는 중…';
+  try{
+    const res = await fetch('/api/download-images');
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      errorEl.textContent = data.detail || '다운로드에 실패했어요.';
+      return;
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : 'nightshift_output.zip';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    errorEl.textContent = '다운로드에 실패했어요.';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'ZIP으로 다운로드';
+  }
+});
 
 fetchTemplates();
 fetchJobs();
