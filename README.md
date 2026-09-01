@@ -27,6 +27,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 - 서버가 재시작되어도 `jobs_state.json`에 저장된 이력은 유지됨 (단, 이미 시작된 상태로 큐에 남아있던 작업은 재실행되지 않고 `interrupted`로 표시됨. 아직 시작하지 않은 `pending` 작업은 그대로 남아 다시 배치를 시작할 수 있음)
 - "결과 이미지 이메일 전송" 패널에서 보내는 메일 계정/비밀번호/받는 메일 계정을 입력하면, 서버의 출력 폴더에 쌓인 이미지를 모아 용량 한도 안에서 여러 통으로 나눠 발송 (계정 정보는 저장하지 않고 그 요청 처리에만 사용)
 - "결과 이미지 ZIP 다운로드" 패널에서 버튼 하나로 출력 폴더의 이미지를 모두 zip으로 묶어 바로 다운로드
+- "결과 이미지 관리" 패널에서 가로형(hires-fix/USDU 등으로 만들어진 1536×704 비율) 이미지를 시계 방향으로 90도 돌려서 저장하거나, 출력 폴더의 이미지를 한 번에 삭제 (삭제는 되돌릴 수 없어 브라우저 확인창을 한 번 더 거침)
 
 ## 기술 스택
 
@@ -52,6 +53,7 @@ pip install -r requirements.txt
 - `fastapi`
 - `uvicorn[standard]`
 - `python-multipart` (파일 업로드 처리에 필요)
+- `Pillow` (가로형 이미지 자동 회전에 필요)
 
 ## 실행 방법
 
@@ -202,6 +204,8 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `DELETE` | `/api/jobs/{job_id}` | `pending`이거나 완료/실패/중단된 작업 삭제 (`queued`/`running`인 작업은 삭제 불가) |
 | `POST` | `/api/send-email` | 출력 폴더의 이미지를 모아 이메일로 발송 (요청 본문: `{"smtp_user", "smtp_password", "to_email", "max_mb"(선택, 기본 20)}`). 세 필수 필드 중 하나라도 비어 있으면 400, 폴더가 없거나 이미지가 없으면 400, SMTP 로그인/발송 실패도 400과 함께 원인 메시지 반환. 성공하면 `{"total_files", "total_batches", "batches": [...]}` 반환 |
 | `GET` | `/api/download-images` | 출력 폴더의 이미지를 모두 zip으로 묶어 다운로드 응답으로 반환 (`Content-Disposition: attachment`). 폴더가 없거나 이미지가 없으면 404 |
+| `DELETE` | `/api/output-images` | 출력 폴더의 이미지를 모두 삭제. 응답 `{"deleted": N}`. 폴더 자체가 없으면 404, 이미지가 0개면 `{"deleted": 0}` (에러 아님) |
+| `POST` | `/api/output-images/rotate-landscape` | 출력 폴더에서 가로형(1536×704와 같은 비율) 이미지를 찾아 시계 방향 90도로 회전해 같은 파일에 덮어씀. 응답 `{"total_checked", "rotated": [파일명...], "errors": [...]}`. 폴더 자체가 없으면 404 |
 
 ### 결과 이미지 이메일 전송 (`email_sender.py`)
 
@@ -213,12 +217,20 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 
 "결과 이미지 ZIP 다운로드" 버튼을 누르면 이메일 발송과 같은 `NIGHTSHIFT_OUTPUT_DIR` 폴더의 이미지들을 서버가 그 자리에서 zip으로 묶어 임시 파일로 만들고, 다운로드 응답으로 보낸 뒤 바로 지웁니다(디스크에 계속 남지 않음). 압축 자체는 스레드로 돌려 다른 API 요청을 막지 않습니다.
 
+### 결과 이미지 관리 (`output_images.py`)
+
+이메일 전송/zip 다운로드가 공유하는 출력 폴더 로직(`OUTPUT_DIR`, 이미지 목록 조회)을 `output_images.py`로 모아두고, 여기에 두 가지 관리 기능을 추가했습니다.
+
+- **가로형 이미지 자동 회전**: `LatentUpscaleBy`/USDU 등으로 hires-fix 2단계를 거치는 워크플로우는 1단계를 가로(`1536×704`)로 생성한 뒤 최종적으로 세로 이미지를 의도하는 경우가 있는데, 저장된 파일 자체는 가로로 남습니다. 이 버튼은 출력 폴더에서 가로/세로 비율이 `1536:704`(24:11, ±2% 오차 허용)와 같은 이미지를 찾아 — 원본이든 `LatentUpscaleBy`로 확대된 배수(예: 1.5배인 `2304×1056`)든 비율만 같으면 매칭됩니다 — PIL의 `ROTATE_270`으로 시계 방향 90도 회전시켜 같은 파일에 덮어씁니다(아래쪽 변이 왼쪽으로 오도록). 이미 회전된(세로) 이미지는 비율이 안 맞아 자동으로 건너뛰므로, 버튼을 여러 번 눌러도 이미 돌린 이미지를 또 돌리지 않습니다. 판정 기준 해상도나 오차 범위를 바꾸려면 `output_images.py`의 `LANDSCAPE_BASE_SIZE`/`LANDSCAPE_RATIO_TOLERANCE`를 조정하세요.
+- **이미지 전체 삭제**: 출력 폴더의 이미지 파일을 모두 지웁니다. 되돌릴 수 없는 작업이라 프론트엔드에서 브라우저 확인창(`confirm`)을 한 번 더 거친 뒤에만 요청을 보냅니다.
+
 ## 동작 방식 / 디렉터리 구조
 
 ```
 nightshift/
 ├── app.py                    # FastAPI 서버 + 큐 워커
 ├── email_sender.py           # 결과 이미지 이메일 발송 로직
+├── output_images.py          # 출력 폴더 공용 로직 (목록 조회/삭제/가로형 이미지 회전)
 ├── requirements.txt
 ├── static/
 │   └── index.html            # 프론트엔드 (단일 HTML 파일)

@@ -191,6 +191,25 @@
   .email-hint{ font-size:12.5px; color:var(--text-dim); margin:-4px 0 12px; }
   input.email-input{ max-width:320px; }
   .email-result{ color:var(--done); font-size:12.5px; font-family:var(--mono); min-height:1em; }
+  .output-actions{ display:flex; gap:28px; flex-wrap:wrap; }
+  .danger-btn{
+    align-self:flex-start;
+    background:var(--failed);
+    color:#fff;
+    border:none;
+    border-radius:8px;
+    padding:10px 22px;
+    font-family:var(--mono);
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .danger-btn:hover{ background:#B91C1C; }
+  .danger-btn:disabled{
+    background:var(--border);
+    color:var(--text-dim);
+    cursor:not-allowed;
+  }
 
   .section-label{
     font-family:var(--mono);
@@ -550,6 +569,23 @@
     <div>
       <button class="submit-btn" id="zip-download-btn">ZIP으로 다운로드</button>
       <div class="upload-error" id="zip-error"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="section-label">결과 이미지 관리</div>
+    <div class="email-hint">가로로 생성된 이미지(hires-fix/USDU 등, 1536×704와 같은 비율)를 시계 방향으로 90도 돌려서 저장하거나, 서버에 쌓인 이미지를 한 번에 정리합니다.</div>
+    <div class="output-actions">
+      <div>
+        <button class="submit-btn" id="rotate-btn">가로형 이미지 자동 회전</button>
+        <div class="upload-error" id="rotate-error"></div>
+        <div class="email-result" id="rotate-result"></div>
+      </div>
+      <div>
+        <button class="danger-btn" id="delete-images-btn">이미지 전체 삭제</button>
+        <div class="upload-error" id="delete-error"></div>
+        <div class="email-result" id="delete-result"></div>
+      </div>
     </div>
   </div>
 </main>
@@ -1074,6 +1110,59 @@ document.getElementById('zip-download-btn').addEventListener('click', async () =
   }finally{
     btn.disabled = false;
     btn.textContent = 'ZIP으로 다운로드';
+  }
+});
+
+document.getElementById('rotate-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('rotate-btn');
+  const errorEl = document.getElementById('rotate-error');
+  const resultEl = document.getElementById('rotate-result');
+  errorEl.textContent = '';
+  resultEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = '회전하는 중…';
+  try{
+    const res = await fetch('/api/output-images/rotate-landscape', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok){
+      errorEl.textContent = data.detail || '회전에 실패했어요.';
+      return;
+    }
+    resultEl.textContent = `총 ${data.total_checked}개 중 ${data.rotated.length}개 회전 완료`;
+  }catch(e){
+    errorEl.textContent = '회전에 실패했어요.';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '가로형 이미지 자동 회전';
+  }
+});
+
+document.getElementById('delete-images-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('delete-images-btn');
+  const errorEl = document.getElementById('delete-error');
+  const resultEl = document.getElementById('delete-result');
+  errorEl.textContent = '';
+  resultEl.textContent = '';
+
+  if(!confirm('서버에 쌓인 결과 이미지를 모두 삭제할까요? 되돌릴 수 없어요.')){
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '삭제하는 중…';
+  try{
+    const res = await fetch('/api/output-images', { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok){
+      errorEl.textContent = data.detail || '삭제에 실패했어요.';
+      return;
+    }
+    resultEl.textContent = `이미지 ${data.deleted}개 삭제 완료`;
+  }catch(e){
+    errorEl.textContent = '삭제에 실패했어요.';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '이미지 전체 삭제';
   }
 });
 
