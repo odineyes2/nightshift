@@ -34,7 +34,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
 
-from email_sender import EmailSendError, OUTPUT_DIR, find_image_files, send_output_images
+from email_sender import EmailSendError, find_image_files, send_output_images
+from output_images import (
+    OUTPUT_DIR,
+    OutputFolderError,
+    delete_output_images,
+    rotate_landscape_images,
+)
 
 BASE_DIR = Path(__file__).parent
 JOBS_DIR = BASE_DIR / "jobs"
@@ -462,6 +468,25 @@ async def download_images():
         filename=f"nightshift_output_{timestamp}.zip",
         background=BackgroundTask(lambda: zip_path.unlink(missing_ok=True)),
     )
+
+
+@app.delete("/api/output-images")
+async def delete_images():
+    # 되돌릴 수 없는 삭제라서, 확인 절차는 프론트엔드(버튼 클릭 시 confirm 창)가 맡는다.
+    try:
+        deleted = await asyncio.to_thread(delete_output_images, OUTPUT_DIR)
+    except OutputFolderError as e:
+        raise HTTPException(404, str(e))
+    return {"deleted": deleted}
+
+
+@app.post("/api/output-images/rotate-landscape")
+async def rotate_images():
+    try:
+        result = await asyncio.to_thread(rotate_landscape_images, OUTPUT_DIR)
+    except OutputFolderError as e:
+        raise HTTPException(404, str(e))
+    return result
 
 
 app.mount("/", StaticFiles(directory=str(BASE_DIR / "static"), html=True), name="static")
