@@ -41,6 +41,7 @@ from output_images import (
     delete_output_images,
     rotate_landscape_images,
 )
+from pose_assets import PoseAssetError, list_pose_sets, validate_pose_set
 
 BASE_DIR = Path(__file__).parent
 JOBS_DIR = BASE_DIR / "jobs"
@@ -192,15 +193,41 @@ async def comfy_status():
     return {"url": url, "connected": connected}
 
 
+@app.get("/api/assets")
+def list_assets():
+    # 업로드 폼의 "포즈 세트" 드롭다운을 채우는 용도. 매 호출마다 폴더를 다시 스캔해서
+    # 방금 새로 올려둔 세트도 바로 반영되게 한다.
+    return {"pose_sets": list_pose_sets()}
+
+
 def coerce_option(option: dict, raw: str | None):
     if raw is None or raw == "":
         raw = option.get("default")
-    if option.get("type") == "number":
+    opt_type = option.get("type")
+
+    if opt_type == "number":
         try:
             num = float(raw)
         except (TypeError, ValueError):
             raise HTTPException(400, f"'{option['label']}' 값이 올바른 숫자가 아니에요.")
         return int(num) if num.is_integer() else num
+
+    if opt_type == "select":
+        choices = option.get("choices") or []
+        if raw not in choices:
+            raise HTTPException(400, f"'{option['label']}' 값은 {choices} 중 하나여야 해요.")
+        return raw
+
+    if opt_type == "asset_folder":
+        # 잡을 큐에 올리는 시점(업로드 시)에 포즈 세트 폴더가 실제로 있고 이미지가
+        # 있는지 미리 확인해서, 큐 시작 이후에야 실패하는 일이 없게 한다.
+        value = "" if raw is None else str(raw)
+        try:
+            validate_pose_set(value)
+        except PoseAssetError as e:
+            raise HTTPException(400, str(e))
+        return value
+
     return "" if raw is None else str(raw)
 
 
