@@ -16,5 +16,16 @@
     "options": [
       { "name": "seeds_per_case", "label": "케이스당 시드 개수", "type": "number", "default": 10 }
     ]
+  },
+  {
+    "id": "pose_batch",
+    "label": "포즈 참조 배치",
+    "script_filename": "pose_batch.py",
+    "requires_csv": false,
+    "options": [
+      { "name": "pose_count", "label": "생성 개수", "type": "number", "default": 10 },
+      { "name": "pose_set", "label": "포즈 세트", "type": "asset_folder", "default": "" },
+      { "name": "pose_mode", "label": "선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" }
+    ]
   }
 ]

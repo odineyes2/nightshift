@@ -126,7 +126,8 @@
     gap:16px;
   }
   select#template-select,
-  input.option-input{
+  input.option-input,
+  select.option-input{
     background:var(--panel);
     color:var(--text);
     border:1px solid var(--border);
@@ -137,8 +138,10 @@
     cursor:pointer;
   }
   input.option-input{ cursor:text; max-width:220px; }
+  select.option-input{ max-width:280px; }
   select#template-select:focus,
-  input.option-input:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
+  input.option-input:focus,
+  select.option-input:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
   .slot{
     border:1px dashed var(--border);
     background:var(--bg);
@@ -808,6 +811,61 @@ const optionsFields = document.getElementById('options-fields');
 const csvField = document.getElementById('csv-field');
 const uploadError = document.getElementById('upload-error');
 
+let poseSets = [];  // /api/assets 캐시 — asset_folder 타입 옵션(포즈 세트) 드롭다운에 씀
+
+async function fetchAssets(){
+  try{
+    const res = await fetch('/api/assets');
+    const data = await res.json();
+    poseSets = data.pose_sets || [];
+  }catch(e){
+    poseSets = [];
+  }
+}
+
+function buildSelectControl(opt){
+  const select = document.createElement('select');
+  select.className = 'option-input';
+  select.dataset.name = opt.name;
+
+  const choices = opt.type === 'asset_folder'
+    ? poseSets.map(ps => ({ value: ps.name, label: `${ps.name} (${ps.count}장)`, disabled: ps.count === 0 }))
+    : (opt.choices || []).map(c => ({ value: c, label: c, disabled: false }));
+
+  if(choices.length === 0){
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = opt.type === 'asset_folder' ? '(사용 가능한 포즈 세트 없음)' : '(선택지 없음)';
+    select.appendChild(empty);
+    select.disabled = true;
+    return select;
+  }
+
+  for(const c of choices){
+    const o = document.createElement('option');
+    o.value = c.value;
+    o.textContent = c.label;
+    o.disabled = c.disabled;
+    select.appendChild(o);
+  }
+  if(opt.default !== undefined && opt.default !== null && opt.default !== ''){
+    select.value = opt.default;
+  }
+  return select;
+}
+
+function buildOptionControl(opt){
+  if(opt.type === 'select' || opt.type === 'asset_folder'){
+    return buildSelectControl(opt);
+  }
+  const input = document.createElement('input');
+  input.className = 'option-input';
+  input.type = opt.type === 'number' ? 'number' : 'text';
+  input.dataset.name = opt.name;
+  if(opt.default !== undefined && opt.default !== null) input.value = opt.default;
+  return input;
+}
+
 function renderOptionFields(template){
   optionsFields.innerHTML = '';
   for(const opt of (template ? template.options || [] : [])){
@@ -818,21 +876,19 @@ function renderOptionFields(template){
     label.className = 'field-label';
     label.textContent = opt.label;
 
-    const input = document.createElement('input');
-    input.className = 'option-input';
-    input.type = opt.type === 'number' ? 'number' : 'text';
-    input.dataset.name = opt.name;
-    if(opt.default !== undefined && opt.default !== null) input.value = opt.default;
-
     field.appendChild(label);
-    field.appendChild(input);
+    field.appendChild(buildOptionControl(opt));
     optionsFields.appendChild(field);
   }
 }
 
-function onTemplateChange(){
+async function onTemplateChange(){
   const template = templatesById[templateSelect.value];
   csvField.style.display = (template && template.requires_csv) ? '' : 'none';
+  // asset_folder 옵션이 있는 템플릿을 고를 때마다 목록을 새로 받아와서, 방금
+  // 서버에 새로 올려둔 포즈 세트도 페이지를 새로고침하지 않고 바로 반영되게 한다.
+  const needsAssets = template && (template.options || []).some(o => o.type === 'asset_folder');
+  if(needsAssets) await fetchAssets();
   renderOptionFields(template);
   uploadError.textContent = '';
 }
@@ -849,7 +905,7 @@ async function fetchTemplates(){
     opt.textContent = t.label;
     templateSelect.appendChild(opt);
   }
-  onTemplateChange();
+  await onTemplateChange();
 }
 
 templateSelect.addEventListener('change', onTemplateChange);
@@ -866,6 +922,14 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   if(template && template.requires_csv && !selectedFiles.csv){
     uploadError.textContent = '이 템플릿은 csv 파일이 필요해요.';
     return;
+  }
+  for(const opt of (template ? template.options || [] : [])){
+    if(opt.type !== 'asset_folder') continue;
+    const select = optionsFields.querySelector(`[data-name="${opt.name}"]`);
+    if(!select || !select.value){
+      uploadError.textContent = `'${opt.label}'을 선택하세요 (사용 가능한 포즈 세트가 없으면 서버에 먼저 이미지를 올려두세요).`;
+      return;
+    }
   }
 
   const form = new FormData();

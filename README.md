@@ -11,7 +11,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 
 - `templates/manifest.json`에 등록된 스크립트 템플릿을 웹 UI 드롭다운에서 선택해 작업 등록
   (매번 `.py`를 업로드할 필요 없이, 정해진 실행 로직을 재사용)
-- 템플릿마다 정의된 옵션(숫자/텍스트)을 선택 즉시 입력 폼으로 보여주고, 기본값을 미리 채워줌
+- 템플릿마다 정의된 옵션(숫자/텍스트/드롭다운/포즈 세트 선택)을 선택 즉시 입력 폼으로 보여주고, 기본값을 미리 채워줌
 - 템플릿마다 워크플로우(`.json`, 항상 필수)와 CSV(템플릿이 요구하는 경우에만 필수)를 첨부
 - **업로드해도 바로 실행되지 않음** — "대기중" 상태로 목록에 쌓이기만 하고, 개별 작업이 아니라 **"작업 목록" 패널의
   "▷ 대기중 작업 시작" 버튼**을 눌러야 그 시점에 대기 중인 작업 전체가 한꺼번에 실행 큐에 들어감 (몇 개를 올려두든
@@ -28,6 +28,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 - "결과 이미지 이메일 전송" 패널에서 보내는 메일 계정/비밀번호/받는 메일 계정을 입력하면, 서버의 출력 폴더에 쌓인 이미지를 모아 용량 한도 안에서 여러 통으로 나눠 발송 (계정 정보는 저장하지 않고 그 요청 처리에만 사용)
 - "결과 이미지 ZIP 다운로드" 패널에서 버튼 하나로 출력 폴더의 이미지를 모두 zip으로 묶어 바로 다운로드
 - "결과 이미지 관리" 패널에서 가로형(hires-fix/USDU 등으로 만들어진 1536×704 비율) 이미지를 시계 방향으로 90도 돌려서 저장하거나, 출력 폴더의 이미지를 한 번에 삭제 (삭제는 되돌릴 수 없어 브라우저 확인창을 한 번 더 거침)
+- `pose_batch` 템플릿 — ControlNet(OpenPose 등)에 쓸 포즈 레퍼런스 이미지를 서버에 미리 쌓아둔 폴더(포즈 세트)에서 순차/랜덤으로 뽑아 LoadImage 노드에 주입하면서 배치 생성. 업로드 폼의 "포즈 세트" 드롭다운은 서버가 스캔한 폴더 목록에서 고르게 되어 있어 오타/빈 폴더로 인한 실패를 업로드 시점에 막음
 
 ## 기술 스택
 
@@ -125,8 +126,9 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
 |---|---|
 | `name` | 옵션 이름. 폼 필드명이자, 대문자로 변환되어 스크립트에 환경변수로 전달됨 (예: `seed_count` → `SEED_COUNT`) |
 | `label` | 입력 필드 위에 표시될 사람이 읽는 이름 |
-| `type` | `"number"` 또는 `"text"` (현재 지원하는 타입은 이 두 가지) |
+| `type` | `"number"`/`"text"`(직접 입력), `"select"`(고정 드롭다운, `choices` 필요), `"asset_folder"`(포즈 세트 드롭다운 — 아래 참고) |
 | `default` | 입력 필드에 미리 채워지는 기본값. 폼에서 값이 비어 있으면 서버가 이 기본값으로 대체함 |
+| `choices` | `type`이 `"select"`일 때만 사용 — 드롭다운에 나열할 문자열 배열. 서버는 이 목록에 없는 값을 400으로 거부함 |
 
 현재 등록된 템플릿:
 
@@ -136,21 +138,48 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
   - 프롬프트 노드가 여러 개일 수 있으므로, 컬럼 이름과 제목이 정확히 일치하는 노드를 못 찾으면 다른 CLIPTextEncode로 대체 주입하지 않고 건너뜁니다(엉뚱한 노드를 덮어쓰는 사고 방지). 워크플로우의 실제 노드 제목이 다르면 스크립트 상단의 `PROMPT_FIELD_TITLES`를 맞춰서 조정하세요.
   - EmptyLatentImage 노드도 여러 개일 수 있습니다(해상도 프리셋을 바꿔가며 테스트하다 보면 배선 안 된 노드가 남기 쉬움). `LATENT_NODE_TITLE`로 제목 매칭이 안 되면, 아무 EmptyLatentImage나 고르지 않고 실제로 다른 노드의 입력에 연결돼 있는(=워크플로우 실행에 쓰이는) 노드를 우선으로 고릅니다.
   - 컬럼 형식을 그대로 보여주는 샘플 파일이 `templates/csv_batch.sample.csv`에 있습니다. CSV 배치 작업을 등록할 때 이 파일을 복사해서 값만 바꾸면 됩니다.
+- **`pose_batch`** (`templates/pose_batch.py`) — ControlNet(OpenPose 등)에 쓸 포즈 레퍼런스 이미지를 서버에 미리 쌓아둔 폴더에서 순차/랜덤으로 뽑아 LoadImage 노드에 주입하면서, 워크플로우 하나를 `pose_count`번 반복 실행합니다. 자세한 내용은 아래 "포즈 참조 배치" 절 참고.
 
-두 템플릿 모두 ComfyUI workflow API를 호출하는 best-effort 구현입니다. 실제 ComfyUI 워크플로우의 노드 제목/구조에 맞춰 `SEED_NODE_TITLE`/`LATENT_NODE_TITLE`/`SAVE_NODE_TITLE` 등 환경변수나 노드 매칭 로직을 조정해야 할 수 있습니다. 자세한 사용법은 각 스크립트 상단 docstring을 참고하세요.
+두 CSV/시드 템플릿 모두 ComfyUI workflow API를 호출하는 best-effort 구현입니다. 실제 ComfyUI 워크플로우의 노드 제목/구조에 맞춰 `SEED_NODE_TITLE`/`LATENT_NODE_TITLE`/`SAVE_NODE_TITLE` 등 환경변수나 노드 매칭 로직을 조정해야 할 수 있습니다. 자세한 사용법은 각 스크립트 상단 docstring을 참고하세요.
 
 #### 결과물(이미지) 파일명 규칙
 
-두 템플릿 모두 매 제출마다 SaveImage류 노드(`SAVE_NODE_TITLE`로 찾음)의 `filename_prefix`를 아래처럼 채운 뒤 ComfyUI에 넘깁니다. ComfyUI가 실제 저장할 때 여기에 자기 카운터(`_00001_` 등)와 확장자를 붙이므로, **파일명만 보고도 몇 번째 시도였는지와 어떤 시드로 생성됐는지 바로 알 수 있습니다.**
+템플릿마다 매 제출마다 SaveImage류 노드(`SAVE_NODE_TITLE`로 찾음)의 `filename_prefix`를 아래처럼 채운 뒤 ComfyUI에 넘깁니다. ComfyUI가 실제 저장할 때 여기에 자기 카운터(`_00001_` 등)와 확장자를 붙이므로, **파일명만 보고도 몇 번째 시도였는지, 어떤 시드로 생성됐는지, (`pose_batch`라면) 어떤 포즈를 썼는지 바로 알 수 있습니다.**
 
 | 템플릿 | `filename_prefix` 형식 | 예시 (실제 저장 파일명) |
 |---|---|---|
 | `seed_batch` | `seed_batch_<순번>_seed<시드값>` | `seed_batch_3_seed482913_00001_.png` |
 | `csv_batch` | `<title(안전한 문자로 치환, 없으면 batch_<순번>)>_seed<시드값>` | `고양이_seed482913_00001_.png` |
+| `pose_batch` | `pose_batch_<순번>_seed<시드값>_<포즈 파일명(확장자 제외)>` | `pose_batch_3_seed482913_standing_01_00001_.png` |
 
 `title` 컬럼이 없거나 비어 있으면 `csv_batch`는 `batch_<순번>_seed<시드값>`으로 대체합니다. 이 규칙을 바꾸고 싶다면 각 스크립트의 `apply_filename_prefix()`를 수정하세요.
 
 새 템플릿을 추가하려면 `templates/`에 스크립트를 넣고 `manifest.json`에 항목을 추가하면 됩니다(서버 재시작 불필요 — `/api/templates`가 매 요청마다 파일을 다시 읽습니다).
+
+### 포즈 참조 배치 (`pose_batch`, `pose_assets.py`)
+
+ControlNet(OpenPose 등)으로 포즈를 고정한 채 배치 생성할 때, 매번 다른 포즈 레퍼런스 이미지를 워크플로우의 LoadImage 노드에 넣어가며 반복 실행하는 템플릿입니다.
+
+**포즈 레퍼런스 폴더 구조**: `NIGHTSHIFT_POSES_DIR`(기본 `/workspace/dataset/poses`) 아래에 포즈 세트별로 하위 폴더를 두고, 그 안에 png/jpg/jpeg/webp 이미지를 쌓아두면 됩니다.
+
+```
+/workspace/dataset/poses/
+├── casual_standing/
+│   ├── pose_01.png
+│   └── pose_02.png
+└── action_pose/
+    └── pose_01.png
+```
+
+업로드 폼의 "포즈 세트" 드롭다운은 `GET /api/assets`가 스캔한 이 하위 폴더 목록(및 각 폴더의 이미지 개수)을 그대로 보여주고, 이미지가 0장인 폴더는 드롭다운에서 선택할 수 없게 비활성화됩니다. 그래도 만약(다른 방식으로) 빈 폴더나 존재하지 않는 폴더가 선택되면, 업로드 시점(`POST /api/upload`)에 `pose_assets.validate_pose_set()`이 막아서 잡이 시작된 뒤에야 실패하는 일이 없게 합니다.
+
+**선택 방식(`pose_mode`)**: `sequential`(파일명 정렬 순서대로 순환, 개수를 넘기면 처음부터 다시)과 `random`(폴더가 다 소진될 때까지 중복 없이 뽑고 그 다음에 다시 섞어서 리셋 — 완전 무작위보다 다양성이 보장됨) 중 선택합니다. 이 선택 로직은 전부 `templates/pose_batch.py` 안에 있고, `app.py`는 어떤 포즈 세트/방식을 쓸지 다른 옵션과 똑같이 `POSE_SET`/`POSE_MODE` 환경변수로 전달만 합니다.
+
+**ComfyUI로의 이미지 주입 방식**: LoadImage 노드가 참조하는 파일은 ComfyUI 자신의 input 폴더에 있어야 합니다. nightshift와 ComfyUI가 파일시스템을 공유한다는 보장이 없으므로(다른 컨테이너/파드로 분리될 수 있음), 파일을 직접 복사하지 않고 매번 ComfyUI의 `POST /upload/image` API로 업로드한 뒤 응답으로 받은 파일명을 LoadImage 노드의 `image` 입력에 넣습니다. 이미지마다 HTTP 업로드가 한 번씩 더 들어가 느리지만, 파일시스템 공유 여부와 무관하게 항상 동작합니다. 어느 노드에 주입할지는 다른 템플릿과 동일하게 `_meta.title`로 찾습니다(`POSE_NODE_TITLE`, 기본 `"Load"`) — 일치하는 제목이 없으면 워크플로우에 LoadImage 노드가 하나뿐일 때 그 노드를 대신 씁니다.
+
+**재현성 기록**: 매 반복마다 어떤 포즈 이미지를 썼는지 로그와 `filename_prefix`에 남기는 것 외에, `NIGHTSHIFT_OUTPUT_DIR`에 `pose_batch_manifest.jsonl`을 이어쓰기(append)로도 남깁니다. 한 줄마다 `{timestamp, job_id, index, pose_set, pose_file, seed, prompt_id}`를 기록해서, 나중에 "이 컷이 왜 이렇게 나왔는지" 추적할 수 있습니다.
+
+기존 템플릿(`seed_batch`/`csv_batch`)과 매니페스트는 이 기능과 무관하게 그대로 동작합니다 — `pose_batch`는 옵션이 켜진(=이 템플릿을 선택한) 경우에만 활성화되는 별도 템플릿입니다.
 
 ### 워크플로우 JSON / CSV / 옵션과 스크립트 연동
 
@@ -192,6 +221,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 |---|---|---|
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
 | `GET` | `/api/comfy-status` | 감지된 ComfyUI 주소(`url`)와 연결 가능 여부(`connected`)를 조회. 매 호출마다 실시간으로 재확인함 |
+| `GET` | `/api/assets` | `NIGHTSHIFT_POSES_DIR` 아래의 포즈 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"pose_sets": [{"name", "count"}, ...]}`로 반환. 업로드 폼의 "포즈 세트" 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함 |
 | `POST` | `/api/upload` | 작업을 `pending`(대기중) 상태로 등록만 함 — 아직 실행 큐에 들어가지 않음 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨) |
 | `POST` | `/api/queue/start` | 그 시점에 `pending`인 작업 **전체**를 대기 등록 순서대로 실행 큐에 넣음 (상태를 `queued`로 일괄 전환). 응답으로 `{"started": N}`(실제로 시작된 개수)을 반환하며, 대기 중인 작업이 없으면 `N`은 0 |
 | `GET` | `/api/jobs` | 전체 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수 조회 |
@@ -224,6 +254,8 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 - **가로형 이미지 자동 회전**: `LatentUpscaleBy`/USDU 등으로 hires-fix 2단계를 거치는 워크플로우는 1단계를 가로(`1536×704`)로 생성한 뒤 최종적으로 세로 이미지를 의도하는 경우가 있는데, 저장된 파일 자체는 가로로 남습니다. 이 버튼은 출력 폴더에서 가로/세로 비율이 `1536:704`(24:11, ±2% 오차 허용)와 같은 이미지를 찾아 — 원본이든 `LatentUpscaleBy`로 확대된 배수(예: 1.5배인 `2304×1056`)든 비율만 같으면 매칭됩니다 — PIL의 `ROTATE_270`으로 시계 방향 90도 회전시켜 같은 파일에 덮어씁니다(아래쪽 변이 왼쪽으로 오도록). 이미 회전된(세로) 이미지는 비율이 안 맞아 자동으로 건너뛰므로, 버튼을 여러 번 눌러도 이미 돌린 이미지를 또 돌리지 않습니다. 판정 기준 해상도나 오차 범위를 바꾸려면 `output_images.py`의 `LANDSCAPE_BASE_SIZE`/`LANDSCAPE_RATIO_TOLERANCE`를 조정하세요.
 - **이미지 전체 삭제**: 출력 폴더의 이미지 파일을 모두 지웁니다. 되돌릴 수 없는 작업이라 프론트엔드에서 브라우저 확인창(`confirm`)을 한 번 더 거친 뒤에만 요청을 보냅니다.
 
+포즈 참조 배치 기능(`pose_assets.py`, `templates/pose_batch.py`)은 위 "포즈 참조 배치" 절 참고.
+
 ## 동작 방식 / 디렉터리 구조
 
 ```
@@ -231,6 +263,7 @@ nightshift/
 ├── app.py                    # FastAPI 서버 + 큐 워커
 ├── email_sender.py           # 결과 이미지 이메일 발송 로직
 ├── output_images.py          # 출력 폴더 공용 로직 (목록 조회/삭제/가로형 이미지 회전)
+├── pose_assets.py             # 포즈 세트 폴더 스캔/업로드 시점 검증 로직
 ├── requirements.txt
 ├── static/
 │   └── index.html            # 프론트엔드 (단일 HTML 파일)
@@ -238,7 +271,8 @@ nightshift/
 │   ├── manifest.json         # 등록된 스크립트 템플릿 목록 (옵션 스키마 포함)
 │   ├── seed_batch.py         # 템플릿 스크립트
 │   ├── csv_batch.py          # 템플릿 스크립트 (필요에 따라 계속 추가)
-│   └── csv_batch.sample.csv  # csv_batch용 샘플 CSV
+│   ├── csv_batch.sample.csv  # csv_batch용 샘플 CSV
+│   └── pose_batch.py         # 템플릿 스크립트 (포즈 레퍼런스 순차/랜덤 주입)
 ├── jobs/                      # 업로드된 워크플로우/CSV가 저장되는 곳 (자동 생성)
 ├── logs/                      # 작업별 실행 로그 (자동 생성)
 └── jobs_state.json            # 작업 이력 저장 파일 (자동 생성)
