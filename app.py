@@ -41,7 +41,13 @@ from output_images import (
     delete_output_images,
     rotate_landscape_images,
 )
-from pose_assets import PoseAssetError, list_pose_sets, validate_pose_set
+from pose_assets import (
+    PoseAssetError,
+    PoseReferenceError,
+    list_pose_sets,
+    resolve_pose_reference,
+    validate_pose_set,
+)
 
 BASE_DIR = Path(__file__).parent
 JOBS_DIR = BASE_DIR / "jobs"
@@ -231,6 +237,31 @@ def coerce_option(option: dict, raw: str | None):
     return "" if raw is None else str(raw)
 
 
+def validate_pose_csv_rows(csv_bytes: bytes):
+    # pose_csv_batch 전용 업로드 시점 검증: CSV의 모든 행을 미리 훑어 pose 컬럼
+    # 값이 실제로 해석 가능한지(resolve_pose_reference) 확인한다. 스크립트가
+    # 실행되다가 특정 행에서야 실패하는 일이 없도록, 한 행이라도 문제가 있으면
+    # 업로드 자체를 거부한다.
+    try:
+        text = csv_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "CSV가 유효한 UTF-8 텍스트가 아니에요.")
+
+    rows = list(csv.DictReader(io.StringIO(text)))
+    errors = []
+    for line_no, row in enumerate(rows, start=2):  # 헤더가 1번 줄
+        pose = (row.get("pose") or "").strip()
+        if not pose:
+            continue
+        try:
+            resolve_pose_reference(pose)
+        except PoseReferenceError as e:
+            errors.append(f"{line_no}번째 줄(pose='{pose}'): {e}")
+
+    if errors:
+        raise HTTPException(400, "CSV의 pose 컬럼을 확인하세요.\n" + "\n".join(errors))
+
+
 @app.post("/api/upload")
 async def upload(request: Request):
     form = await request.form()
@@ -251,6 +282,12 @@ async def upload(request: Request):
     if requires_csv and (not isinstance(csv_file, UploadFile) or not csv_file.filename or not csv_file.filename.endswith(".csv")):
         raise HTTPException(400, "이 템플릿은 csv 파일이 필요해요.")
 
+    # UploadFile은 한 번만 읽을 수 있으므로, 검증에도 쓰고 저장에도 쓸 수 있게
+    # 여기서 미리 한 번만 읽어둔다.
+    csv_bytes = await csv_file.read() if requires_csv else None
+    if template_id == "pose_csv_batch" and csv_bytes is not None:
+        validate_pose_csv_rows(csv_bytes)
+
     options = {}
     for option in template.get("options", []):
         raw = form.get(option["name"])
@@ -265,7 +302,7 @@ async def upload(request: Request):
     csv_original_name = None
     if requires_csv:
         csv_dest_name = f"{job_id}_{csv_file.filename}"
-        (JOBS_DIR / csv_dest_name).write_bytes(await csv_file.read())
+        (JOBS_DIR / csv_dest_name).write_bytes(csv_bytes)
         csv_original_name = csv_file.filename
 
     with lock:
