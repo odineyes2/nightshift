@@ -27,5 +27,14 @@
       { "name": "pose_set", "label": "포즈 세트", "type": "asset_folder", "default": "" },
       { "name": "pose_mode", "label": "선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" }
     ]
+  },
+  {
+    "id": "pose_csv_batch",
+    "label": "CSV + 포즈 배치",
+    "script_filename": "pose_csv_batch.py",
+    "requires_csv": true,
+    "options": [
+      { "name": "pose_mode", "label": "세트 선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" }
+    ]
   }
 ]
