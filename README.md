@@ -139,8 +139,9 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
   - EmptyLatentImage 노드도 여러 개일 수 있습니다(해상도 프리셋을 바꿔가며 테스트하다 보면 배선 안 된 노드가 남기 쉬움). `LATENT_NODE_TITLE`로 제목 매칭이 안 되면, 아무 EmptyLatentImage나 고르지 않고 실제로 다른 노드의 입력에 연결돼 있는(=워크플로우 실행에 쓰이는) 노드를 우선으로 고릅니다.
   - 컬럼 형식을 그대로 보여주는 샘플 파일이 `templates/csv_batch.sample.csv`에 있습니다. CSV 배치 작업을 등록할 때 이 파일을 복사해서 값만 바꾸면 됩니다.
 - **`pose_batch`** (`templates/pose_batch.py`) — ControlNet(OpenPose 등)에 쓸 포즈 레퍼런스 이미지를 서버에 미리 쌓아둔 폴더에서 순차/랜덤으로 뽑아 LoadImage 노드에 주입하면서, 워크플로우 하나를 `pose_count`번 반복 실행합니다. 자세한 내용은 아래 "포즈 참조 배치" 절 참고.
+- **`pose_csv_batch`** (`templates/pose_csv_batch.py`) — `csv_batch`의 CSV 기반 배치(프롬프트/시드/해상도/batch_no)에 `pose_batch`의 포즈 레퍼런스 주입을 결합한 템플릿입니다. CSV의 `pose` 컬럼으로 행마다 포즈 레퍼런스를 지정하고, 비어 있으면 그 행은 ControlNet 없이 생성합니다. 자세한 내용은 아래 "CSV + 포즈 배치" 절 참고.
 
-두 CSV/시드 템플릿 모두 ComfyUI workflow API를 호출하는 best-effort 구현입니다. 실제 ComfyUI 워크플로우의 노드 제목/구조에 맞춰 `SEED_NODE_TITLE`/`LATENT_NODE_TITLE`/`SAVE_NODE_TITLE` 등 환경변수나 노드 매칭 로직을 조정해야 할 수 있습니다. 자세한 사용법은 각 스크립트 상단 docstring을 참고하세요.
+모든 CSV/시드 템플릿은 ComfyUI workflow API를 호출하는 best-effort 구현입니다. 실제 ComfyUI 워크플로우의 노드 제목/구조에 맞춰 `SEED_NODE_TITLE`/`LATENT_NODE_TITLE`/`SAVE_NODE_TITLE` 등 환경변수나 노드 매칭 로직을 조정해야 할 수 있습니다. 자세한 사용법은 각 스크립트 상단 docstring을 참고하세요.
 
 #### 결과물(이미지) 파일명 규칙
 
@@ -151,6 +152,7 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
 | `seed_batch` | `seed_batch_<순번>_seed<시드값>` | `seed_batch_3_seed482913_00001_.png` |
 | `csv_batch` | `<title(안전한 문자로 치환, 없으면 batch_<순번>)>_seed<시드값>` | `고양이_seed482913_00001_.png` |
 | `pose_batch` | `pose_batch_<순번>_seed<시드값>_<포즈 파일명(확장자 제외)>` | `pose_batch_3_seed482913_standing_01_00001_.png` |
+| `pose_csv_batch` | `<title(안전한 문자로 치환, 없으면 batch_<순번>)>_seed<시드값>[_<포즈 파일명(확장자 제외)>]` | `고양이_seed482913_standing_01_00001_.png` (pose가 비어 있으면 포즈 부분 생략) |
 
 `title` 컬럼이 없거나 비어 있으면 `csv_batch`는 `batch_<순번>_seed<시드값>`으로 대체합니다. 이 규칙을 바꾸고 싶다면 각 스크립트의 `apply_filename_prefix()`를 수정하세요.
 
@@ -180,6 +182,23 @@ ControlNet(OpenPose 등)으로 포즈를 고정한 채 배치 생성할 때, 매
 **재현성 기록**: 매 반복마다 어떤 포즈 이미지를 썼는지 로그와 `filename_prefix`에 남기는 것 외에, `NIGHTSHIFT_OUTPUT_DIR`에 `pose_batch_manifest.jsonl`을 이어쓰기(append)로도 남깁니다. 한 줄마다 `{timestamp, job_id, index, pose_set, pose_file, seed, prompt_id}`를 기록해서, 나중에 "이 컷이 왜 이렇게 나왔는지" 추적할 수 있습니다.
 
 기존 템플릿(`seed_batch`/`csv_batch`)과 매니페스트는 이 기능과 무관하게 그대로 동작합니다 — `pose_batch`는 옵션이 켜진(=이 템플릿을 선택한) 경우에만 활성화되는 별도 템플릿입니다.
+
+### CSV + 포즈 배치 (`pose_csv_batch`)
+
+`csv_batch`의 CSV 컬럼(`title`/`trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`/`prompt`/`seed`/`batch_no`/`width`/`height`/`resolution`)을 그대로 지원하는 위에, `pose` 컬럼으로 행마다 ControlNet 포즈 레퍼런스를 지정합니다. `csv_batch`와 달리 "케이스당 시드 개수" 개념이 없습니다 — CSV 행 하나가 곧 반복 한 번입니다(옵션은 `pose_mode`뿐).
+
+**`pose` 컬럼 값 해석 규칙**(우선순위 순, `pose_assets.resolve_pose_reference()`가 단일 소스이며 `pose_csv_batch.py`는 같은 알고리즘을 자기완결적으로 복사해서 씀 — 둘 중 하나를 고치면 다른 쪽도 반드시 같이 고쳐야 함):
+
+1. `"/"`가 있으면 `"<세트>/<파일명>"` 형식의 정확한 경로로 취급 (예: `casual/pose_02.png`)
+2. `"/"`가 없고 포즈 세트 폴더 이름과 정확히 일치하면 "세트 지정"으로 취급 — 그 세트 전용 피커(`pose_mode`에 따라 순차/랜덤)에서 하나를 뽑음. 같은 세트 이름이 여러 행에 나오면 피커 하나를 공유해서 CSV 순서대로 소비함
+3. `"/"`가 없고 세트 이름과는 안 맞지만 어느 한 세트 안에 그 파일명이 있으면 "파일명 단독 지정"으로 취급(전체 세트 통틀어 검색). 같은 파일명이 둘 이상의 세트에 동시에 있으면 모호함 에러(예: `'pose_01.png'가 여러 세트(casual, action)에 있어요. '<세트>/pose_01.png' 형식으로 명시해주세요.`)
+4. 위 어디에도 안 맞으면 에러
+
+정확한 경로(1)/파일명 단독 지정(3)인 행은 세트 피커의 상태에 영향을 주지 않습니다(그 세트를 "소비"하지 않음) — 세트 지정(2)인 행만 피커를 소비합니다. `pose` 값이 비어 있으면 그 행은 그래프를 재배선하지 않고 `ControlNetApplyAdvanced`류 노드의 `strength`를 0으로 주입해 ControlNet을 비활성화합니다(`apply_seed`와 같은 "노드는 그대로, 값만 덮어쓰기" 패턴).
+
+**업로드 시점 검증**: CSV를 올리면 `POST /api/upload`가 모든 행의 `pose` 컬럼 값을 미리 위 규칙으로 해석해보고, 하나라도 실패하면(세트/파일 없음, 모호함) 어떤 줄의 어떤 값이 왜 실패했는지 담아 업로드 자체를 400으로 거부합니다. 실행 시점에도(포즈 폴더 내용이 그 사이 바뀌었을 수 있으므로) `pose_csv_batch.py`가 제출을 시작하기 전에 CSV 전체를 다시 한번 해석합니다 — 한 행이라도 실패하면 그 행만 건너뛰지 않고 배치 전체를 에러로 중단합니다.
+
+**재현성 기록**: `pose_batch`와 같은 형식으로 `NIGHTSHIFT_OUTPUT_DIR`에 `pose_csv_batch_manifest.jsonl`을 남깁니다. `pose`가 비어 있던 행은 `pose_file`을 `null`로 기록해 "의도적으로 ControlNet 없이 생성했다"는 걸 구분할 수 있습니다.
 
 ### 워크플로우 JSON / CSV / 옵션과 스크립트 연동
 
@@ -222,7 +241,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
 | `GET` | `/api/comfy-status` | 감지된 ComfyUI 주소(`url`)와 연결 가능 여부(`connected`)를 조회. 매 호출마다 실시간으로 재확인함 |
 | `GET` | `/api/assets` | `NIGHTSHIFT_POSES_DIR` 아래의 포즈 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"pose_sets": [{"name", "count"}, ...]}`로 반환. 업로드 폼의 "포즈 세트" 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함 |
-| `POST` | `/api/upload` | 작업을 `pending`(대기중) 상태로 등록만 함 — 아직 실행 큐에 들어가지 않음 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨) |
+| `POST` | `/api/upload` | 작업을 `pending`(대기중) 상태로 등록만 함 — 아직 실행 큐에 들어가지 않음 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨). `template_id`가 `pose_csv_batch`면 CSV의 `pose` 컬럼 값을 전부 미리 해석해보고, 실패하는 행이 있으면 400으로 거부함 |
 | `POST` | `/api/queue/start` | 그 시점에 `pending`인 작업 **전체**를 대기 등록 순서대로 실행 큐에 넣음 (상태를 `queued`로 일괄 전환). 응답으로 `{"started": N}`(실제로 시작된 개수)을 반환하며, 대기 중인 작업이 없으면 `N`은 0 |
 | `GET` | `/api/jobs` | 전체 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수 조회 |
 | `GET` | `/api/jobs/{job_id}/log?tail=200` | 특정 작업의 로그 조회 (기본 마지막 200줄) |
@@ -272,7 +291,8 @@ nightshift/
 │   ├── seed_batch.py         # 템플릿 스크립트
 │   ├── csv_batch.py          # 템플릿 스크립트 (필요에 따라 계속 추가)
 │   ├── csv_batch.sample.csv  # csv_batch용 샘플 CSV
-│   └── pose_batch.py         # 템플릿 스크립트 (포즈 레퍼런스 순차/랜덤 주입)
+│   ├── pose_batch.py         # 템플릿 스크립트 (포즈 레퍼런스 순차/랜덤 주입)
+│   └── pose_csv_batch.py     # 템플릿 스크립트 (csv_batch + pose_batch 결합)
 ├── jobs/                      # 업로드된 워크플로우/CSV가 저장되는 곳 (자동 생성)
 ├── logs/                      # 작업별 실행 로그 (자동 생성)
 └── jobs_state.json            # 작업 이력 저장 파일 (자동 생성)
