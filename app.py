@@ -42,9 +42,11 @@ from output_images import (
     rotate_landscape_images,
 )
 from pose_assets import (
+    DEFAULT_CHAR_NO,
     PoseAssetError,
     PoseReferenceError,
-    list_pose_sets,
+    list_assets_tree,
+    list_char_nos,
     parse_char_no,
     resolve_pose_reference,
     validate_pose_set,
@@ -202,12 +204,14 @@ async def comfy_status():
 
 @app.get("/api/assets")
 def list_assets():
-    # 업로드 폼의 "포즈 세트" 드롭다운을 채우는 용도. 매 호출마다 폴더를 다시 스캔해서
-    # 방금 새로 올려둔 세트도 바로 반영되게 한다.
-    return {"pose_sets": list_pose_sets()}
+    # 업로드 폼의 "인물 수"/"포즈 세트" 캐스케이딩 드롭다운을 채우는 용도. char_no별
+    # 포즈 세트 목록을 트리로 한 번에 돌려줘서, 프론트엔드가 "인물 수"를 바꿀 때마다
+    # 서버에 다시 요청하지 않고도 "포즈 세트" 드롭다운을 그 자리에서 다시 채울 수
+    # 있게 한다. 매 호출마다 폴더를 다시 스캔해서 방금 새로 올려둔 세트도 반영한다.
+    return {"char_nos": list_assets_tree()}
 
 
-def coerce_option(option: dict, raw: str | None):
+def coerce_option(option: dict, raw: str | None, options_so_far: dict):
     if raw is None or raw == "":
         raw = option.get("default")
     opt_type = option.get("type")
@@ -225,12 +229,22 @@ def coerce_option(option: dict, raw: str | None):
             raise HTTPException(400, f"'{option['label']}' 값은 {choices} 중 하나여야 해요.")
         return raw
 
+    if opt_type == "char_no":
+        # "인물 수" 드롭다운 — 실제 존재하는 POSES_DIR 하위 숫자 폴더 중 하나여야 함.
+        value = "" if raw is None else str(raw)
+        if value not in list_char_nos():
+            raise HTTPException(400, f"'{option['label']}' 값이 올바르지 않아요.")
+        return value
+
     if opt_type == "asset_folder":
         # 잡을 큐에 올리는 시점(업로드 시)에 포즈 세트 폴더가 실제로 있고 이미지가
-        # 있는지 미리 확인해서, 큐 시작 이후에야 실패하는 일이 없게 한다.
+        # 있는지 미리 확인해서, 큐 시작 이후에야 실패하는 일이 없게 한다. 같은
+        # 템플릿에 "char_no" 타입 옵션이 있으면(manifest에서 이 옵션보다 앞에
+        # 선언돼 있어야 함) 그 값을 스코프로 쓰고, 없으면 DEFAULT_CHAR_NO를 쓴다.
         value = "" if raw is None else str(raw)
+        char_no = options_so_far.get("char_no", DEFAULT_CHAR_NO)
         try:
-            validate_pose_set(value)
+            validate_pose_set(value, char_no)
         except PoseAssetError as e:
             raise HTTPException(400, str(e))
         return value
@@ -298,7 +312,7 @@ async def upload(request: Request):
     options = {}
     for option in template.get("options", []):
         raw = form.get(option["name"])
-        options[option["name"]] = coerce_option(option, raw if isinstance(raw, str) else None)
+        options[option["name"]] = coerce_option(option, raw if isinstance(raw, str) else None, options)
 
     job_id = str(uuid.uuid4())[:8]
 
