@@ -45,6 +45,7 @@ from pose_assets import (
     PoseAssetError,
     PoseReferenceError,
     list_pose_sets,
+    parse_char_no,
     resolve_pose_reference,
     validate_pose_set,
 )
@@ -238,10 +239,11 @@ def coerce_option(option: dict, raw: str | None):
 
 
 def validate_pose_csv_rows(csv_bytes: bytes):
-    # pose_csv_batch 전용 업로드 시점 검증: CSV의 모든 행을 미리 훑어 pose 컬럼
-    # 값이 실제로 해석 가능한지(resolve_pose_reference) 확인한다. 스크립트가
-    # 실행되다가 특정 행에서야 실패하는 일이 없도록, 한 행이라도 문제가 있으면
-    # 업로드 자체를 거부한다.
+    # pose_csv_batch 전용 업로드 시점 검증: CSV의 모든 행을 미리 훑어 pose(및
+    # char_no) 컬럼 값이 실제로 해석 가능한지(resolve_pose_reference) 확인한다.
+    # 스크립트가 실행되다가 특정 행에서야 실패하는 일이 없도록, 한 행이라도
+    # 문제가 있으면 업로드 자체를 거부한다. char_no는 pose를 지정한 행에서만
+    # 의미가 있으므로(포즈 폴더의 탐색 루트일 뿐), pose가 비어 있는 행은 건드리지 않는다.
     try:
         text = csv_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -254,12 +256,17 @@ def validate_pose_csv_rows(csv_bytes: bytes):
         if not pose:
             continue
         try:
-            resolve_pose_reference(pose)
+            char_no = parse_char_no(row.get("char_no"))
+        except ValueError:
+            errors.append(f"{line_no}번째 줄(char_no='{row.get('char_no')}'): 정수가 아니에요.")
+            continue
+        try:
+            resolve_pose_reference(pose, char_no)
         except PoseReferenceError as e:
-            errors.append(f"{line_no}번째 줄(pose='{pose}'): {e}")
+            errors.append(f"{line_no}번째 줄(pose='{pose}', char_no='{char_no}'): {e}")
 
     if errors:
-        raise HTTPException(400, "CSV의 pose 컬럼을 확인하세요.\n" + "\n".join(errors))
+        raise HTTPException(400, "CSV의 pose/char_no 컬럼을 확인하세요.\n" + "\n".join(errors))
 
 
 @app.post("/api/upload")
