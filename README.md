@@ -162,18 +162,34 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
 
 ControlNet(OpenPose 등)으로 포즈를 고정한 채 배치 생성할 때, 매번 다른 포즈 레퍼런스 이미지를 워크플로우의 LoadImage 노드에 넣어가며 반복 실행하는 템플릿입니다.
 
-**포즈 레퍼런스 폴더 구조**: `NIGHTSHIFT_POSES_DIR`(기본 `/workspace/dataset/poses`) 아래에 포즈 세트별로 하위 폴더를 두고, 그 안에 png/jpg/jpeg/webp 이미지를 쌓아두면 됩니다.
+**포즈 레퍼런스 폴더 구조**: `NIGHTSHIFT_POSES_DIR`(기본 `/workspace/dataset/poses`) 아래에 먼저 `char_no`(그 세트가 몇 인물용 참조인지 — `"1"`=1인물/solo, `"2"`=2인물/duo, ...) 폴더를 두고, 그 아래에 포즈 세트별 하위 폴더를 두고, 그 안에 png/jpg/jpeg/webp 이미지를 쌓아둡니다.
 
 ```
 /workspace/dataset/poses/
-├── casual_standing/
-│   ├── pose_01.png
-│   └── pose_02.png
-└── action_pose/
-    └── pose_01.png
+├── 1/                       1인물(solo) 세트
+│   ├── casual_standing/
+│   │   ├── pose_01.png
+│   │   └── pose_02.png
+│   └── action_pose/
+│       └── pose_01.png
+└── 2/                       2인물(duo) 세트 — 1과 완전히 분리된 이름공간
+    └── casual_standing/     같은 세트 이름이어도 1/의 것과는 별개
+        └── pose_01.png
 ```
 
-업로드 폼의 "포즈 세트" 드롭다운은 `GET /api/assets`가 스캔한 이 하위 폴더 목록(및 각 폴더의 이미지 개수)을 그대로 보여주고, 이미지가 0장인 폴더는 드롭다운에서 선택할 수 없게 비활성화됩니다. 그래도 만약(다른 방식으로) 빈 폴더나 존재하지 않는 폴더가 선택되면, 업로드 시점(`POST /api/upload`)에 `pose_assets.validate_pose_set()`이 막아서 잡이 시작된 뒤에야 실패하는 일이 없게 합니다.
+이 char_no 스코프는 "포즈 스켈레톤 이미지 1장에 여러 인물이 이미 함께 그려져 있어 ControlNet 노드 1개로 그대로 처리 가능한 경우"만 다룹니다 — 캐릭터별로 별도 ControlNet을 붙이는 멀티 ControlNet 구조는 다루지 않습니다. 목적은 기능 확장이 아니라 오사용 방지입니다: CSV 작성자가 duo용 세트를 쓰려다 실수로 solo용 세트를 섞어 넣는 사고를 폴더 구조 자체로 막습니다.
+
+`pose_batch` 템플릿은 char_no 개념 없이 처음부터 1인물 전용으로 설계됐으므로, 업로드 폼의 "포즈 세트" 드롭다운(`GET /api/assets`)과 `pose_assets.validate_pose_set()`은 항상 `1/` 아래만 봅니다. char_no를 행마다 지정할 수 있는 건 아래 `pose_csv_batch`의 CSV `char_no` 컬럼뿐입니다.
+
+**기존 설치 마이그레이션**: 이 구조가 도입되기 전에는 `NIGHTSHIFT_POSES_DIR` 바로 아래에 세트 폴더가 있었습니다(전부 1인물 참조였음). 아래처럼 전부 `1/` 아래로 옮기면 기존 세트를 그대로 계속 씁니다.
+
+```bash
+cd /workspace/dataset/poses
+mkdir -p 1
+for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
+```
+
+업로드 폼의 "포즈 세트" 드롭다운은 `GET /api/assets`가 스캔한 `1/` 아래의 하위 폴더 목록(및 각 폴더의 이미지 개수)을 그대로 보여주고, 이미지가 0장인 폴더는 드롭다운에서 선택할 수 없게 비활성화됩니다. 그래도 만약(다른 방식으로) 빈 폴더나 존재하지 않는 폴더가 선택되면, 업로드 시점(`POST /api/upload`)에 `pose_assets.validate_pose_set()`이 막아서 잡이 시작된 뒤에야 실패하는 일이 없게 합니다.
 
 **선택 방식(`pose_mode`)**: `sequential`(파일명 정렬 순서대로 순환, 개수를 넘기면 처음부터 다시)과 `random`(폴더가 다 소진될 때까지 중복 없이 뽑고 그 다음에 다시 섞어서 리셋 — 완전 무작위보다 다양성이 보장됨) 중 선택합니다. 이 선택 로직은 전부 `templates/pose_batch.py` 안에 있고, `app.py`는 어떤 포즈 세트/방식을 쓸지 다른 옵션과 똑같이 `POSE_SET`/`POSE_MODE` 환경변수로 전달만 합니다.
 
@@ -185,20 +201,23 @@ ControlNet(OpenPose 등)으로 포즈를 고정한 채 배치 생성할 때, 매
 
 ### CSV + 포즈 배치 (`pose_csv_batch`)
 
-`csv_batch`의 CSV 컬럼(`title`/`trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`/`prompt`/`seed`/`batch_no`/`width`/`height`/`resolution`)을 그대로 지원하는 위에, `pose` 컬럼으로 행마다 ControlNet 포즈 레퍼런스를 지정합니다. `csv_batch`와 달리 "케이스당 시드 개수" 개념이 없습니다 — CSV 행 하나가 곧 반복 한 번입니다(옵션은 `pose_mode`뿐).
+`csv_batch`의 CSV 컬럼(`title`/`trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`/`prompt`/`seed`/`batch_no`/`width`/`height`/`resolution`)을 그대로 지원하는 위에, `pose`/`char_no` 컬럼으로 행마다 ControlNet 포즈 레퍼런스를 지정합니다. `csv_batch`와 달리 "케이스당 시드 개수" 개념이 없습니다 — CSV 행 하나가 곧 반복 한 번입니다(옵션은 `pose_mode`뿐).
 
-**`pose` 컬럼 값 해석 규칙**(우선순위 순, `pose_assets.resolve_pose_reference()`가 단일 소스이며 `pose_csv_batch.py`는 같은 알고리즘을 자기완결적으로 복사해서 씀 — 둘 중 하나를 고치면 다른 쪽도 반드시 같이 고쳐야 함):
+- `char_no` — 이 행이 몇 인물용 포즈 참조인지(`"1"`=solo, `"2"`=duo, ...). 비어 있으면 `"1"`. `pose`가 비어 있으면 안 읽습니다. 정수로 안 바뀌면 아래 `pose` 해석 실패와 같은 수준(배치 전체 중단)으로 취급합니다.
+- `pose` — 이 행에 쓸 포즈 레퍼런스. 비어 있으면 이 행은 `char_no`와 무관하게 ControlNet 없이 생성합니다.
 
-1. `"/"`가 있으면 `"<세트>/<파일명>"` 형식의 정확한 경로로 취급 (예: `casual/pose_02.png`)
-2. `"/"`가 없고 포즈 세트 폴더 이름과 정확히 일치하면 "세트 지정"으로 취급 — 그 세트 전용 피커(`pose_mode`에 따라 순차/랜덤)에서 하나를 뽑음. 같은 세트 이름이 여러 행에 나오면 피커 하나를 공유해서 CSV 순서대로 소비함
-3. `"/"`가 없고 세트 이름과는 안 맞지만 어느 한 세트 안에 그 파일명이 있으면 "파일명 단독 지정"으로 취급(전체 세트 통틀어 검색). 같은 파일명이 둘 이상의 세트에 동시에 있으면 모호함 에러(예: `'pose_01.png'가 여러 세트(casual, action)에 있어요. '<세트>/pose_01.png' 형식으로 명시해주세요.`)
-4. 위 어디에도 안 맞으면 에러
+**`pose` 컬럼 값 해석 규칙**(우선순위 순, char_no로 지정된 `NIGHTSHIFT_POSES_DIR/<char_no>/` 아래에서만 찾음 — `pose_assets.resolve_pose_reference(name, char_no)`가 단일 소스이며 `pose_csv_batch.py`는 같은 알고리즘을 자기완결적으로 복사해서 씀. 둘 중 하나를 고치면 다른 쪽도 반드시 같이 고쳐야 함):
+
+1. `"/"`가 있으면 `"<세트>/<파일명>"` 형식의, `<char_no>/` 안에서의 정확한 경로로 취급 (예: char_no가 `2`면 `NIGHTSHIFT_POSES_DIR/2/casual/pose_02.png`)
+2. `"/"`가 없고 `<char_no>/` 아래 포즈 세트 폴더 이름과 정확히 일치하면 "세트 지정"으로 취급 — 그 세트 전용 피커(`pose_mode`에 따라 순차/랜덤)에서 하나를 뽑음. 같은 `(char_no, 세트 이름)` 조합이 여러 행에 나오면 피커 하나를 공유해서 CSV 순서대로 소비함(char_no가 다르면 세트 이름이 같아도 별개의 피커)
+3. `"/"`가 없고 세트 이름과는 안 맞지만 `<char_no>/` 아래 어느 한 세트 안에 그 파일명이 있으면 "파일명 단독 지정"으로 취급(같은 char_no의 세트만 통틀어 검색). 같은 파일명이 그 안에서 둘 이상의 세트에 동시에 있으면 모호함 에러(예: `'pose_01.png'가 여러 세트(casual, action)에 있어요. '<세트>/pose_01.png' 형식으로 명시해주세요.`)
+4. 위 어디에도 안 맞으면 에러 — **존재하지 않는 char_no를 참조하면(예: solo 세트만 있는데 `char_no=2`) 여기로 자연스럽게 떨어져 실패합니다.** 이게 char_no 스코프의 핵심 안전장치입니다.
 
 정확한 경로(1)/파일명 단독 지정(3)인 행은 세트 피커의 상태에 영향을 주지 않습니다(그 세트를 "소비"하지 않음) — 세트 지정(2)인 행만 피커를 소비합니다. `pose` 값이 비어 있으면 그 행은 그래프를 재배선하지 않고 `ControlNetApplyAdvanced`류 노드의 `strength`를 0으로 주입해 ControlNet을 비활성화합니다(`apply_seed`와 같은 "노드는 그대로, 값만 덮어쓰기" 패턴).
 
-**업로드 시점 검증**: CSV를 올리면 `POST /api/upload`가 모든 행의 `pose` 컬럼 값을 미리 위 규칙으로 해석해보고, 하나라도 실패하면(세트/파일 없음, 모호함) 어떤 줄의 어떤 값이 왜 실패했는지 담아 업로드 자체를 400으로 거부합니다. 실행 시점에도(포즈 폴더 내용이 그 사이 바뀌었을 수 있으므로) `pose_csv_batch.py`가 제출을 시작하기 전에 CSV 전체를 다시 한번 해석합니다 — 한 행이라도 실패하면 그 행만 건너뛰지 않고 배치 전체를 에러로 중단합니다.
+**업로드 시점 검증**: CSV를 올리면 `POST /api/upload`가 모든 행의 `pose`(및 `char_no`) 컬럼 값을 미리 위 규칙으로 해석해보고, 하나라도 실패하면(세트/파일 없음, 모호함, char_no가 정수가 아님) 어떤 줄의 어떤 값이 왜 실패했는지 담아 업로드 자체를 400으로 거부합니다. 실행 시점에도(포즈 폴더 내용이 그 사이 바뀌었을 수 있으므로) `pose_csv_batch.py`가 제출을 시작하기 전에 CSV 전체를 다시 한번 해석합니다 — 한 행이라도 실패하면 그 행만 건너뛰지 않고 배치 전체를 에러로 중단합니다.
 
-**재현성 기록**: `pose_batch`와 같은 형식으로 `NIGHTSHIFT_OUTPUT_DIR`에 `pose_csv_batch_manifest.jsonl`을 남깁니다. `pose`가 비어 있던 행은 `pose_file`을 `null`로 기록해 "의도적으로 ControlNet 없이 생성했다"는 걸 구분할 수 있습니다.
+**재현성 기록**: `pose_batch`와 같은 형식으로 `NIGHTSHIFT_OUTPUT_DIR`에 `pose_csv_batch_manifest.jsonl`을 남기되 `char_no` 필드도 함께 기록합니다. `pose`가 비어 있던 행은 `char_no`/`pose_set`/`pose_file`을 모두 `null`로 기록해 "의도적으로 ControlNet 없이 생성했다"는 걸 구분할 수 있습니다. `char_no`가 기본값(`1`)이 아니면 `filename_prefix`에도 `_char<N>`이 붙어 결과물을 인물 수 기준으로 정리하기 쉽습니다.
 
 ### 워크플로우 JSON / CSV / 옵션과 스크립트 연동
 

@@ -7,11 +7,17 @@
 
 포즈 레퍼런스 폴더 구조:
     NIGHTSHIFT_POSES_DIR(기본 /workspace/dataset/poses)/
-        <POSE_SET 이름>/
-            image1.png
-            image2.jpg
+        1/                          이 템플릿은 항상 여기(1인물/solo)만 본다
+            <POSE_SET 이름>/
+                image1.png
+                image2.jpg
+                ...
+        2/                          (다른 템플릿용 — 이 템플릿은 안 봄)
             ...
-    nightshift 웹 UI의 "포즈 세트" 드롭다운은 이 폴더 아래의 하위 폴더 목록을
+    이 템플릿은 처음부터 1인물(solo) 참조 전용으로 설계됐고 char_no 옵션이
+    없다 — 여러 인물이 함께 그려진 포즈 세트(2인물 이상)를 쓰려면 CSV 행마다
+    포즈와 char_no를 지정할 수 있는 pose_csv_batch 템플릿을 쓴다. nightshift
+    웹 UI의 "포즈 세트" 드롭다운은 POSES_DIR/1 아래의 하위 폴더 목록을
     보여주고(GET /api/assets), 고른 세트 이름이 POSE_SET 환경변수로 전달된다.
     세트 존재 여부/이미지 유무는 업로드 시점에 nightshift(app.py + pose_assets.py)가
     이미 검증했으므로 큐 시작 이후 그것 때문에 실패하는 일은 없지만, 실행 중 폴더가
@@ -85,6 +91,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 POSE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+
+# 이 템플릿은 char_no 개념이 없는 1인물(solo) 전용 — pose_assets.py의
+# DEFAULT_CHAR_NO와 반드시 같은 값이어야 한다(다르면 이 템플릿과 nightshift
+# 서버가 서로 다른 폴더를 보게 됨).
+POSE_CHAR_NO = "1"
 
 
 def env(name, default=None):
@@ -174,7 +185,7 @@ def make_picker(mode, files):
 
 
 def list_pose_images(poses_dir, pose_set):
-    d = Path(poses_dir) / pose_set
+    d = Path(poses_dir) / POSE_CHAR_NO / pose_set
     if not d.is_dir():
         return []
     return sorted(
@@ -353,7 +364,7 @@ def main():
     if not pose_files:
         # nightshift가 업로드 시점에 이미 확인했어야 하지만, 그 사이 폴더가 비워졌을
         # 수도 있으니 실행 시점에도 한 번 더 확인한다.
-        print(f"[pose_batch] '{pose_set}' 포즈 세트에 이미지가 없습니다 ({poses_dir}/{pose_set})", file=sys.stderr)
+        print(f"[pose_batch] '{pose_set}' 포즈 세트에 이미지가 없습니다 ({poses_dir}/{POSE_CHAR_NO}/{pose_set})", file=sys.stderr)
         sys.exit(1)
 
     base_workflow = load_workflow(workflow_path)

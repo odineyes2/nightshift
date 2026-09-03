@@ -26,27 +26,51 @@ CSV 컬럼 (csv_batch.py와 동일 + pose):
     width, height    해상도를 가로/세로 각각 픽셀 값으로 직접 지정 (둘 다 채워야 적용)
     resolution       width/height가 비어 있을 때 대신 쓰이는 해상도 (WxH 또는 프리셋)
     pose             이 행에 쓸 포즈 레퍼런스. 비어 있으면 이 행은 ControlNet을
-                     비활성화(strength=0)한 채로 생성한다. 값이 있으면 아래
-                     "포즈 참조 해석" 규칙으로 해석한다.
+                     비활성화(strength=0)한 채로 생성하며, 이때 char_no는 의미가
+                     없으므로 무시된다. 값이 있으면 아래 "포즈 참조 해석" 규칙으로
+                     char_no가 가리키는 폴더 안에서 해석한다.
+    char_no          이 행이 몇 인물용 포즈 참조인지(예: "1"=solo, "2"=duo).
+                     비어 있으면 "1"로 취급한다. pose가 비어 있으면 이 컬럼은
+                     안 읽는다. 정수로 안 바뀌면 pose 해석 실패와 같은 수준으로
+                     취급해 배치 전체를 에러로 중단한다(아래 참고).
 
-포즈 참조 해석(pose 컬럼 값, resolve_pose_reference):
-    1. "/"가 있으면 "<세트>/<파일명>" 형식의 정확한 경로로 취급한다.
-    2. "/"가 없고 NIGHTSHIFT_POSES_DIR 아래 세트 폴더 이름과 정확히 일치하면
-       "세트 지정"으로 취급한다 — 그 세트 전용 피커(POSE_MODE에 따라 순차/랜덤)에서
-       하나를 뽑는다. 같은 세트 이름이 여러 행에 나오면 피커 하나를 공유해서
-       순서대로 소비한다(행을 처리하는 순서 = CSV 순서).
-    3. "/"가 없고 세트 이름과는 안 맞지만 어느 한 세트 안에 그 파일명이 있으면
-       "파일명 단독 지정"으로 취급한다(전체 세트 통틀어 검색). 같은 파일명이 둘
-       이상의 세트에 동시에 있으면 에러.
-    4. 위 어디에도 안 맞으면 에러.
+포즈 레퍼런스 폴더 구조(char_no로 스코프됨):
+    NIGHTSHIFT_POSES_DIR/
+        1/                  1인물(solo) 세트들
+            <세트>/<파일>...
+        2/                  2인물(duo) 세트들 — 1과 완전히 분리된 별개의 이름공간
+            <세트>/<파일>...
+    char_no가 다르면 같은 이름의 세트(예: "1/battle"과 "2/battle")가 있어도
+    서로 완전히 다른 폴더로 취급된다 — CSV 작성자가 duo용 세트를 쓰려다 실수로
+    solo용 세트를 섞어 넣는 사고를, 폴더 구조 자체로 막는 게 이 스코프의
+    목적이다(기능 확장이 아니라 오사용 방지). 이 범위는 "포즈 스켈레톤 이미지
+    1장에 여러 인물이 이미 함께 그려져 있어 ControlNet 노드 1개로 그대로 처리
+    가능한 경우"로 한정하며, 캐릭터별로 별도 ControlNet을 붙이는 멀티
+    ControlNet 구조는 다루지 않는다.
+
+포즈 참조 해석(pose 컬럼 값, resolve_pose_reference(poses_dir, char_no, name)):
+    1. "/"가 있으면 "<세트>/<파일명>" 형식의, char_no 폴더 안에서의 정확한
+       경로로 취급한다.
+    2. "/"가 없고 NIGHTSHIFT_POSES_DIR/char_no 아래 세트 폴더 이름과 정확히
+       일치하면 "세트 지정"으로 취급한다 — 그 세트 전용 피커(POSE_MODE에 따라
+       순차/랜덤)에서 하나를 뽑는다. 같은 (char_no, 세트 이름) 조합이 여러
+       행에 나오면 피커 하나를 공유해서 순서대로 소비한다(행을 처리하는 순서
+       = CSV 순서). char_no가 다르면 세트 이름이 같아도 별개의 피커다.
+    3. "/"가 없고 세트 이름과는 안 맞지만 char_no 아래 어느 한 세트 안에 그
+       파일명이 있으면 "파일명 단독 지정"으로 취급한다(같은 char_no의 세트만
+       통틀어 검색 — 다른 char_no는 안 봄). 같은 파일명이 그 안에서 둘 이상의
+       세트에 동시에 있으면 에러.
+    4. 위 어디에도 안 맞으면 에러 — 존재하지 않는 char_no(예: solo 세트만 있는데
+       char_no=2로 참조)를 넘기면 자연스럽게 여기로 떨어져 실패한다. 이게
+       char_no 스코프의 핵심 안전장치다.
     정확한 경로(1)/파일명 단독 지정(3)인 행은 피커 상태에 영향을 주지 않는다(그
     세트를 "소비"하지 않음) — 세트 지정(2)인 행만 피커를 소비한다.
 
-    pose 값 해석은 잡을 큐에 올리는 시점(app.py 업로드 검증)에 CSV 전체를 미리
-    한 번 돌려 확인하지만, 그 사이 포즈 폴더 내용이 바뀌었을 수 있으므로 이
-    스크립트도 실행 시작 시 전체 CSV에 대해 해석을 다시 수행한다(제출을 시작하기
-    전에 — 일부만 제출된 채 실패하는 일이 없도록). 한 행이라도 해석에 실패하면
-    그 행만 건너뛰지 않고 배치 전체를 에러로 중단한다.
+    pose/char_no 값 해석은 잡을 큐에 올리는 시점(app.py 업로드 검증)에 CSV
+    전체를 미리 한 번 돌려 확인하지만, 그 사이 포즈 폴더 내용이 바뀌었을 수
+    있으므로 이 스크립트도 실행 시작 시 전체 CSV에 대해 해석을 다시 수행한다
+    (제출을 시작하기 전에 — 일부만 제출된 채 실패하는 일이 없도록). 한 행이라도
+    해석에 실패하면 그 행만 건너뛰지 않고 배치 전체를 에러로 중단한다.
 
 환경변수:
     WORKFLOW_PATH      (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
@@ -92,7 +116,9 @@ ControlNet 비활성화(pose가 비어 있는 행):
 재현성 기록:
     pose_batch.py와 같은 형식으로 NIGHTSHIFT_OUTPUT_DIR에
     pose_csv_batch_manifest.jsonl을 이어쓰기(append)한다. pose가 비어 있던 행은
-    pose_file을 null로 남겨 "의도적으로 ControlNet 없이 생성했다"는 걸 구분한다.
+    char_no/pose_set/pose_file을 모두 null로 남겨 "의도적으로 ControlNet 없이
+    생성했다"는 걸 구분한다. char_no가 기본값(1)이 아니면 SaveImage의
+    filename_prefix에도 "_char<N>"이 붙는다(결과물을 인물 수 기준으로 정리할 때 씀).
 """
 
 import copy
@@ -118,6 +144,9 @@ from pathlib import Path
 
 POSE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
+# pose_assets.py의 DEFAULT_CHAR_NO 사본 — char_no 컬럼이 비어 있을 때(1인물/solo).
+DEFAULT_CHAR_NO = "1"
+
 
 class PoseReferenceError(Exception):
     pass
@@ -142,12 +171,16 @@ class PoseFileRef:
     path: Path
 
 
-def _pose_set_dir(poses_dir, name):
-    return Path(poses_dir) / name
+def _char_dir(poses_dir, char_no):
+    return Path(poses_dir) / str(char_no)
 
 
-def list_pose_images_in_set(poses_dir, name):
-    d = _pose_set_dir(poses_dir, name)
+def _pose_set_dir(poses_dir, char_no, name):
+    return _char_dir(poses_dir, char_no) / name
+
+
+def list_pose_images_in_set(poses_dir, char_no, name):
+    d = _pose_set_dir(poses_dir, char_no, name)
     if not d.is_dir():
         return []
     return sorted(
@@ -156,7 +189,17 @@ def list_pose_images_in_set(poses_dir, name):
     )
 
 
-def resolve_pose_reference(poses_dir, name):
+def parse_char_no(raw):
+    """char_no 컬럼 값을 해석한다. 빈 값이면 기본값(1인물/solo). 정수로 바뀌지
+    않으면 ValueError — pose 해석 실패와 같은 심각도로 다뤄서 그 행만 건너뛰지
+    않고 배치 전체를 에러로 중단시킨다(build_plan 참고)."""
+    raw = (raw or "").strip()
+    if not raw:
+        return DEFAULT_CHAR_NO
+    return str(int(raw))
+
+
+def resolve_pose_reference(poses_dir, char_no, name):
     name = (name or "").strip()
     if not name:
         raise PoseReferenceNotFoundError("포즈 참조 값이 비어 있어요.")
@@ -169,18 +212,18 @@ def resolve_pose_reference(poses_dir, name):
             raise PoseReferenceNotFoundError(
                 f"'{name}' 형식이 올바르지 않아요 (<세트>/<파일명> 형식이어야 해요)."
             )
-        path = _pose_set_dir(poses_dir, set_name) / filename
+        path = _pose_set_dir(poses_dir, char_no, set_name) / filename
         if not path.is_file() or path.suffix.lower() not in POSE_IMAGE_EXTENSIONS:
-            raise PoseReferenceNotFoundError(f"'{name}' 파일을 찾을 수 없어요.")
+            raise PoseReferenceNotFoundError(f"'{name}' 파일을 찾을 수 없어요 (char_no={char_no}).")
         return PoseFileRef(set_name=set_name, path=path)
 
-    if _pose_set_dir(poses_dir, name).is_dir():
-        if not list_pose_images_in_set(poses_dir, name):
-            raise PoseReferenceNotFoundError(f"'{name}' 포즈 세트에 이미지가 하나도 없어요.")
+    if _pose_set_dir(poses_dir, char_no, name).is_dir():
+        if not list_pose_images_in_set(poses_dir, char_no, name):
+            raise PoseReferenceNotFoundError(f"'{name}' 포즈 세트에 이미지가 하나도 없어요 (char_no={char_no}).")
         return PoseSetRef(set_name=name)
 
     matches = []
-    base = Path(poses_dir)
+    base = _char_dir(poses_dir, char_no)
     if base.is_dir():
         for entry in sorted(base.iterdir()):
             if not entry.is_dir() or entry.name.startswith("."):
@@ -190,13 +233,13 @@ def resolve_pose_reference(poses_dir, name):
                 matches.append(entry.name)
 
     if len(matches) == 1:
-        return PoseFileRef(set_name=matches[0], path=_pose_set_dir(poses_dir, matches[0]) / name)
+        return PoseFileRef(set_name=matches[0], path=_pose_set_dir(poses_dir, char_no, matches[0]) / name)
     if len(matches) > 1:
         raise PoseReferenceAmbiguousError(
             f"'{name}'가 여러 세트({', '.join(matches)})에 있어요. "
             f"'<세트>/{name}' 형식으로 명시해주세요."
         )
-    raise PoseReferenceNotFoundError(f"'{name}'를 세트 이름으로도 파일명으로도 찾지 못했어요.")
+    raise PoseReferenceNotFoundError(f"'{name}'를 세트 이름으로도 파일명으로도 찾지 못했어요 (char_no={char_no}).")
 
 
 # 포즈 파일 선택 전략 — pose_batch.py의 사본 -------------------------------
@@ -448,7 +491,7 @@ def apply_resolution(workflow, width, height, resolution):
     inputs["width"], inputs["height"] = resolved
 
 
-def apply_filename_prefix(workflow, title, index, seed, pose_path):
+def apply_filename_prefix(workflow, title, index, seed, char_no, pose_path):
     node_id, node = find_node(
         workflow,
         title_substring=env("SAVE_NODE_TITLE", "Save"),
@@ -458,6 +501,10 @@ def apply_filename_prefix(workflow, title, index, seed, pose_path):
         return
     prefix = sanitize_prefix(title, f"batch_{index}")
     prefix = f"{prefix}_seed{seed}"
+    # 기본값(1인물/solo)일 때는 기존 파일명 그대로 두고, 2인물 이상일 때만
+    # char_no를 덧붙여 결과물 정리 시 인물 수로 구분할 수 있게 한다.
+    if pose_path is not None and char_no is not None and char_no != DEFAULT_CHAR_NO:
+        prefix = f"{prefix}_char{char_no}"
     if pose_path is not None:
         prefix = f"{prefix}_{sanitize_stem(pose_path.stem)}"
     node.setdefault("inputs", {})["filename_prefix"] = prefix
@@ -595,20 +642,25 @@ def wait_for_completion(comfy_url, prompt_id):
 # ============================================================================
 
 def build_plan(base_workflow, rows, poses_dir, pose_mode):
-    """CSV 행마다 (row, title, seed, batch_size, pose_path)를 미리 계산한다.
-    pose 컬럼 해석은 여기서 전부 끝내둔다 — 세트 지정 행은 이 단계에서 피커를
-    소비해 실제 파일을 정하고, 해석에 실패하는 행이 하나라도 있으면 그 자리에서
-    배치 전체를 중단한다(건너뛰지 않음)."""
+    """CSV 행마다 (row, title, seed, batch_size, char_no, pose_path)를 미리
+    계산한다. pose/char_no 컬럼 해석은 여기서 전부 끝내둔다 — 세트 지정 행은
+    이 단계에서 피커를 소비해 실제 파일을 정하고, 해석에 실패하는 행이
+    하나라도 있으면 그 자리에서 배치 전체를 중단한다(건너뛰지 않음).
+
+    피커는 (char_no, set_name) 조합별로 하나씩 lazy하게 만든다 — char_no가
+    다르면 같은 이름의 세트라도 완전히 다른 폴더(다른 파일 목록)이므로, set_name만
+    으로 캐시하면 서로 다른 세트가 피커 하나를 잘못 공유하게 된다."""
     default_batch_size = get_default_batch_size(base_workflow)
     pickers = {}
 
-    def get_picker(set_name):
-        if set_name not in pickers:
-            files = list_pose_images_in_set(poses_dir, set_name)
+    def get_picker(char_no, set_name):
+        key = (char_no, set_name)
+        if key not in pickers:
+            files = list_pose_images_in_set(poses_dir, char_no, set_name)
             if not files:
-                raise PoseReferenceNotFoundError(f"'{set_name}' 포즈 세트에 이미지가 없습니다.")
-            pickers[set_name] = make_picker(pose_mode, files)
-        return pickers[set_name]
+                raise PoseReferenceNotFoundError(f"'{set_name}' 포즈 세트에 이미지가 없습니다 (char_no={char_no}).")
+            pickers[key] = make_picker(pose_mode, files)
+        return pickers[key]
 
     plan = []
     for line_no, row in enumerate(rows, start=2):  # 헤더가 1번 줄
@@ -626,18 +678,28 @@ def build_plan(base_workflow, rows, poses_dir, pose_mode):
         seed = row_seed if row_seed else random.randint(0, 2**31 - 1)
 
         pose_raw = (row.get("pose") or "").strip()
+        char_no = None
         pose_path = None
         if pose_raw:
             try:
-                ref = resolve_pose_reference(poses_dir, pose_raw)
+                char_no = parse_char_no(row.get("char_no"))
+            except ValueError:
+                print(
+                    f"[pose_csv_batch] 오류: {line_no}번째 줄의 char_no 값 "
+                    f"'{row.get('char_no')}'을 정수로 변환하지 못했습니다.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            try:
+                ref = resolve_pose_reference(poses_dir, char_no, pose_raw)
                 if isinstance(ref, PoseFileRef):
                     pose_path = ref.path
                 else:
-                    pose_path = get_picker(ref.set_name).pick()
+                    pose_path = get_picker(char_no, ref.set_name).pick()
             except PoseReferenceError as e:
                 print(
-                    f"[pose_csv_batch] 오류: {line_no}번째 줄의 pose 값 '{pose_raw}'을 "
-                    f"해석하지 못했습니다: {e}",
+                    f"[pose_csv_batch] 오류: {line_no}번째 줄의 pose 값 '{pose_raw}' "
+                    f"(char_no={char_no})을 해석하지 못했습니다: {e}",
                     file=sys.stderr,
                 )
                 sys.exit(1)
@@ -647,13 +709,14 @@ def build_plan(base_workflow, rows, poses_dir, pose_mode):
             "title": title,
             "seed": seed,
             "batch_size": batch_size,
+            "char_no": char_no,
             "pose_path": pose_path,
         })
 
     return plan
 
 
-def run_once(base_workflow, comfy_url, row, title, seed, pose_path, index, job_id, output_dir):
+def run_once(base_workflow, comfy_url, row, title, seed, char_no, pose_path, index, job_id, output_dir):
     workflow = copy.deepcopy(base_workflow)
     apply_prompts(workflow, row)
     apply_seed(workflow, seed)
@@ -665,10 +728,10 @@ def run_once(base_workflow, comfy_url, row, title, seed, pose_path, index, job_i
     else:
         disable_controlnet(workflow)
 
-    apply_filename_prefix(workflow, title, index, seed, pose_path)
+    apply_filename_prefix(workflow, title, index, seed, char_no, pose_path)
 
     prompt_id = queue_prompt(comfy_url, workflow)
-    pose_label = pose_path.name if pose_path is not None else "(없음, ControlNet 비활성화)"
+    pose_label = f"{pose_path.name}(char_no={char_no})" if pose_path is not None else "(없음, ControlNet 비활성화)"
     print(f"[pose_csv_batch] [{index}] title={title!r} seed={seed} pose={pose_label} 큐 등록 (prompt_id={prompt_id})")
     wait_for_completion(comfy_url, prompt_id)
     print(f"[pose_csv_batch] [{index}] 완료")
@@ -677,6 +740,7 @@ def run_once(base_workflow, comfy_url, row, title, seed, pose_path, index, job_i
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "job_id": job_id,
         "index": index,
+        "char_no": char_no,
         "pose_set": pose_path.parent.name if pose_path is not None else None,
         "pose_file": pose_path.name if pose_path is not None else None,
         "seed": seed,
@@ -717,7 +781,7 @@ def main():
     for index, item in enumerate(plan, start=1):
         run_once(
             base_workflow, comfy_url, item["row"], item["title"], item["seed"],
-            item["pose_path"], index, job_id, output_dir,
+            item["char_no"], item["pose_path"], index, job_id, output_dir,
         )
         done_images += item["batch_size"]
         report_progress(job_id, nightshift_url, total_images, done_images)
