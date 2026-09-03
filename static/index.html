@@ -396,7 +396,8 @@
   }
   .del-btn:hover{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
   .row-actions{ display:flex; gap:6px; flex-wrap:nowrap; }
-  .edit-btn{
+  .edit-btn,
+  .load-btn{
     background:var(--panel);
     border:1px solid var(--border);
     color:var(--text-dim);
@@ -407,7 +408,9 @@
     cursor:pointer;
     white-space:nowrap;
   }
-  .edit-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
+  .edit-btn:hover,
+  .load-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
+  .load-notice{ font-size:12.5px; font-family:var(--mono); min-height:1em; white-space:pre-line; color:var(--text-dim); }
 
   .modal-overlay{
     position:fixed;
@@ -514,7 +517,7 @@
 </header>
 
 <main>
-  <div class="panel">
+  <div class="panel" id="new-job-panel">
     <div class="panel-header">
       <div class="section-label">새 작업 추가</div>
       <div class="panel-header-actions">
@@ -527,6 +530,9 @@
           <label class="field-label" for="template-select">템플릿</label>
           <select id="template-select"></select>
         </div>
+
+        <div class="upload-error" id="load-error"></div>
+        <div class="load-notice" id="load-notice"></div>
 
         <div class="options-fields" id="options-fields"></div>
 
@@ -780,6 +786,7 @@ function render(jobs, pendingCount){
         <td class="time-cell${est.finishIso == null ? ' dim' : ''}">${fmtTime(est.finishIso)}</td>
         <td>
           <div class="row-actions">
+            <button class="load-btn" data-loadid="${j.id}">설정 불러오기</button>
             ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}">워크플로우 수정</button>` : ''}
             ${j.status === 'pending' && j.csv_filename ? `<button class="edit-btn" data-editkind="csv" data-editid="${j.id}">CSV 수정</button>` : ''}
             ${j.status !== 'running' && j.status !== 'queued' ? `<button class="del-btn" data-del="${j.id}">삭제</button>` : ''}
@@ -814,6 +821,14 @@ function render(jobs, pendingCount){
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       openAttachmentEditor(btn.dataset.editid, btn.dataset.editkind);
+    });
+  });
+
+  tbody.querySelectorAll('.load-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const job = jobs.find(j => j.id === btn.dataset.loadid);
+      if(job) loadJobSettings(job);
     });
   });
 }
@@ -1021,6 +1036,107 @@ async function fetchTemplates(){
     templateSelect.appendChild(opt);
   }
   await onTemplateChange();
+}
+
+// select 요소가 (disabled 여부와 무관하게) 해당 value의 <option>을 가지고 있는지 —
+// 매니페스트/포즈 폴더가 그 작업을 돌린 뒤 바뀌어서 저장된 값이 더 이상 유효하지
+// 않은 경우를 가려내는 데 쓴다.
+function selectHasOptionValue(select, value){
+  if(value === undefined || value === null) return false;
+  const target = String(value);
+  return Array.from(select.options).some(o => o.value === target);
+}
+
+// 작업 목록의 "설정 불러오기" 버튼 — 그 작업의 템플릿/옵션/워크플로우/CSV로 "새 작업
+// 추가" 폼을 채운다. 여기서는 아무것도 큐에 등록하지 않는다(등록은 여전히 기존
+// "큐에 추가" 버튼 → POST /api/upload 경로로만 이뤄짐). 매니페스트나 포즈 폴더가
+// 그 작업을 돌린 뒤 바뀌었을 수 있으므로, 저장된 값이 더 이상 유효하지 않은 경우는
+// 조용히 무시하지 않고 사용자에게 안내한다.
+async function loadJobSettings(job){
+  const loadError = document.getElementById('load-error');
+  const loadNotice = document.getElementById('load-notice');
+  loadError.textContent = '';
+  loadNotice.textContent = '';
+
+  if(Object.keys(templatesById).length === 0) await fetchTemplates();
+  const template = templatesById[job.template_id];
+  if(!template){
+    loadError.textContent = '이 템플릿은 더 이상 등록되어 있지 않아요.';
+    return;
+  }
+
+  const warnings = [];
+
+  resetForm();
+  templateSelect.value = job.template_id;
+  await onTemplateChange();
+
+  const savedOptions = job.options || {};
+  for(const opt of (template.options || [])){
+    const hasSaved = Object.prototype.hasOwnProperty.call(savedOptions, opt.name);
+    if(!hasSaved) continue; // 옵션이 새로 추가됨 — 이미 렌더링된 default를 그대로 둔다
+    const el = optionsFields.querySelector(`[data-name="${opt.name}"]`);
+    if(!el) continue;
+    const savedValue = savedOptions[opt.name];
+
+    if(opt.type === 'char_no' || opt.type === 'asset_folder'){
+      if(!selectHasOptionValue(el, savedValue)){
+        warnings.push(`'${opt.label}' 값 '${savedValue}'을 더 이상 사용할 수 없어 비워뒀어요.`);
+        continue;
+      }
+      el.value = String(savedValue);
+      // char_no를 먼저 채우고 그 값으로 포즈 세트 목록을 다시 채운 뒤에 포즈 세트를
+      // 채워야 하므로(캐스케이딩), char_no 필드에서만 change를 쏴서 asset_folder
+      // 필드의 선택지를 그 자리에서 갱신한다. template.options 순서상 char_no가
+      // asset_folder보다 앞에 선언돼 있어야 하고, 실제로 매니페스트가 그렇게 되어 있다.
+      if(opt.type === 'char_no') el.dispatchEvent(new Event('change'));
+      continue;
+    }
+
+    if(opt.type === 'select'){
+      if(!(opt.choices || []).includes(savedValue)){
+        warnings.push(`'${opt.label}' 값이 더 이상 유효하지 않아 기본값으로 되돌렸어요.`);
+        continue;
+      }
+      el.value = savedValue;
+      continue;
+    }
+
+    el.value = savedValue;
+  }
+
+  const wfRes = await fetch(`/api/jobs/${job.id}/workflow`).catch(() => null);
+  if(wfRes && wfRes.ok){
+    const text = await wfRes.text();
+    const filename = job.workflow_original_name || 'workflow.json';
+    setWorkflowFile(new File([text], filename, { type: 'application/json' }));
+  } else {
+    warnings.push('워크플로우 파일을 찾을 수 없어 직접 첨부해야 해요.');
+  }
+
+  if(template.requires_csv){
+    const csvRes = await fetch(`/api/jobs/${job.id}/csv`).catch(() => null);
+    if(csvRes && csvRes.ok){
+      const text = await csvRes.text();
+      const filename = job.csv_original_name || 'data.csv';
+      setCsvFile(new File([text], filename, { type: 'text/csv' }));
+    } else {
+      warnings.push('CSV 파일을 찾을 수 없어 직접 첨부해야 해요.');
+    }
+  }
+
+  const newJobPanel = document.getElementById('new-job-panel');
+  if(newJobPanel.classList.contains('collapsed')){
+    newJobPanel.classList.remove('collapsed');
+    const collapseBtn = newJobPanel.querySelector('.collapse-btn');
+    if(collapseBtn) collapseBtn.setAttribute('aria-expanded', 'true');
+  }
+  newJobPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  let msg = `'${job.id}' 작업의 설정을 불러왔어요.`;
+  if(warnings.length) msg += '\n' + warnings.join('\n');
+  loadNotice.textContent = msg;
+  loadNotice.style.color = warnings.length ? 'var(--running)' : 'var(--done)';
 }
 
 templateSelect.addEventListener('change', onTemplateChange);
