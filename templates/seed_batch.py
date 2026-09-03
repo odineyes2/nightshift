@@ -5,9 +5,20 @@ csv_batch.py와 같은 ComfyUI 연동 방식(워크플로우 노드 찾기/제�
 CSV 입력과 프롬프트 주입 없이 시드만 바꾸는 가장 단순한 형태다. 워크플로우 JSON의
 노드 제목/구조가 SEED_NODE_TITLE / SAVE_NODE_TITLE 매칭과 맞지 않으면 조정이 필요하다.
 
+메인 프롬프트(MAIN_PROMPT):
+    비워두면(기본값) 업로드한 워크플로우 JSON에 이미 들어있는 프롬프트를 그대로
+    쓴다. 값을 채우면 워크플로우에서 제목에 "main_prompt"가 포함된
+    CLIPTextEncode 노드 하나를 찾아 그 텍스트를 덮어쓴다. 그런 노드를 못 찾으면
+    (제목이 다르거나 CLIPTextEncode가 아예 없으면) 경고만 남기고 워크플로우는
+    건드리지 않는다 — 트리거/퀄리티/네거티브처럼 다른 프롬프트 노드가 여러 개
+    있을 수 있으므로, 제목이 정확히 일치하지 않으면 엉뚱한 노드를 덮어쓰지
+    않기 위함이다(csv_batch.py의 프롬프트 노드 매칭과 같은 방식).
+
 환경변수:
     WORKFLOW_PATH   (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
     SEED_COUNT      (필수) 반복할 시드 개수 (nightshift가 템플릿 옵션 "seed_count"로 주입)
+    MAIN_PROMPT     메인 프롬프트 (nightshift가 템플릿 옵션 "main_prompt"로 주입, 기본
+                    빈 값 — 비워두면 워크플로우의 프롬프트를 그대로 씀)
     COMFY_URL       ComfyUI 서버 주소 (기본 http://127.0.0.1:8188)
     JOB_ID          nightshift가 주입하는 이 작업의 id (진행 상황 보고용, 없으면 보고 생략)
     NIGHTSHIFT_URL  nightshift 자신의 주소 (진행 상황 보고용, 기본 http://127.0.0.1:8000)
@@ -75,6 +86,24 @@ def apply_seed(workflow, seed):
         print("[seed_batch] 경고: 시드를 넣을 노드를 찾지 못했습니다 (KSampler 없음)", file=sys.stderr)
         return
     node.setdefault("inputs", {})["seed"] = seed
+
+
+def apply_main_prompt(workflow, main_prompt):
+    main_prompt = (main_prompt or "").strip()
+    if not main_prompt:
+        # 비워두면 업로드된 워크플로우의 프롬프트를 그대로 둔다.
+        return
+    # class_types를 넘기지 않으므로(find_node가 title 매칭 실패 시 아무 노드로도
+    # 대체하지 않음) 제목에 "main_prompt"가 없으면 조용히 건너뛴다.
+    node_id, node = find_node(workflow, title_substring="main_prompt")
+    if node is None or node.get("class_type") != "CLIPTextEncode":
+        print(
+            "[seed_batch] 경고: MAIN_PROMPT를 넣을 노드를 찾지 못했습니다 "
+            "(제목에 'main_prompt'가 포함된 CLIPTextEncode 없음)",
+            file=sys.stderr,
+        )
+        return
+    node.setdefault("inputs", {})["text"] = main_prompt
 
 
 def get_default_batch_size(workflow):
@@ -146,9 +175,10 @@ def wait_for_completion(comfy_url, prompt_id):
     raise TimeoutError(f"prompt_id={prompt_id} 완료 대기 시간({timeout}s) 초과")
 
 
-def run_once(base_workflow, comfy_url, seed, index):
+def run_once(base_workflow, comfy_url, seed, index, main_prompt):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
+    apply_main_prompt(workflow, main_prompt)
     apply_filename_prefix(workflow, index, seed)
 
     prompt_id = queue_prompt(comfy_url, workflow)
@@ -165,6 +195,7 @@ def main():
         sys.exit(1)
 
     seed_count = int(seed_count_raw)
+    main_prompt = env("MAIN_PROMPT", "")
     base_workflow = load_workflow(workflow_path)
     comfy_url = env("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
     job_id = env("JOB_ID")
@@ -177,7 +208,7 @@ def main():
 
     done_images = 0
     for index in range(1, seed_count + 1):
-        run_once(base_workflow, comfy_url, index - 1, index)
+        run_once(base_workflow, comfy_url, index - 1, index, main_prompt)
         done_images += default_batch_size
         report_progress(job_id, nightshift_url, total_images, done_images)
 
