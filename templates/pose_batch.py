@@ -39,6 +39,15 @@ ComfyUI로의 이미지 주입 방식:
     노드의 image 입력에 그대로 넣는다(아래 upload_image_to_comfy). 이미지마다 HTTP
     업로드가 한 번씩 더 들어가 느리지만, 파일시스템 공유 여부와 무관하게 항상 동작한다.
 
+메인 프롬프트(MAIN_PROMPT):
+    비워두면(기본값) 업로드한 워크플로우 JSON에 이미 들어있는 프롬프트를 그대로
+    쓴다. 값을 채우면 워크플로우에서 제목에 "main_prompt"가 포함된
+    CLIPTextEncode 노드 하나를 찾아 그 텍스트를 덮어쓴다. 그런 노드를 못 찾으면
+    (제목이 다르거나 CLIPTextEncode가 아예 없으면) 경고만 남기고 워크플로우는
+    건드리지 않는다 — 트리거/퀄리티/네거티브처럼 다른 프롬프트 노드가 여러 개
+    있을 수 있으므로, 제목이 정확히 일치하지 않으면 엉뚱한 노드를 덮어쓰지
+    않기 위함이다(csv_batch.py의 프롬프트 노드 매칭과 같은 방식).
+
 환경변수:
     WORKFLOW_PATH      (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
     POSE_COUNT         (필수) 반복 생성할 이미지 개수 (nightshift가 템플릿 옵션 "pose_count"로 주입)
@@ -46,6 +55,8 @@ ComfyUI로의 이미지 주입 방식:
     CHAR_NO            인물 수(포즈 세트가 있는 POSES_DIR 하위 숫자 폴더 이름). nightshift가
                        템플릿 옵션 "char_no"로 주입, 기본 "1"(1인물/solo)
     POSE_MODE          "sequential" 또는 "random" (nightshift가 템플릿 옵션 "pose_mode"로 주입, 기본 sequential)
+    MAIN_PROMPT        메인 프롬프트 (nightshift가 템플릿 옵션 "main_prompt"로 주입, 기본
+                       빈 값 — 비워두면 워크플로우의 프롬프트를 그대로 씀)
     NIGHTSHIFT_POSES_DIR   포즈 세트들이 있는 상위 폴더 (기본 /workspace/dataset/poses).
                        nightshift 서버(pose_assets.py)와 같은 값을 봐야 하므로 손대지 않는 게 안전함
     NIGHTSHIFT_OUTPUT_DIR  ComfyUI가 이미지를 저장하는 폴더 (기본 /workspace/output).
@@ -258,6 +269,24 @@ def apply_seed(workflow, seed):
     node.setdefault("inputs", {})["seed"] = seed
 
 
+def apply_main_prompt(workflow, main_prompt):
+    main_prompt = (main_prompt or "").strip()
+    if not main_prompt:
+        # 비워두면 업로드된 워크플로우의 프롬프트를 그대로 둔다.
+        return
+    # class_types를 넘기지 않으므로(find_node가 title 매칭 실패 시 아무 노드로도
+    # 대체하지 않음) 제목에 "main_prompt"가 없으면 조용히 건너뛴다.
+    node_id, node = find_node(workflow, title_substring="main_prompt")
+    if node is None or node.get("class_type") != "CLIPTextEncode":
+        print(
+            "[pose_batch] 경고: MAIN_PROMPT를 넣을 노드를 찾지 못했습니다 "
+            "(제목에 'main_prompt'가 포함된 CLIPTextEncode 없음)",
+            file=sys.stderr,
+        )
+        return
+    node.setdefault("inputs", {})["text"] = main_prompt
+
+
 def apply_filename_prefix(workflow, index, seed, char_no, pose_path):
     node_id, node = find_node(
         workflow,
@@ -331,9 +360,10 @@ def wait_for_completion(comfy_url, prompt_id):
     raise TimeoutError(f"prompt_id={prompt_id} 완료 대기 시간({timeout}s) 초과")
 
 
-def run_once(base_workflow, comfy_url, seed, char_no, pose_path, index, job_id, output_dir):
+def run_once(base_workflow, comfy_url, seed, char_no, pose_path, index, job_id, output_dir, main_prompt):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
+    apply_main_prompt(workflow, main_prompt)
     apply_pose_image(workflow, comfy_url, pose_path)
     apply_filename_prefix(workflow, index, seed, char_no, pose_path)
 
@@ -365,6 +395,7 @@ def main():
     pose_count = int(pose_count_raw)
     pose_mode = env("POSE_MODE", "sequential")
     char_no = env("CHAR_NO", DEFAULT_CHAR_NO)
+    main_prompt = env("MAIN_PROMPT", "")
     poses_dir = env("NIGHTSHIFT_POSES_DIR", "/workspace/dataset/poses")
     output_dir = env("NIGHTSHIFT_OUTPUT_DIR", "/workspace/output")
 
@@ -389,7 +420,7 @@ def main():
     for index in range(1, pose_count + 1):
         seed = random.randint(0, 2**31 - 1)
         pose_path = picker.pick()
-        run_once(base_workflow, comfy_url, seed, char_no, pose_path, index, job_id, output_dir)
+        run_once(base_workflow, comfy_url, seed, char_no, pose_path, index, job_id, output_dir, main_prompt)
         done += 1
         report_progress(job_id, nightshift_url, pose_count, done)
 
