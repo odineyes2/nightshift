@@ -224,13 +224,36 @@
     margin-bottom:16px;
   }
 
-  .list-header{
+  .panel-header{
     display:flex;
     align-items:center;
     justify-content:space-between;
+    gap:12px;
     margin-bottom:16px;
   }
-  .list-header .section-label{ margin-bottom:0; }
+  .panel-header .section-label{ margin-bottom:0; }
+  .panel-header-actions{ display:flex; align-items:center; gap:10px; flex-shrink:0; }
+  .collapse-btn{
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text-dim);
+    border-radius:6px;
+    width:26px;
+    height:26px;
+    flex-shrink:0;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    font-size:12px;
+    line-height:1;
+    cursor:pointer;
+    padding:0;
+    transition: transform .15s ease, border-color .15s, color .15s;
+  }
+  .collapse-btn:hover{ border-color:var(--text-dim); color:var(--text); }
+  .panel.collapsed .panel-header{ margin-bottom:0; }
+  .panel.collapsed .panel-body{ display:none; }
+  .panel.collapsed .collapse-btn{ transform:rotate(-90deg); }
   .start-queue-btn{
     background:var(--done);
     color:#fff;
@@ -482,112 +505,133 @@
 
 <main>
   <div class="panel">
-    <div class="section-label">새 작업 추가</div>
-    <div class="upload-form">
-      <div class="field">
-        <label class="field-label" for="template-select">템플릿</label>
-        <select id="template-select"></select>
+    <div class="panel-header">
+      <div class="section-label">새 작업 추가</div>
+      <div class="panel-header-actions">
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true">▾</button>
       </div>
+    </div>
+    <div class="panel-body">
+      <div class="upload-form">
+        <div class="field">
+          <label class="field-label" for="template-select">템플릿</label>
+          <select id="template-select"></select>
+        </div>
 
-      <div class="options-fields" id="options-fields"></div>
+        <div class="options-fields" id="options-fields"></div>
 
-      <div class="field">
-        <label class="field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
-        <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
-        <input type="file" class="slot-input" id="workflow-input" accept=".json">
-      </div>
+        <div class="field">
+          <label class="field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
+          <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
+          <input type="file" class="slot-input" id="workflow-input" accept=".json">
+        </div>
 
-      <div class="field" id="csv-field" style="display:none;">
-        <label class="field-label">CSV <span class="opt">— 이 템플릿에 필수</span></label>
-        <div class="slot" id="csv-slot">.csv 파일을 끌어다 놓거나 클릭</div>
-        <input type="file" class="slot-input" id="csv-input" accept=".csv">
-      </div>
+        <div class="field" id="csv-field" style="display:none;">
+          <label class="field-label">CSV <span class="opt">— 이 템플릿에 필수</span></label>
+          <div class="slot" id="csv-slot">.csv 파일을 끌어다 놓거나 클릭</div>
+          <input type="file" class="slot-input" id="csv-input" accept=".csv">
+        </div>
 
-      <div>
-        <button class="submit-btn" id="submit-btn">큐에 추가</button>
-        <div class="upload-error" id="upload-error"></div>
+        <div>
+          <button class="submit-btn" id="submit-btn">큐에 추가</button>
+          <div class="upload-error" id="upload-error"></div>
+        </div>
       </div>
     </div>
   </div>
 
   <div class="panel">
-    <div class="list-header">
+    <div class="panel-header">
       <div class="section-label">작업 목록</div>
-      <button class="start-queue-btn" id="start-queue-btn" disabled>▷ 대기중 작업 시작 (<span id="pending-batch-count">0</span>)</button>
+      <div class="panel-header-actions">
+        <button class="start-queue-btn" id="start-queue-btn" disabled>▷ 대기중 작업 시작 (<span id="pending-batch-count">0</span>)</button>
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true">▾</button>
+      </div>
     </div>
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th style="width:26px;"></th>
-            <th>템플릿</th>
-            <th>옵션</th>
-            <th>워크플로우</th>
-            <th>CSV</th>
-            <th>상태</th>
-            <th>시작</th>
-            <th>종료</th>
-            <th>예상 작업시간</th>
-            <th>예상 종료</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="job-rows"></tbody>
-      </table>
-    </div>
-    <div class="empty" id="empty-msg" style="display:none;">아직 등록된 작업이 없어요</div>
-  </div>
-
-  <div class="panel">
-    <div class="section-label">결과 이미지 이메일 전송</div>
-    <div class="email-hint">서버에 쌓인 결과 이미지를 모아 이메일로 보냅니다. 계정 정보는 저장하지 않고 발송에만 사용해요.</div>
-    <div class="upload-form">
-      <div class="field">
-        <label class="field-label" for="email-from">보내는 메일 계정</label>
-        <input type="email" class="option-input email-input" id="email-from" placeholder="you@gmail.com" autocomplete="email">
+    <div class="panel-body">
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:26px;"></th>
+              <th>템플릿</th>
+              <th>옵션</th>
+              <th>워크플로우</th>
+              <th>CSV</th>
+              <th>상태</th>
+              <th>시작</th>
+              <th>종료</th>
+              <th>예상 작업시간</th>
+              <th>예상 종료</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="job-rows"></tbody>
+        </table>
       </div>
-      <div class="field">
-        <label class="field-label" for="email-password">비밀번호 <span class="opt">— Gmail이면 앱 비밀번호. 저장되지 않음</span></label>
-        <input type="password" class="option-input email-input" id="email-password" placeholder="비밀번호" autocomplete="off">
-      </div>
-      <div class="field">
-        <label class="field-label" for="email-to">받는 메일 계정</label>
-        <input type="email" class="option-input email-input" id="email-to" placeholder="받을 주소" autocomplete="email">
-      </div>
-      <div class="field">
-        <label class="field-label" for="email-max-mb">메일당 최대 용량(MB) <span class="opt">— 기본 20</span></label>
-        <input type="number" class="option-input" id="email-max-mb" value="20" min="1" style="max-width:100px;">
-      </div>
-      <div>
-        <button class="submit-btn" id="email-send-btn">보내기</button>
-        <div class="upload-error" id="email-error"></div>
-        <div class="email-result" id="email-result"></div>
-      </div>
+      <div class="empty" id="empty-msg" style="display:none;">아직 등록된 작업이 없어요</div>
     </div>
   </div>
 
   <div class="panel">
-    <div class="section-label">결과 이미지 ZIP 다운로드</div>
-    <div class="email-hint">서버에 쌓인 결과 이미지를 모두 zip으로 묶어 바로 다운로드합니다.</div>
-    <div>
-      <button class="submit-btn" id="zip-download-btn">ZIP으로 다운로드</button>
-      <div class="upload-error" id="zip-error"></div>
+    <div class="panel-header">
+      <div class="section-label">결과 이미지 관리</div>
+      <div class="panel-header-actions">
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true">▾</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="email-hint">가로로 생성된 이미지(hires-fix/USDU 등, 1536×704와 같은 비율)를 시계 방향으로 90도 돌려서 저장하거나, 서버에 쌓인 이미지를 한 번에 정리합니다.</div>
+      <div class="output-actions">
+        <div>
+          <button class="submit-btn" id="zip-download-btn">ZIP으로 다운로드</button>
+          <div class="upload-error" id="zip-error"></div>
+        </div>
+        <div>
+          <button class="submit-btn" id="rotate-btn">가로형 이미지 자동 회전</button>
+          <div class="upload-error" id="rotate-error"></div>
+          <div class="email-result" id="rotate-result"></div>
+        </div>
+        <div>
+          <button class="danger-btn" id="delete-images-btn">이미지 전체 삭제</button>
+          <div class="upload-error" id="delete-error"></div>
+          <div class="email-result" id="delete-result"></div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div class="panel">
-    <div class="section-label">결과 이미지 관리</div>
-    <div class="email-hint">가로로 생성된 이미지(hires-fix/USDU 등, 1536×704와 같은 비율)를 시계 방향으로 90도 돌려서 저장하거나, 서버에 쌓인 이미지를 한 번에 정리합니다.</div>
-    <div class="output-actions">
-      <div>
-        <button class="submit-btn" id="rotate-btn">가로형 이미지 자동 회전</button>
-        <div class="upload-error" id="rotate-error"></div>
-        <div class="email-result" id="rotate-result"></div>
+  <div class="panel collapsed">
+    <div class="panel-header">
+      <div class="section-label">결과 이미지 이메일 전송</div>
+      <div class="panel-header-actions">
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
       </div>
-      <div>
-        <button class="danger-btn" id="delete-images-btn">이미지 전체 삭제</button>
-        <div class="upload-error" id="delete-error"></div>
-        <div class="email-result" id="delete-result"></div>
+    </div>
+    <div class="panel-body">
+      <div class="email-hint">서버에 쌓인 결과 이미지를 모아 이메일로 보냅니다. 계정 정보는 저장하지 않고 발송에만 사용해요.</div>
+      <div class="upload-form">
+        <div class="field">
+          <label class="field-label" for="email-from">보내는 메일 계정</label>
+          <input type="email" class="option-input email-input" id="email-from" placeholder="you@gmail.com" autocomplete="email">
+        </div>
+        <div class="field">
+          <label class="field-label" for="email-password">비밀번호 <span class="opt">— Gmail이면 앱 비밀번호. 저장되지 않음</span></label>
+          <input type="password" class="option-input email-input" id="email-password" placeholder="비밀번호" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="field-label" for="email-to">받는 메일 계정</label>
+          <input type="email" class="option-input email-input" id="email-to" placeholder="받을 주소" autocomplete="email">
+        </div>
+        <div class="field">
+          <label class="field-label" for="email-max-mb">메일당 최대 용량(MB) <span class="opt">— 기본 20</span></label>
+          <input type="number" class="option-input" id="email-max-mb" value="20" min="1" style="max-width:100px;">
+        </div>
+        <div>
+          <button class="submit-btn" id="email-send-btn">보내기</button>
+          <div class="upload-error" id="email-error"></div>
+          <div class="email-result" id="email-result"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -615,6 +659,14 @@ const STATUS_LABEL = {
   pending: "대기중", queued: "대기중", running: "실행중", done: "완료",
   failed: "실패", interrupted: "중단됨"
 };
+
+document.querySelectorAll('.panel > .panel-header > .panel-header-actions > .collapse-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const panel = btn.closest('.panel');
+    const collapsed = panel.classList.toggle('collapsed');
+    btn.setAttribute('aria-expanded', String(!collapsed));
+  });
+});
 
 let expandedId = null;
 
