@@ -22,16 +22,17 @@
     가능한 경우"로 한정한다 — 캐릭터별로 별도 ControlNet을 붙이는 멀티
     ControlNet 구조는 다루지 않는다.
 
-    `pose_batch` 템플릿(CSV 없이 세트 하나를 반복 사용하는 단순 템플릿)은 처음부터
-    1인물 전용으로 설계됐으므로 char_no 개념이 없다 — 업로드 폼의 "포즈 세트"
-    드롭다운과 `validate_pose_set`/`list_pose_sets`는 항상 DEFAULT_CHAR_NO(="1")
-    아래만 본다. char_no를 행마다 지정할 수 있는 건 `pose_csv_batch` 템플릿의 CSV
-    `pose`/`char_no` 컬럼뿐이며, 그 해석은 `resolve_pose_reference(name, char_no)`가
-    담당한다.
+    `pose_batch` 템플릿(CSV 없이 세트 하나를 반복 사용하는 단순 템플릿)은 업로드
+    폼에서 "인물 수"(char_no) 드롭다운을 먼저 고르고, 그 값에 따라 "포즈 세트"
+    드롭다운이 다시 채워지는 방식으로 char_no를 선택한다(캐스케이딩 드롭다운).
+    기본값은 DEFAULT_CHAR_NO(="1"). `pose_csv_batch` 템플릿은 CSV 행마다
+    `pose`/`char_no` 컬럼으로 지정하며, 그 해석은 `resolve_pose_reference(name,
+    char_no)`가 담당한다.
 
     포즈 세트별로 하위 폴더를 나눠두면(예: "casual_standing", "action_pose") 업로드
-    폼의 드롭다운에서 세트를 선택할 수 있다. `/api/assets`가 이 하위 폴더 목록과
-    각 폴더의 이미지 개수를 스캔해서 돌려준다(단, DEFAULT_CHAR_NO 아래만 — 위 참고).
+    폼의 드롭다운에서 세트를 선택할 수 있다. `/api/assets`가 char_no별 하위 폴더
+    목록과 각 폴더의 이미지 개수를 스캔해서 트리 형태로 한 번에 돌려준다
+    (`list_assets_tree`).
 
 이 모듈은 nightshift 서버(app.py) 쪽에서 폴더 목록 조회/업로드 시점 검증에만 쓰인다.
 실제로 포즈 이미지를 고르고 ComfyUI에 주입하는 로직은 templates/pose_batch.py,
@@ -99,8 +100,7 @@ def list_pose_images(char_no: str, name: str) -> list[Path]:
 def list_pose_sets(char_no: str = DEFAULT_CHAR_NO) -> list[dict]:
     """POSES_DIR/char_no 바로 아래의 하위 폴더들을 스캔해서 [{"name", "count"}, ...]로
     돌려준다. 그 폴더 자체가 없으면 빈 리스트(에러 아님 — 아직 세트를 안 올려둔
-    상태일 수 있음). pose_batch(char_no 개념 없음)가 쓰는 GET /api/assets는
-    char_no를 생략해 DEFAULT_CHAR_NO만 본다."""
+    상태일 수 있음)."""
     base = _char_dir(char_no)
     if not base.is_dir():
         return []
@@ -112,10 +112,33 @@ def list_pose_sets(char_no: str = DEFAULT_CHAR_NO) -> list[dict]:
     return sets
 
 
+def list_char_nos() -> list[str]:
+    """POSES_DIR 바로 아래의 하위 폴더 중 숫자 이름인 것들(char_no)을 정렬해서
+    돌려준다. POSES_DIR 자체가 없으면 빈 리스트."""
+    base = Path(POSES_DIR)
+    if not base.is_dir():
+        return []
+    return sorted(
+        (e.name for e in base.iterdir() if e.is_dir() and e.name.isdigit()),
+        key=int,
+    )
+
+
+def list_assets_tree() -> list[dict]:
+    """GET /api/assets가 반환하는 전체 트리 — 각 char_no와 그 아래 포즈 세트 목록을
+    [{"name": char_no, "pose_sets": [{"name", "count"}, ...]}, ...]로 한 번에 돌려준다.
+    프론트엔드가 이 트리를 한 번만 받아서 캐시해두면, "인물 수" 드롭다운을 바꿀 때마다
+    서버에 다시 요청하지 않고도 "포즈 세트" 드롭다운을 그 자리에서 다시 채울 수 있다."""
+    return [
+        {"name": char_no, "pose_sets": list_pose_sets(char_no)}
+        for char_no in list_char_nos()
+    ]
+
+
 def validate_pose_set(name: str, char_no: str = DEFAULT_CHAR_NO) -> Path:
     """char_no 아래 포즈 세트 name이 실제로 존재하고 이미지가 1장 이상 있는지
     확인한다. 잡을 큐에 올리는 시점(업로드 시)에 검사해서, 시작한 뒤에야
-    실패하는 일이 없게 한다. pose_batch는 char_no 개념이 없어 항상 DEFAULT_CHAR_NO를 본다."""
+    실패하는 일이 없게 한다. char_no를 생략하면 DEFAULT_CHAR_NO를 본다."""
     name = (name or "").strip()
     if not name:
         raise PoseAssetError("포즈 세트를 선택하세요.")

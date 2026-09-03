@@ -126,7 +126,7 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
 |---|---|
 | `name` | 옵션 이름. 폼 필드명이자, 대문자로 변환되어 스크립트에 환경변수로 전달됨 (예: `seed_count` → `SEED_COUNT`) |
 | `label` | 입력 필드 위에 표시될 사람이 읽는 이름 |
-| `type` | `"number"`/`"text"`(직접 입력), `"select"`(고정 드롭다운, `choices` 필요), `"asset_folder"`(포즈 세트 드롭다운 — 아래 참고) |
+| `type` | `"number"`/`"text"`(직접 입력), `"select"`(고정 드롭다운, `choices` 필요), `"char_no"`("인물 수" 드롭다운 — 아래 참고), `"asset_folder"`(포즈 세트 드롭다운, 선택된 `"char_no"` 값으로 스코프됨 — 아래 참고) |
 | `default` | 입력 필드에 미리 채워지는 기본값. 폼에서 값이 비어 있으면 서버가 이 기본값으로 대체함 |
 | `choices` | `type`이 `"select"`일 때만 사용 — 드롭다운에 나열할 문자열 배열. 서버는 이 목록에 없는 값을 400으로 거부함 |
 
@@ -179,7 +179,7 @@ ControlNet(OpenPose 등)으로 포즈를 고정한 채 배치 생성할 때, 매
 
 이 char_no 스코프는 "포즈 스켈레톤 이미지 1장에 여러 인물이 이미 함께 그려져 있어 ControlNet 노드 1개로 그대로 처리 가능한 경우"만 다룹니다 — 캐릭터별로 별도 ControlNet을 붙이는 멀티 ControlNet 구조는 다루지 않습니다. 목적은 기능 확장이 아니라 오사용 방지입니다: CSV 작성자가 duo용 세트를 쓰려다 실수로 solo용 세트를 섞어 넣는 사고를 폴더 구조 자체로 막습니다.
 
-`pose_batch` 템플릿은 char_no 개념 없이 처음부터 1인물 전용으로 설계됐으므로, 업로드 폼의 "포즈 세트" 드롭다운(`GET /api/assets`)과 `pose_assets.validate_pose_set()`은 항상 `1/` 아래만 봅니다. char_no를 행마다 지정할 수 있는 건 아래 `pose_csv_batch`의 CSV `char_no` 컬럼뿐입니다.
+`pose_batch` 템플릿은 업로드 폼에서 "인물 수"(char_no) 드롭다운을 먼저 고르고, 그 값에 따라 "포즈 세트" 드롭다운이 다시 채워지는 캐스케이딩 방식으로 char_no를 선택합니다(기본값 `"1"`). `GET /api/assets`가 char_no별 포즈 세트 목록을 `{"char_nos": [{"name": "1", "pose_sets": [...]}, {"name": "2", "pose_sets": [...]}]}` 트리 형태로 한 번에 돌려줘서, 프론트엔드는 "인물 수"를 바꿀 때마다 서버에 다시 요청하지 않고도 "포즈 세트" 드롭다운을 그 자리에서 다시 채웁니다. 업로드 시점 검증(`pose_assets.validate_pose_set(name, char_no)`)도 같은 요청에 담긴 char_no 값으로 스코프됩니다. CSV 행마다 서로 다른 char_no를 섞어 쓰려면 아래 `pose_csv_batch`의 CSV `char_no` 컬럼을 씁니다.
 
 **기존 설치 마이그레이션**: 이 구조가 도입되기 전에는 `NIGHTSHIFT_POSES_DIR` 바로 아래에 세트 폴더가 있었습니다(전부 1인물 참조였음). 아래처럼 전부 `1/` 아래로 옮기면 기존 세트를 그대로 계속 씁니다.
 
@@ -189,13 +189,13 @@ mkdir -p 1
 for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 ```
 
-업로드 폼의 "포즈 세트" 드롭다운은 `GET /api/assets`가 스캔한 `1/` 아래의 하위 폴더 목록(및 각 폴더의 이미지 개수)을 그대로 보여주고, 이미지가 0장인 폴더는 드롭다운에서 선택할 수 없게 비활성화됩니다. 그래도 만약(다른 방식으로) 빈 폴더나 존재하지 않는 폴더가 선택되면, 업로드 시점(`POST /api/upload`)에 `pose_assets.validate_pose_set()`이 막아서 잡이 시작된 뒤에야 실패하는 일이 없게 합니다.
+업로드 폼의 "인물 수" 드롭다운은 `GET /api/assets`가 스캔한 `POSES_DIR` 바로 아래의 숫자 폴더 목록을 보여주고, "포즈 세트" 드롭다운은 그중 선택된 char_no 폴더 아래의 하위 폴더 목록(및 각 폴더의 이미지 개수)을 보여줍니다. 이미지가 0장인 세트는 드롭다운에서 선택할 수 없게 비활성화됩니다. 그래도 만약(다른 방식으로) 빈 폴더나 존재하지 않는 폴더/char_no가 선택되면, 업로드 시점(`POST /api/upload`)에 `pose_assets.validate_pose_set()`/`list_char_nos()`가 막아서 잡이 시작된 뒤에야 실패하는 일이 없게 합니다.
 
 **선택 방식(`pose_mode`)**: `sequential`(파일명 정렬 순서대로 순환, 개수를 넘기면 처음부터 다시)과 `random`(폴더가 다 소진될 때까지 중복 없이 뽑고 그 다음에 다시 섞어서 리셋 — 완전 무작위보다 다양성이 보장됨) 중 선택합니다. 이 선택 로직은 전부 `templates/pose_batch.py` 안에 있고, `app.py`는 어떤 포즈 세트/방식을 쓸지 다른 옵션과 똑같이 `POSE_SET`/`POSE_MODE` 환경변수로 전달만 합니다.
 
 **ComfyUI로의 이미지 주입 방식**: LoadImage 노드가 참조하는 파일은 ComfyUI 자신의 input 폴더에 있어야 합니다. nightshift와 ComfyUI가 파일시스템을 공유한다는 보장이 없으므로(다른 컨테이너/파드로 분리될 수 있음), 파일을 직접 복사하지 않고 매번 ComfyUI의 `POST /upload/image` API로 업로드한 뒤 응답으로 받은 파일명을 LoadImage 노드의 `image` 입력에 넣습니다. 이미지마다 HTTP 업로드가 한 번씩 더 들어가 느리지만, 파일시스템 공유 여부와 무관하게 항상 동작합니다. 어느 노드에 주입할지는 다른 템플릿과 동일하게 `_meta.title`로 찾습니다(`POSE_NODE_TITLE`, 기본 `"Load"`) — 일치하는 제목이 없으면 워크플로우에 LoadImage 노드가 하나뿐일 때 그 노드를 대신 씁니다.
 
-**재현성 기록**: 매 반복마다 어떤 포즈 이미지를 썼는지 로그와 `filename_prefix`에 남기는 것 외에, `NIGHTSHIFT_OUTPUT_DIR`에 `pose_batch_manifest.jsonl`을 이어쓰기(append)로도 남깁니다. 한 줄마다 `{timestamp, job_id, index, pose_set, pose_file, seed, prompt_id}`를 기록해서, 나중에 "이 컷이 왜 이렇게 나왔는지" 추적할 수 있습니다.
+**재현성 기록**: 매 반복마다 어떤 포즈 이미지를 썼는지 로그와 `filename_prefix`에 남기는 것 외에, `NIGHTSHIFT_OUTPUT_DIR`에 `pose_batch_manifest.jsonl`을 이어쓰기(append)로도 남깁니다. 한 줄마다 `{timestamp, job_id, index, char_no, pose_set, pose_file, seed, prompt_id}`를 기록해서, 나중에 "이 컷이 왜 이렇게 나왔는지" 추적할 수 있습니다. `char_no`가 기본값(`1`)이 아니면 `pose_csv_batch`와 같은 방식으로 `filename_prefix`에도 `_char<N>`이 붙습니다.
 
 기존 템플릿(`seed_batch`/`csv_batch`)과 매니페스트는 이 기능과 무관하게 그대로 동작합니다 — `pose_batch`는 옵션이 켜진(=이 템플릿을 선택한) 경우에만 활성화되는 별도 템플릿입니다.
 
@@ -259,7 +259,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 |---|---|---|
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
 | `GET` | `/api/comfy-status` | 감지된 ComfyUI 주소(`url`)와 연결 가능 여부(`connected`)를 조회. 매 호출마다 실시간으로 재확인함 |
-| `GET` | `/api/assets` | `NIGHTSHIFT_POSES_DIR` 아래의 포즈 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"pose_sets": [{"name", "count"}, ...]}`로 반환. 업로드 폼의 "포즈 세트" 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함 |
+| `GET` | `/api/assets` | `NIGHTSHIFT_POSES_DIR` 아래의 char_no별 포즈 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"char_nos": [{"name": char_no, "pose_sets": [{"name", "count"}, ...]}, ...]}`로 반환. 업로드 폼의 "인물 수"/"포즈 세트" 캐스케이딩 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함 |
 | `POST` | `/api/upload` | 작업을 `pending`(대기중) 상태로 등록만 함 — 아직 실행 큐에 들어가지 않음 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨). `template_id`가 `pose_csv_batch`면 CSV의 `pose` 컬럼 값을 전부 미리 해석해보고, 실패하는 행이 있으면 400으로 거부함 |
 | `POST` | `/api/queue/start` | 그 시점에 `pending`인 작업 **전체**를 대기 등록 순서대로 실행 큐에 넣음 (상태를 `queued`로 일괄 전환). 응답으로 `{"started": N}`(실제로 시작된 개수)을 반환하며, 대기 중인 작업이 없으면 `N`은 0 |
 | `GET` | `/api/jobs` | 전체 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수 조회 |
