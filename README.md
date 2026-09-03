@@ -126,19 +126,20 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
 |---|---|
 | `name` | 옵션 이름. 폼 필드명이자, 대문자로 변환되어 스크립트에 환경변수로 전달됨 (예: `seed_count` → `SEED_COUNT`) |
 | `label` | 입력 필드 위에 표시될 사람이 읽는 이름 |
-| `type` | `"number"`/`"text"`(직접 입력), `"select"`(고정 드롭다운, `choices` 필요), `"char_no"`("인물 수" 드롭다운 — 아래 참고), `"asset_folder"`(포즈 세트 드롭다운, 선택된 `"char_no"` 값으로 스코프됨 — 아래 참고) |
+| `type` | `"number"`/`"text"`(한 줄 직접 입력), `"textarea"`(여러 줄 직접 입력 — 프롬프트처럼 긴 텍스트용), `"select"`(고정 드롭다운, `choices` 필요), `"char_no"`("인물 수" 드롭다운 — 아래 참고), `"asset_folder"`(포즈 세트 드롭다운, 선택된 `"char_no"` 값으로 스코프됨 — 아래 참고) |
 | `default` | 입력 필드에 미리 채워지는 기본값. 폼에서 값이 비어 있으면 서버가 이 기본값으로 대체함 |
 | `choices` | `type`이 `"select"`일 때만 사용 — 드롭다운에 나열할 문자열 배열. 서버는 이 목록에 없는 값을 400으로 거부함 |
+| `placeholder` | `"text"`/`"textarea"`일 때만 사용 — 입력 필드가 비어 있을 때 표시되는 흐린 안내 문구 (선택) |
 
 현재 등록된 템플릿:
 
-- **`seed_batch`** (`templates/seed_batch.py`) — 워크플로우 하나를 `seed_count`번만큼 시드만 바꿔가며 반복 실행하는 가장 단순한 형태입니다.
+- **`seed_batch`** (`templates/seed_batch.py`) — 워크플로우 하나를 `seed_count`번만큼 시드만 바꿔가며 반복 실행하는 가장 단순한 형태입니다. `main_prompt` 옵션(선택)을 비워두면 업로드한 워크플로우에 이미 들어있는 프롬프트를 그대로 쓰고, 값을 채우면 제목에 `"main_prompt"`가 포함된 CLIPTextEncode 노드를 찾아 그 텍스트를 덮어씁니다(그런 노드가 없으면 경고만 남기고 건드리지 않음 — `csv_batch`의 프롬프트 노드 매칭과 같은 방식).
 - **`csv_batch`** (`templates/csv_batch.py`) — CSV 행마다 `seeds_per_case`개의 시드로 반복 제출하는 예시 구현입니다. 프롬프트가 여러 CLIPTextEncode 노드(트리거워드/본문/퀄리티 태그/네거티브 등)로 나뉘어 있는 워크플로우를 전제로, CSV 컬럼 이름과 노드 제목을 매칭해서 각각 주입합니다.
   - CSV 컬럼: `title`(파일명 접두사), `trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`(각각 같은 이름이 제목에 포함된 CLIPTextEncode 노드에 주입, 없는 컬럼은 건드리지 않음), `prompt`(`main_prompt`가 없을 때 쓰이는 대체 컬럼, 하위 호환용), `seed`(있으면 그 값 하나만, 없으면 `seeds_per_case`개의 랜덤 시드로 반복), `batch_no`(EmptyLatentImage류 노드의 `batch_size`), `width`/`height`(해상도를 픽셀 값으로 직접 지정 — 둘 다 채워야 적용되고, 채워지면 `resolution`보다 우선함), `resolution`(`width`/`height`가 비어 있을 때만 쓰임 — `1024x1024` 같은 `WxH` 형식 또는 `square`/`portrait`/`landscape`/`9:16`/`16:9` 프리셋)
   - 프롬프트 노드가 여러 개일 수 있으므로, 컬럼 이름과 제목이 정확히 일치하는 노드를 못 찾으면 다른 CLIPTextEncode로 대체 주입하지 않고 건너뜁니다(엉뚱한 노드를 덮어쓰는 사고 방지). 워크플로우의 실제 노드 제목이 다르면 스크립트 상단의 `PROMPT_FIELD_TITLES`를 맞춰서 조정하세요.
   - EmptyLatentImage 노드도 여러 개일 수 있습니다(해상도 프리셋을 바꿔가며 테스트하다 보면 배선 안 된 노드가 남기 쉬움). `LATENT_NODE_TITLE`로 제목 매칭이 안 되면, 아무 EmptyLatentImage나 고르지 않고 실제로 다른 노드의 입력에 연결돼 있는(=워크플로우 실행에 쓰이는) 노드를 우선으로 고릅니다.
   - 컬럼 형식을 그대로 보여주는 샘플 파일이 `templates/csv_batch.sample.csv`에 있습니다. CSV 배치 작업을 등록할 때 이 파일을 복사해서 값만 바꾸면 됩니다.
-- **`pose_batch`** (`templates/pose_batch.py`) — ControlNet(OpenPose 등)에 쓸 포즈 레퍼런스 이미지를 서버에 미리 쌓아둔 폴더에서 순차/랜덤으로 뽑아 LoadImage 노드에 주입하면서, 워크플로우 하나를 `pose_count`번 반복 실행합니다. 자세한 내용은 아래 "포즈 참조 배치" 절 참고.
+- **`pose_batch`** (`templates/pose_batch.py`) — ControlNet(OpenPose 등)에 쓸 포즈 레퍼런스 이미지를 서버에 미리 쌓아둔 폴더에서 순차/랜덤으로 뽑아 LoadImage 노드에 주입하면서, 워크플로우 하나를 `pose_count`번 반복 실행합니다. `seed_batch`와 같은 방식의 `main_prompt` 옵션(선택)도 지원합니다. 자세한 내용은 아래 "포즈 참조 배치" 절 참고.
 - **`pose_csv_batch`** (`templates/pose_csv_batch.py`) — `csv_batch`의 CSV 기반 배치(프롬프트/시드/해상도/batch_no)에 `pose_batch`의 포즈 레퍼런스 주입을 결합한 템플릿입니다. CSV의 `pose` 컬럼으로 행마다 포즈 레퍼런스를 지정하고, 비어 있으면 그 행은 ControlNet 없이 생성합니다. 자세한 내용은 아래 "CSV + 포즈 배치" 절 참고.
 
 모든 CSV/시드 템플릿은 ComfyUI workflow API를 호출하는 best-effort 구현입니다. 실제 ComfyUI 워크플로우의 노드 제목/구조에 맞춰 `SEED_NODE_TITLE`/`LATENT_NODE_TITLE`/`SAVE_NODE_TITLE` 등 환경변수나 노드 매칭 로직을 조정해야 할 수 있습니다. 자세한 사용법은 각 스크립트 상단 docstring을 참고하세요.
@@ -192,6 +193,8 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 업로드 폼의 "인물 수" 드롭다운은 `GET /api/assets`가 스캔한 `POSES_DIR` 바로 아래의 숫자 폴더 목록을 보여주고, "포즈 세트" 드롭다운은 그중 선택된 char_no 폴더 아래의 하위 폴더 목록(및 각 폴더의 이미지 개수)을 보여줍니다. 이미지가 0장인 세트는 드롭다운에서 선택할 수 없게 비활성화됩니다. 그래도 만약(다른 방식으로) 빈 폴더나 존재하지 않는 폴더/char_no가 선택되면, 업로드 시점(`POST /api/upload`)에 `pose_assets.validate_pose_set()`/`list_char_nos()`가 막아서 잡이 시작된 뒤에야 실패하는 일이 없게 합니다.
 
 **선택 방식(`pose_mode`)**: `sequential`(파일명 정렬 순서대로 순환, 개수를 넘기면 처음부터 다시)과 `random`(폴더가 다 소진될 때까지 중복 없이 뽑고 그 다음에 다시 섞어서 리셋 — 완전 무작위보다 다양성이 보장됨) 중 선택합니다. 이 선택 로직은 전부 `templates/pose_batch.py` 안에 있고, `app.py`는 어떤 포즈 세트/방식을 쓸지 다른 옵션과 똑같이 `POSE_SET`/`POSE_MODE` 환경변수로 전달만 합니다.
+
+**메인 프롬프트(`main_prompt`)**: 업로드 폼의 여러 줄 입력란입니다. 비워두면(기본값) 업로드한 워크플로우 JSON에 이미 들어있는 프롬프트를 그대로 쓰고, 값을 채우면 워크플로우에서 제목에 `"main_prompt"`가 포함된 CLIPTextEncode 노드 하나를 찾아 그 텍스트를 덮어씁니다. 그런 노드를 못 찾으면(제목이 다르거나 CLIPTextEncode가 아예 없으면) 경고만 남기고 워크플로우는 건드리지 않습니다 — 트리거/퀄리티/네거티브처럼 다른 프롬프트 노드가 여러 개 있을 수 있으므로, 제목이 정확히 일치하지 않으면 엉뚱한 노드를 덮어쓰지 않기 위함입니다(`csv_batch`의 프롬프트 노드 매칭과 같은 방식). `seed_batch` 템플릿도 같은 옵션을 지원합니다.
 
 **ComfyUI로의 이미지 주입 방식**: LoadImage 노드가 참조하는 파일은 ComfyUI 자신의 input 폴더에 있어야 합니다. nightshift와 ComfyUI가 파일시스템을 공유한다는 보장이 없으므로(다른 컨테이너/파드로 분리될 수 있음), 파일을 직접 복사하지 않고 매번 ComfyUI의 `POST /upload/image` API로 업로드한 뒤 응답으로 받은 파일명을 LoadImage 노드의 `image` 입력에 넣습니다. 이미지마다 HTTP 업로드가 한 번씩 더 들어가 느리지만, 파일시스템 공유 여부와 무관하게 항상 동작합니다. 어느 노드에 주입할지는 다른 템플릿과 동일하게 `_meta.title`로 찾습니다(`POSE_NODE_TITLE`, 기본 `"Load"`) — 일치하는 제목이 없으면 워크플로우에 LoadImage 노드가 하나뿐일 때 그 노드를 대신 씁니다.
 

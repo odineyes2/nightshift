@@ -127,7 +127,8 @@
   }
   select#template-select,
   input.option-input,
-  select.option-input{
+  select.option-input,
+  textarea.option-input{
     background:var(--panel);
     color:var(--text);
     border:1px solid var(--border);
@@ -139,9 +140,18 @@
   }
   input.option-input{ cursor:text; max-width:220px; }
   select.option-input{ max-width:280px; }
+  textarea.option-input{
+    cursor:text;
+    width:100%;
+    max-width:520px;
+    min-height:80px;
+    resize:vertical;
+    line-height:1.5;
+  }
   select#template-select:focus,
   input.option-input:focus,
-  select.option-input:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
+  select.option-input:focus,
+  textarea.option-input:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
   .slot{
     border:1px dashed var(--border);
     background:var(--bg);
@@ -938,10 +948,20 @@ function buildOptionControl(opt){
   if(opt.type === 'select' || opt.type === 'asset_folder' || opt.type === 'char_no'){
     return buildSelectControl(opt);
   }
+  if(opt.type === 'textarea'){
+    const textarea = document.createElement('textarea');
+    textarea.className = 'option-input';
+    textarea.dataset.name = opt.name;
+    textarea.rows = 4;
+    if(opt.placeholder) textarea.placeholder = opt.placeholder;
+    if(opt.default !== undefined && opt.default !== null) textarea.value = opt.default;
+    return textarea;
+  }
   const input = document.createElement('input');
   input.className = 'option-input';
   input.type = opt.type === 'number' ? 'number' : 'text';
   input.dataset.name = opt.name;
+  if(opt.placeholder) input.placeholder = opt.placeholder;
   if(opt.default !== undefined && opt.default !== null) input.value = opt.default;
   return input;
 }
