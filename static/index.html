@@ -811,15 +811,62 @@ const optionsFields = document.getElementById('options-fields');
 const csvField = document.getElementById('csv-field');
 const uploadError = document.getElementById('upload-error');
 
-let poseSets = [];  // /api/assets 캐시 — asset_folder 타입 옵션(포즈 세트) 드롭다운에 씀
+let assetsTree = [];  // /api/assets 캐시 — [{name: char_no, pose_sets: [{name, count}, ...]}, ...].
+                       // "인물 수"(char_no)/"포즈 세트" 캐스케이딩 드롭다운에 씀
 
 async function fetchAssets(){
   try{
     const res = await fetch('/api/assets');
     const data = await res.json();
-    poseSets = data.pose_sets || [];
+    assetsTree = data.char_nos || [];
   }catch(e){
-    poseSets = [];
+    assetsTree = [];
+  }
+}
+
+function poseSetsForCharNo(charNo){
+  const entry = assetsTree.find(t => t.name === charNo);
+  return entry ? entry.pose_sets : [];
+}
+
+function choicesFor(opt){
+  if(opt.type === 'char_no'){
+    return assetsTree.map(t => ({ value: t.name, label: `${t.name}명`, disabled: false }));
+  }
+  if(opt.type === 'asset_folder'){
+    // pose_set은 char_no 스코프 안에서 골라야 하므로, 같은 폼에 이미 렌더링돼
+    // 있는 "char_no" 필드의 현재 선택값을 그 자리에서 읽어와 필터링한다
+    // (manifest에서 char_no 옵션이 asset_folder 옵션보다 앞에 선언돼 있어야 함).
+    const charNoSelect = optionsFields.querySelector('[data-name="char_no"]');
+    const charNo = charNoSelect ? charNoSelect.value : '';
+    return poseSetsForCharNo(charNo).map(ps => ({ value: ps.name, label: `${ps.name} (${ps.count}장)`, disabled: ps.count === 0 }));
+  }
+  return (opt.choices || []).map(c => ({ value: c, label: c, disabled: false }));
+}
+
+function emptyTextFor(opt){
+  if(opt.type === 'char_no') return '(사용 가능한 인물 수 없음)';
+  if(opt.type === 'asset_folder') return '(사용 가능한 포즈 세트 없음)';
+  return '(선택지 없음)';
+}
+
+function populateSelectOptions(select, choices, emptyText){
+  select.innerHTML = '';
+  if(choices.length === 0){
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = emptyText;
+    select.appendChild(empty);
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  for(const c of choices){
+    const o = document.createElement('option');
+    o.value = c.value;
+    o.textContent = c.label;
+    o.disabled = c.disabled;
+    select.appendChild(o);
   }
 }
 
@@ -828,34 +875,15 @@ function buildSelectControl(opt){
   select.className = 'option-input';
   select.dataset.name = opt.name;
 
-  const choices = opt.type === 'asset_folder'
-    ? poseSets.map(ps => ({ value: ps.name, label: `${ps.name} (${ps.count}장)`, disabled: ps.count === 0 }))
-    : (opt.choices || []).map(c => ({ value: c, label: c, disabled: false }));
-
-  if(choices.length === 0){
-    const empty = document.createElement('option');
-    empty.value = '';
-    empty.textContent = opt.type === 'asset_folder' ? '(사용 가능한 포즈 세트 없음)' : '(선택지 없음)';
-    select.appendChild(empty);
-    select.disabled = true;
-    return select;
-  }
-
-  for(const c of choices){
-    const o = document.createElement('option');
-    o.value = c.value;
-    o.textContent = c.label;
-    o.disabled = c.disabled;
-    select.appendChild(o);
-  }
-  if(opt.default !== undefined && opt.default !== null && opt.default !== ''){
+  populateSelectOptions(select, choicesFor(opt), emptyTextFor(opt));
+  if(!select.disabled && opt.default !== undefined && opt.default !== null && opt.default !== ''){
     select.value = opt.default;
   }
   return select;
 }
 
 function buildOptionControl(opt){
-  if(opt.type === 'select' || opt.type === 'asset_folder'){
+  if(opt.type === 'select' || opt.type === 'asset_folder' || opt.type === 'char_no'){
     return buildSelectControl(opt);
   }
   const input = document.createElement('input');
@@ -868,7 +896,8 @@ function buildOptionControl(opt){
 
 function renderOptionFields(template){
   optionsFields.innerHTML = '';
-  for(const opt of (template ? template.options || [] : [])){
+  const options = template ? template.options || [] : [];
+  for(const opt of options){
     const field = document.createElement('div');
     field.className = 'field';
 
@@ -880,14 +909,28 @@ function renderOptionFields(template){
     field.appendChild(buildOptionControl(opt));
     optionsFields.appendChild(field);
   }
+
+  // "인물 수" 드롭다운을 바꿀 때마다 "포즈 세트" 드롭다운을 그 자리에서 다시
+  // 채운다(캐스케이딩) — 페이지를 다시 그리지 않으므로 다른 필드 값은 그대로 유지된다.
+  const charNoSelect = optionsFields.querySelector('[data-name="char_no"]');
+  if(charNoSelect){
+    charNoSelect.addEventListener('change', () => {
+      for(const opt of options){
+        if(opt.type !== 'asset_folder') continue;
+        const poseSetSelect = optionsFields.querySelector(`[data-name="${opt.name}"]`);
+        if(!poseSetSelect) continue;
+        populateSelectOptions(poseSetSelect, choicesFor(opt), emptyTextFor(opt));
+      }
+    });
+  }
 }
 
 async function onTemplateChange(){
   const template = templatesById[templateSelect.value];
   csvField.style.display = (template && template.requires_csv) ? '' : 'none';
-  // asset_folder 옵션이 있는 템플릿을 고를 때마다 목록을 새로 받아와서, 방금
+  // char_no/asset_folder 옵션이 있는 템플릿을 고를 때마다 목록을 새로 받아와서, 방금
   // 서버에 새로 올려둔 포즈 세트도 페이지를 새로고침하지 않고 바로 반영되게 한다.
-  const needsAssets = template && (template.options || []).some(o => o.type === 'asset_folder');
+  const needsAssets = template && (template.options || []).some(o => o.type === 'asset_folder' || o.type === 'char_no');
   if(needsAssets) await fetchAssets();
   renderOptionFields(template);
   uploadError.textContent = '';
@@ -924,10 +967,13 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
     return;
   }
   for(const opt of (template ? template.options || [] : [])){
-    if(opt.type !== 'asset_folder') continue;
+    if(opt.type !== 'asset_folder' && opt.type !== 'char_no') continue;
     const select = optionsFields.querySelector(`[data-name="${opt.name}"]`);
     if(!select || !select.value){
-      uploadError.textContent = `'${opt.label}'을 선택하세요 (사용 가능한 포즈 세트가 없으면 서버에 먼저 이미지를 올려두세요).`;
+      const hint = opt.type === 'char_no'
+        ? '(사용 가능한 인물 수 폴더가 없으면 서버에 먼저 포즈 세트 폴더를 만들어두세요)'
+        : '(사용 가능한 포즈 세트가 없으면 서버에 먼저 이미지를 올려두세요)';
+      uploadError.textContent = `'${opt.label}'을 선택하세요 ${hint}.`;
       return;
     }
   }
