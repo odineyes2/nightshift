@@ -202,6 +202,8 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 **ComfyUI로의 이미지 주입 방식**: LoadImage 노드가 참조하는 파일은 ComfyUI 자신의 input 폴더에 있어야 합니다. nightshift와 ComfyUI가 파일시스템을 공유한다는 보장이 없으므로(다른 컨테이너/파드로 분리될 수 있음), 파일을 직접 복사하지 않고 매번 ComfyUI의 `POST /upload/image` API로 업로드한 뒤 응답으로 받은 파일명을 LoadImage 노드의 `image` 입력에 넣습니다. 이미지마다 HTTP 업로드가 한 번씩 더 들어가 느리지만, 파일시스템 공유 여부와 무관하게 항상 동작합니다. 어느 노드에 주입할지는 다른 템플릿과 동일하게 `_meta.title`로 찾습니다(`POSE_NODE_TITLE`, 기본 `"Load"`) — 일치하는 제목이 없으면 워크플로우에 LoadImage 노드가 하나뿐일 때 그 노드를 대신 씁니다.
 
+**업로드 시점 LoadImage 노드 검증**: 워크플로우를 잘못 골라 올려서(예: 포즈용이 아닌 워크플로우) LoadImage 노드가 아예 없으면, 실행 스크립트는 stderr에 경고만 남기고 포즈 참조 없이 이미지 생성을 계속 진행합니다 — 이 사고를 큐에 올리기 전에 막기 위해, `POST /api/upload`가 스크립트와 정확히 같은 알고리즘으로 "실행 시점에 실제로 어떤 노드가 선택될지"를 미리 계산해서 그 노드가 없거나 `LoadImage`가 아니면(예: `_meta.title`이 우연히 `"Load"`를 포함하는 다른 노드, 흔히 `"Load Checkpoint"` — 가 먼저 골라지는 경우도 포함) 업로드 자체를 400으로 거부합니다. `pose_csv_batch`는 CSV의 모든 행에서 `pose`가 비어 있으면(=모든 행이 의도적으로 ControlNet 없이 생성) 이 검사를 건너뜁니다 — LoadImage 노드가 필요 없기 때문입니다. `pose_batch`는 항상 포즈 참조가 필요하므로 예외 없이 검사합니다.
+
 **재현성 기록**: 매 반복마다 어떤 포즈 이미지를 썼는지 로그와 `filename_prefix`에 남기는 것 외에, `NIGHTSHIFT_OUTPUT_DIR`에 `pose_batch_manifest.jsonl`을 이어쓰기(append)로도 남깁니다. 한 줄마다 `{timestamp, job_id, index, char_no, pose_set, pose_file, seed, prompt_id}`를 기록해서, 나중에 "이 컷이 왜 이렇게 나왔는지" 추적할 수 있습니다. `char_no`가 기본값(`1`)이 아니면 `pose_csv_batch`와 같은 방식으로 `filename_prefix`에도 `_char<N>`이 붙습니다.
 
 기존 템플릿(`seed_batch`/`csv_batch`)과 매니페스트는 이 기능과 무관하게 그대로 동작합니다 — `pose_batch`는 옵션이 켜진(=이 템플릿을 선택한) 경우에만 활성화되는 별도 템플릿입니다.
@@ -222,7 +224,7 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 정확한 경로(1)/파일명 단독 지정(3)인 행은 세트 피커의 상태에 영향을 주지 않습니다(그 세트를 "소비"하지 않음) — 세트 지정(2)인 행만 피커를 소비합니다. `pose` 값이 비어 있으면 그 행은 그래프를 재배선하지 않고 `ControlNetApplyAdvanced`류 노드의 `strength`를 0으로 주입해 ControlNet을 비활성화합니다(`apply_seed`와 같은 "노드는 그대로, 값만 덮어쓰기" 패턴).
 
-**업로드 시점 검증**: CSV를 올리면 `POST /api/upload`가 모든 행의 `pose`(및 `char_no`) 컬럼 값을 미리 위 규칙으로 해석해보고, 하나라도 실패하면(세트/파일 없음, 모호함, char_no가 정수가 아님) 어떤 줄의 어떤 값이 왜 실패했는지 담아 업로드 자체를 400으로 거부합니다. 실행 시점에도(포즈 폴더 내용이 그 사이 바뀌었을 수 있으므로) `pose_csv_batch.py`가 제출을 시작하기 전에 CSV 전체를 다시 한번 해석합니다 — 한 행이라도 실패하면 그 행만 건너뛰지 않고 배치 전체를 에러로 중단합니다.
+**업로드 시점 검증**: CSV를 올리면 `POST /api/upload`가 모든 행의 `pose`(및 `char_no`) 컬럼 값을 미리 위 규칙으로 해석해보고, 하나라도 실패하면(세트/파일 없음, 모호함, char_no가 정수가 아님) 어떤 줄의 어떤 값이 왜 실패했는지 담아 업로드 자체를 400으로 거부합니다. 실행 시점에도(포즈 폴더 내용이 그 사이 바뀌었을 수 있으므로) `pose_csv_batch.py`가 제출을 시작하기 전에 CSV 전체를 다시 한번 해석합니다 — 한 행이라도 실패하면 그 행만 건너뛰지 않고 배치 전체를 에러로 중단합니다. CSV의 어느 행이든 `pose`가 채워져 있으면, 워크플로우에 실제로 주입 가능한 LoadImage 노드가 있는지도 같이 검증합니다 — 위 "포즈 참조 배치" 절의 "업로드 시점 LoadImage 노드 검증" 참고.
 
 **재현성 기록**: `pose_batch`와 같은 형식으로 `NIGHTSHIFT_OUTPUT_DIR`에 `pose_csv_batch_manifest.jsonl`을 남기되 `char_no` 필드도 함께 기록합니다. `pose`가 비어 있던 행은 `char_no`/`pose_set`/`pose_file`을 모두 `null`로 기록해 "의도적으로 ControlNet 없이 생성했다"는 걸 구분할 수 있습니다. `char_no`가 기본값(`1`)이 아니면 `filename_prefix`에도 `_char<N>`이 붙어 결과물을 인물 수 기준으로 정리하기 쉽습니다.
 

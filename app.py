@@ -283,6 +283,81 @@ def validate_pose_csv_rows(csv_bytes: bytes):
         raise HTTPException(400, "CSV의 pose/char_no 컬럼을 확인하세요.\n" + "\n".join(errors))
 
 
+def csv_has_pose_reference(csv_bytes: bytes) -> bool:
+    # pose_csv_batch는 CSV 행마다 pose가 비어 있으면 그 행은 의도적으로 ControlNet
+    # 없이 생성한다(README "CSV + 포즈 배치" 절 참고) — 모든 행의 pose가 비어 있으면
+    # 워크플로우에 LoadImage 노드가 없어도 문제가 없으므로, 그런 경우까지 아래
+    # validate_workflow_has_pose_node()가 막아버리지 않도록 미리 구분해둔다.
+    try:
+        text = csv_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return False  # 디코딩 자체는 validate_pose_csv_rows가 이미 걸러줌
+    rows = csv.DictReader(io.StringIO(text))
+    return any((row.get("pose") or "").strip() for row in rows)
+
+
+POSE_NODE_REQUIRED_TEMPLATES = {"pose_batch", "pose_csv_batch"}
+
+
+def find_pose_load_image_node(workflow: dict, title_substring: str):
+    """templates/pose_batch.py·pose_csv_batch.py의 apply_pose_image()가 실행 시점에
+    실제로 어떤 노드를 골라 포즈 이미지를 주입할지 업로드 시점에 미리 예측한다 —
+    두 스크립트의 find_node()와 정확히 같은 알고리즘이다: 제목에 title_substring이
+    포함된 노드가 있으면 class_type과 무관하게 그 노드를 최우선으로 고르고(그래서
+    "Load Checkpoint"처럼 우연히 제목에 "Load"가 들어간 LoadImage가 아닌 노드가
+    먼저 골라질 수 있다 — 이 경우도 아래에서 "포즈 노드 없음"으로 취급해야 함),
+    없으면 다른 노드의 입력에 실제로 연결된 LoadImage 노드를 우선으로 고른다."""
+    title_substring = (title_substring or "").lower()
+    connected = set()
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        for value in node.get("inputs", {}).values():
+            if isinstance(value, list) and len(value) == 2:
+                connected.add(str(value[0]))
+    fallback = None
+    fallback_connected = None
+    for node_id, node in workflow.items():
+        if not isinstance(node, dict):
+            continue
+        meta_title = str(node.get("_meta", {}).get("title", "")).lower()
+        class_type = node.get("class_type", "")
+        if title_substring and title_substring in meta_title:
+            return node
+        if class_type == "LoadImage":
+            if node_id in connected:
+                if fallback_connected is None:
+                    fallback_connected = node
+            elif fallback is None:
+                fallback = node
+    return fallback_connected or fallback
+
+
+def validate_workflow_has_pose_node(workflow_bytes: bytes):
+    # pose_batch/pose_csv_batch는 포즈 레퍼런스 이미지를 LoadImage 노드에 주입해야
+    # ControlNet이 실제로 동작한다. 이 노드가 없는 워크플로우를 잘못 올리면, 실행
+    # 스크립트는 stderr에 경고만 남기고 포즈 없이 이미지 생성을 계속 진행한다 —
+    # 큐에 올리기 전에 미리 걸러서 그런 사고를 막는다.
+    try:
+        workflow = json.loads(workflow_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise HTTPException(400, f"워크플로우가 올바른 JSON이 아니에요: {e}")
+    if not isinstance(workflow, dict):
+        raise HTTPException(400, "워크플로우가 올바른 ComfyUI API 형식(JSON 객체)이 아니에요.")
+
+    title_substring = os.environ.get("POSE_NODE_TITLE", "Load")
+    node = find_pose_load_image_node(workflow, title_substring)
+    if node is None or node.get("class_type") != "LoadImage":
+        raise HTTPException(
+            400,
+            "이 워크플로우에는 포즈 이미지를 넣을 LoadImage 노드가 없어요. "
+            f"(제목에 '{title_substring}'가 포함된 노드가 있다면 LoadImage가 아니고, "
+            "그런 노드가 아예 없다면 다른 LoadImage 노드도 찾지 못했어요.) 포즈 참조 "
+            "없이 이미지가 생성되는 사고를 막기 위해 업로드를 거부했어요 — 워크플로우에 "
+            "LoadImage 노드를 추가하거나 제목을 확인한 뒤 다시 업로드하세요.",
+        )
+
+
 @app.post("/api/upload")
 async def upload(request: Request):
     form = await request.form()
@@ -305,9 +380,17 @@ async def upload(request: Request):
 
     # UploadFile은 한 번만 읽을 수 있으므로, 검증에도 쓰고 저장에도 쓸 수 있게
     # 여기서 미리 한 번만 읽어둔다.
+    workflow_bytes = await workflow.read()
     csv_bytes = await csv_file.read() if requires_csv else None
     if template_id == "pose_csv_batch" and csv_bytes is not None:
         validate_pose_csv_rows(csv_bytes)
+
+    if template_id in POSE_NODE_REQUIRED_TEMPLATES:
+        needs_pose_node = True
+        if template_id == "pose_csv_batch":
+            needs_pose_node = csv_bytes is not None and csv_has_pose_reference(csv_bytes)
+        if needs_pose_node:
+            validate_workflow_has_pose_node(workflow_bytes)
 
     options = {}
     for option in template.get("options", []):
@@ -317,7 +400,7 @@ async def upload(request: Request):
     job_id = str(uuid.uuid4())[:8]
 
     workflow_dest_name = f"{job_id}_{workflow.filename}"
-    (JOBS_DIR / workflow_dest_name).write_bytes(await workflow.read())
+    (JOBS_DIR / workflow_dest_name).write_bytes(workflow_bytes)
 
     csv_dest_name = None
     csv_original_name = None
