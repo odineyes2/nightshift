@@ -5,23 +5,24 @@
 방식(워크플로우 노드 찾기/제출/폴링/진행률 보고)을 쓰되, 매 반복마다 시드뿐 아니라
 포즈 레퍼런스 이미지도 함께 바꾼다.
 
-포즈 레퍼런스 폴더 구조:
+포즈 레퍼런스 폴더 구조(char_no로 스코프됨):
     NIGHTSHIFT_POSES_DIR(기본 /workspace/dataset/poses)/
-        1/                          이 템플릿은 항상 여기(1인물/solo)만 본다
+        1/                          인물 수 1(solo)
             <POSE_SET 이름>/
                 image1.png
                 image2.jpg
                 ...
-        2/                          (다른 템플릿용 — 이 템플릿은 안 봄)
+        2/                          인물 수 2(duo)
             ...
-    이 템플릿은 처음부터 1인물(solo) 참조 전용으로 설계됐고 char_no 옵션이
-    없다 — 여러 인물이 함께 그려진 포즈 세트(2인물 이상)를 쓰려면 CSV 행마다
-    포즈와 char_no를 지정할 수 있는 pose_csv_batch 템플릿을 쓴다. nightshift
-    웹 UI의 "포즈 세트" 드롭다운은 POSES_DIR/1 아래의 하위 폴더 목록을
-    보여주고(GET /api/assets), 고른 세트 이름이 POSE_SET 환경변수로 전달된다.
-    세트 존재 여부/이미지 유무는 업로드 시점에 nightshift(app.py + pose_assets.py)가
-    이미 검증했으므로 큐 시작 이후 그것 때문에 실패하는 일은 없지만, 실행 중 폴더가
-    바뀌는 등의 만일의 상황을 대비해 이 스크립트도 시작할 때 한 번 더 확인한다.
+    nightshift 웹 UI에서 업로드할 때 "인물 수"(char_no) 드롭다운을 먼저 고르고,
+    그 값에 따라 "포즈 세트" 드롭다운이 POSES_DIR/<char_no> 아래의 하위 폴더
+    목록으로 다시 채워지는 캐스케이딩 방식이다(GET /api/assets가 char_no별
+    세트 목록을 트리로 돌려준다). 고른 인물 수와 세트 이름이 각각 CHAR_NO,
+    POSE_SET 환경변수로 전달된다. 여러 인물이 CSV 행마다 서로 다른 포즈/char_no를
+    쓰는 경우는 pose_csv_batch 템플릿을 쓴다. 세트 존재 여부/이미지 유무는
+    업로드 시점에 nightshift(app.py + pose_assets.py)가 이미 검증했으므로 큐
+    시작 이후 그것 때문에 실패하는 일은 없지만, 실행 중 폴더가 바뀌는 등의
+    만일의 상황을 대비해 이 스크립트도 시작할 때 한 번 더 확인한다.
 
 포즈 선택 방식(POSE_MODE):
     sequential  파일명 정렬 순서대로 순환. pose_count가 이미지 수보다 많으면
@@ -42,6 +43,8 @@ ComfyUI로의 이미지 주입 방식:
     WORKFLOW_PATH      (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
     POSE_COUNT         (필수) 반복 생성할 이미지 개수 (nightshift가 템플릿 옵션 "pose_count"로 주입)
     POSE_SET           (필수) 포즈 세트 폴더 이름 (nightshift가 템플릿 옵션 "pose_set"으로 주입)
+    CHAR_NO            인물 수(포즈 세트가 있는 POSES_DIR 하위 숫자 폴더 이름). nightshift가
+                       템플릿 옵션 "char_no"로 주입, 기본 "1"(1인물/solo)
     POSE_MODE          "sequential" 또는 "random" (nightshift가 템플릿 옵션 "pose_mode"로 주입, 기본 sequential)
     NIGHTSHIFT_POSES_DIR   포즈 세트들이 있는 상위 폴더 (기본 /workspace/dataset/poses).
                        nightshift 서버(pose_assets.py)와 같은 값을 봐야 하므로 손대지 않는 게 안전함
@@ -69,11 +72,13 @@ ComfyUI로의 이미지 주입 방식:
 재현성 기록:
     매 반복마다 어떤 포즈 이미지를 썼는지 stdout 로그에 남기고, SaveImage의
     filename_prefix에도 포즈 파일명(확장자 제외, 안전한 문자로 치환)을 포함시킨다
-    (예: pose_batch_3_seed482913_standing_01.png). 추가로 NIGHTSHIFT_OUTPUT_DIR에
+    (예: pose_batch_3_seed482913_standing_01.png). char_no가 기본값(1)이 아니면
+    "_char<N>"도 덧붙인다(예: pose_batch_3_seed482913_standing_01_char2.png —
+    결과물을 인물 수 기준으로 정리할 때 씀). 추가로 NIGHTSHIFT_OUTPUT_DIR에
     pose_batch_manifest.jsonl을 이어쓰기(append)로 남겨, 한 줄마다
-    {timestamp, job_id, index, pose_set, pose_file, seed, prompt_id}를 기록한다 —
-    나중에 "이 컷이 왜 이렇게 나왔는지" 추적할 때 쓴다. 기록에 실패해도(출력 폴더가
-    아직 없는 등) 배치 자체는 계속 진행한다.
+    {timestamp, job_id, index, char_no, pose_set, pose_file, seed, prompt_id}를
+    기록한다 — 나중에 "이 컷이 왜 이렇게 나왔는지" 추적할 때 쓴다. 기록에
+    실패해도(출력 폴더가 아직 없는 등) 배치 자체는 계속 진행한다.
 """
 
 import copy
@@ -92,10 +97,8 @@ from pathlib import Path
 
 POSE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
-# 이 템플릿은 char_no 개념이 없는 1인물(solo) 전용 — pose_assets.py의
-# DEFAULT_CHAR_NO와 반드시 같은 값이어야 한다(다르면 이 템플릿과 nightshift
-# 서버가 서로 다른 폴더를 보게 됨).
-POSE_CHAR_NO = "1"
+# pose_assets.py의 DEFAULT_CHAR_NO 사본 — CHAR_NO 환경변수가 비어 있을 때(1인물/solo).
+DEFAULT_CHAR_NO = "1"
 
 
 def env(name, default=None):
@@ -184,8 +187,8 @@ def make_picker(mode, files):
     return SequentialPicker(files)
 
 
-def list_pose_images(poses_dir, pose_set):
-    d = Path(poses_dir) / POSE_CHAR_NO / pose_set
+def list_pose_images(poses_dir, char_no, pose_set):
+    d = Path(poses_dir) / str(char_no) / pose_set
     if not d.is_dir():
         return []
     return sorted(
@@ -255,7 +258,7 @@ def apply_seed(workflow, seed):
     node.setdefault("inputs", {})["seed"] = seed
 
 
-def apply_filename_prefix(workflow, index, seed, pose_path):
+def apply_filename_prefix(workflow, index, seed, char_no, pose_path):
     node_id, node = find_node(
         workflow,
         title_substring=env("SAVE_NODE_TITLE", "Save"),
@@ -264,7 +267,10 @@ def apply_filename_prefix(workflow, index, seed, pose_path):
     if node is None:
         return
     pose_stem = sanitize_stem(pose_path.stem)
-    node.setdefault("inputs", {})["filename_prefix"] = f"pose_batch_{index}_seed{seed}_{pose_stem}"
+    prefix = f"pose_batch_{index}_seed{seed}_{pose_stem}"
+    if char_no != DEFAULT_CHAR_NO:
+        prefix = f"{prefix}_char{char_no}"
+    node.setdefault("inputs", {})["filename_prefix"] = prefix
 
 
 def report_progress(job_id, nightshift_url, total, done):
@@ -325,14 +331,14 @@ def wait_for_completion(comfy_url, prompt_id):
     raise TimeoutError(f"prompt_id={prompt_id} 완료 대기 시간({timeout}s) 초과")
 
 
-def run_once(base_workflow, comfy_url, seed, pose_path, index, job_id, output_dir):
+def run_once(base_workflow, comfy_url, seed, char_no, pose_path, index, job_id, output_dir):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
     apply_pose_image(workflow, comfy_url, pose_path)
-    apply_filename_prefix(workflow, index, seed, pose_path)
+    apply_filename_prefix(workflow, index, seed, char_no, pose_path)
 
     prompt_id = queue_prompt(comfy_url, workflow)
-    print(f"[pose_batch] [{index}] seed={seed} pose={pose_path.name} 큐 등록 (prompt_id={prompt_id})")
+    print(f"[pose_batch] [{index}] seed={seed} char_no={char_no} pose={pose_path.name} 큐 등록 (prompt_id={prompt_id})")
     wait_for_completion(comfy_url, prompt_id)
     print(f"[pose_batch] [{index}] 완료")
 
@@ -340,6 +346,7 @@ def run_once(base_workflow, comfy_url, seed, pose_path, index, job_id, output_di
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "job_id": job_id,
         "index": index,
+        "char_no": char_no,
         "pose_set": pose_path.parent.name,
         "pose_file": pose_path.name,
         "seed": seed,
@@ -357,14 +364,15 @@ def main():
 
     pose_count = int(pose_count_raw)
     pose_mode = env("POSE_MODE", "sequential")
+    char_no = env("CHAR_NO", DEFAULT_CHAR_NO)
     poses_dir = env("NIGHTSHIFT_POSES_DIR", "/workspace/dataset/poses")
     output_dir = env("NIGHTSHIFT_OUTPUT_DIR", "/workspace/output")
 
-    pose_files = list_pose_images(poses_dir, pose_set)
+    pose_files = list_pose_images(poses_dir, char_no, pose_set)
     if not pose_files:
         # nightshift가 업로드 시점에 이미 확인했어야 하지만, 그 사이 폴더가 비워졌을
         # 수도 있으니 실행 시점에도 한 번 더 확인한다.
-        print(f"[pose_batch] '{pose_set}' 포즈 세트에 이미지가 없습니다 ({poses_dir}/{POSE_CHAR_NO}/{pose_set})", file=sys.stderr)
+        print(f"[pose_batch] '{pose_set}' 포즈 세트에 이미지가 없습니다 ({poses_dir}/{char_no}/{pose_set})", file=sys.stderr)
         sys.exit(1)
 
     base_workflow = load_workflow(workflow_path)
@@ -374,14 +382,14 @@ def main():
 
     picker = make_picker(pose_mode, pose_files)
 
-    print(f"[pose_batch] 총 {pose_count}건 제출 예정 (포즈 세트: {pose_set}, {len(pose_files)}장, 방식: {pose_mode})")
+    print(f"[pose_batch] 총 {pose_count}건 제출 예정 (인물 수: {char_no}, 포즈 세트: {pose_set}, {len(pose_files)}장, 방식: {pose_mode})")
     report_progress(job_id, nightshift_url, pose_count, 0)
 
     done = 0
     for index in range(1, pose_count + 1):
         seed = random.randint(0, 2**31 - 1)
         pose_path = picker.pick()
-        run_once(base_workflow, comfy_url, seed, pose_path, index, job_id, output_dir)
+        run_once(base_workflow, comfy_url, seed, char_no, pose_path, index, job_id, output_dir)
         done += 1
         report_progress(job_id, nightshift_url, pose_count, done)
 
