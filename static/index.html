@@ -164,6 +164,48 @@
     color:var(--text-dim);
   }
   .field-label .opt{ text-transform:none; letter-spacing:0; font-weight:400; color:var(--text-dim); }
+  /* 필드 라벨 오른쪽에 보조 버튼(예: "최근 워크플로우")을 붙일 때 쓴다. */
+  .field-label-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:var(--gap-md);
+  }
+  .field-label-row .field-label{ flex-shrink:0; }
+  .new-job-actions{ display:flex; align-items:center; gap:var(--gap-md); }
+  /* "최근 사용한 워크플로우" 모달 목록 — 파일명은 길면 말줄임, 시각/선택 버튼은
+     고정 폭으로 오른쪽에 붙는다. */
+  .recent-workflows-list{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    max-height:360px;
+    overflow-y:auto;
+  }
+  .recent-workflow-item{
+    display:flex;
+    align-items:center;
+    gap:var(--gap-md);
+    padding:8px 10px;
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+  }
+  .recent-workflow-name{
+    flex:1 1 auto;
+    min-width:0;
+    font-family:var(--mono);
+    font-size:12.5px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .recent-workflow-time{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--text-dim);
+    white-space:nowrap;
+    flex-shrink:0;
+  }
   /* "삭제된 작업 설정 불러오기" — 드롭다운은 남는 폭을 채우고 버튼은 그 옆(라벨
      높이만큼 내려 select와 밑선을 맞춤)에 붙는다. 좁은 화면에서는 세로로 쌓는다. */
   .deleted-jobs-row{
@@ -934,7 +976,10 @@
         <div class="options-fields" id="options-fields"></div>
 
         <div class="field">
-          <label class="field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
+          <div class="field-label-row">
+            <label class="field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
+            <button class="load-btn" id="recent-workflows-btn" type="button">최근 워크플로우</button>
+          </div>
           <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
           <input type="file" class="slot-input" id="workflow-input" accept=".json">
         </div>
@@ -946,7 +991,10 @@
         </div>
 
         <div>
-          <button class="submit-btn" id="submit-btn">큐에 추가</button>
+          <div class="new-job-actions">
+            <button class="submit-btn" id="submit-btn">큐에 추가</button>
+            <button class="modal-btn-secondary" id="reset-form-btn" type="button">초기화</button>
+          </div>
           <div class="upload-error" id="upload-error"></div>
         </div>
       </div>
@@ -1103,6 +1151,24 @@
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="workflow-cancel-btn">취소</button>
       <button class="submit-btn" id="workflow-save-btn">저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="recent-workflows-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">최근 사용한 워크플로우</div>
+      <button class="modal-close" id="recent-workflows-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint">최근 <span id="recent-workflows-retention">30</span>개까지 보여줘요. 고르면 아래 워크플로우 슬롯에 바로 채워져요.</div>
+      <div class="upload-error" id="recent-workflows-error"></div>
+      <div class="recent-workflows-list" id="recent-workflows-list"></div>
+      <div class="empty" id="recent-workflows-empty" style="display:none;">최근 사용한 워크플로우가 없어요</div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="recent-workflows-modal-cancel">닫기</button>
     </div>
   </div>
 </div>
@@ -1775,6 +1841,16 @@ async function onTemplateChange(){
   uploadError.textContent = '';
 }
 
+// "초기화" 버튼 — 템플릿 선택은 그대로 두고, 첨부한 파일과 옵션 입력값만 그
+// 템플릿의 기본값으로 되돌린다(onTemplateChange가 옵션 필드를 다시 그리므로
+// 자연스럽게 기본값으로 리셋된다).
+async function resetNewJobForm(){
+  resetForm();
+  await onTemplateChange();
+  document.getElementById('load-error').textContent = '';
+  document.getElementById('load-notice').textContent = '';
+}
+
 async function fetchTemplates(){
   const res = await fetch('/api/templates');
   const list = await res.json();
@@ -2015,6 +2091,98 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
 document.getElementById('start-queue-btn').addEventListener('click', async () => {
   await fetch('/api/queue/start', { method: 'POST' });
   fetchJobs();
+});
+
+document.getElementById('reset-form-btn').addEventListener('click', () => {
+  resetNewJobForm();
+});
+
+// ---- 최근 사용한 워크플로우 ----
+// 서버가 /api/upload 때마다 워크플로우 사본을 최근 30개까지 보관해두고(app.py의
+// record_recent_workflow), 여기서는 그 목록을 보여주고 고른 걸 워크플로우 슬롯에
+// 채워 넣기만 한다.
+let recentWorkflowsById = {};
+const recentWorkflowsModal = document.getElementById('recent-workflows-modal');
+
+async function openRecentWorkflowsModal(){
+  const list = document.getElementById('recent-workflows-list');
+  const empty = document.getElementById('recent-workflows-empty');
+  const errorEl = document.getElementById('recent-workflows-error');
+  errorEl.textContent = '';
+  empty.style.display = 'none';
+  list.innerHTML = '불러오는 중…';
+  recentWorkflowsModal.style.display = 'flex';
+
+  let data;
+  try{
+    const res = await fetch('/api/recent-workflows');
+    data = await res.json();
+  }catch(e){
+    list.innerHTML = '';
+    errorEl.textContent = '목록을 불러오지 못했어요.';
+    return;
+  }
+  if(data.retention !== undefined){
+    document.getElementById('recent-workflows-retention').textContent = data.retention;
+  }
+
+  recentWorkflowsById = {};
+  const items = data.workflows || [];
+  if(items.length === 0){
+    list.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+
+  list.innerHTML = items.map(w => {
+    recentWorkflowsById[w.id] = w;
+    const d = new Date(w.uploaded_at);
+    const whenText = `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    return `
+      <div class="recent-workflow-item">
+        <span class="recent-workflow-name" title="${escapeHtml(w.filename)}">${escapeHtml(w.filename)}</span>
+        <span class="recent-workflow-time">${whenText}</span>
+        <button class="load-btn" data-recent-id="${w.id}" type="button">선택</button>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-recent-id]').forEach(btn => {
+    btn.addEventListener('click', () => selectRecentWorkflow(btn.dataset.recentId));
+  });
+}
+
+async function selectRecentWorkflow(id){
+  const errorEl = document.getElementById('recent-workflows-error');
+  errorEl.textContent = '';
+  const entry = recentWorkflowsById[id];
+  if(!entry) return;
+  try{
+    const res = await fetch(`/api/recent-workflows/${id}`);
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      errorEl.textContent = data.detail || '워크플로우를 불러오지 못했어요.';
+      return;
+    }
+    const text = await res.text();
+    setWorkflowFile(new File([text], entry.filename, { type: 'application/json' }));
+    closeRecentWorkflowsModal();
+  }catch(e){
+    errorEl.textContent = '워크플로우를 불러오지 못했어요.';
+  }
+}
+
+function closeRecentWorkflowsModal(){
+  recentWorkflowsModal.style.display = 'none';
+}
+
+document.getElementById('recent-workflows-btn').addEventListener('click', openRecentWorkflowsModal);
+document.getElementById('recent-workflows-modal-close').addEventListener('click', closeRecentWorkflowsModal);
+document.getElementById('recent-workflows-modal-cancel').addEventListener('click', closeRecentWorkflowsModal);
+recentWorkflowsModal.addEventListener('click', (e) => {
+  if(e.target === recentWorkflowsModal) closeRecentWorkflowsModal();
+});
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape' && recentWorkflowsModal.style.display !== 'none') closeRecentWorkflowsModal();
 });
 
 async function fetchComfyStatus(){
