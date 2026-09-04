@@ -269,6 +269,19 @@ def coerce_option(option: dict, raw: str | None, options_so_far: dict):
             raise HTTPException(400, f"'{option['label']}' 값이 올바른 숫자가 아니에요.")
         return int(num) if num.is_integer() else num
 
+    if opt_type == "number_optional":
+        # width/height처럼 비워두면 워크플로우에 이미 들어있는 값을 그대로 두는
+        # 게 정상 동작인 숫자 옵션. "number"와 달리 빈 값을 기본값으로 치환하지
+        # 않고(위에서 raw = default로 대체됐더라도 default 자체가 빈 문자열이면
+        # 그대로 빈 채로) 그대로 통과시킨다.
+        if raw is None or str(raw).strip() == "":
+            return ""
+        try:
+            num = float(raw)
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"'{option['label']}' 값이 올바른 숫자가 아니에요.")
+        return int(num) if num.is_integer() else num
+
     if opt_type == "select":
         choices = option.get("choices") or []
         if raw not in choices:
