@@ -2,6 +2,7 @@
 
 jobs/*
 logs/*
+recent_workflows/*
 
 # 파이썬 캐시
 __pycache__/

@@ -16,6 +16,7 @@ RunPod Job Queue — 등록된 스크립트 템플릿을 큐에 쌓아두면 워
 
 import asyncio
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -86,6 +87,16 @@ STATE_FILE = BASE_DIR / "jobs_state.json"
 JOBS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
 
+# "워크플로우 (.json)" 슬롯 옆의 "최근 워크플로우" 버튼이 쓰는, 지금까지 업로드된
+# 워크플로우 파일들의 사본. 작업(jobs/)과는 독립적인 저장소다 — 작업이 삭제되거나
+# DELETED_JOBS_RETENTION을 넘겨 완전히 정리돼도 여기 사본은 남아있어서, 어떤 작업에
+# 썼었는지와 무관하게 "최근에 올렸던 워크플로우 파일" 자체를 다시 고를 수 있다.
+RECENT_WORKFLOWS_DIR = BASE_DIR / "recent_workflows"
+RECENT_WORKFLOWS_STATE_FILE = BASE_DIR / "recent_workflows_state.json"
+RECENT_WORKFLOWS_DIR.mkdir(exist_ok=True)
+RECENT_WORKFLOWS_RETENTION = int(os.environ.get("NIGHTSHIFT_RECENT_WORKFLOWS_RETENTION", "30"))
+recent_workflows: list[dict] = []  # 최신순. [{id, filename, stored_filename, uploaded_at, content_hash}, ...]
+
 # ComfyUI는 같은 파드 안에서 돌아가지만 설치 방식에 따라 포트가 다를 수 있어, 이 후보들을
 # 순서대로 짧은 타임아웃으로 찔러보고 처음 응답하는 곳을 채택한다. COMFY_URL 환경변수가
 # 명시적으로 설정돼 있으면 이 감지 과정을 건너뛰고 그 값을 그대로 쓴다.
@@ -136,6 +147,47 @@ def load_state():
     if STATE_FILE.exists():
         with open(STATE_FILE) as f:
             jobs.update(json.load(f))
+
+
+def save_recent_workflows_state():
+    with open(RECENT_WORKFLOWS_STATE_FILE, "w") as f:
+        json.dump(recent_workflows, f, indent=2, default=str)
+
+
+def load_recent_workflows_state():
+    if RECENT_WORKFLOWS_STATE_FILE.exists():
+        with open(RECENT_WORKFLOWS_STATE_FILE) as f:
+            recent_workflows.extend(json.load(f))
+
+
+def record_recent_workflow(filename: str, content: bytes):
+    # /api/upload가 어떤 템플릿이든 워크플로우를 성공적으로 받을 때마다 호출한다.
+    # 같은 내용(해시)의 워크플로우가 이미 목록에 있으면 새로 저장하지 않고 맨 앞으로
+    # 올리기만 한다 — 안 그러면 같은 파일을 반복해서 재사용할 때마다 사본이 계속
+    # 쌓여서 "최근 워크플로우" 목록이 중복으로 도배된다.
+    content_hash = hashlib.sha256(content).hexdigest()
+    with lock:
+        existing = next((w for w in recent_workflows if w["content_hash"] == content_hash), None)
+        if existing:
+            recent_workflows.remove(existing)
+            existing["uploaded_at"] = now_iso()
+            existing["filename"] = filename
+            recent_workflows.insert(0, existing)
+        else:
+            entry_id = str(uuid.uuid4())[:8]
+            stored_filename = f"{entry_id}_{filename}"
+            (RECENT_WORKFLOWS_DIR / stored_filename).write_bytes(content)
+            recent_workflows.insert(0, {
+                "id": entry_id,
+                "filename": filename,
+                "stored_filename": stored_filename,
+                "uploaded_at": now_iso(),
+                "content_hash": content_hash,
+            })
+        while len(recent_workflows) > RECENT_WORKFLOWS_RETENTION:
+            old = recent_workflows.pop()
+            (RECENT_WORKFLOWS_DIR / old["stored_filename"]).unlink(missing_ok=True)
+        save_recent_workflows_state()
 
 
 def prune_deleted_jobs():
@@ -371,6 +423,7 @@ def worker_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_state()
+    load_recent_workflows_state()
     # 재시작 전에 running/queued 상태로 남아있던 기록은 재실행되지 않으므로 상태만 정리
     with lock:
         for job in jobs.values():
@@ -578,6 +631,31 @@ def validate_workflow_has_pose_node(workflow_bytes: bytes):
         )
 
 
+@app.get("/api/recent-workflows")
+def list_recent_workflows():
+    # "새 작업 추가"의 워크플로우 슬롯 옆 "최근 워크플로우" 버튼이 호출한다.
+    with lock:
+        return {
+            "workflows": [
+                {"id": w["id"], "filename": w["filename"], "uploaded_at": w["uploaded_at"]}
+                for w in recent_workflows
+            ],
+            "retention": RECENT_WORKFLOWS_RETENTION,
+        }
+
+
+@app.get("/api/recent-workflows/{workflow_id}")
+def get_recent_workflow(workflow_id: str):
+    with lock:
+        entry = next((w for w in recent_workflows if w["id"] == workflow_id), None)
+    if entry is None:
+        raise HTTPException(404, "해당 워크플로우를 찾을 수 없어요.")
+    path = RECENT_WORKFLOWS_DIR / entry["stored_filename"]
+    if not path.exists():
+        raise HTTPException(404, "워크플로우 파일이 서버에 없어요.")
+    return Response(content=path.read_text(encoding="utf-8"), media_type="application/json")
+
+
 @app.post("/api/upload")
 async def upload(request: Request):
     form = await request.form()
@@ -621,6 +699,7 @@ async def upload(request: Request):
 
     workflow_dest_name = f"{job_id}_{workflow.filename}"
     (JOBS_DIR / workflow_dest_name).write_bytes(workflow_bytes)
+    record_recent_workflow(workflow.filename, workflow_bytes)
 
     csv_dest_name = None
     csv_original_name = None
