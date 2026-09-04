@@ -1709,7 +1709,10 @@ function formatDeletedJobLabel(job){
     whenText = `[삭제 ${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}] `;
   }
   const label = job.template_label || job.template_id;
-  return `${whenText}${label} · ${fmtOptions(job.options)}`;
+  // 템플릿명(작업 종류)만으로는 같은 템플릿을 여러 번 돌린 작업들을 구분하기
+  // 어려우므로, 어떤 워크플로우 파일을 썼는지도 함께 보여준다.
+  const workflowText = job.workflow_original_name || '워크플로우 없음';
+  return `${whenText}${label} · ${workflowText} · ${fmtOptions(job.options)}`;
 }
 
 async function fetchDeletedJobs(){
