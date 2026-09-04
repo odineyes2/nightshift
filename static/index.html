@@ -292,6 +292,12 @@
     align-items:stretch;
   }
   .prompt-enhance-col{ display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .prompt-enhance-subtitle-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+  }
   .prompt-enhance-subtitle{
     font-family:var(--mono);
     font-size:10.5px;
@@ -300,6 +306,23 @@
     letter-spacing:0.04em;
     color:var(--text-dim);
   }
+  /* 텍스트를 클립보드로 복사하는 작은 버튼 — 프롬프트 입력/결과 칸 소제목 옆에 쓴다. */
+  .copy-btn{
+    background:none;
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:2px 8px;
+    font-family:var(--mono);
+    font-size:10px;
+    font-weight:600;
+    color:var(--text-dim);
+    cursor:pointer;
+    white-space:nowrap;
+    transition: border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .copy-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
+  .copy-btn.copied{ border-color:var(--done); color:var(--done); background:rgba(var(--done-rgb),0.08); }
+  .copy-btn.copy-error{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
   textarea.enhance-textarea{
     background:var(--panel);
     color:var(--text);
@@ -1535,6 +1558,56 @@ function populateSelectOptions(select, choices, emptyText){
   }
 }
 
+// 텍스트를 클립보드에 복사한다. Clipboard API는 보안 컨텍스트(https 또는
+// localhost)에서만 동작하므로, 사설 IP를 http로 접속하는 등 그 밖의 상황에서는
+// 숨겨진 textarea + execCommand('copy')로 대체한다.
+async function copyTextToClipboard(text){
+  if(navigator.clipboard && window.isSecureContext){
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(ta);
+  if(!ok) throw new Error('복사에 실패했어요.');
+}
+
+// getText()가 돌려주는 텍스트를 복사하는 작은 버튼. 성공/실패를 버튼 라벨과
+// 색상으로 잠깐 보여주고 원래 상태로 되돌아간다.
+function createCopyButton(getText){
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'copy-btn';
+  btn.textContent = '복사';
+  let resetTimer = null;
+  btn.addEventListener('click', async () => {
+    const text = getText();
+    if(!text) return;
+    try{
+      await copyTextToClipboard(text);
+      btn.textContent = '복사됨';
+      btn.classList.remove('copy-error');
+      btn.classList.add('copied');
+    }catch(e){
+      btn.textContent = '복사 실패';
+      btn.classList.remove('copied');
+      btn.classList.add('copy-error');
+    }
+    clearTimeout(resetTimer);
+    resetTimer = setTimeout(() => {
+      btn.textContent = '복사';
+      btn.classList.remove('copied', 'copy-error');
+    }, 1500);
+  });
+  return btn;
+}
+
 function buildSelectControl(opt){
   const select = document.createElement('select');
   select.className = 'option-input';
@@ -1560,6 +1633,8 @@ function buildPromptEnhanceControl(opt){
 
   const rawCol = document.createElement('div');
   rawCol.className = 'prompt-enhance-col';
+  const rawLabelRow = document.createElement('div');
+  rawLabelRow.className = 'prompt-enhance-subtitle-row';
   const rawLabel = document.createElement('div');
   rawLabel.className = 'prompt-enhance-subtitle';
   rawLabel.textContent = '직접 입력';
@@ -1568,7 +1643,9 @@ function buildPromptEnhanceControl(opt){
   rawTextarea.rows = 4;
   if(opt.placeholder) rawTextarea.placeholder = opt.placeholder;
   if(opt.default !== undefined && opt.default !== null) rawTextarea.value = opt.default;
-  rawCol.appendChild(rawLabel);
+  rawLabelRow.appendChild(rawLabel);
+  rawLabelRow.appendChild(createCopyButton(() => rawTextarea.value.trim()));
+  rawCol.appendChild(rawLabelRow);
   rawCol.appendChild(rawTextarea);
 
   const middle = document.createElement('div');
@@ -1612,6 +1689,8 @@ function buildPromptEnhanceControl(opt){
 
   const resultCol = document.createElement('div');
   resultCol.className = 'prompt-enhance-col';
+  const resultLabelRow = document.createElement('div');
+  resultLabelRow.className = 'prompt-enhance-subtitle-row';
   const resultLabel = document.createElement('div');
   resultLabel.className = 'prompt-enhance-subtitle';
   resultLabel.textContent = 'Prompt Enhance 결과';
@@ -1619,7 +1698,9 @@ function buildPromptEnhanceControl(opt){
   resultTextarea.className = 'enhance-textarea enhance-result';
   resultTextarea.rows = 4;
   resultTextarea.placeholder = 'Prompt Enhance를 누르면 여기에 개선된 프롬프트가 표시돼요 (직접 수정 가능)';
-  resultCol.appendChild(resultLabel);
+  resultLabelRow.appendChild(resultLabel);
+  resultLabelRow.appendChild(createCopyButton(() => resultTextarea.value.trim()));
+  resultCol.appendChild(resultLabelRow);
   resultCol.appendChild(resultTextarea);
 
   const hidden = document.createElement('input');
