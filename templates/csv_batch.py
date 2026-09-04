@@ -9,19 +9,22 @@ ComfyUI에서 어떻게 워크플로우를 구성했는지에 따라 다르므�
 실제 워크플로우와 맞지 않으면 조정이 필요하다.
 
 프롬프트 노드 매칭:
-    많은 워크플로우가 프롬프트 하나를 여러 CLIPTextEncode 노드로 나눠서
+    많은 워크플로우가 프롬프트 하나를 여러 텍스트 노드로 나눠서
     (예: 트리거워드 / 본문 / 퀄리티 태그 / 네거티브) 구성한 뒤 다운스트림에서
     합치는 방식을 쓴다. 이 스크립트는 CSV에 아래 컬럼이 있으면, 그 컬럼 이름과
-    "_meta.title"에 그 이름이 포함된 CLIPTextEncode 노드를 찾아 값을 주입한다.
+    "_meta.title"에 그 이름이 포함된 노드를 찾아 값을 주입한다. 노드 종류가
+    CLIPTextEncode면 "text" 입력에, PrimitiveStringMultiline 같은 Primitive
+    계열 텍스트 노드면 "value" 입력에 쓴다(primitive_value_field() 참고 — 새
+    종류의 텍스트 노드가 나와도 그 노드에 이미 있는 입력 키로 알아서 판단한다).
     컬럼이 없거나 값이 비어 있으면 그 필드는 건드리지 않는다.
 
         trigger_prompt, main_prompt, quality_prompt, negative_prompt, prompt
 
-    (예: 워크플로우에 "main_prompt", "negative_prompt"라는 제목의 CLIPTextEncode
-    노드가 있다면, CSV에 같은 이름의 컬럼을 두면 그대로 매칭된다.) 이름이 다르면
+    (예: 워크플로우에 "main_prompt", "negative_prompt"라는 제목의 텍스트 노드가
+    있다면, CSV에 같은 이름의 컬럼을 두면 그대로 매칭된다.) 이름이 다르면
     워크플로우의 실제 노드 제목에 맞춰 위 목록이나 아래 PROMPT_FIELD_TITLES를
     조정한다. 프롬프트 노드가 여러 개일 수 있으므로, 이름이 일치하는 노드를
-    못 찾으면 다른 CLIPTextEncode로 대체하지 않고 건너뛴다(엉뚱한 노드를 덮어쓰는
+    못 찾으면 다른 노드로 대체하지 않고 건너뛴다(엉뚱한 노드를 덮어쓰는
     사고를 막기 위함).
 
 환경변수:
@@ -81,6 +84,15 @@ EmptyLatentImage 노드가 여러 개인 워크플로우:
     LATENT_NODE_TITLE로 제목 매칭이 안 되면, 아무 EmptyLatentImage나 고르지
     않고 실제로 다른 노드의 입력에 연결된(=워크플로우 실행에 쓰이는) 노드를
     우선으로 고른다.
+
+width/height가 별도 노드(PrimitiveInt 등)로 분리된 워크플로우:
+    EmptyLatentImage의 width/height 입력이 리터럴 숫자가 아니라 다른 노드로의
+    링크(예: PrimitiveInt 노드 하나를 "width"라는 이름으로 만들어 여러 곳에서
+    같이 참조)인 경우, 그 링크를 끊고 EmptyLatentImage에 직접 리터럴을 쓰는
+    대신 링크가 가리키는 노드의 값 입력을 갱신한다(set_linked_value() 참고).
+    같은 PrimitiveInt 노드를 다른 곳(예: 업스케일 배율 계산)에서도 참조하고
+    있다면 그쪽에도 새 값이 그대로 반영된다. 링크 대상 노드의 값 입력을 알 수
+    없으면(알 수 없는 노드 구조) 안전하게 EmptyLatentImage 쪽에 리터럴로 쓴다.
 """
 
 import copy
@@ -95,8 +107,9 @@ import urllib.error
 import urllib.request
 import uuid
 
-# CSV 컬럼 이름 = 매칭할 CLIPTextEncode 노드의 _meta.title 부분 문자열.
-# 워크플로우의 실제 노드 제목이 다르면 이 목록을 맞춰서 조정한다.
+# CSV 컬럼 이름 = 매칭할 텍스트 노드(CLIPTextEncode 또는 PrimitiveStringMultiline
+# 등)의 _meta.title 부분 문자열. 워크플로우의 실제 노드 제목이 다르면 이 목록을
+# 맞춰서 조정한다.
 PROMPT_FIELD_TITLES = {
     "trigger_prompt": "trigger_prompt",
     "main_prompt": "main_prompt",
@@ -167,6 +180,51 @@ def find_node(workflow, title_substring=None, class_types=(), allow_class_fallba
     return fallback if fallback else (None, None)
 
 
+# 텍스트/숫자 값을 그대로 담아두는 노드(Primitive 계열)가 실제로 값을 받는
+# 입력 필드 이름은 class_type마다 다르다: CLIPTextEncode는 "text",
+# PrimitiveStringMultiline/PrimitiveInt 등은 보통 "value"를 쓴다. 매핑에 없는
+# class_type이라도 그 노드에 이미 들어있는 입력 키("text" 또는 "value")로
+# 추정하므로, 새 종류의 Primitive 노드가 나와도 이 매핑을 매번 늘릴 필요는 없다.
+PRIMITIVE_VALUE_FIELDS = {
+    "CLIPTextEncode": "text",
+    "PrimitiveStringMultiline": "value",
+    "PrimitiveString": "value",
+    "PrimitiveInt": "value",
+    "PrimitiveFloat": "value",
+}
+
+
+def primitive_value_field(node):
+    field = PRIMITIVE_VALUE_FIELDS.get(node.get("class_type", ""))
+    if field:
+        return field
+    inputs = node.get("inputs", {})
+    if "text" in inputs:
+        return "text"
+    if "value" in inputs:
+        return "value"
+    return None
+
+
+def set_linked_value(workflow, node, field, value):
+    """node.inputs[field]에 value를 쓴다. 그 입력이 다른 노드로 연결돼 있으면
+    (예: width/height를 별도 PrimitiveInt 노드로 뽑아 여러 곳에 공급하는
+    워크플로우) 링크는 그대로 두고 연결된 노드의 값 입력을 갱신해서, 같은
+    노드를 참조하는 다른 곳에도 일관되게 반영되게 한다. 연결된 노드의 값
+    입력을 알 수 없으면(알 수 없는 노드 구조) 안전하게 이 노드에 리터럴로
+    덮어쓴다."""
+    inputs = node.setdefault("inputs", {})
+    current = inputs.get(field)
+    if isinstance(current, list) and len(current) == 2:
+        source_node = workflow.get(str(current[0]))
+        if isinstance(source_node, dict):
+            source_field = primitive_value_field(source_node)
+            if source_field:
+                source_node.setdefault("inputs", {})[source_field] = value
+                return
+    inputs[field] = value
+
+
 def sanitize_prefix(text, fallback):
     text = (text or fallback or "batch").strip()
     text = re.sub(r"[^\w\-가-힣 ]+", "_", text)
@@ -180,21 +238,21 @@ def apply_prompts(workflow, row):
         if not value:
             continue
         # 프롬프트 노드가 여러 개(트리거/본문/퀄리티/네거티브)일 수 있으므로
-        # 제목이 정확히 일치하지 않으면 다른 CLIPTextEncode로 대체하지 않는다.
+        # 제목이 정확히 일치하지 않으면 다른 노드로 대체하지 않는다.
         node_id, node = find_node(
             workflow,
             title_substring=title_substring,
-            class_types=("CLIPTextEncode",),
             allow_class_fallback=False,
         )
-        if node is None:
+        input_field = primitive_value_field(node) if node is not None else None
+        if input_field is None:
             print(
                 f"[csv_batch] 경고: '{field}' 값을 넣을 노드를 찾지 못했습니다 "
-                f"(제목에 '{title_substring}'가 포함된 CLIPTextEncode 없음)",
+                f"(제목에 '{title_substring}'가 포함된 CLIPTextEncode/Primitive 텍스트 노드 없음)",
                 file=sys.stderr,
             )
             continue
-        node.setdefault("inputs", {})["text"] = value
+        node.setdefault("inputs", {})[input_field] = value
         applied = True
     if not applied:
         print("[csv_batch] 경고: 이 행에 프롬프트 컬럼 값이 하나도 없습니다.", file=sys.stderr)
@@ -325,8 +383,9 @@ def apply_resolution(workflow, width, height, resolution):
     if node is None:
         print("[csv_batch] 경고: 해상도를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
         return
-    inputs = node.setdefault("inputs", {})
-    inputs["width"], inputs["height"] = resolved
+    width_value, height_value = resolved
+    set_linked_value(workflow, node, "width", width_value)
+    set_linked_value(workflow, node, "height", height_value)
 
 
 def apply_filename_prefix(workflow, title, index, seed):

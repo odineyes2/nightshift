@@ -41,9 +41,11 @@ ComfyUI로의 이미지 주입 방식:
 
 메인 프롬프트(MAIN_PROMPT):
     비워두면(기본값) 업로드한 워크플로우 JSON에 이미 들어있는 프롬프트를 그대로
-    쓴다. 값을 채우면 워크플로우에서 제목에 "main_prompt"가 포함된
-    CLIPTextEncode 노드 하나를 찾아 그 텍스트를 덮어쓴다. 그런 노드를 못 찾으면
-    (제목이 다르거나 CLIPTextEncode가 아예 없으면) 경고만 남기고 워크플로우는
+    쓴다. 값을 채우면 워크플로우에서 제목에 "main_prompt"가 포함된 노드 하나를
+    찾아 그 값을 덮어쓴다 — CLIPTextEncode면 "text" 입력을, PrimitiveStringMultiline
+    같은 Primitive 계열 텍스트 노드면 "value" 입력을 쓴다(어느 필드를 쓸지는
+    primitive_value_field()가 class_type으로 판단한다). 그런 노드를 못 찾으면
+    (제목이 다르거나 값 입력을 알 수 없는 노드면) 경고만 남기고 워크플로우는
     건드리지 않는다 — 트리거/퀄리티/네거티브처럼 다른 프롬프트 노드가 여러 개
     있을 수 있으므로, 제목이 정확히 일치하지 않으면 엉뚱한 노드를 덮어쓰지
     않기 위함이다(csv_batch.py의 프롬프트 노드 매칭과 같은 방식).
@@ -243,6 +245,32 @@ def upload_image_to_comfy(comfy_url, image_path):
     return result["name"]
 
 
+# 텍스트/숫자 값을 그대로 담아두는 노드(Primitive 계열)가 실제로 값을 받는
+# 입력 필드 이름은 class_type마다 다르다: CLIPTextEncode는 "text",
+# PrimitiveStringMultiline/PrimitiveInt 등은 보통 "value"를 쓴다. 매핑에 없는
+# class_type이라도 그 노드에 이미 들어있는 입력 키("text" 또는 "value")로
+# 추정하므로, 새 종류의 Primitive 노드가 나와도 이 매핑을 매번 늘릴 필요는 없다.
+PRIMITIVE_VALUE_FIELDS = {
+    "CLIPTextEncode": "text",
+    "PrimitiveStringMultiline": "value",
+    "PrimitiveString": "value",
+    "PrimitiveInt": "value",
+    "PrimitiveFloat": "value",
+}
+
+
+def primitive_value_field(node):
+    field = PRIMITIVE_VALUE_FIELDS.get(node.get("class_type", ""))
+    if field:
+        return field
+    inputs = node.get("inputs", {})
+    if "text" in inputs:
+        return "text"
+    if "value" in inputs:
+        return "value"
+    return None
+
+
 def apply_pose_image(workflow, comfy_url, pose_path):
     node_id, node = find_node(
         workflow,
@@ -274,17 +302,18 @@ def apply_main_prompt(workflow, main_prompt):
     if not main_prompt:
         # 비워두면 업로드된 워크플로우의 프롬프트를 그대로 둔다.
         return
-    # class_types를 넘기지 않으므로(find_node가 title 매칭 실패 시 아무 노드로도
+    # title_substring만 넘기므로(find_node가 title 매칭 실패 시 아무 노드로도
     # 대체하지 않음) 제목에 "main_prompt"가 없으면 조용히 건너뛴다.
     node_id, node = find_node(workflow, title_substring="main_prompt")
-    if node is None or node.get("class_type") != "CLIPTextEncode":
+    field = primitive_value_field(node) if node is not None else None
+    if field is None:
         print(
             "[pose_batch] 경고: MAIN_PROMPT를 넣을 노드를 찾지 못했습니다 "
-            "(제목에 'main_prompt'가 포함된 CLIPTextEncode 없음)",
+            "(제목에 'main_prompt'가 포함된 CLIPTextEncode/Primitive 텍스트 노드 없음)",
             file=sys.stderr,
         )
         return
-    node.setdefault("inputs", {})["text"] = main_prompt
+    node.setdefault("inputs", {})[field] = main_prompt
 
 
 def apply_filename_prefix(workflow, index, seed, char_no, pose_path):
