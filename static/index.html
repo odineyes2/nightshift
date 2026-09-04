@@ -479,6 +479,14 @@
   input.email-input{ max-width:320px; }
   .email-result{ color:var(--done); font-size:12.5px; font-family:var(--mono); min-height:1em; }
   .output-actions{ display:flex; gap:var(--gap-lg); flex-wrap:wrap; }
+  /* 좁은 화면에서는 버튼 3개가 서로 다른 텍스트 길이 때문에 들쭉날쭉하게 왼쪽
+     정렬되던 걸, 세로로 쌓고 폭을 전부 맞춰서 길이/정렬을 통일한다. */
+  @media (max-width:640px){
+    .output-actions{ flex-direction:column; align-items:stretch; }
+    .output-actions > div{ width:100%; }
+    .output-actions .submit-btn,
+    .output-actions .danger-btn{ width:100%; }
+  }
 
   .section-label{
     font-family:var(--mono);
@@ -1109,6 +1117,7 @@
       <div class="section-label">갤러리</div>
       <div class="panel-header-actions">
         <span class="gallery-count" id="gallery-count"></span>
+        <button class="load-btn" id="gallery-select-all-btn" type="button" disabled>전체 선택</button>
         <button class="load-btn" id="gallery-refresh-btn" type="button">새로고침</button>
       </div>
     </div>
@@ -2631,6 +2640,7 @@ async function fetchGalleryImages(){
   updateGalleryToolbar();
 
   countEl.textContent = galleryImages.length ? `총 ${galleryImages.length}장` : '';
+  document.getElementById('gallery-select-all-btn').disabled = galleryImages.length === 0;
 
   if(galleryImages.length === 0){
     grid.innerHTML = '';
@@ -2672,6 +2682,12 @@ async function fetchGalleryImages(){
 }
 
 document.getElementById('gallery-refresh-btn').addEventListener('click', fetchGalleryImages);
+document.getElementById('gallery-select-all-btn').addEventListener('click', () => {
+  for(const img of galleryImages) selectedGalleryNames.add(img.name);
+  document.querySelectorAll('.gallery-item').forEach(el => el.classList.add('selected'));
+  document.querySelectorAll('.gallery-item-select input').forEach(cb => { cb.checked = true; });
+  updateGalleryToolbar();
+});
 document.getElementById('gallery-download-selected-btn').addEventListener('click', () => {
   downloadGalleryImages(Array.from(selectedGalleryNames));
 });
