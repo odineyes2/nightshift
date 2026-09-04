@@ -119,6 +119,9 @@ ControlNet 비활성화(pose가 비어 있는 행):
     char_no/pose_set/pose_file을 모두 null로 남겨 "의도적으로 ControlNet 없이
     생성했다"는 걸 구분한다. char_no가 기본값(1)이 아니면 SaveImage의
     filename_prefix에도 "_char<N>"이 붙는다(결과물을 인물 수 기준으로 정리할 때 씀).
+    JOB_ID가 있으면 이 filename_prefix 앞에 "<JOB_ID>/"를 붙여 ComfyUI가 출력 폴더
+    밑에 그 job_id 폴더를 만들고 그 안에 저장하게 한다 — nightshift 갤러리의
+    "작업별 보기"가 이 폴더 이름으로 묶어서 보여준다(output_images.py 참고).
 """
 
 import copy
@@ -553,6 +556,12 @@ def apply_filename_prefix(workflow, title, index, seed, char_no, pose_path):
         prefix = f"{prefix}_char{char_no}"
     if pose_path is not None:
         prefix = f"{prefix}_{sanitize_stem(pose_path.stem)}"
+    # JOB_ID가 있으면 ComfyUI 출력 폴더 밑에 그 job_id 하위 폴더를 만들어 저장한다 —
+    # filename_prefix의 "/"를 ComfyUI SaveImage가 하위 폴더로 해석한다. nightshift
+    # 갤러리는 이 폴더 이름으로 "작업별 보기"를 구성한다(output_images.py 참고).
+    job_id = env("JOB_ID")
+    if job_id:
+        prefix = f"{job_id}/{prefix}"
     node.setdefault("inputs", {})["filename_prefix"] = prefix
 
 
