@@ -173,8 +173,8 @@
   }
   .field-label-row .field-label{ flex-shrink:0; }
   .new-job-actions{ display:flex; align-items:center; gap:var(--gap-md); }
-  /* "최근 사용한 워크플로우" 모달 목록 — 파일명은 길면 말줄임, 시각/선택 버튼은
-     고정 폭으로 오른쪽에 붙는다. */
+  /* "최근 사용한 워크플로우"/"최근 사용한 CSV" 모달 목록 — 둘이 클래스를 공유한다.
+     파일명은 길면 말줄임, 시각/선택 버튼은 고정 폭으로 오른쪽에 붙는다. */
   .recent-workflows-list{
     display:flex;
     flex-direction:column;
@@ -985,7 +985,10 @@
         </div>
 
         <div class="field" id="csv-field" style="display:none;">
-          <label class="field-label">CSV <span class="opt">— 이 템플릿에 필수</span></label>
+          <div class="field-label-row">
+            <label class="field-label">CSV <span class="opt">— 이 템플릿에 필수</span></label>
+            <button class="load-btn" id="recent-csvs-btn" type="button">최근 CSV</button>
+          </div>
           <div class="slot" id="csv-slot">.csv 파일을 끌어다 놓거나 클릭</div>
           <input type="file" class="slot-input" id="csv-input" accept=".csv">
         </div>
@@ -1169,6 +1172,24 @@
     </div>
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="recent-workflows-modal-cancel">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="recent-csvs-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">최근 사용한 CSV</div>
+      <button class="modal-close" id="recent-csvs-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint">최근 <span id="recent-csvs-retention">30</span>개까지 보여줘요. 고르면 아래 CSV 슬롯에 바로 채워져요.</div>
+      <div class="upload-error" id="recent-csvs-error"></div>
+      <div class="recent-workflows-list" id="recent-csvs-list"></div>
+      <div class="empty" id="recent-csvs-empty" style="display:none;">최근 사용한 CSV가 없어요</div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="recent-csvs-modal-cancel">닫기</button>
     </div>
   </div>
 </div>
@@ -2097,92 +2118,112 @@ document.getElementById('reset-form-btn').addEventListener('click', () => {
   resetNewJobForm();
 });
 
-// ---- 최근 사용한 워크플로우 ----
-// 서버가 /api/upload 때마다 워크플로우 사본을 최근 30개까지 보관해두고(app.py의
-// record_recent_workflow), 여기서는 그 목록을 보여주고 고른 걸 워크플로우 슬롯에
-// 채워 넣기만 한다.
-let recentWorkflowsById = {};
-const recentWorkflowsModal = document.getElementById('recent-workflows-modal');
+// ---- 최근 사용한 워크플로우/CSV ----
+// 서버가 /api/upload 때마다 워크플로우·CSV 사본을 각각 최근 30개까지 보관해두고
+// (app.py의 RecentFileStore), 여기서는 그 목록을 모달로 보여주고 고른 걸 해당
+// 슬롯에 채워 넣기만 한다. 워크플로우/CSV 둘 다 구조가 완전히 같아서(버튼 →
+// 모달 목록 → 선택 → 슬롯에 채우기) 설정만 다르게 넘겨 하나의 함수로 만든다.
+function setupRecentFilePicker({
+  btnId, modalId, closeId, cancelId, listId, emptyId, errorId, retentionId,
+  listApi, itemApi, itemsKey, mimeType, setFile,
+}){
+  let byId = {};
+  const modal = document.getElementById(modalId);
 
-async function openRecentWorkflowsModal(){
-  const list = document.getElementById('recent-workflows-list');
-  const empty = document.getElementById('recent-workflows-empty');
-  const errorEl = document.getElementById('recent-workflows-error');
-  errorEl.textContent = '';
-  empty.style.display = 'none';
-  list.innerHTML = '불러오는 중…';
-  recentWorkflowsModal.style.display = 'flex';
+  async function open(){
+    const list = document.getElementById(listId);
+    const empty = document.getElementById(emptyId);
+    const errorEl = document.getElementById(errorId);
+    errorEl.textContent = '';
+    empty.style.display = 'none';
+    list.innerHTML = '불러오는 중…';
+    modal.style.display = 'flex';
 
-  let data;
-  try{
-    const res = await fetch('/api/recent-workflows');
-    data = await res.json();
-  }catch(e){
-    list.innerHTML = '';
-    errorEl.textContent = '목록을 불러오지 못했어요.';
-    return;
+    let data;
+    try{
+      const res = await fetch(listApi);
+      data = await res.json();
+    }catch(e){
+      list.innerHTML = '';
+      errorEl.textContent = '목록을 불러오지 못했어요.';
+      return;
+    }
+    if(data.retention !== undefined){
+      document.getElementById(retentionId).textContent = data.retention;
+    }
+
+    byId = {};
+    const items = data[itemsKey] || [];
+    if(items.length === 0){
+      list.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+
+    list.innerHTML = items.map(w => {
+      byId[w.id] = w;
+      const d = new Date(w.uploaded_at);
+      const whenText = `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+      return `
+        <div class="recent-workflow-item">
+          <span class="recent-workflow-name" title="${escapeHtml(w.filename)}">${escapeHtml(w.filename)}</span>
+          <span class="recent-workflow-time">${whenText}</span>
+          <button class="load-btn" data-recent-id="${w.id}" type="button">선택</button>
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('[data-recent-id]').forEach(btn => {
+      btn.addEventListener('click', () => select(btn.dataset.recentId));
+    });
   }
-  if(data.retention !== undefined){
-    document.getElementById('recent-workflows-retention').textContent = data.retention;
+
+  async function select(id){
+    const errorEl = document.getElementById(errorId);
+    errorEl.textContent = '';
+    const entry = byId[id];
+    if(!entry) return;
+    try{
+      const res = await fetch(itemApi(id));
+      if(!res.ok){
+        const data = await res.json().catch(() => ({}));
+        errorEl.textContent = data.detail || '파일을 불러오지 못했어요.';
+        return;
+      }
+      const text = await res.text();
+      setFile(new File([text], entry.filename, { type: mimeType }));
+      close();
+    }catch(e){
+      errorEl.textContent = '파일을 불러오지 못했어요.';
+    }
   }
 
-  recentWorkflowsById = {};
-  const items = data.workflows || [];
-  if(items.length === 0){
-    list.innerHTML = '';
-    empty.style.display = 'block';
-    return;
+  function close(){
+    modal.style.display = 'none';
   }
 
-  list.innerHTML = items.map(w => {
-    recentWorkflowsById[w.id] = w;
-    const d = new Date(w.uploaded_at);
-    const whenText = `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-    return `
-      <div class="recent-workflow-item">
-        <span class="recent-workflow-name" title="${escapeHtml(w.filename)}">${escapeHtml(w.filename)}</span>
-        <span class="recent-workflow-time">${whenText}</span>
-        <button class="load-btn" data-recent-id="${w.id}" type="button">선택</button>
-      </div>`;
-  }).join('');
-
-  list.querySelectorAll('[data-recent-id]').forEach(btn => {
-    btn.addEventListener('click', () => selectRecentWorkflow(btn.dataset.recentId));
+  document.getElementById(btnId).addEventListener('click', open);
+  document.getElementById(closeId).addEventListener('click', close);
+  document.getElementById(cancelId).addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if(e.target === modal) close(); });
+  document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape' && modal.style.display !== 'none') close();
   });
 }
 
-async function selectRecentWorkflow(id){
-  const errorEl = document.getElementById('recent-workflows-error');
-  errorEl.textContent = '';
-  const entry = recentWorkflowsById[id];
-  if(!entry) return;
-  try{
-    const res = await fetch(`/api/recent-workflows/${id}`);
-    if(!res.ok){
-      const data = await res.json().catch(() => ({}));
-      errorEl.textContent = data.detail || '워크플로우를 불러오지 못했어요.';
-      return;
-    }
-    const text = await res.text();
-    setWorkflowFile(new File([text], entry.filename, { type: 'application/json' }));
-    closeRecentWorkflowsModal();
-  }catch(e){
-    errorEl.textContent = '워크플로우를 불러오지 못했어요.';
-  }
-}
-
-function closeRecentWorkflowsModal(){
-  recentWorkflowsModal.style.display = 'none';
-}
-
-document.getElementById('recent-workflows-btn').addEventListener('click', openRecentWorkflowsModal);
-document.getElementById('recent-workflows-modal-close').addEventListener('click', closeRecentWorkflowsModal);
-document.getElementById('recent-workflows-modal-cancel').addEventListener('click', closeRecentWorkflowsModal);
-recentWorkflowsModal.addEventListener('click', (e) => {
-  if(e.target === recentWorkflowsModal) closeRecentWorkflowsModal();
+setupRecentFilePicker({
+  btnId: 'recent-workflows-btn', modalId: 'recent-workflows-modal', closeId: 'recent-workflows-modal-close',
+  cancelId: 'recent-workflows-modal-cancel', listId: 'recent-workflows-list', emptyId: 'recent-workflows-empty',
+  errorId: 'recent-workflows-error', retentionId: 'recent-workflows-retention',
+  listApi: '/api/recent-workflows', itemApi: (id) => `/api/recent-workflows/${id}`, itemsKey: 'workflows',
+  mimeType: 'application/json', setFile: setWorkflowFile,
 });
-document.addEventListener('keydown', (e) => {
-  if(e.key === 'Escape' && recentWorkflowsModal.style.display !== 'none') closeRecentWorkflowsModal();
+
+setupRecentFilePicker({
+  btnId: 'recent-csvs-btn', modalId: 'recent-csvs-modal', closeId: 'recent-csvs-modal-close',
+  cancelId: 'recent-csvs-modal-cancel', listId: 'recent-csvs-list', emptyId: 'recent-csvs-empty',
+  errorId: 'recent-csvs-error', retentionId: 'recent-csvs-retention',
+  listApi: '/api/recent-csvs', itemApi: (id) => `/api/recent-csvs/${id}`, itemsKey: 'csvs',
+  mimeType: 'text/csv', setFile: setCsvFile,
 });
 
 async function fetchComfyStatus(){

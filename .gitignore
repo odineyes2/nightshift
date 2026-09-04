@@ -3,6 +3,7 @@
 jobs/*
 logs/*
 recent_workflows/*
+recent_csvs/*
 
 # 파이썬 캐시
 __pycache__/
