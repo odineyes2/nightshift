@@ -16,15 +16,26 @@ CSV 입력과 프롬프트 주입 없이 시드만 바꾸는 가장 단순한 �
     있을 수 있으므로, 제목이 정확히 일치하지 않으면 엉뚱한 노드를 덮어쓰지
     않기 위함이다(csv_batch.py의 프롬프트 노드 매칭과 같은 방식).
 
+해상도(WIDTH/HEIGHT):
+    둘 다 채워야 적용되며(하나만 채우면 무시하고 경고), 둘 다 비어 있으면
+    워크플로우에 이미 들어있는 값을 그대로 둔다. 적용 대상은 EmptyLatentImage류
+    노드의 width/height 입력이다 — 그 입력이 리터럴 숫자면 직접 덮어쓰고, 별도
+    PrimitiveInt 노드로 링크돼 있으면(예: "width"라는 이름의 정수 노드를 여러
+    곳에서 참조) 링크는 그대로 두고 연결된 노드의 값을 갱신한다(set_linked_value
+    참고) — 같은 노드를 참조하는 다른 곳에도 일관되게 반영되게 하기 위함이다.
+
 환경변수:
     WORKFLOW_PATH   (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
     SEED_COUNT      (필수) 반복할 시드 개수 (nightshift가 템플릿 옵션 "seed_count"로 주입)
     MAIN_PROMPT     메인 프롬프트 (nightshift가 템플릿 옵션 "main_prompt"로 주입, 기본
                     빈 값 — 비워두면 워크플로우의 프롬프트를 그대로 씀)
+    WIDTH, HEIGHT   해상도 (nightshift가 템플릿 옵션 "width"/"height"로 주입, 기본 빈 값
+                    — 둘 다 비워두면 워크플로우의 값을 그대로 씀)
     COMFY_URL       ComfyUI 서버 주소 (기본 http://127.0.0.1:8188)
     JOB_ID          nightshift가 주입하는 이 작업의 id (진행 상황 보고용, 없으면 보고 생략)
     NIGHTSHIFT_URL  nightshift 자신의 주소 (진행 상황 보고용, 기본 http://127.0.0.1:8000)
     SEED_NODE_TITLE    시드를 주입할 노드의 _meta.title 부분일치 (기본 "KSampler")
+    LATENT_NODE_TITLE  해상도를 주입할 노드의 _meta.title 부분일치 (기본 "latent")
     SAVE_NODE_TITLE    파일명 접두사를 주입할 노드의 _meta.title 부분일치 (기본 "Save")
     POLL_INTERVAL_SEC  히스토리 폴링 간격 초 (기본 2)
     POLL_TIMEOUT_SEC   개별 작업 완료 대기 제한 초 (기본 600)
@@ -104,6 +115,25 @@ def primitive_value_field(node):
     return None
 
 
+def set_linked_value(workflow, node, field, value):
+    """node.inputs[field]에 value를 쓴다. 그 입력이 다른 노드로 연결돼 있으면
+    (예: width/height를 별도 PrimitiveInt 노드로 뽑아 여러 곳에 공급하는
+    워크플로우) 링크는 그대로 두고 연결된 노드의 값 입력을 갱신해서, 같은
+    노드를 참조하는 다른 곳에도 일관되게 반영되게 한다. 연결된 노드의 값
+    입력을 알 수 없으면(알 수 없는 노드 구조) 안전하게 이 노드에 리터럴로
+    덮어쓴다."""
+    inputs = node.setdefault("inputs", {})
+    current = inputs.get(field)
+    if isinstance(current, list) and len(current) == 2:
+        source_node = workflow.get(str(current[0]))
+        if isinstance(source_node, dict):
+            source_field = primitive_value_field(source_node)
+            if source_field:
+                source_node.setdefault("inputs", {})[source_field] = value
+                return
+    inputs[field] = value
+
+
 def apply_seed(workflow, seed):
     node_id, node = find_node(
         workflow,
@@ -133,6 +163,37 @@ def apply_main_prompt(workflow, main_prompt):
         )
         return
     node.setdefault("inputs", {})[field] = main_prompt
+
+
+def apply_resolution(workflow, width, height):
+    width = (width or "").strip()
+    height = (height or "").strip()
+    if not width and not height:
+        # 둘 다 비어 있으면 워크플로우에 이미 들어있는 해상도를 그대로 둔다.
+        return
+    if not width or not height:
+        print(
+            "[seed_batch] 경고: WIDTH/HEIGHT는 둘 다 채워야 적용됩니다 (하나만 비어 있음). 무시합니다.",
+            file=sys.stderr,
+        )
+        return
+    try:
+        width_value = int(float(width))
+        height_value = int(float(height))
+    except ValueError:
+        print(f"[seed_batch] 경고: WIDTH/HEIGHT 값 '{width}x{height}'을 정수로 변환하지 못했습니다.", file=sys.stderr)
+        return
+
+    node_id, node = find_node(
+        workflow,
+        title_substring=env("LATENT_NODE_TITLE", "latent"),
+        class_types=("EmptyLatentImage",),
+    )
+    if node is None:
+        print("[seed_batch] 경고: 해상도를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
+        return
+    set_linked_value(workflow, node, "width", width_value)
+    set_linked_value(workflow, node, "height", height_value)
 
 
 def get_default_batch_size(workflow):
@@ -204,10 +265,11 @@ def wait_for_completion(comfy_url, prompt_id):
     raise TimeoutError(f"prompt_id={prompt_id} 완료 대기 시간({timeout}s) 초과")
 
 
-def run_once(base_workflow, comfy_url, seed, index, main_prompt):
+def run_once(base_workflow, comfy_url, seed, index, main_prompt, width, height):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
     apply_main_prompt(workflow, main_prompt)
+    apply_resolution(workflow, width, height)
     apply_filename_prefix(workflow, index, seed)
 
     prompt_id = queue_prompt(comfy_url, workflow)
@@ -225,6 +287,8 @@ def main():
 
     seed_count = int(seed_count_raw)
     main_prompt = env("MAIN_PROMPT", "")
+    width = env("WIDTH", "")
+    height = env("HEIGHT", "")
     base_workflow = load_workflow(workflow_path)
     comfy_url = env("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
     job_id = env("JOB_ID")
@@ -237,7 +301,7 @@ def main():
 
     done_images = 0
     for index in range(1, seed_count + 1):
-        run_once(base_workflow, comfy_url, index - 1, index, main_prompt)
+        run_once(base_workflow, comfy_url, index - 1, index, main_prompt, width, height)
         done_images += default_batch_size
         report_progress(job_id, nightshift_url, total_images, done_images)
 
