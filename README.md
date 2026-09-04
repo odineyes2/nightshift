@@ -86,6 +86,8 @@ npm start
 
 내부적으로는 `ecosystem.config.js`에 정의된 pm2 앱 설정(`python3 -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload`)을 그대로 실행합니다 — 필요하면 이 파일에서 포트나 옵션을 직접 조정할 수 있습니다.
 
+> **conda/venv를 쓴다면**: `ecosystem.config.js`는 `npm start`를 실행한 그 셸에서 `which python3`가 가리키는 인터프리터를 그대로 사용합니다. RunPod 등에서 conda/venv가 `~/.bashrc`에서만 활성화되도록 돼 있으면, pm2가 자식 프로세스를 로그인 셸이 아닌 방식으로 띄우면서 그 활성화가 빠져 `/usr/bin/python3: No module named uvicorn` 같은 에러가 로그에 쌓일 수 있습니다. 그런 경우엔 (1) `python3 app.py`가 정상 동작하는 바로 그 셸에서 `npm start`를 실행하고 (2) 예전에 다른 환경에서 이미 `pm2 start`를 한 적이 있다면 `npx pm2 delete nightshift`(또는 `npx pm2 kill`로 데몬 자체를 리셋)한 뒤 `npm start`를 다시 실행하세요 — pm2 데몬이 예전에 잘못 잡은 인터프리터 경로를 계속 재사용하기 때문입니다.
+
 ### python3로 직접 실행
 
 Node.js가 없거나 pm2 없이 단순하게 실행하고 싶다면:
