@@ -435,26 +435,37 @@
     gap:12px;
     margin-bottom:16px;
   }
-  .panel-header .section-label{ margin-bottom:0; }
+  .panel-header .section-label{ margin-bottom:0; transition:color .15s ease; }
+  /* 접기/펼치기 버튼을 제목 오른쪽 끝이 아니라 제목 왼쪽에 불릿처럼 붙여서,
+     "이 줄 전체가 접기 트리거"라는 게 한눈에 보이게 한다. 버튼 하나에만
+     클릭 리스너를 달지 않고 이 그룹 전체(.panel-header-title)에 다는 이유도
+     같은 맥락 — 텍스트를 눌러도 접히고 펼쳐져야 자연스럽다. */
+  .panel-header-title{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    cursor:pointer;
+    min-width:0;
+  }
+  .panel-header-title:hover .collapse-btn{ color:var(--queued); }
+  .panel-header-title:hover .section-label{ color:var(--text); }
   .panel-header-actions{ display:flex; align-items:center; gap:var(--gap-md); flex-shrink:0; }
   .collapse-btn{
-    background:var(--panel);
-    border:1px solid var(--border);
+    background:none;
+    border:none;
     color:var(--text-dim);
-    border-radius:var(--radius-sm);
-    width:26px;
-    height:26px;
+    width:14px;
+    height:14px;
     flex-shrink:0;
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    font-size:12px;
+    font-size:11px;
     line-height:1;
     cursor:pointer;
     padding:0;
-    transition: transform .15s ease, border-color .15s, color .15s;
+    transition: transform .15s ease, color .15s ease;
   }
-  .collapse-btn:hover{ border-color:var(--queued); color:var(--queued); }
   .panel.collapsed .panel-header{ margin-bottom:0; }
   .panel.collapsed .panel-body{ display:none; }
   .panel.collapsed .collapse-btn{ transform:rotate(-90deg); }
@@ -866,9 +877,9 @@
 <main id="tab-jobs">
   <div class="panel collapsed" id="deleted-jobs-panel">
     <div class="panel-header">
-      <div class="section-label">삭제된 작업 설정 불러오기</div>
-      <div class="panel-header-actions">
+      <div class="panel-header-title">
         <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
+        <div class="section-label">삭제된 작업 설정 불러오기</div>
       </div>
     </div>
     <div class="panel-body">
@@ -885,9 +896,9 @@
 
   <div class="panel" id="new-job-panel">
     <div class="panel-header">
-      <div class="section-label">새 작업 추가</div>
-      <div class="panel-header-actions">
+      <div class="panel-header-title">
         <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true">▾</button>
+        <div class="section-label">새 작업 추가</div>
       </div>
     </div>
     <div class="panel-body">
@@ -924,10 +935,12 @@
 
   <div class="panel">
     <div class="panel-header">
-      <div class="section-label">작업 목록</div>
+      <div class="panel-header-title">
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true">▾</button>
+        <div class="section-label">작업 목록</div>
+      </div>
       <div class="panel-header-actions">
         <button class="start-queue-btn" id="start-queue-btn" disabled>▷ 대기중 작업 시작 (<span id="pending-batch-count">0</span>)</button>
-        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true">▾</button>
       </div>
     </div>
     <div class="panel-body">
@@ -957,9 +970,9 @@
 
   <div class="panel">
     <div class="panel-header">
-      <div class="section-label">결과 이미지 관리</div>
-      <div class="panel-header-actions">
+      <div class="panel-header-title">
         <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true">▾</button>
+        <div class="section-label">결과 이미지 관리</div>
       </div>
     </div>
     <div class="panel-body">
@@ -985,9 +998,9 @@
 
   <div class="panel collapsed">
     <div class="panel-header">
-      <div class="section-label">결과 이미지 이메일 전송</div>
-      <div class="panel-header-actions">
+      <div class="panel-header-title">
         <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
+        <div class="section-label">결과 이미지 이메일 전송</div>
       </div>
     </div>
     <div class="panel-body">
@@ -1080,9 +1093,14 @@ const STATUS_LABEL = {
   failed: "실패", interrupted: "중단됨"
 };
 
-document.querySelectorAll('.panel > .panel-header > .panel-header-actions > .collapse-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const panel = btn.closest('.panel');
+// 접기/펼치기 버튼뿐 아니라 그 옆 제목 텍스트를 눌러도 토글되도록, 클릭 리스너는
+// 버튼이 아니라 이 둘을 감싼 .panel-header-title에 하나만 단다(버튼 클릭도 이
+// 리스너까지 그대로 버블링되므로 따로 달 필요가 없다).
+document.querySelectorAll('.panel > .panel-header > .panel-header-title').forEach(title => {
+  const btn = title.querySelector('.collapse-btn');
+  if(!btn) return;
+  title.addEventListener('click', () => {
+    const panel = title.closest('.panel');
     const collapsed = panel.classList.toggle('collapsed');
     btn.setAttribute('aria-expanded', String(!collapsed));
   });
