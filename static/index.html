@@ -335,6 +335,26 @@
     .prompt-enhance-middle{ padding-top:0; }
   }
 
+  /* width/height "이미지 크기" 필드 — 모드 토글(.enhance-mode 재사용) 아래로
+     "직접 입력"/"화면비·해상도" 두 패널 중 하나만 보인다. */
+  .resolution-control{ display:flex; flex-direction:column; gap:12px; }
+  .resolution-manual,
+  .resolution-preset{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:flex-end;
+    gap:var(--gap-md);
+  }
+  .resolution-manual[hidden],
+  .resolution-preset[hidden]{ display:none; }
+  .resolution-preview{
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:var(--text-dim);
+    align-self:center;
+    white-space:nowrap;
+  }
+
   .slot{
     border:1px dashed var(--border);
     background:var(--bg);
@@ -1518,6 +1538,158 @@ function buildPromptEnhanceControl(opt){
   return wrap;
 }
 
+// width/height 한 쌍을 위한 "화면비·해상도" 프리셋. 값 자체(w/h)는 화면비 계산에,
+// 라벨은 드롭다운 표시에 쓴다.
+const ASPECT_RATIOS = [
+  { value: '1:1', label: '1:1 (Square)', w: 1, h: 1 },
+  { value: '2:3', label: '2:3 (Portrait Photo)', w: 2, h: 3 },
+  { value: '3:2', label: '3:2 (Photo)', w: 3, h: 2 },
+  { value: '3:4', label: '3:4 (Portrait Standard)', w: 3, h: 4 },
+  { value: '4:3', label: '4:3 (Standard)', w: 4, h: 3 },
+  { value: '9:16', label: '9:16 (Portrait Widescreen)', w: 9, h: 16 },
+  { value: '16:9', label: '16:9 (Widescreen)', w: 16, h: 9 },
+  { value: '9:21', label: '9:21 (Portrait Ultrawide)', w: 9, h: 21 },
+  { value: '21:9', label: '21:9 (Ultrawide)', w: 21, h: 9 },
+  { value: '6:13', label: '6:13 (V-GalaxyS26+)', w: 6, h: 13 },
+  { value: '13:6', label: '13:6 (H-GalaxyS26+)', w: 13, h: 6 },
+];
+
+// 1MP/2MP는 총 픽셀 수(면적) 기준, 2K/4K는 긴 변 픽셀 수 기준 — 두 단위 체계가
+// 섞여 있는 건 실제로 "MP"와 "K" 표기가 관용적으로 그렇게 쓰이기 때문이다(1K=1024
+// 기준으로 2K=2048, 4K=4096인 DCI/전통적 표기를 따름).
+const RESOLUTION_TIERS = {
+  '1MP': { kind: 'area', value: 1024 * 1024 },
+  '2MP': { kind: 'area', value: 2 * 1024 * 1024 },
+  '2K': { kind: 'edge', value: 2048 },
+  '4K': { kind: 'edge', value: 4096 },
+};
+
+function roundToMultiple(n, step){
+  return Math.max(step, Math.round(n / step) * step);
+}
+
+// 화면비 + 해상도 티어로부터 실제 픽셀 너비/높이를 계산한다. ComfyUI 계열
+// VAE(다운샘플 8배수)와 호환되도록 8의 배수로 반올림한다.
+function computeResolutionPx(ratioValue, tierKey){
+  const ratio = ASPECT_RATIOS.find(r => r.value === ratioValue);
+  const tier = RESOLUTION_TIERS[tierKey];
+  if(!ratio || !tier) return null;
+  const STEP = 8;
+  let w, h;
+  if(tier.kind === 'area'){
+    const scale = Math.sqrt(tier.value / (ratio.w * ratio.h));
+    w = ratio.w * scale;
+    h = ratio.h * scale;
+  } else {
+    if(ratio.w >= ratio.h){ w = tier.value; h = tier.value * ratio.h / ratio.w; }
+    else { h = tier.value; w = tier.value * ratio.w / ratio.h; }
+  }
+  return { width: roundToMultiple(w, STEP), height: roundToMultiple(h, STEP) };
+}
+
+// "width"+"height" 옵션 한 쌍을 위한 전용 컨트롤 — "직접 입력"과 "화면비·해상도"
+// 두 방식을 모드 토글로 오간다. 실제로 값이 담기는 곳은 항상 이 두 number
+// input(.option-input[data-name="width"/"height"])이라서, "화면비·해상도" 모드는
+// 그 값을 계산해서 채워주는 보조 입력 방식일 뿐이다 — 제출/설정 불러오기 등
+// 다른 로직은 이 컨트롤의 존재를 몰라도 기존 그대로 동작한다.
+function buildResolutionControl(widthOpt, heightOpt){
+  const wrap = document.createElement('div');
+  wrap.className = 'resolution-control';
+
+  const modeToggle = document.createElement('div');
+  modeToggle.className = 'enhance-mode';
+  const modeBtns = [
+    { value: 'manual', label: '직접 입력' },
+    { value: 'preset', label: '화면비·해상도' },
+  ].map(({ value, label }) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'enhance-mode-btn' + (value === 'manual' ? ' active' : '');
+    btn.textContent = label;
+    btn.dataset.mode = value;
+    modeToggle.appendChild(btn);
+    return btn;
+  });
+
+  function makeField(labelText, input){
+    const field = document.createElement('div');
+    field.className = 'field';
+    const label = document.createElement('label');
+    label.className = 'field-label';
+    label.textContent = labelText;
+    field.appendChild(label);
+    field.appendChild(input);
+    return field;
+  }
+
+  const manualPane = document.createElement('div');
+  manualPane.className = 'resolution-manual';
+  const widthInput = document.createElement('input');
+  widthInput.type = 'number';
+  widthInput.className = 'option-input';
+  widthInput.dataset.name = widthOpt.name;
+  if(widthOpt.placeholder) widthInput.placeholder = widthOpt.placeholder;
+  const heightInput = document.createElement('input');
+  heightInput.type = 'number';
+  heightInput.className = 'option-input';
+  heightInput.dataset.name = heightOpt.name;
+  if(heightOpt.placeholder) heightInput.placeholder = heightOpt.placeholder;
+  manualPane.appendChild(makeField(widthOpt.label, widthInput));
+  manualPane.appendChild(makeField(heightOpt.label, heightInput));
+
+  const presetPane = document.createElement('div');
+  presetPane.className = 'resolution-preset';
+  presetPane.hidden = true;
+
+  const aspectSelect = document.createElement('select');
+  aspectSelect.className = 'option-input';
+  for(const r of ASPECT_RATIOS){
+    const o = document.createElement('option');
+    o.value = r.value;
+    o.textContent = r.label;
+    aspectSelect.appendChild(o);
+  }
+  const tierSelect = document.createElement('select');
+  tierSelect.className = 'option-input';
+  for(const key of Object.keys(RESOLUTION_TIERS)){
+    const o = document.createElement('option');
+    o.value = key;
+    o.textContent = key;
+    tierSelect.appendChild(o);
+  }
+  const preview = document.createElement('div');
+  preview.className = 'resolution-preview';
+
+  presetPane.appendChild(makeField('화면비', aspectSelect));
+  presetPane.appendChild(makeField('해상도', tierSelect));
+  presetPane.appendChild(preview);
+
+  function applyPreset(){
+    const result = computeResolutionPx(aspectSelect.value, tierSelect.value);
+    if(!result) return;
+    widthInput.value = result.width;
+    heightInput.value = result.height;
+    preview.textContent = `→ ${result.width} × ${result.height} px`;
+  }
+  aspectSelect.addEventListener('change', applyPreset);
+  tierSelect.addEventListener('change', applyPreset);
+
+  modeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      modeBtns.forEach(b => b.classList.toggle('active', b === btn));
+      const isPreset = btn.dataset.mode === 'preset';
+      manualPane.hidden = isPreset;
+      presetPane.hidden = !isPreset;
+      if(isPreset) applyPreset();
+    });
+  });
+
+  wrap.appendChild(modeToggle);
+  wrap.appendChild(manualPane);
+  wrap.appendChild(presetPane);
+  return wrap;
+}
+
 function buildOptionControl(opt){
   if(opt.name === 'main_prompt' && opt.type === 'textarea'){
     return buildPromptEnhanceControl(opt);
@@ -1546,9 +1718,27 @@ function buildOptionControl(opt){
 function renderOptionFields(template){
   optionsFields.innerHTML = '';
   const options = template ? template.options || [] : [];
+  // width/height가 둘 다 있는 템플릿(seed_batch/pose_batch)은 두 옵션을 따로
+  // 그리지 않고 "이미지 크기" 필드 하나로 묶어서, 직접 입력/화면비·해상도 두
+  // 방식을 오갈 수 있게 한다.
+  const widthOpt = options.find(o => o.name === 'width');
+  const heightOpt = options.find(o => o.name === 'height');
+  const hasResolutionPair = !!(widthOpt && heightOpt);
+
   for(const opt of options){
+    if(hasResolutionPair && opt.name === 'height') continue; // width 자리에서 함께 그려짐
     const field = document.createElement('div');
     field.className = 'field';
+
+    if(hasResolutionPair && opt.name === 'width'){
+      const label = document.createElement('label');
+      label.className = 'field-label';
+      label.textContent = '이미지 크기';
+      field.appendChild(label);
+      field.appendChild(buildResolutionControl(widthOpt, heightOpt));
+      optionsFields.appendChild(field);
+      continue;
+    }
 
     const label = document.createElement('label');
     label.className = 'field-label';
