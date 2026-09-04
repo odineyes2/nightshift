@@ -3,6 +3,11 @@
 가로형(hires-fix/USDU로 만들어진) 이미지 자동 회전. 이메일 발송(email_sender.py)과
 zip 다운로드(app.py)도 이 모듈의 OUTPUT_DIR/list_output_images를 함께 쓴다.
 
+템플릿 스크립트(templates/*.py의 apply_filename_prefix)가 작업마다 JOB_ID
+이름의 하위 폴더에 결과 이미지를 나눠 저장하므로, list_output_images는
+OUTPUT_DIR 바로 밑뿐 아니라 하위 폴더까지 재귀적으로 훑는다. app.py는 이
+하위 폴더 이름을 "job_id"로 노출해 갤러리의 "작업별 보기"에 쓴다.
+
 환경변수:
     NIGHTSHIFT_OUTPUT_DIR  이미지가 쌓이는 폴더 (기본 /workspace/output)
 """
@@ -27,14 +32,17 @@ class OutputFolderError(Exception):
 
 
 def list_output_images(search_dir: str | None = None) -> list[Path]:
-    """search_dir(기본 OUTPUT_DIR)의 이미지 파일 목록. 폴더 자체가 없으면 에러,
+    """search_dir(기본 OUTPUT_DIR)의 이미지 파일 목록. 템플릿 스크립트가 JOB_ID
+    하위 폴더에 나눠 저장하므로(seed_batch.py 등의 apply_filename_prefix 참고)
+    하위 폴더까지 재귀적으로 훑는다 — 폴더 구조가 한 단계든 여러 단계든, 혹은
+    하위 폴더 없이 예전처럼 바로 밑에 있든 다 찾아낸다. 폴더 자체가 없으면 에러,
     이미지가 0개면 빈 리스트를 돌려준다 — 삭제/회전 입장에서는 할 일이 없을 뿐 에러가 아니다."""
     search_dir = search_dir or OUTPUT_DIR
     d = Path(search_dir)
     if not d.exists():
         raise OutputFolderError(f"폴더를 찾을 수 없습니다: {search_dir}")
     return [
-        p for p in sorted(d.iterdir())
+        p for p in sorted(d.rglob("*"))
         if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
     ]
 

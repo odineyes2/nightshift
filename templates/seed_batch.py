@@ -49,10 +49,14 @@ CSV 입력과 프롬프트 주입 없이 시드만 바꾸는 가장 단순한 �
 
 결과물 파일명 규칙:
     SaveImage(SAVE_NODE_TITLE로 찾은 노드)의 filename_prefix를
-    "seed_batch_<순번>_seed<시드값>" 형식으로 채운다 (예: seed_batch_3_seed482913).
-    ComfyUI가 실제 저장 시 여기에 자기 카운터를 덧붙이므로 최종 파일명은
-    "seed_batch_3_seed482913_00001_.png"처럼 나온다 — 파일명만 보고도 몇 번째
-    시도였는지와 어떤 시드였는지 바로 알 수 있다.
+    "<JOB_ID>/seed_batch_<순번>_seed<시드값>" 형식으로 채운다 (예:
+    ca6e661b/seed_batch_3_seed482913). ComfyUI가 filename_prefix의 "/"를
+    하위 폴더로 해석해 출력 폴더 밑에 JOB_ID 이름의 폴더를 만들고 그 안에
+    저장하므로(작업마다 폴더가 자동으로 나뉨), 실제 저장 시 여기에 자기
+    카운터를 덧붙이면 최종 경로는 "ca6e661b/seed_batch_3_seed482913_00001_.png"
+    처럼 나온다 — nightshift 갤러리의 "작업별 보기"가 이 폴더 이름으로 묶어서
+    보여준다(output_images.py 참고). JOB_ID가 없으면(스크립트를 nightshift
+    밖에서 직접 실행한 경우 등) 하위 폴더 없이 기존처럼 출력 폴더 바로 밑에 저장한다.
 """
 
 import copy
@@ -230,7 +234,15 @@ def apply_filename_prefix(workflow, index, seed):
     )
     if node is None:
         return
-    node.setdefault("inputs", {})["filename_prefix"] = f"seed_batch_{index}_seed{seed}"
+    prefix = f"seed_batch_{index}_seed{seed}"
+    # JOB_ID가 있으면(nightshift가 큐로 실행할 때는 항상 있음) ComfyUI 출력 폴더 밑에
+    # 그 job_id 이름의 하위 폴더를 만들어 그 안에 저장한다 — filename_prefix에 "/"가
+    # 있으면 ComfyUI SaveImage가 하위 폴더로 해석해 자동으로 만들어준다. nightshift
+    # 갤러리는 이 하위 폴더 이름으로 "작업별 보기"를 구성한다(output_images.py 참고).
+    job_id = env("JOB_ID")
+    if job_id:
+        prefix = f"{job_id}/{prefix}"
+    node.setdefault("inputs", {})["filename_prefix"] = prefix
 
 
 def queue_prompt(comfy_url, workflow):

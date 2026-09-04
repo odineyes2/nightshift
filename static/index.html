@@ -722,6 +722,25 @@
     grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
     gap:10px;
   }
+  /* 작업별 보기 — 작업(job)마다 소제목과 그 작업의 이미지 격자를 세로로 나열한다.
+     #gallery-grid 자체가 grid라서(전체 보기용), grid-column을 꽉 채우지 않으면
+     그룹들이 한 줄에 나란히 놓여버린다 — 항상 한 행 전체를 차지하게 만든다. */
+  .gallery-group{ grid-column:1 / -1; margin-bottom:20px; }
+  .gallery-group:last-child{ margin-bottom:0; }
+  .gallery-group-header{
+    font-family:var(--mono);
+    font-size:11.5px;
+    font-weight:600;
+    color:var(--text-dim);
+    padding:6px 2px;
+    margin-bottom:8px;
+    border-bottom:1px solid var(--border);
+  }
+  .gallery-group-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
+    gap:10px;
+  }
   .gallery-item{
     position:relative;
     aspect-ratio:1;
@@ -1143,6 +1162,10 @@
       <div class="section-label">갤러리</div>
       <div class="panel-header-actions">
         <span class="gallery-count" id="gallery-count"></span>
+        <div class="enhance-mode" id="gallery-view-toggle">
+          <button class="enhance-mode-btn active" type="button" data-view="all">전체 보기</button>
+          <button class="enhance-mode-btn" type="button" data-view="byjob">작업별 보기</button>
+        </div>
         <button class="load-btn" id="gallery-select-all-btn" type="button" disabled>전체 선택</button>
         <button class="load-btn" id="gallery-refresh-btn" type="button">새로고침</button>
       </div>
@@ -2574,6 +2597,11 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 let galleryImages = [];
 let lightboxIndex = -1;
 let selectedGalleryNames = new Set();
+let galleryViewMode = 'all'; // 'all' | 'byjob'
+let galleryJobLabels = {}; // job_id -> 사람이 읽을 수 있는 라벨(템플릿명 · 옵션)
+// 현재 화면에 실제로 그려진 순서 — 전체 보기는 galleryImages와 같고, 작업별 보기는
+// 그룹별로 재배열된 순서다. 라이트박스의 이전/다음 탐색은 항상 이 배열을 따른다.
+let displayedGalleryImages = [];
 const galleryLightbox = document.getElementById('gallery-lightbox');
 
 function fmtBytes(n){
@@ -2673,37 +2701,30 @@ async function downloadGalleryImages(names){
   }
 }
 
-async function fetchGalleryImages(){
-  const grid = document.getElementById('gallery-grid');
-  const emptyMsg = document.getElementById('gallery-empty');
-  const countEl = document.getElementById('gallery-count');
+// 작업별 보기의 그룹 소제목에 쓸 job_id -> 라벨 맵. 못 가져와도 갤러리 자체는
+// 보여줘야 하니 실패하면 빈 맵을 돌려주고(호출부가 job_id를 그대로 보여줌).
+async function fetchGalleryJobLabels(){
+  const labels = {};
   try{
-    const res = await fetch('/api/output-images');
-    const data = await res.json();
-    galleryImages = data.images || [];
+    const [activeRes, deletedRes] = await Promise.all([
+      fetch('/api/jobs'),
+      fetch('/api/jobs/deleted'),
+    ]);
+    const activeData = await activeRes.json().catch(() => ({ jobs: [] }));
+    const deletedData = await deletedRes.json().catch(() => ({ jobs: [] }));
+    for(const j of [...(activeData.jobs || []), ...(deletedData.jobs || [])]){
+      const templateText = j.template_label || j.template_id;
+      labels[j.id] = `${templateText} · ${fmtOptions(j.options)}`;
+    }
   }catch(e){
-    galleryImages = [];
+    // 무시 — 라벨 없이 job_id만 보여준다.
   }
+  return labels;
+}
 
-  // 그 사이 지워진 이미지의 선택은 버린다.
-  const stillPresent = new Set(galleryImages.map(img => img.name));
-  for(const name of Array.from(selectedGalleryNames)){
-    if(!stillPresent.has(name)) selectedGalleryNames.delete(name);
-  }
-  updateGalleryToolbar();
-
-  countEl.textContent = galleryImages.length ? `총 ${galleryImages.length}장` : '';
-  document.getElementById('gallery-select-all-btn').disabled = galleryImages.length === 0;
-
-  if(galleryImages.length === 0){
-    grid.innerHTML = '';
-    emptyMsg.style.display = 'block';
-    return;
-  }
-  emptyMsg.style.display = 'none';
-
-  grid.innerHTML = galleryImages.map((img, i) => `
-    <div class="gallery-item${selectedGalleryNames.has(img.name) ? ' selected' : ''}" data-index="${i}">
+function galleryItemHtml(img, index){
+  return `
+    <div class="gallery-item${selectedGalleryNames.has(img.name) ? ' selected' : ''}" data-index="${index}">
       <label class="gallery-item-select" title="선택">
         <input type="checkbox" ${selectedGalleryNames.has(img.name) ? 'checked' : ''}>
       </label>
@@ -2711,12 +2732,15 @@ async function fetchGalleryImages(){
       <img src="/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=300" alt="${escapeHtml(img.name)}" loading="lazy">
       <div class="gallery-item-name">${escapeHtml(img.name)}</div>
     </div>
-  `).join('');
+  `;
+}
 
-  grid.querySelectorAll('.gallery-item').forEach((el, i) => {
-    const name = galleryImages[i].name;
+function wireGalleryItems(){
+  document.querySelectorAll('#gallery-grid .gallery-item').forEach(el => {
+    const index = Number(el.dataset.index);
+    const name = displayedGalleryImages[index].name;
 
-    el.querySelector('img').addEventListener('click', () => openLightbox(i));
+    el.querySelector('img').addEventListener('click', () => openLightbox(index));
 
     const checkbox = el.querySelector('.gallery-item-select input');
     checkbox.addEventListener('click', (e) => e.stopPropagation());
@@ -2732,6 +2756,92 @@ async function fetchGalleryImages(){
       deleteGalleryImages([name]);
     });
   });
+}
+
+// galleryImages(전체 목록)를 galleryViewMode에 맞춰 그린다. 작업별 보기에서는
+// job_id별로 묶고, 각 그룹은 그 안의 가장 최근 이미지 기준으로 정렬된다 —
+// galleryImages가 이미 mtime 내림차순이라 각 job_id가 처음 등장하는 순서를
+// 그대로 쓰면 된다(Map은 키를 처음 넣은 순서를 유지한다).
+function renderGalleryGrid(){
+  const grid = document.getElementById('gallery-grid');
+  displayedGalleryImages = [];
+
+  if(galleryViewMode === 'byjob'){
+    const groups = new Map(); // job_id(없으면 '') -> img[]
+    for(const img of galleryImages){
+      const key = img.job_id || '';
+      if(!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(img);
+    }
+    let html = '';
+    for(const [key, groupImages] of groups){
+      const label = key ? (galleryJobLabels[key] || `알 수 없는 작업 (${key})`) : '작업 정보 없음';
+      const itemsHtml = groupImages.map(img => {
+        const item = galleryItemHtml(img, displayedGalleryImages.length);
+        displayedGalleryImages.push(img);
+        return item;
+      }).join('');
+      html += `
+        <div class="gallery-group">
+          <div class="gallery-group-header">${escapeHtml(label)} · ${groupImages.length}장</div>
+          <div class="gallery-group-grid">${itemsHtml}</div>
+        </div>
+      `;
+    }
+    grid.innerHTML = html;
+  }else{
+    displayedGalleryImages = galleryImages;
+    grid.innerHTML = galleryImages.map((img, i) => galleryItemHtml(img, i)).join('');
+  }
+
+  wireGalleryItems();
+}
+
+document.querySelectorAll('#gallery-view-toggle .enhance-mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if(btn.dataset.view === galleryViewMode) return;
+    galleryViewMode = btn.dataset.view;
+    document.querySelectorAll('#gallery-view-toggle .enhance-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.view === galleryViewMode));
+    if(galleryImages.length > 0) renderGalleryGrid();
+  });
+});
+
+async function fetchGalleryImages(){
+  const grid = document.getElementById('gallery-grid');
+  const emptyMsg = document.getElementById('gallery-empty');
+  const countEl = document.getElementById('gallery-count');
+  try{
+    const [imgRes, labels] = await Promise.all([
+      fetch('/api/output-images'),
+      fetchGalleryJobLabels(),
+    ]);
+    const data = await imgRes.json();
+    galleryImages = data.images || [];
+    galleryJobLabels = labels;
+  }catch(e){
+    galleryImages = [];
+    galleryJobLabels = {};
+  }
+
+  // 그 사이 지워진 이미지의 선택은 버린다.
+  const stillPresent = new Set(galleryImages.map(img => img.name));
+  for(const name of Array.from(selectedGalleryNames)){
+    if(!stillPresent.has(name)) selectedGalleryNames.delete(name);
+  }
+  updateGalleryToolbar();
+
+  countEl.textContent = galleryImages.length ? `총 ${galleryImages.length}장` : '';
+  document.getElementById('gallery-select-all-btn').disabled = galleryImages.length === 0;
+
+  if(galleryImages.length === 0){
+    grid.innerHTML = '';
+    displayedGalleryImages = [];
+    emptyMsg.style.display = 'block';
+    return;
+  }
+  emptyMsg.style.display = 'none';
+
+  renderGalleryGrid();
 }
 
 document.getElementById('gallery-refresh-btn').addEventListener('click', fetchGalleryImages);
@@ -2755,7 +2865,7 @@ document.getElementById('gallery-clear-selection-btn').addEventListener('click',
 });
 
 function renderLightbox(){
-  const img = galleryImages[lightboxIndex];
+  const img = displayedGalleryImages[lightboxIndex];
   if(!img) return;
   document.getElementById('gallery-lightbox-error').textContent = '';
   const imgEl = document.getElementById('gallery-lightbox-img');
@@ -2764,9 +2874,9 @@ function renderLightbox(){
   const when = new Date(img.mtime);
   const whenText = `${pad2(when.getMonth() + 1)}/${pad2(when.getDate())} ${pad2(when.getHours())}:${pad2(when.getMinutes())}`;
   document.getElementById('gallery-lightbox-info').textContent =
-    `${img.name} · ${fmtBytes(img.size)} · ${whenText} (${lightboxIndex + 1}/${galleryImages.length})`;
+    `${img.name} · ${fmtBytes(img.size)} · ${whenText} (${lightboxIndex + 1}/${displayedGalleryImages.length})`;
   document.getElementById('gallery-prev').disabled = lightboxIndex <= 0;
-  document.getElementById('gallery-next').disabled = lightboxIndex >= galleryImages.length - 1;
+  document.getElementById('gallery-next').disabled = lightboxIndex >= displayedGalleryImages.length - 1;
 }
 
 function openLightbox(index){
@@ -2785,18 +2895,18 @@ function showPrevImage(){
 }
 
 function showNextImage(){
-  if(lightboxIndex < galleryImages.length - 1){ lightboxIndex++; renderLightbox(); }
+  if(lightboxIndex < displayedGalleryImages.length - 1){ lightboxIndex++; renderLightbox(); }
 }
 
 document.getElementById('gallery-lightbox-close').addEventListener('click', closeLightbox);
 document.getElementById('gallery-prev').addEventListener('click', showPrevImage);
 document.getElementById('gallery-next').addEventListener('click', showNextImage);
 document.getElementById('gallery-lightbox-download-btn').addEventListener('click', () => {
-  const img = galleryImages[lightboxIndex];
+  const img = displayedGalleryImages[lightboxIndex];
   if(img) triggerAnchorDownload(`/api/output-images/${encodeURIComponent(img.name)}`, img.name);
 });
 document.getElementById('gallery-lightbox-delete-btn').addEventListener('click', async () => {
-  const img = galleryImages[lightboxIndex];
+  const img = displayedGalleryImages[lightboxIndex];
   if(!img) return;
   const ok = await deleteGalleryImages([img.name]);
   if(ok) closeLightbox();

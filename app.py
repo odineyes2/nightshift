@@ -999,11 +999,19 @@ def list_output_images_meta() -> list[dict]:
         files = list_output_images(OUTPUT_DIR)
     except OutputFolderError:
         return []
+    base = Path(OUTPUT_DIR)
     items = []
     for f in files:
         stat = f.stat()
+        rel = f.relative_to(base)
+        # 템플릿 스크립트가 JOB_ID 하위 폴더에 나눠 저장하므로(seed_batch.py 등),
+        # 상대 경로가 여러 단계면 첫 번째 폴더 이름을 job_id로 노출한다 — 갤러리의
+        # "작업별 보기"가 이 값으로 묶는다. 하위 폴더 없이 바로 밑에 있는(예전 방식
+        # 또는 JOB_ID 없이 실행된) 이미지는 job_id가 없다.
+        job_id = rel.parts[0] if len(rel.parts) > 1 else None
         items.append({
-            "name": f.name,
+            "name": rel.as_posix(),
+            "job_id": job_id,
             "size": stat.st_size,
             "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
         })
@@ -1017,25 +1025,26 @@ def list_output_images_api():
 
 
 def resolve_output_image(filename: str) -> Path:
-    # 파일명만 받고 경로 조작(예: "../../etc/passwd")은 막는다 — Path(filename).name으로
-    # 디렉터리 구분자를 다 잘라낸 뒤, 원래 요청과 완전히 같을 때만(=애초에 순수 파일명
-    # 이었을 때만) 통과시킨다.
-    safe_name = Path(filename).name
-    if not safe_name or safe_name != filename:
+    # filename은 "job_id/파일명.png"처럼 한 단계 하위 폴더를 포함할 수 있다(작업별
+    # 폴더 구조, output_images.py 참고). ".."로 상위 폴더를 벗어나려는 시도나 절대
+    # 경로는 막고, 정규화한 최종 경로가 여전히 OUTPUT_DIR 내부인지 다시 한번 확인한다
+    # (심볼릭 링크 등으로 우회하는 경우까지 방어).
+    if not filename or filename.startswith("/") or ".." in Path(filename).parts:
         raise HTTPException(400, "올바르지 않은 파일명이에요.")
-    path = Path(OUTPUT_DIR) / safe_name
+    base = Path(OUTPUT_DIR).resolve()
+    path = (base / filename).resolve()
+    if not path.is_relative_to(base):
+        raise HTTPException(400, "올바르지 않은 파일명이에요.")
     if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
         raise HTTPException(404, "이미지를 찾을 수 없어요.")
     return path
 
 
-@app.get("/api/output-images/{filename}")
-def get_output_image(filename: str):
-    # 갤러리 라이트박스에서 원본 크기로 보여주는 용도.
-    return FileResponse(resolve_output_image(filename))
-
-
-@app.get("/api/output-images/{filename}/thumbnail")
+# :path 컨버터는 "/"를 포함해 뒤에 오는 걸 전부 욕심껏(greedy) 먹어버려서, 아래
+# thumbnail 라우트를 원본 이미지 라우트보다 먼저 등록해야 한다 — 순서가 바뀌면
+# "job_id/파일.png/thumbnail" 요청도 원본 이미지 라우트(filename:path)가 먼저
+# 통째로 집어삼켜서 404가 난다(FastAPI/Starlette는 등록 순서대로 첫 매치를 씀).
+@app.get("/api/output-images/{filename:path}/thumbnail")
 def get_output_image_thumbnail(filename: str, size: int = 320):
     # 갤러리 격자를 채우는 용도 — 원본을 그대로 내려받으면 느리고 대역폭을 낭비하므로,
     # 매 요청마다 그 자리에서 축소본을 만들어 돌려준다(디스크에 캐시하지 않음 — 이
@@ -1053,7 +1062,13 @@ def get_output_image_thumbnail(filename: str, size: int = 320):
     return Response(content=buf.getvalue(), media_type="image/jpeg")
 
 
-@app.delete("/api/output-images/{filename}")
+@app.get("/api/output-images/{filename:path}")
+def get_output_image(filename: str):
+    # 갤러리 라이트박스에서 원본 크기로 보여주는 용도.
+    return FileResponse(resolve_output_image(filename))
+
+
+@app.delete("/api/output-images/{filename:path}")
 def delete_output_image(filename: str):
     # 갤러리에서 이미지 하나만 지우는 용도 — 되돌릴 수 없는 삭제라서, 확인 절차는
     # 프론트엔드(버튼 클릭 시 confirm 창)가 맡는다.
@@ -1069,12 +1084,19 @@ def parse_image_names_body(data: dict) -> list[str]:
 
 
 def build_zip_from_paths(paths: list[Path]) -> Path:
+    # 파일명이 아니라 OUTPUT_DIR 기준 상대 경로를 압축 파일 내부 경로로 써서, 작업별
+    # 하위 폴더 구조가 zip 안에도 그대로 보존되게 한다(서로 다른 작업 폴더에 우연히
+    # 같은 이름의 파일이 있어도 안 겹침). OUTPUT_DIR 밖의 경로라면(원래 없어야 하지만)
+    # 안전하게 파일명만 쓴다.
+    base = Path(OUTPUT_DIR).resolve()
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
     tmp.close()
     tmp_path = Path(tmp.name)
     with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in paths:
-            zf.write(f, arcname=f.name)
+            resolved = f.resolve()
+            arcname = str(resolved.relative_to(base)) if resolved.is_relative_to(base) else f.name
+            zf.write(f, arcname=arcname)
     return tmp_path
 
 

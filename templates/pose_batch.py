@@ -97,7 +97,10 @@ ComfyUI로의 이미지 주입 방식:
     filename_prefix에도 포즈 파일명(확장자 제외, 안전한 문자로 치환)을 포함시킨다
     (예: pose_batch_3_seed482913_standing_01.png). char_no가 기본값(1)이 아니면
     "_char<N>"도 덧붙인다(예: pose_batch_3_seed482913_standing_01_char2.png —
-    결과물을 인물 수 기준으로 정리할 때 씀). 추가로 NIGHTSHIFT_OUTPUT_DIR에
+    결과물을 인물 수 기준으로 정리할 때 씀). JOB_ID가 있으면 이 filename_prefix
+    앞에 "<JOB_ID>/"를 붙여 ComfyUI가 출력 폴더 밑에 그 job_id 폴더를 만들고 그
+    안에 저장하게 한다 — nightshift 갤러리의 "작업별 보기"가 이 폴더 이름으로
+    묶어서 보여준다(output_images.py 참고). 추가로 NIGHTSHIFT_OUTPUT_DIR에
     pose_batch_manifest.jsonl을 이어쓰기(append)로 남겨, 한 줄마다
     {timestamp, job_id, index, char_no, pose_set, pose_file, seed, prompt_id}를
     기록한다 — 나중에 "이 컷이 왜 이렇게 나왔는지" 추적할 때 쓴다. 기록에
@@ -389,6 +392,12 @@ def apply_filename_prefix(workflow, index, seed, char_no, pose_path):
     prefix = f"pose_batch_{index}_seed{seed}_{pose_stem}"
     if char_no != DEFAULT_CHAR_NO:
         prefix = f"{prefix}_char{char_no}"
+    # JOB_ID가 있으면 ComfyUI 출력 폴더 밑에 그 job_id 하위 폴더를 만들어 저장한다 —
+    # filename_prefix의 "/"를 ComfyUI SaveImage가 하위 폴더로 해석한다. nightshift
+    # 갤러리는 이 폴더 이름으로 "작업별 보기"를 구성한다(output_images.py 참고).
+    job_id = env("JOB_ID")
+    if job_id:
+        prefix = f"{job_id}/{prefix}"
     node.setdefault("inputs", {})["filename_prefix"] = prefix
 
 
