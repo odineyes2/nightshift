@@ -6,6 +6,7 @@
     "requires_csv": false,
     "options": [
       { "name": "seed_count", "label": "시드 개수", "type": "number", "default": 1 },
+      { "name": "seed_mode", "label": "시드 방식", "type": "select", "choices": ["random", "sequential"], "default": "random" },
       { "name": "main_prompt", "label": "메인 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 업로드한 워크플로우의 프롬프트를 그대로 사용해요" },
       { "name": "width", "label": "너비(width)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
       { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
