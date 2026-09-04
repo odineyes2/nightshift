@@ -741,15 +741,34 @@ def get_output_image_thumbnail(filename: str, size: int = 320):
     return Response(content=buf.getvalue(), media_type="image/jpeg")
 
 
-def build_output_zip() -> Path:
-    files = find_image_files(OUTPUT_DIR)
+@app.delete("/api/output-images/{filename}")
+def delete_output_image(filename: str):
+    # 갤러리에서 이미지 하나만 지우는 용도 — 되돌릴 수 없는 삭제라서, 확인 절차는
+    # 프론트엔드(버튼 클릭 시 confirm 창)가 맡는다.
+    resolve_output_image(filename).unlink()
+    return {"ok": True}
+
+
+def parse_image_names_body(data: dict) -> list[str]:
+    names = data.get("names")
+    if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+        raise HTTPException(400, "이미지 파일명 목록(names)이 필요해요.")
+    return names
+
+
+def build_zip_from_paths(paths: list[Path]) -> Path:
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
     tmp.close()
     tmp_path = Path(tmp.name)
     with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in files:
+        for f in paths:
             zf.write(f, arcname=f.name)
     return tmp_path
+
+
+def build_output_zip() -> Path:
+    files = find_image_files(OUTPUT_DIR)
+    return build_zip_from_paths(files)
 
 
 @app.get("/api/download-images")
@@ -770,6 +789,36 @@ async def download_images():
     )
 
 
+@app.post("/api/output-images/download-selected")
+async def download_selected_images(request: Request):
+    # 갤러리에서 여러 장을 선택해 한 번에 받는 용도 — 잘못된 이름이나 그 사이 지워진
+    # 파일은 조용히 건너뛰고, 하나라도 남아있으면 그것만으로 zip을 만든다.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    names = parse_image_names_body(data)
+
+    paths = []
+    for name in names:
+        try:
+            paths.append(resolve_output_image(name))
+        except HTTPException:
+            continue
+    if not paths:
+        raise HTTPException(404, "선택한 이미지를 찾을 수 없어요.")
+
+    zip_path = await asyncio.to_thread(build_zip_from_paths, paths)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=f"nightshift_selected_{timestamp}.zip",
+        background=BackgroundTask(lambda: zip_path.unlink(missing_ok=True)),
+    )
+
+
 @app.delete("/api/output-images")
 async def delete_images():
     # 되돌릴 수 없는 삭제라서, 확인 절차는 프론트엔드(버튼 클릭 시 confirm 창)가 맡는다.
@@ -777,6 +826,29 @@ async def delete_images():
         deleted = await asyncio.to_thread(delete_output_images, OUTPUT_DIR)
     except OutputFolderError as e:
         raise HTTPException(404, str(e))
+    return {"deleted": deleted}
+
+
+@app.post("/api/output-images/delete-selected")
+async def delete_selected_images(request: Request):
+    # 갤러리에서 여러 장을 선택해 한 번에 지우는 용도 — 되돌릴 수 없는 삭제라서, 확인
+    # 절차는 프론트엔드(버튼 클릭 시 confirm 창)가 맡는다. 잘못된 이름이나 그 사이 이미
+    # 지워진 파일은 조용히 건너뛴다.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    names = parse_image_names_body(data)
+
+    deleted = 0
+    for name in names:
+        try:
+            path = resolve_output_image(name)
+        except HTTPException:
+            continue
+        path.unlink()
+        deleted += 1
     return {"deleted": deleted}
 
 

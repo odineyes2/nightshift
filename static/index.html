@@ -439,6 +439,23 @@
   .load-notice{ font-size:12.5px; font-family:var(--mono); min-height:1em; white-space:pre-line; color:var(--text-dim); }
 
   .gallery-count{ font-family:var(--mono); font-size:12px; color:var(--text-dim); }
+  .gallery-toolbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px 12px;
+    margin-bottom:12px;
+    background:rgba(var(--queued-rgb),0.06);
+    border:1px solid rgba(var(--queued-rgb),0.25);
+    border-radius:8px;
+  }
+  .gallery-toolbar-count{
+    font-family:var(--mono);
+    font-size:12.5px;
+    font-weight:600;
+    color:var(--text);
+    margin-right:auto;
+  }
   .gallery-grid{
     display:grid;
     grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
@@ -474,6 +491,44 @@
     text-overflow:ellipsis;
     pointer-events:none;
   }
+  .gallery-item-select{
+    position:absolute;
+    top:6px; left:6px;
+    z-index:2;
+    width:20px; height:20px;
+    border-radius:5px;
+    background:rgba(0,0,0,0.45);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+  }
+  .gallery-item-select input{
+    width:14px; height:14px;
+    cursor:pointer;
+    accent-color:var(--queued);
+  }
+  .gallery-item-delete{
+    position:absolute;
+    top:6px; right:6px;
+    z-index:2;
+    width:22px; height:22px;
+    border-radius:50%;
+    border:none;
+    background:rgba(0,0,0,0.45);
+    color:#fff;
+    font-size:15px;
+    line-height:1;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    opacity:0;
+    transition:opacity .15s, background .15s;
+  }
+  .gallery-item:hover .gallery-item-delete{ opacity:1; }
+  .gallery-item-delete:hover{ background:rgba(var(--failed-rgb),0.85); }
+  .gallery-item.selected{ outline:2px solid var(--queued); outline-offset:-2px; }
 
   .lightbox-overlay{
     position:fixed;
@@ -505,6 +560,8 @@
     color:#D1D5DB;
     text-align:center;
   }
+  .lightbox-actions{ display:flex; gap:10px; }
+  .lightbox-error{ color:#FCA5A5; font-family:var(--mono); font-size:12px; min-height:1em; }
   .lightbox-close{
     position:absolute;
     top:20px; right:24px;
@@ -814,6 +871,13 @@
       </div>
     </div>
     <div class="panel-body">
+      <div class="gallery-toolbar" id="gallery-toolbar" style="display:none;">
+        <span class="gallery-toolbar-count" id="gallery-toolbar-count"></span>
+        <button class="load-btn" id="gallery-download-selected-btn" type="button">다운로드</button>
+        <button class="del-btn" id="gallery-delete-selected-btn" type="button">삭제</button>
+        <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button">선택 해제</button>
+      </div>
+      <div class="upload-error" id="gallery-error"></div>
       <div class="gallery-grid" id="gallery-grid"></div>
       <div class="empty" id="gallery-empty" style="display:none;">서버에 저장된 이미지가 없어요</div>
     </div>
@@ -826,6 +890,11 @@
   <div class="lightbox-img-wrap">
     <img class="lightbox-img" id="gallery-lightbox-img" src="" alt="">
     <div class="lightbox-info" id="gallery-lightbox-info"></div>
+    <div class="lightbox-actions">
+      <button class="modal-btn-secondary" id="gallery-lightbox-download-btn" type="button">다운로드</button>
+      <button class="danger-btn" id="gallery-lightbox-delete-btn" type="button">삭제</button>
+    </div>
+    <div class="lightbox-error" id="gallery-lightbox-error"></div>
   </div>
   <button class="lightbox-nav lightbox-next" id="gallery-next" aria-label="다음 이미지" type="button">&rsaquo;</button>
 </div>
@@ -1632,15 +1701,7 @@ document.getElementById('zip-download-btn').addEventListener('click', async () =
     const blob = await res.blob();
     const disposition = res.headers.get('Content-Disposition') || '';
     const match = disposition.match(/filename="?([^"]+)"?/);
-    const filename = match ? match[1] : 'nightshift_output.zip';
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    triggerBlobDownload(blob, match ? match[1] : 'nightshift_output.zip');
   }catch(e){
     errorEl.textContent = '다운로드에 실패했어요.';
   }finally{
@@ -1720,12 +1781,104 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // ---- 갤러리 ----
 let galleryImages = [];
 let lightboxIndex = -1;
+let selectedGalleryNames = new Set();
 const galleryLightbox = document.getElementById('gallery-lightbox');
 
 function fmtBytes(n){
   if(n < 1024) return `${n}B`;
   if(n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
   return `${(n / 1024 / 1024).toFixed(1)}MB`;
+}
+
+function triggerBlobDownload(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function triggerAnchorDownload(url, filename){
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function updateGalleryToolbar(){
+  const toolbar = document.getElementById('gallery-toolbar');
+  if(selectedGalleryNames.size === 0){
+    toolbar.style.display = 'none';
+    return;
+  }
+  toolbar.style.display = 'flex';
+  document.getElementById('gallery-toolbar-count').textContent = `${selectedGalleryNames.size}개 선택됨`;
+}
+
+// 갤러리에서 이미지를 지운다 — 한 장이든 여러 장이든 이 함수 하나로 처리한다
+// (그리드 아이템의 개별 삭제 아이콘, 라이트박스의 삭제 버튼, 툴바의 선택 삭제 모두
+// 여기로 모인다). 확인창을 통과하고 실제로 지워졌으면 true를 돌려준다.
+async function deleteGalleryImages(names){
+  if(names.length === 0) return false;
+  const label = names.length === 1 ? `'${names[0]}' 이미지를` : `선택한 이미지 ${names.length}개를`;
+  if(!confirm(`${label} 삭제할까요? 되돌릴 수 없어요.`)) return false;
+
+  const errorEl = document.getElementById('gallery-error');
+  errorEl.textContent = '';
+  try{
+    const res = await fetch('/api/output-images/delete-selected', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names }),
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      errorEl.textContent = data.detail || '삭제에 실패했어요.';
+      return false;
+    }
+  }catch(e){
+    errorEl.textContent = '삭제에 실패했어요.';
+    return false;
+  }
+
+  for(const name of names) selectedGalleryNames.delete(name);
+  updateGalleryToolbar();
+  await fetchGalleryImages();
+  return true;
+}
+
+async function downloadGalleryImages(names){
+  if(names.length === 0) return;
+  const errorEl = document.getElementById('gallery-error');
+  errorEl.textContent = '';
+  try{
+    if(names.length === 1){
+      // 한 장이면 zip으로 감싸지 않고 원본을 그대로 받는다.
+      triggerAnchorDownload(`/api/output-images/${encodeURIComponent(names[0])}`, names[0]);
+      return;
+    }
+    const res = await fetch('/api/output-images/download-selected', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names }),
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      errorEl.textContent = data.detail || '다운로드에 실패했어요.';
+      return;
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    triggerBlobDownload(blob, match ? match[1] : 'nightshift_selected.zip');
+  }catch(e){
+    errorEl.textContent = '다운로드에 실패했어요.';
+  }
 }
 
 async function fetchGalleryImages(){
@@ -1740,6 +1893,13 @@ async function fetchGalleryImages(){
     galleryImages = [];
   }
 
+  // 그 사이 지워진 이미지의 선택은 버린다.
+  const stillPresent = new Set(galleryImages.map(img => img.name));
+  for(const name of Array.from(selectedGalleryNames)){
+    if(!stillPresent.has(name)) selectedGalleryNames.delete(name);
+  }
+  updateGalleryToolbar();
+
   countEl.textContent = galleryImages.length ? `총 ${galleryImages.length}장` : '';
 
   if(galleryImages.length === 0){
@@ -1750,22 +1910,55 @@ async function fetchGalleryImages(){
   emptyMsg.style.display = 'none';
 
   grid.innerHTML = galleryImages.map((img, i) => `
-    <div class="gallery-item" data-index="${i}">
+    <div class="gallery-item${selectedGalleryNames.has(img.name) ? ' selected' : ''}" data-index="${i}">
+      <label class="gallery-item-select" title="선택">
+        <input type="checkbox" ${selectedGalleryNames.has(img.name) ? 'checked' : ''}>
+      </label>
+      <button class="gallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
       <img src="/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=300" alt="${escapeHtml(img.name)}" loading="lazy">
       <div class="gallery-item-name">${escapeHtml(img.name)}</div>
     </div>
   `).join('');
 
-  grid.querySelectorAll('.gallery-item').forEach(el => {
-    el.addEventListener('click', () => openLightbox(Number(el.dataset.index)));
+  grid.querySelectorAll('.gallery-item').forEach((el, i) => {
+    const name = galleryImages[i].name;
+
+    el.querySelector('img').addEventListener('click', () => openLightbox(i));
+
+    const checkbox = el.querySelector('.gallery-item-select input');
+    checkbox.addEventListener('click', (e) => e.stopPropagation());
+    checkbox.addEventListener('change', () => {
+      if(checkbox.checked) selectedGalleryNames.add(name);
+      else selectedGalleryNames.delete(name);
+      el.classList.toggle('selected', checkbox.checked);
+      updateGalleryToolbar();
+    });
+
+    el.querySelector('.gallery-item-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteGalleryImages([name]);
+    });
   });
 }
 
 document.getElementById('gallery-refresh-btn').addEventListener('click', fetchGalleryImages);
+document.getElementById('gallery-download-selected-btn').addEventListener('click', () => {
+  downloadGalleryImages(Array.from(selectedGalleryNames));
+});
+document.getElementById('gallery-delete-selected-btn').addEventListener('click', () => {
+  deleteGalleryImages(Array.from(selectedGalleryNames));
+});
+document.getElementById('gallery-clear-selection-btn').addEventListener('click', () => {
+  selectedGalleryNames.clear();
+  document.querySelectorAll('.gallery-item.selected').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll('.gallery-item-select input').forEach(cb => { cb.checked = false; });
+  updateGalleryToolbar();
+});
 
 function renderLightbox(){
   const img = galleryImages[lightboxIndex];
   if(!img) return;
+  document.getElementById('gallery-lightbox-error').textContent = '';
   const imgEl = document.getElementById('gallery-lightbox-img');
   imgEl.src = `/api/output-images/${encodeURIComponent(img.name)}`;
   imgEl.alt = img.name;
@@ -1799,6 +1992,16 @@ function showNextImage(){
 document.getElementById('gallery-lightbox-close').addEventListener('click', closeLightbox);
 document.getElementById('gallery-prev').addEventListener('click', showPrevImage);
 document.getElementById('gallery-next').addEventListener('click', showNextImage);
+document.getElementById('gallery-lightbox-download-btn').addEventListener('click', () => {
+  const img = galleryImages[lightboxIndex];
+  if(img) triggerAnchorDownload(`/api/output-images/${encodeURIComponent(img.name)}`, img.name);
+});
+document.getElementById('gallery-lightbox-delete-btn').addEventListener('click', async () => {
+  const img = galleryImages[lightboxIndex];
+  if(!img) return;
+  const ok = await deleteGalleryImages([img.name]);
+  if(ok) closeLightbox();
+});
 galleryLightbox.addEventListener('click', (e) => {
   if(e.target === galleryLightbox) closeLightbox();
 });
