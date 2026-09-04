@@ -18,6 +18,7 @@ import asyncio
 import csv
 import io
 import json
+import logging
 import os
 import queue
 import subprocess
@@ -55,6 +56,22 @@ from pose_assets import (
     resolve_pose_reference,
     validate_pose_set,
 )
+
+# 프론트엔드(static/index.html)가 작업 목록/ComfyUI 연결 상태를 실시간처럼 보여주려고
+# 브라우저 탭마다 GET /api/jobs를 2초, GET /api/comfy-status를 5초 간격으로 계속
+# 폴링한다. uvicorn은 기본으로 모든 요청을 access log에 남기는데, 이 두 요청은
+# 정상적으로 계속 반복되는 게 원래 동작이라 로그를 채우기만 하고(특히 pm2로 오래
+# 띄워두면 파일에 계속 쌓임) 업로드/삭제/에러 같은 실제로 봐야 할 로그를 파묻는다.
+# 다른 요청은 그대로 로그에 남기고 이 두 개만 걸러낸다.
+class _SuppressPollingAccessLogs(logging.Filter):
+    NOISY_REQUEST_LINES = ('"GET /api/jobs HTTP/1.1"', '"GET /api/comfy-status HTTP/1.1"')
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        return not any(line in message for line in self.NOISY_REQUEST_LINES)
+
+
+logging.getLogger("uvicorn.access").addFilter(_SuppressPollingAccessLogs())
 
 BASE_DIR = Path(__file__).parent
 JOBS_DIR = BASE_DIR / "jobs"
