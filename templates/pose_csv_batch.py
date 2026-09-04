@@ -346,6 +346,51 @@ def find_node(workflow, title_substring=None, class_types=(), allow_class_fallba
     return fallback if fallback else (None, None)
 
 
+# 텍스트/숫자 값을 그대로 담아두는 노드(Primitive 계열)가 실제로 값을 받는
+# 입력 필드 이름은 class_type마다 다르다: CLIPTextEncode는 "text",
+# PrimitiveStringMultiline/PrimitiveInt 등은 보통 "value"를 쓴다. 매핑에 없는
+# class_type이라도 그 노드에 이미 들어있는 입력 키("text" 또는 "value")로
+# 추정하므로, 새 종류의 Primitive 노드가 나와도 이 매핑을 매번 늘릴 필요는 없다.
+PRIMITIVE_VALUE_FIELDS = {
+    "CLIPTextEncode": "text",
+    "PrimitiveStringMultiline": "value",
+    "PrimitiveString": "value",
+    "PrimitiveInt": "value",
+    "PrimitiveFloat": "value",
+}
+
+
+def primitive_value_field(node):
+    field = PRIMITIVE_VALUE_FIELDS.get(node.get("class_type", ""))
+    if field:
+        return field
+    inputs = node.get("inputs", {})
+    if "text" in inputs:
+        return "text"
+    if "value" in inputs:
+        return "value"
+    return None
+
+
+def set_linked_value(workflow, node, field, value):
+    """node.inputs[field]에 value를 쓴다. 그 입력이 다른 노드로 연결돼 있으면
+    (예: width/height를 별도 PrimitiveInt 노드로 뽑아 여러 곳에 공급하는
+    워크플로우) 링크는 그대로 두고 연결된 노드의 값 입력을 갱신해서, 같은
+    노드를 참조하는 다른 곳에도 일관되게 반영되게 한다. 연결된 노드의 값
+    입력을 알 수 없으면(알 수 없는 노드 구조) 안전하게 이 노드에 리터럴로
+    덮어쓴다."""
+    inputs = node.setdefault("inputs", {})
+    current = inputs.get(field)
+    if isinstance(current, list) and len(current) == 2:
+        source_node = workflow.get(str(current[0]))
+        if isinstance(source_node, dict):
+            source_field = primitive_value_field(source_node)
+            if source_field:
+                source_node.setdefault("inputs", {})[source_field] = value
+                return
+    inputs[field] = value
+
+
 def sanitize_prefix(text, fallback):
     text = (text or fallback or "batch").strip()
     text = re.sub(r"[^\w\-가-힣 ]+", "_", text)
@@ -366,17 +411,17 @@ def apply_prompts(workflow, row):
         node_id, node = find_node(
             workflow,
             title_substring=title_substring,
-            class_types=("CLIPTextEncode",),
             allow_class_fallback=False,
         )
-        if node is None:
+        input_field = primitive_value_field(node) if node is not None else None
+        if input_field is None:
             print(
                 f"[pose_csv_batch] 경고: '{field}' 값을 넣을 노드를 찾지 못했습니다 "
-                f"(제목에 '{title_substring}'가 포함된 CLIPTextEncode 없음)",
+                f"(제목에 '{title_substring}'가 포함된 CLIPTextEncode/Primitive 텍스트 노드 없음)",
                 file=sys.stderr,
             )
             continue
-        node.setdefault("inputs", {})["text"] = value
+        node.setdefault("inputs", {})[input_field] = value
         applied = True
     if not applied:
         print("[pose_csv_batch] 경고: 이 행에 프롬프트 컬럼 값이 하나도 없습니다.", file=sys.stderr)
@@ -487,8 +532,9 @@ def apply_resolution(workflow, width, height, resolution):
     if node is None:
         print("[pose_csv_batch] 경고: 해상도를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
         return
-    inputs = node.setdefault("inputs", {})
-    inputs["width"], inputs["height"] = resolved
+    width_value, height_value = resolved
+    set_linked_value(workflow, node, "width", width_value)
+    set_linked_value(workflow, node, "height", height_value)
 
 
 def apply_filename_prefix(workflow, title, index, seed, char_no, pose_path):
