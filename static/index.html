@@ -164,6 +164,22 @@
     color:var(--text-dim);
   }
   .field-label .opt{ text-transform:none; letter-spacing:0; font-weight:400; color:var(--text-dim); }
+  /* "삭제된 작업 설정 불러오기" — 드롭다운은 남는 폭을 채우고 버튼은 그 옆(라벨
+     높이만큼 내려 select와 밑선을 맞춤)에 붙는다. 좁은 화면에서는 세로로 쌓는다. */
+  .deleted-jobs-row{
+    display:flex;
+    align-items:flex-end;
+    gap:var(--gap-md);
+    flex-wrap:wrap;
+  }
+  .deleted-jobs-field{ flex:1 1 240px; min-width:200px; }
+  .deleted-jobs-field select{ width:100%; max-width:none; }
+  #deleted-jobs-load-btn{ flex-shrink:0; }
+  @media (max-width:520px){
+    .deleted-jobs-row{ align-items:stretch; }
+    .deleted-jobs-field{ flex-basis:100%; }
+    #deleted-jobs-load-btn{ width:100%; }
+  }
   .options-fields{
     display:flex;
     flex-direction:column;
@@ -197,10 +213,10 @@
   select.option-input:focus,
   textarea.option-input:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
 
-  /* 메인 프롬프트의 "직접 입력 → Text Enhance → 결과" 3단 레이아웃. 실제로 큐에
-     보내는 값은 hidden input(.option-input)에 모이므로, 여기 두 텍스트 에어리어
-     (.enhance-textarea)는 일부러 .option-input 셀렉터 밖에 둬서 제출 시 중복으로
-     잡히지 않게 한다. */
+  /* 메인 프롬프트의 "직접 입력 → Prompt Enhance(자연어/Danbooru) → 결과" 3단
+     레이아웃. 실제로 큐에 보내는 값은 hidden input(.option-input)에 모이므로,
+     여기 두 텍스트 에어리어(.enhance-textarea)는 일부러 .option-input 셀렉터
+     밖에 둬서 제출 시 중복으로 잡히지 않게 한다. */
   .prompt-enhance{
     display:grid;
     grid-template-columns: 1fr auto 1fr;
@@ -241,7 +257,36 @@
     gap:8px;
     padding-top:22px;
   }
+  /* 자연어/Danbooru 모드 토글 — 탭처럼 둘 중 하나만 활성 상태를 띤다. */
+  .enhance-mode{
+    display:inline-flex;
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:2px;
+    gap:2px;
+  }
+  .enhance-mode-btn{
+    background:none;
+    border:none;
+    border-radius:999px;
+    padding:5px 12px;
+    font-family:var(--mono);
+    font-size:10.5px;
+    font-weight:600;
+    color:var(--text-dim);
+    cursor:pointer;
+    white-space:nowrap;
+    transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+  }
+  .enhance-mode-btn:hover:not(.active){ color:var(--text); }
+  .enhance-mode-btn.active{
+    background:var(--grad-primary);
+    color:#fff;
+    box-shadow:0 1px 2px rgba(var(--queued-rgb),0.3);
+  }
   .enhance-btn{
+    position:relative;
     background:var(--grad-primary);
     color:#fff;
     border:none;
@@ -253,25 +298,41 @@
     letter-spacing:0.01em;
     white-space:nowrap;
     cursor:pointer;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
     box-shadow:0 1px 2px rgba(var(--queued-rgb),0.25);
     transition: background .18s ease, box-shadow .18s ease, transform .1s ease;
   }
   .enhance-btn:hover:not(:disabled){ background:var(--grad-primary-hover); box-shadow:0 4px 10px rgba(var(--queued-rgb),0.3); }
   .enhance-btn:active:not(:disabled){ transform:translateY(1px); }
   .enhance-btn:disabled{ background:var(--border); color:var(--text-dim); box-shadow:none; cursor:not-allowed; }
+  /* 프롬프트 개선은 LLM 호출 한 번짜리라 ComfyUI 진행률(%) 정보를 받아올 마땅한
+     지표가 없다 — 그런 자원 소모(웹소켓 유지 등) 없이도 "지금 뭔가 하고 있다"는
+     신호를 주는 게 목적이라 회전 스피너 하나로 충분하다. */
+  .enhance-spinner{
+    width:11px; height:11px;
+    border:2px solid rgba(255,255,255,0.4);
+    border-top-color:#fff;
+    border-radius:50%;
+    animation: enhance-spin .7s linear infinite;
+    flex-shrink:0;
+  }
+  @keyframes enhance-spin{ to{ transform:rotate(360deg); } }
   .enhance-status{
     font-family:var(--mono);
     font-size:10.5px;
     color:var(--text-dim);
     text-align:center;
-    max-width:130px;
+    max-width:150px;
     min-height:1.2em;
   }
   .enhance-status.error{ color:var(--failed); }
   .enhance-status.success{ color:var(--done); }
   @media (max-width:640px){
     .prompt-enhance{ grid-template-columns:1fr; }
-    .prompt-enhance-middle{ flex-direction:row; padding-top:0; }
+    .prompt-enhance-middle{ padding-top:0; }
   }
 
   .slot{
@@ -812,11 +873,11 @@
     </div>
     <div class="panel-body">
       <div class="email-hint">"작업 목록"에서 삭제한 작업도 최근 <span id="deleted-jobs-retention">30</span>개까지는 여기서 설정을 다시 불러올 수 있어요.</div>
-      <div class="field">
-        <label class="field-label" for="deleted-jobs-select">삭제된 작업</label>
-        <select id="deleted-jobs-select" class="option-input" disabled></select>
-      </div>
-      <div>
+      <div class="deleted-jobs-row">
+        <div class="field deleted-jobs-field">
+          <label class="field-label" for="deleted-jobs-select">삭제된 작업</label>
+          <select id="deleted-jobs-select" class="option-input" disabled></select>
+        </div>
         <button class="submit-btn" id="deleted-jobs-load-btn" disabled>이 설정 불러오기</button>
       </div>
     </div>
@@ -1303,15 +1364,16 @@ function buildSelectControl(opt){
   return select;
 }
 
-// "메인 프롬프트" 옵션 전용 — 왼쪽에 사용자가 직접 쓰는 텍스트, 가운데 "Text Enhance"
-// 버튼, 오른쪽에 개선 결과(직접 수정 가능)를 두고, 실제로 큐에 보낼 값은 숨겨진
-// input(.option-input[data-name="main_prompt"])에 모아둔다: 오른쪽(개선 결과)에
-// 값이 있으면 그걸, 없으면 왼쪽(직접 입력) 값을 그대로 쓴다 — 두 텍스트 에어리어
-// 모두 비어 있으면 hidden input도 빈 문자열이라 기존 로직대로 워크플로우의
-// 프롬프트를 그대로 둔다.
+// "메인 프롬프트" 옵션 전용 — 왼쪽에 사용자가 직접 쓰는 텍스트, 가운데 모드 토글
+// (자연어/Danbooru) + "Prompt Enhance" 버튼, 오른쪽에 개선 결과(직접 수정 가능)를
+// 두고, 실제로 큐에 보낼 값은 숨겨진 input(.option-input[data-name="main_prompt"])
+// 에 모아둔다: 오른쪽(개선 결과)에 값이 있으면 그걸, 없으면 왼쪽(직접 입력) 값을
+// 그대로 쓴다 — 두 텍스트 에어리어 모두 비어 있으면 hidden input도 빈 문자열이라
+// 기존 로직대로 워크플로우의 프롬프트를 그대로 둔다.
 function buildPromptEnhanceControl(opt){
   const wrap = document.createElement('div');
   wrap.className = 'prompt-enhance';
+  let mode = 'natural';
 
   const rawCol = document.createElement('div');
   rawCol.className = 'prompt-enhance-col';
@@ -1328,12 +1390,40 @@ function buildPromptEnhanceControl(opt){
 
   const middle = document.createElement('div');
   middle.className = 'prompt-enhance-middle';
+
+  const modeToggle = document.createElement('div');
+  modeToggle.className = 'enhance-mode';
+  const modeBtns = [
+    { value: 'natural', label: '자연어' },
+    { value: 'danbooru', label: 'Danbooru' },
+  ].map(({ value, label }) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'enhance-mode-btn' + (value === mode ? ' active' : '');
+    btn.textContent = label;
+    btn.dataset.mode = value;
+    btn.addEventListener('click', () => {
+      mode = value;
+      modeToggle.querySelectorAll('.enhance-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    });
+    modeToggle.appendChild(btn);
+    return btn;
+  });
+
   const enhanceBtn = document.createElement('button');
   enhanceBtn.type = 'button';
   enhanceBtn.className = 'enhance-btn';
-  enhanceBtn.textContent = 'Text Enhance →';
+  const enhanceSpinner = document.createElement('span');
+  enhanceSpinner.className = 'enhance-spinner';
+  enhanceSpinner.hidden = true;
+  const enhanceLabel = document.createElement('span');
+  enhanceLabel.textContent = 'Prompt Enhance →';
+  enhanceBtn.appendChild(enhanceSpinner);
+  enhanceBtn.appendChild(enhanceLabel);
+
   const status = document.createElement('div');
   status.className = 'enhance-status';
+  middle.appendChild(modeToggle);
   middle.appendChild(enhanceBtn);
   middle.appendChild(status);
 
@@ -1341,11 +1431,11 @@ function buildPromptEnhanceControl(opt){
   resultCol.className = 'prompt-enhance-col';
   const resultLabel = document.createElement('div');
   resultLabel.className = 'prompt-enhance-subtitle';
-  resultLabel.textContent = 'Text Enhance 결과';
+  resultLabel.textContent = 'Prompt Enhance 결과';
   const resultTextarea = document.createElement('textarea');
   resultTextarea.className = 'enhance-textarea enhance-result';
   resultTextarea.rows = 4;
-  resultTextarea.placeholder = 'Text Enhance를 누르면 여기에 개선된 프롬프트가 표시돼요 (직접 수정 가능)';
+  resultTextarea.placeholder = 'Prompt Enhance를 누르면 여기에 개선된 프롬프트가 표시돼요 (직접 수정 가능)';
   resultCol.appendChild(resultLabel);
   resultCol.appendChild(resultTextarea);
 
@@ -1372,14 +1462,15 @@ function buildPromptEnhanceControl(opt){
       return;
     }
     enhanceBtn.disabled = true;
-    const original = enhanceBtn.textContent;
-    enhanceBtn.textContent = '개선하는 중…';
+    modeBtns.forEach(b => { b.disabled = true; });
+    enhanceSpinner.hidden = false;
+    enhanceLabel.textContent = '개선하는 중…';
     status.textContent = 'ComfyUI로 요청 중…';
     try{
       const res = await fetch('/api/enhance-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: text }),
+        body: JSON.stringify({ prompt: text, mode }),
       });
       const data = await res.json().catch(() => ({}));
       if(!res.ok){
@@ -1396,7 +1487,9 @@ function buildPromptEnhanceControl(opt){
       status.classList.add('error');
     }finally{
       enhanceBtn.disabled = false;
-      enhanceBtn.textContent = original;
+      modeBtns.forEach(b => { b.disabled = false; });
+      enhanceSpinner.hidden = true;
+      enhanceLabel.textContent = 'Prompt Enhance →';
     }
   });
 
@@ -1531,10 +1624,10 @@ async function loadJobSettings(job){
     const savedValue = savedOptions[opt.name];
 
     if(opt.name === 'main_prompt' && opt.type === 'textarea'){
-      // main_prompt는 hidden input(el) 하나가 아니라 "직접 입력"/"Text Enhance
+      // main_prompt는 hidden input(el) 하나가 아니라 "직접 입력"/"Prompt Enhance
       // 결과" 두 텍스트 에어리어로 이뤄져 있다. 저장된 값이 원래 개선된 결과였는지
       // 직접 입력이었는지는 구분할 수 없으므로, 일단 "직접 입력" 쪽에 그대로
-      // 채워두고(다시 Text Enhance를 눌러 개선할 수 있음) 결과 칸은 비운다.
+      // 채워두고(다시 Prompt Enhance를 눌러 개선할 수 있음) 결과 칸은 비운다.
       const raw = optionsFields.querySelector('.enhance-raw');
       const enhanced = optionsFields.querySelector('.enhance-result');
       if(raw) raw.value = savedValue;

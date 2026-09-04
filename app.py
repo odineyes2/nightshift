@@ -96,13 +96,17 @@ COMFY_CHECK_TIMEOUT = 2
 # 보고할 때 사용하는, nightshift 자신의 주소. 서버가 항상 이 포트로 뜨므로 고정값.
 SELF_URL = "http://127.0.0.1:8000"
 
-# "새 작업 추가"의 메인 프롬프트 필드에 있는 "Text Enhance" 버튼이 쓰는, 프롬프트를
+# "새 작업 추가"의 메인 프롬프트 필드에 있는 "Prompt Enhance" 버튼이 쓰는, 프롬프트를
 # 다듬어주는 전용 ComfyUI 워크플로우. 배치 템플릿과 달리 사용자가 매번 업로드하는 게
 # 아니라 저장소에 고정으로 들어있는 자산이다 — user_prompt라는 제목의 노드에 원문을
 # 넣고 실행한 뒤, 미리보기(PreviewAny) 노드의 출력을 개선된 프롬프트로 읽어온다.
-ENHANCER_WORKFLOW_PATH = BASE_DIR / "text_enhancer.json"
+# isDanbooru_sys? 라는 제목의 ComfySwitchNode가 "자연어로 다듬기(7번 노드)" /
+# "그 결과를 다시 Danbooru 태그로 변환(13번 노드)" 두 경로를 고르므로, 요청받은
+# 모드(자연어/Danbooru)에 맞춰 이 스위치 노드의 switch 입력을 켜고 끈다.
+ENHANCER_WORKFLOW_PATH = BASE_DIR / "prompt_enhancer.json"
 ENHANCER_INPUT_NODE_TITLE = "user_prompt"
 ENHANCER_OUTPUT_NODE_TITLE = os.environ.get("NIGHTSHIFT_ENHANCER_OUTPUT_NODE_TITLE", "미리보기")
+ENHANCER_MODE_NODE_TITLE = os.environ.get("NIGHTSHIFT_ENHANCER_MODE_NODE_TITLE", "isDanbooru_sys")
 ENHANCE_TIMEOUT_SEC = float(os.environ.get("NIGHTSHIFT_ENHANCE_TIMEOUT_SEC", "120"))
 ENHANCE_POLL_INTERVAL_SEC = float(os.environ.get("NIGHTSHIFT_ENHANCE_POLL_INTERVAL_SEC", "1"))
 
@@ -232,12 +236,13 @@ def _enhancer_extract_text(history_entry: dict, node_id: str) -> str | None:
     return None
 
 
-def _enhance_prompt_sync(user_prompt: str) -> str:
-    """ComfyUI에 text_enhancer.json 워크플로우를 제출하고 완료될 때까지 동기적으로
-    기다린 뒤 개선된 프롬프트 문자열을 돌려준다. urllib(블로킹 I/O)를 쓰므로 반드시
-    asyncio.to_thread로 감싸서 호출해야 한다."""
+def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
+    """ComfyUI에 prompt_enhancer.json 워크플로우를 제출하고 완료될 때까지 동기적으로
+    기다린 뒤 개선된 프롬프트 문자열을 돌려준다. mode가 "danbooru"면 자연어로 다듬은
+    결과를 다시 Danbooru 태그 목록으로 변환하는 경로를 태운다(isDanbooru_sys? 스위치
+    노드). urllib(블로킹 I/O)를 쓰므로 반드시 asyncio.to_thread로 감싸서 호출해야 한다."""
     if not ENHANCER_WORKFLOW_PATH.exists():
-        raise HTTPException(500, "프롬프트 개선용 워크플로우(text_enhancer.json)가 서버에 없어요.")
+        raise HTTPException(500, "프롬프트 개선용 워크플로우(prompt_enhancer.json)가 서버에 없어요.")
     try:
         workflow = json.loads(ENHANCER_WORKFLOW_PATH.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
@@ -252,6 +257,17 @@ def _enhance_prompt_sync(user_prompt: str) -> str:
             f"(제목에 '{ENHANCER_INPUT_NODE_TITLE}'가 포함된 텍스트 노드 없음).",
         )
     input_node.setdefault("inputs", {})[input_field] = user_prompt
+
+    # 모드를 고를 스위치 노드가 없는(예전 워크플로우로 되돌린) 경우에도 전체 기능이
+    # 깨지지 않도록, 못 찾으면 조용히 건너뛰고 워크플로우에 이미 설정된 기본 경로를
+    # 그대로 쓴다.
+    mode_node_id, mode_node = _enhancer_find_node(
+        workflow,
+        title_substring=ENHANCER_MODE_NODE_TITLE,
+        class_types=("ComfySwitchNode",),
+    )
+    if mode_node is not None:
+        mode_node.setdefault("inputs", {})["switch"] = (mode == "danbooru")
 
     output_node_id, output_node = _enhancer_find_node(
         workflow,
@@ -381,14 +397,15 @@ async def comfy_status():
 
 @app.post("/api/enhance-prompt")
 async def enhance_prompt(request: Request):
-    # "새 작업 추가"의 메인 프롬프트 옆 "Text Enhance" 버튼이 호출한다. 큐에 올리는
+    # "새 작업 추가"의 메인 프롬프트 옆 "Prompt Enhance" 버튼이 호출한다. 큐에 올리는
     # 배치 작업과 달리 응답을 바로 화면에 보여줘야 하므로 워커 큐를 거치지 않고
     # 이 요청을 처리하는 동안 ComfyUI에 동기적으로(스레드로 감싸서) 물어본다.
     data = await request.json()
     prompt = str(data.get("prompt") or "").strip()
     if not prompt:
         raise HTTPException(400, "개선할 프롬프트를 입력하세요.")
-    enhanced = await asyncio.to_thread(_enhance_prompt_sync, prompt)
+    mode = data.get("mode") if data.get("mode") in ("natural", "danbooru") else "natural"
+    enhanced = await asyncio.to_thread(_enhance_prompt_sync, prompt, mode)
     return {"enhanced": enhanced}
 
 
