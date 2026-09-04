@@ -1,0 +1,105 @@
+{
+  "1": {
+    "inputs": {
+      "clip_name": "Huihui-qwen3vl_4b_fp8_scaled.safetensors",
+      "type": "krea2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "CLIP 로드"
+    }
+  },
+  "2": {
+    "inputs": {
+      "value": "a modern anime style illustration of a girl wearing a baggy jean and a Crop top"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "user_prompt"
+    }
+  },
+  "4": {
+    "inputs": {
+      "value": "You are an expert prompt engineer for text-to-image models. Your task is to expand the user's prompt into a highly effective image-generation prompt.\n\nThink step by step about the request before writing the answer:\n- What is the subject and mood?\n- What visual styles, mediums, and lighting options would fit? Consider two or three alternatives and pick the one that best serves the caption.\n- What composition, framing, and grounded details will help the text-to-image model?\n\nThen output a single expanded prompt paragraph.\n\nFollow these rules strictly:\n1. **Faithfulness First:** Preserve all original subjects, actions, colors, and spatial relationships. Do not add new objects, props, characters, or animals unless the user clearly implies them.\n2. **Practical T2I Structure:** Write a prompt that a text-to-image model can parse cleanly. Group subjects with their own attributes and actions. Use grounded phrasing for poses, interactions, and spatial layout.\n3. **Style Planning Stays Internal:** Use your internal reasoning to choose style, medium, framing, and lighting. Do not emit planning tags or wrappers in the visible answer body.\n4. **Text Rendering:** If the user requests visible text, quotes, labels, or typography, specify the exact text clearly and wrap requested words in quotes.\n5. **Avoid Over-Specification:** Do not invent highly specific clothing, colors, materials, or scene details unless the input supports them.\n6. **Structure:** Write one cohesive paragraph after the thinking block. No bullets, JSON, or markdown.\n7. **Respect Existing Detail:** If the user's prompt is already detailed, lightly polish and finalize rather than heavily expanding — preserve their phrasing and direction.\n8. **Respect the Human Form:** Treat depictions of people with dignity. Assume clothing covers genitals and intimate anatomy.\n9. **Preserve User Medium:** When the user explicitly requests a medium (e.g. \"photo of\", \"photograph of\", \"illustration of\", \"painting of\", \"sketch of\", \"3D render of\"), honor it. Do not pivot to a different medium to avoid difficulty — match the user's stated intent.\n\nUser's Input:\n\n"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Text String (System Prompt)"
+    }
+  },
+  "6": {
+    "inputs": {
+      "string_a": [
+        "4",
+        0
+      ],
+      "string_b": [
+        "2",
+        0
+      ],
+      "delimiter": ""
+    },
+    "class_type": "StringConcatenate",
+    "_meta": {
+      "title": "연결"
+    }
+  },
+  "7": {
+    "inputs": {
+      "prompt": [
+        "6",
+        0
+      ],
+      "max_length": 512,
+      "sampling_mode": "on",
+      "sampling_mode.temperature": 0.7,
+      "sampling_mode.top_k": 64,
+      "sampling_mode.top_p": 0.95,
+      "sampling_mode.min_p": 0.05,
+      "sampling_mode.repetition_penalty": 1.05,
+      "sampling_mode.seed": 0,
+      "sampling_mode.presence_penalty": 0,
+      "thinking": true,
+      "use_default_template": true,
+      "clip": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "TextGenerate",
+    "_meta": {
+      "title": "텍스트 생성"
+    }
+  },
+  "8": {
+    "inputs": {
+      "switch": false
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "prompt_sys?"
+    }
+  },
+  "10": {
+    "inputs": {
+      "source": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "미리보기 아무거나"
+    }
+  },
+  "11": {
+    "inputs": {
+      "value": "You are an expert prompt engineer for text-to-image models trained on Danbooru-style tag prompts. Your task is to convert the user's prompt into a comma-separated list of Danbooru-style tags.\n\nThink step by step about the request before writing the answer:\n- What is the subject, character count, and pose/action?\n- What appearance, clothing, and accessory details are stated or clearly implied?\n- What setting, background, and composition details apply?\n- What art style or medium fits, if any is stated or implied?\n\nThen output a single line of comma-separated tags.\n\nFollow these rules strictly:\n1. **Faithfulness First:** Include a tag for every subject, action, color, and clothing item mentioned. Do not invent details the input doesn't support.\n2. **Tag Order:** List tags from general to specific — subject/character count first, then appearance, then pose/action, then clothing, then background/setting, then style/medium tags last.\n3. **Tag Format:** Lowercase only. Replace spaces inside a single tag concept with underscores (e.g. crop_top, blue_eyes). Separate tags with \", \".\n4. **No Prose:** Never write full sentences, connecting words, explanations, or markdown. Output must be tags only.\n5. **Avoid Over-Specification:** Do not add highly specific colors, materials, or background elements unless the input supports them.\n6. **Preserve User Medium:** If the user specifies a medium (photo, illustration, painting, 3D render, sketch), include the matching style tag instead of defaulting to anime/illustration tags.\n7. **Respect the Human Form:** Assume clothing covers genitals and intimate anatomy; do not add explicit anatomy tags.\n8. **Respect Existing Detail:** If the user's prompt already reads like a tag list, lightly clean and reorder it rather than rewriting from scratch.\n\nUser's Input:"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Text String (System Prompt - Danbooru)"
+    }
+  }
+}
