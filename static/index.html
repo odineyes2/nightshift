@@ -196,6 +196,84 @@
   input.option-input:focus,
   select.option-input:focus,
   textarea.option-input:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
+
+  /* 메인 프롬프트의 "직접 입력 → Text Enhance → 결과" 3단 레이아웃. 실제로 큐에
+     보내는 값은 hidden input(.option-input)에 모이므로, 여기 두 텍스트 에어리어
+     (.enhance-textarea)는 일부러 .option-input 셀렉터 밖에 둬서 제출 시 중복으로
+     잡히지 않게 한다. */
+  .prompt-enhance{
+    display:grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap:var(--gap-md);
+    align-items:stretch;
+  }
+  .prompt-enhance-col{ display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .prompt-enhance-subtitle{
+    font-family:var(--mono);
+    font-size:10.5px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    color:var(--text-dim);
+  }
+  textarea.enhance-textarea{
+    background:var(--panel);
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:10px 12px;
+    font-family:var(--sans);
+    font-size:14px;
+    width:100%;
+    min-height:110px;
+    resize:vertical;
+    line-height:1.5;
+    cursor:text;
+    transition: border-color .15s ease, outline-color .15s ease;
+  }
+  textarea.enhance-textarea:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
+  textarea.enhance-result{ background:rgba(var(--queued-rgb),0.03); }
+  .prompt-enhance-middle{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    padding-top:22px;
+  }
+  .enhance-btn{
+    background:var(--grad-primary);
+    color:#fff;
+    border:none;
+    border-radius:var(--radius-md);
+    padding:8px 14px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    font-weight:600;
+    letter-spacing:0.01em;
+    white-space:nowrap;
+    cursor:pointer;
+    box-shadow:0 1px 2px rgba(var(--queued-rgb),0.25);
+    transition: background .18s ease, box-shadow .18s ease, transform .1s ease;
+  }
+  .enhance-btn:hover:not(:disabled){ background:var(--grad-primary-hover); box-shadow:0 4px 10px rgba(var(--queued-rgb),0.3); }
+  .enhance-btn:active:not(:disabled){ transform:translateY(1px); }
+  .enhance-btn:disabled{ background:var(--border); color:var(--text-dim); box-shadow:none; cursor:not-allowed; }
+  .enhance-status{
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--text-dim);
+    text-align:center;
+    max-width:130px;
+    min-height:1.2em;
+  }
+  .enhance-status.error{ color:var(--failed); }
+  .enhance-status.success{ color:var(--done); }
+  @media (max-width:640px){
+    .prompt-enhance{ grid-template-columns:1fr; }
+    .prompt-enhance-middle{ flex-direction:row; padding-top:0; }
+  }
+
   .slot{
     border:1px dashed var(--border);
     background:var(--bg);
@@ -1225,7 +1303,114 @@ function buildSelectControl(opt){
   return select;
 }
 
+// "메인 프롬프트" 옵션 전용 — 왼쪽에 사용자가 직접 쓰는 텍스트, 가운데 "Text Enhance"
+// 버튼, 오른쪽에 개선 결과(직접 수정 가능)를 두고, 실제로 큐에 보낼 값은 숨겨진
+// input(.option-input[data-name="main_prompt"])에 모아둔다: 오른쪽(개선 결과)에
+// 값이 있으면 그걸, 없으면 왼쪽(직접 입력) 값을 그대로 쓴다 — 두 텍스트 에어리어
+// 모두 비어 있으면 hidden input도 빈 문자열이라 기존 로직대로 워크플로우의
+// 프롬프트를 그대로 둔다.
+function buildPromptEnhanceControl(opt){
+  const wrap = document.createElement('div');
+  wrap.className = 'prompt-enhance';
+
+  const rawCol = document.createElement('div');
+  rawCol.className = 'prompt-enhance-col';
+  const rawLabel = document.createElement('div');
+  rawLabel.className = 'prompt-enhance-subtitle';
+  rawLabel.textContent = '직접 입력';
+  const rawTextarea = document.createElement('textarea');
+  rawTextarea.className = 'enhance-textarea enhance-raw';
+  rawTextarea.rows = 4;
+  if(opt.placeholder) rawTextarea.placeholder = opt.placeholder;
+  if(opt.default !== undefined && opt.default !== null) rawTextarea.value = opt.default;
+  rawCol.appendChild(rawLabel);
+  rawCol.appendChild(rawTextarea);
+
+  const middle = document.createElement('div');
+  middle.className = 'prompt-enhance-middle';
+  const enhanceBtn = document.createElement('button');
+  enhanceBtn.type = 'button';
+  enhanceBtn.className = 'enhance-btn';
+  enhanceBtn.textContent = 'Text Enhance →';
+  const status = document.createElement('div');
+  status.className = 'enhance-status';
+  middle.appendChild(enhanceBtn);
+  middle.appendChild(status);
+
+  const resultCol = document.createElement('div');
+  resultCol.className = 'prompt-enhance-col';
+  const resultLabel = document.createElement('div');
+  resultLabel.className = 'prompt-enhance-subtitle';
+  resultLabel.textContent = 'Text Enhance 결과';
+  const resultTextarea = document.createElement('textarea');
+  resultTextarea.className = 'enhance-textarea enhance-result';
+  resultTextarea.rows = 4;
+  resultTextarea.placeholder = 'Text Enhance를 누르면 여기에 개선된 프롬프트가 표시돼요 (직접 수정 가능)';
+  resultCol.appendChild(resultLabel);
+  resultCol.appendChild(resultTextarea);
+
+  const hidden = document.createElement('input');
+  hidden.type = 'hidden';
+  hidden.className = 'option-input';
+  hidden.dataset.name = opt.name;
+
+  function sync(){
+    const enhancedVal = resultTextarea.value.trim();
+    hidden.value = enhancedVal ? resultTextarea.value : rawTextarea.value;
+  }
+  rawTextarea.addEventListener('input', sync);
+  resultTextarea.addEventListener('input', sync);
+  sync();
+
+  enhanceBtn.addEventListener('click', async () => {
+    const text = rawTextarea.value.trim();
+    status.textContent = '';
+    status.className = 'enhance-status';
+    if(!text){
+      status.textContent = '먼저 왼쪽에 프롬프트를 입력하세요.';
+      status.classList.add('error');
+      return;
+    }
+    enhanceBtn.disabled = true;
+    const original = enhanceBtn.textContent;
+    enhanceBtn.textContent = '개선하는 중…';
+    status.textContent = 'ComfyUI로 요청 중…';
+    try{
+      const res = await fetch('/api/enhance-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok){
+        status.textContent = data.detail || '프롬프트 개선에 실패했어요.';
+        status.classList.add('error');
+        return;
+      }
+      resultTextarea.value = data.enhanced || '';
+      sync();
+      status.textContent = '완료';
+      status.classList.add('success');
+    }catch(e){
+      status.textContent = '프롬프트 개선에 실패했어요.';
+      status.classList.add('error');
+    }finally{
+      enhanceBtn.disabled = false;
+      enhanceBtn.textContent = original;
+    }
+  });
+
+  wrap.appendChild(rawCol);
+  wrap.appendChild(middle);
+  wrap.appendChild(resultCol);
+  wrap.appendChild(hidden);
+  return wrap;
+}
+
 function buildOptionControl(opt){
+  if(opt.name === 'main_prompt' && opt.type === 'textarea'){
+    return buildPromptEnhanceControl(opt);
+  }
   if(opt.type === 'select' || opt.type === 'asset_folder' || opt.type === 'char_no'){
     return buildSelectControl(opt);
   }
@@ -1344,6 +1529,19 @@ async function loadJobSettings(job){
     const el = optionsFields.querySelector(`[data-name="${opt.name}"]`);
     if(!el) continue;
     const savedValue = savedOptions[opt.name];
+
+    if(opt.name === 'main_prompt' && opt.type === 'textarea'){
+      // main_prompt는 hidden input(el) 하나가 아니라 "직접 입력"/"Text Enhance
+      // 결과" 두 텍스트 에어리어로 이뤄져 있다. 저장된 값이 원래 개선된 결과였는지
+      // 직접 입력이었는지는 구분할 수 없으므로, 일단 "직접 입력" 쪽에 그대로
+      // 채워두고(다시 Text Enhance를 눌러 개선할 수 있음) 결과 칸은 비운다.
+      const raw = optionsFields.querySelector('.enhance-raw');
+      const enhanced = optionsFields.querySelector('.enhance-result');
+      if(raw) raw.value = savedValue;
+      if(enhanced) enhanced.value = '';
+      if(raw) raw.dispatchEvent(new Event('input'));
+      continue;
+    }
 
     if(opt.type === 'char_no' || opt.type === 'asset_folder'){
       if(!selectHasOptionValue(el, savedValue)){

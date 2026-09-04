@@ -25,6 +25,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 import zipfile
@@ -94,6 +95,16 @@ COMFY_CHECK_TIMEOUT = 2
 # 템플릿 스크립트가 자기 자신의 진행 상황(PUT /api/jobs/{job_id}/progress)을
 # 보고할 때 사용하는, nightshift 자신의 주소. 서버가 항상 이 포트로 뜨므로 고정값.
 SELF_URL = "http://127.0.0.1:8000"
+
+# "새 작업 추가"의 메인 프롬프트 필드에 있는 "Text Enhance" 버튼이 쓰는, 프롬프트를
+# 다듬어주는 전용 ComfyUI 워크플로우. 배치 템플릿과 달리 사용자가 매번 업로드하는 게
+# 아니라 저장소에 고정으로 들어있는 자산이다 — user_prompt라는 제목의 노드에 원문을
+# 넣고 실행한 뒤, 미리보기(PreviewAny) 노드의 출력을 개선된 프롬프트로 읽어온다.
+ENHANCER_WORKFLOW_PATH = BASE_DIR / "text_enhancer.json"
+ENHANCER_INPUT_NODE_TITLE = "user_prompt"
+ENHANCER_OUTPUT_NODE_TITLE = os.environ.get("NIGHTSHIFT_ENHANCER_OUTPUT_NODE_TITLE", "미리보기")
+ENHANCE_TIMEOUT_SEC = float(os.environ.get("NIGHTSHIFT_ENHANCE_TIMEOUT_SEC", "120"))
+ENHANCE_POLL_INTERVAL_SEC = float(os.environ.get("NIGHTSHIFT_ENHANCE_POLL_INTERVAL_SEC", "1"))
 
 # "작업 목록"에서 삭제한 작업은 실제로는 지우지 않고 deleted 플래그만 세워서
 # (소프트 삭제) 상단의 "삭제된 작업 설정 불러오기" 드롭다운에서 계속 고를 수 있게
@@ -165,6 +176,126 @@ def resolve_comfy_url() -> tuple[str | None, bool]:
         if check_comfy_url(candidate):
             return candidate, True
     return None, False
+
+
+# ---- 프롬프트 개선(Text Enhance) ----------------------------------------------
+# templates/*.py의 find_node()/primitive_value_field()와 같은 알고리즘의 사본이다
+# (그쪽은 배치 작업을 큐에 올려 python3 서브프로세스로 실행하는 것과 달리, 이건
+# HTTP 요청 하나 처리하는 동안 서버가 직접 ComfyUI에 동기적으로 물어보고 기다리는
+# 별개의 경로라 템플릿 스크립트를 그대로 재사용할 수 없다).
+_ENHANCER_PRIMITIVE_VALUE_FIELDS = {
+    "CLIPTextEncode": "text",
+    "PrimitiveStringMultiline": "value",
+    "PrimitiveString": "value",
+}
+
+
+def _enhancer_find_node(workflow: dict, title_substring: str | None = None, class_types: tuple = ()):
+    title_substring = (title_substring or "").lower()
+    fallback = None
+    for node_id, node in workflow.items():
+        if not isinstance(node, dict):
+            continue
+        meta_title = str(node.get("_meta", {}).get("title", "")).lower()
+        class_type = node.get("class_type", "")
+        if title_substring and title_substring in meta_title:
+            return node_id, node
+        if class_types and class_type in class_types and fallback is None:
+            fallback = (node_id, node)
+    return fallback if fallback else (None, None)
+
+
+def _enhancer_primitive_value_field(node: dict) -> str | None:
+    field = _ENHANCER_PRIMITIVE_VALUE_FIELDS.get(node.get("class_type", ""))
+    if field:
+        return field
+    inputs = node.get("inputs", {})
+    if "text" in inputs:
+        return "text"
+    if "value" in inputs:
+        return "value"
+    return None
+
+
+def _enhancer_extract_text(history_entry: dict, node_id: str) -> str | None:
+    # PreviewAny처럼 OUTPUT_NODE=True인 커스텀 노드는 보통 {"text": ["..."]}
+    # 형태로 history의 outputs에 결과를 남기지만, 커스텀 노드마다 키 이름이
+    # 다를 수 있어(예: "string", "value") 키 이름은 보지 않고 문자열 리스트인
+    # 첫 값을 그대로 쓴다.
+    outputs = (history_entry or {}).get("outputs", {}) or {}
+    node_output = outputs.get(node_id)
+    if not isinstance(node_output, dict):
+        return None
+    for value in node_output.values():
+        if isinstance(value, list) and value and isinstance(value[0], str):
+            return value[0]
+    return None
+
+
+def _enhance_prompt_sync(user_prompt: str) -> str:
+    """ComfyUI에 text_enhancer.json 워크플로우를 제출하고 완료될 때까지 동기적으로
+    기다린 뒤 개선된 프롬프트 문자열을 돌려준다. urllib(블로킹 I/O)를 쓰므로 반드시
+    asyncio.to_thread로 감싸서 호출해야 한다."""
+    if not ENHANCER_WORKFLOW_PATH.exists():
+        raise HTTPException(500, "프롬프트 개선용 워크플로우(text_enhancer.json)가 서버에 없어요.")
+    try:
+        workflow = json.loads(ENHANCER_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise HTTPException(500, f"프롬프트 개선용 워크플로우가 올바른 JSON이 아니에요: {e}")
+
+    input_node_id, input_node = _enhancer_find_node(workflow, title_substring=ENHANCER_INPUT_NODE_TITLE)
+    input_field = _enhancer_primitive_value_field(input_node) if input_node is not None else None
+    if input_field is None:
+        raise HTTPException(
+            500,
+            f"프롬프트 개선용 워크플로우에서 입력 노드를 찾지 못했어요 "
+            f"(제목에 '{ENHANCER_INPUT_NODE_TITLE}'가 포함된 텍스트 노드 없음).",
+        )
+    input_node.setdefault("inputs", {})[input_field] = user_prompt
+
+    output_node_id, output_node = _enhancer_find_node(
+        workflow,
+        title_substring=ENHANCER_OUTPUT_NODE_TITLE,
+        class_types=("PreviewAny",),
+    )
+    if output_node is None:
+        raise HTTPException(500, "프롬프트 개선용 워크플로우에서 결과를 읽어올 출력 노드를 찾지 못했어요.")
+
+    comfy_url, connected = resolve_comfy_url()
+    if not connected:
+        raise HTTPException(503, "ComfyUI 서버에 연결할 수 없어요.")
+
+    payload = json.dumps({"prompt": workflow, "client_id": str(uuid.uuid4())}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{comfy_url}/prompt",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            submit_data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.URLError as e:
+        raise HTTPException(502, f"ComfyUI에 프롬프트를 제출하지 못했어요: {e}")
+    if "error" in submit_data:
+        raise HTTPException(502, f"ComfyUI가 프롬프트를 거부했어요: {submit_data['error']}")
+    prompt_id = submit_data["prompt_id"]
+
+    deadline = time.time() + ENHANCE_TIMEOUT_SEC
+    while time.time() < deadline:
+        try:
+            hist_req = urllib.request.Request(f"{comfy_url}/history/{prompt_id}")
+            with urllib.request.urlopen(hist_req, timeout=30) as resp:
+                history = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.URLError as e:
+            raise HTTPException(502, f"ComfyUI 히스토리 조회에 실패했어요: {e}")
+        if prompt_id in history:
+            text = _enhancer_extract_text(history[prompt_id], output_node_id)
+            if text is None:
+                raise HTTPException(500, "프롬프트 개선 결과를 읽지 못했어요 (출력 노드에 텍스트가 없음).")
+            return text.strip()
+        time.sleep(ENHANCE_POLL_INTERVAL_SEC)
+    raise HTTPException(504, f"프롬프트 개선이 {int(ENHANCE_TIMEOUT_SEC)}초 안에 끝나지 않았어요.")
 
 
 def worker_loop():
@@ -246,6 +377,19 @@ def list_templates():
 async def comfy_status():
     url, connected = await asyncio.to_thread(resolve_comfy_url)
     return {"url": url, "connected": connected}
+
+
+@app.post("/api/enhance-prompt")
+async def enhance_prompt(request: Request):
+    # "새 작업 추가"의 메인 프롬프트 옆 "Text Enhance" 버튼이 호출한다. 큐에 올리는
+    # 배치 작업과 달리 응답을 바로 화면에 보여줘야 하므로 워커 큐를 거치지 않고
+    # 이 요청을 처리하는 동안 ComfyUI에 동기적으로(스레드로 감싸서) 물어본다.
+    data = await request.json()
+    prompt = str(data.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(400, "개선할 프롬프트를 입력하세요.")
+    enhanced = await asyncio.to_thread(_enhance_prompt_sync, prompt)
+    return {"enhanced": enhanced}
 
 
 @app.get("/api/assets")
