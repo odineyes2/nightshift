@@ -84,6 +84,32 @@
   .comfy-status.connected{ color:var(--done); border-color:currentColor; background:rgba(var(--done-rgb),0.08); }
   .comfy-status.disconnected{ color:var(--failed); border-color:currentColor; background:rgba(var(--failed-rgb),0.08); }
 
+  .tab-bar{
+    background:var(--panel);
+    border-bottom:1px solid var(--border);
+  }
+  .tab-bar-inner{
+    max-width:1180px;
+    margin:0 auto;
+    padding:0 28px;
+    display:flex;
+    gap:4px;
+  }
+  .tab-btn{
+    background:none;
+    border:none;
+    border-bottom:2px solid transparent;
+    color:var(--text-dim);
+    font-family:var(--mono);
+    font-size:13px;
+    font-weight:600;
+    padding:12px 6px;
+    cursor:pointer;
+    margin-bottom:-1px;
+  }
+  .tab-btn:hover{ color:var(--text); }
+  .tab-btn.active{ color:var(--queued); border-bottom-color:var(--queued); }
+
   main{
     max-width:1180px;
     margin:0 auto;
@@ -412,6 +438,105 @@
   .load-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
   .load-notice{ font-size:12.5px; font-family:var(--mono); min-height:1em; white-space:pre-line; color:var(--text-dim); }
 
+  .gallery-count{ font-family:var(--mono); font-size:12px; color:var(--text-dim); }
+  .gallery-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
+    gap:10px;
+  }
+  .gallery-item{
+    position:relative;
+    aspect-ratio:1;
+    border-radius:8px;
+    overflow:hidden;
+    border:1px solid var(--border);
+    cursor:pointer;
+    background:var(--bg);
+  }
+  .gallery-item img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    display:block;
+    transition:transform .15s ease;
+  }
+  .gallery-item:hover img{ transform:scale(1.05); }
+  .gallery-item-name{
+    position:absolute;
+    left:0; right:0; bottom:0;
+    padding:4px 6px;
+    font-family:var(--mono);
+    font-size:10px;
+    color:#fff;
+    background:linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0));
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    pointer-events:none;
+  }
+
+  .lightbox-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(10,12,16,0.92);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:60;
+    padding:40px;
+  }
+  .lightbox-img-wrap{
+    max-width:100%;
+    max-height:100%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:12px;
+  }
+  .lightbox-img{
+    max-width:100%;
+    max-height:calc(100vh - 140px);
+    border-radius:8px;
+    box-shadow:0 10px 40px rgba(0,0,0,0.5);
+  }
+  .lightbox-info{
+    font-family:var(--mono);
+    font-size:12px;
+    color:#D1D5DB;
+    text-align:center;
+  }
+  .lightbox-close{
+    position:absolute;
+    top:20px; right:24px;
+    background:none;
+    border:none;
+    color:#fff;
+    font-size:28px;
+    line-height:1;
+    cursor:pointer;
+    opacity:.8;
+  }
+  .lightbox-close:hover{ opacity:1; }
+  .lightbox-nav{
+    position:absolute;
+    top:50%;
+    transform:translateY(-50%);
+    background:rgba(255,255,255,0.08);
+    border:1px solid rgba(255,255,255,0.2);
+    color:#fff;
+    font-size:26px;
+    width:44px; height:44px;
+    border-radius:50%;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .lightbox-nav:hover{ background:rgba(255,255,255,0.18); }
+  .lightbox-nav:disabled{ opacity:.25; cursor:not-allowed; }
+  .lightbox-prev{ left:20px; }
+  .lightbox-next{ right:20px; }
+
   .modal-overlay{
     position:fixed;
     inset:0;
@@ -516,7 +641,14 @@
   </div>
 </header>
 
-<main>
+<div class="tab-bar">
+  <div class="tab-bar-inner">
+    <button class="tab-btn active" data-tab="jobs" type="button">작업 관리</button>
+    <button class="tab-btn" data-tab="gallery" type="button">갤러리</button>
+  </div>
+</div>
+
+<main id="tab-jobs">
   <div class="panel collapsed" id="deleted-jobs-panel">
     <div class="panel-header">
       <div class="section-label">삭제된 작업 설정 불러오기</div>
@@ -671,6 +803,32 @@
     </div>
   </div>
 </main>
+
+<main id="tab-gallery" style="display:none;">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label">갤러리</div>
+      <div class="panel-header-actions">
+        <span class="gallery-count" id="gallery-count"></span>
+        <button class="load-btn" id="gallery-refresh-btn" type="button">새로고침</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="gallery-grid" id="gallery-grid"></div>
+      <div class="empty" id="gallery-empty" style="display:none;">서버에 저장된 이미지가 없어요</div>
+    </div>
+  </div>
+</main>
+
+<div class="lightbox-overlay" id="gallery-lightbox" style="display:none;">
+  <button class="lightbox-close" id="gallery-lightbox-close" aria-label="닫기" type="button">&times;</button>
+  <button class="lightbox-nav lightbox-prev" id="gallery-prev" aria-label="이전 이미지" type="button">&lsaquo;</button>
+  <div class="lightbox-img-wrap">
+    <img class="lightbox-img" id="gallery-lightbox-img" src="" alt="">
+    <div class="lightbox-info" id="gallery-lightbox-info"></div>
+  </div>
+  <button class="lightbox-nav lightbox-next" id="gallery-next" aria-label="다음 이미지" type="button">&rsaquo;</button>
+</div>
 
 <div class="modal-overlay" id="workflow-modal" style="display:none;">
   <div class="modal-panel">
@@ -1542,6 +1700,113 @@ document.getElementById('delete-images-btn').addEventListener('click', async () 
     btn.disabled = false;
     btn.textContent = '이미지 전체 삭제';
   }
+});
+
+// ---- 탭 전환 (작업 관리 / 갤러리) ----
+const tabJobsMain = document.getElementById('tab-jobs');
+const tabGalleryMain = document.getElementById('tab-gallery');
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const isGallery = btn.dataset.tab === 'gallery';
+    tabJobsMain.style.display = isGallery ? 'none' : '';
+    tabGalleryMain.style.display = isGallery ? '' : 'none';
+    if(isGallery) fetchGalleryImages();
+  });
+});
+
+// ---- 갤러리 ----
+let galleryImages = [];
+let lightboxIndex = -1;
+const galleryLightbox = document.getElementById('gallery-lightbox');
+
+function fmtBytes(n){
+  if(n < 1024) return `${n}B`;
+  if(n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
+  return `${(n / 1024 / 1024).toFixed(1)}MB`;
+}
+
+async function fetchGalleryImages(){
+  const grid = document.getElementById('gallery-grid');
+  const emptyMsg = document.getElementById('gallery-empty');
+  const countEl = document.getElementById('gallery-count');
+  try{
+    const res = await fetch('/api/output-images');
+    const data = await res.json();
+    galleryImages = data.images || [];
+  }catch(e){
+    galleryImages = [];
+  }
+
+  countEl.textContent = galleryImages.length ? `총 ${galleryImages.length}장` : '';
+
+  if(galleryImages.length === 0){
+    grid.innerHTML = '';
+    emptyMsg.style.display = 'block';
+    return;
+  }
+  emptyMsg.style.display = 'none';
+
+  grid.innerHTML = galleryImages.map((img, i) => `
+    <div class="gallery-item" data-index="${i}">
+      <img src="/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=300" alt="${escapeHtml(img.name)}" loading="lazy">
+      <div class="gallery-item-name">${escapeHtml(img.name)}</div>
+    </div>
+  `).join('');
+
+  grid.querySelectorAll('.gallery-item').forEach(el => {
+    el.addEventListener('click', () => openLightbox(Number(el.dataset.index)));
+  });
+}
+
+document.getElementById('gallery-refresh-btn').addEventListener('click', fetchGalleryImages);
+
+function renderLightbox(){
+  const img = galleryImages[lightboxIndex];
+  if(!img) return;
+  const imgEl = document.getElementById('gallery-lightbox-img');
+  imgEl.src = `/api/output-images/${encodeURIComponent(img.name)}`;
+  imgEl.alt = img.name;
+  const when = new Date(img.mtime);
+  const whenText = `${pad2(when.getMonth() + 1)}/${pad2(when.getDate())} ${pad2(when.getHours())}:${pad2(when.getMinutes())}`;
+  document.getElementById('gallery-lightbox-info').textContent =
+    `${img.name} · ${fmtBytes(img.size)} · ${whenText} (${lightboxIndex + 1}/${galleryImages.length})`;
+  document.getElementById('gallery-prev').disabled = lightboxIndex <= 0;
+  document.getElementById('gallery-next').disabled = lightboxIndex >= galleryImages.length - 1;
+}
+
+function openLightbox(index){
+  lightboxIndex = index;
+  renderLightbox();
+  galleryLightbox.style.display = 'flex';
+}
+
+function closeLightbox(){
+  galleryLightbox.style.display = 'none';
+  lightboxIndex = -1;
+}
+
+function showPrevImage(){
+  if(lightboxIndex > 0){ lightboxIndex--; renderLightbox(); }
+}
+
+function showNextImage(){
+  if(lightboxIndex < galleryImages.length - 1){ lightboxIndex++; renderLightbox(); }
+}
+
+document.getElementById('gallery-lightbox-close').addEventListener('click', closeLightbox);
+document.getElementById('gallery-prev').addEventListener('click', showPrevImage);
+document.getElementById('gallery-next').addEventListener('click', showNextImage);
+galleryLightbox.addEventListener('click', (e) => {
+  if(e.target === galleryLightbox) closeLightbox();
+});
+document.addEventListener('keydown', (e) => {
+  if(galleryLightbox.style.display === 'none') return;
+  if(e.key === 'Escape') closeLightbox();
+  else if(e.key === 'ArrowLeft') showPrevImage();
+  else if(e.key === 'ArrowRight') showNextImage();
 });
 
 fetchTemplates();
