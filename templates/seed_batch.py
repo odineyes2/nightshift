@@ -27,6 +27,11 @@ CSV 입력과 프롬프트 주입 없이 시드만 바꾸는 가장 단순한 �
 환경변수:
     WORKFLOW_PATH   (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
     SEED_COUNT      (필수) 반복할 시드 개수 (nightshift가 템플릿 옵션 "seed_count"로 주입)
+    SEED_MODE       시드를 정하는 방식 (nightshift가 템플릿 옵션 "seed_mode"로 주입,
+                    기본 "random") — "random"이면 이미지마다 매번 무작위 시드를,
+                    "sequential"이면 0부터 1씩 증가하는 시드(0, 1, 2, ...)를 쓴다.
+                    재현 가능한 비교(같은 시드로 여러 설정 비교 등)가 필요하면
+                    "sequential"을 쓴다.
     MAIN_PROMPT     메인 프롬프트 (nightshift가 템플릿 옵션 "main_prompt"로 주입, 기본
                     빈 값 — 비워두면 워크플로우의 프롬프트를 그대로 씀)
     WIDTH, HEIGHT   해상도 (nightshift가 템플릿 옵션 "width"/"height"로 주입, 기본 빈 값
@@ -62,6 +67,7 @@ CSV 입력과 프롬프트 주입 없이 시드만 바꾸는 가장 단순한 �
 import copy
 import json
 import os
+import random
 import sys
 import time
 import urllib.error
@@ -298,6 +304,7 @@ def main():
         sys.exit(1)
 
     seed_count = int(seed_count_raw)
+    seed_mode = env("SEED_MODE", "random")
     main_prompt = env("MAIN_PROMPT", "")
     width = env("WIDTH", "")
     height = env("HEIGHT", "")
@@ -313,7 +320,8 @@ def main():
 
     done_images = 0
     for index in range(1, seed_count + 1):
-        run_once(base_workflow, comfy_url, index - 1, index, main_prompt, width, height)
+        seed = random.randint(0, 2**31 - 1) if seed_mode == "random" else index - 1
+        run_once(base_workflow, comfy_url, seed, index, main_prompt, width, height)
         done_images += default_batch_size
         report_progress(job_id, nightshift_url, total_images, done_images)
 
