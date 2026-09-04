@@ -5,7 +5,7 @@
     "script_filename": "seed_batch.py",
     "requires_csv": false,
     "options": [
-      { "name": "seed_count", "label": "시드 개수", "type": "number", "default": 10 },
+      { "name": "seed_count", "label": "시드 개수", "type": "number", "default": 1 },
       { "name": "main_prompt", "label": "메인 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 업로드한 워크플로우의 프롬프트를 그대로 사용해요" },
       { "name": "width", "label": "너비(width)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
       { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
@@ -17,7 +17,7 @@
     "script_filename": "csv_batch.py",
     "requires_csv": true,
     "options": [
-      { "name": "seeds_per_case", "label": "케이스당 시드 개수", "type": "number", "default": 10 }
+      { "name": "seeds_per_case", "label": "케이스당 시드 개수", "type": "number", "default": 1 }
     ]
   },
   {

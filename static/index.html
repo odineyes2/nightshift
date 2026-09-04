@@ -225,6 +225,13 @@
   }
   .icon-btn:hover{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
   .icon-btn svg{ width:14px; height:14px; }
+  /* "선택"(.load-btn)과 휴지통(.icon-btn) 버튼의 너비를 맞춰서 나란히 놓았을 때
+     들쭉날쭉해 보이지 않게 한다. */
+  .recent-workflow-item .load-btn,
+  .recent-workflow-item .icon-btn{
+    width:44px;
+    justify-content:center;
+  }
   /* "삭제된 작업 설정 불러오기" — 드롭다운은 남는 폭을 채우고 버튼은 그 옆(라벨
      높이만큼 내려 select와 밑선을 맞춤)에 붙는다. 좁은 화면에서는 세로로 쌓는다. */
   .deleted-jobs-row{
