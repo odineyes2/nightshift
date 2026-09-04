@@ -517,6 +517,25 @@
 </header>
 
 <main>
+  <div class="panel collapsed" id="deleted-jobs-panel">
+    <div class="panel-header">
+      <div class="section-label">삭제된 작업 설정 불러오기</div>
+      <div class="panel-header-actions">
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="email-hint">"작업 목록"에서 삭제한 작업도 최근 <span id="deleted-jobs-retention">30</span>개까지는 여기서 설정을 다시 불러올 수 있어요.</div>
+      <div class="field">
+        <label class="field-label" for="deleted-jobs-select">삭제된 작업</label>
+        <select id="deleted-jobs-select" class="option-input" disabled></select>
+      </div>
+      <div>
+        <button class="submit-btn" id="deleted-jobs-load-btn" disabled>이 설정 불러오기</button>
+      </div>
+    </div>
+  </div>
+
   <div class="panel" id="new-job-panel">
     <div class="panel-header">
       <div class="section-label">새 작업 추가</div>
@@ -814,6 +833,7 @@ function render(jobs, pendingCount){
       e.stopPropagation();
       await fetch('/api/jobs/' + btn.dataset.del, { method: 'DELETE' });
       fetchJobs();
+      fetchDeletedJobs();
     });
   });
 
@@ -1138,6 +1158,66 @@ async function loadJobSettings(job){
   loadNotice.textContent = msg;
   loadNotice.style.color = warnings.length ? 'var(--running)' : 'var(--done)';
 }
+
+// "작업 목록"에서 삭제한 작업(소프트 삭제 — 서버가 최근 N개까지는 워크플로우/CSV를
+// 그대로 보관함)의 설정을 상단 드롭다운에서 다시 불러오는 기능. loadJobSettings()는
+// job 객체의 모양(id/template_id/options/workflow_original_name/csv_original_name)만
+// 보므로, GET /api/jobs/deleted가 돌려주는 항목을 그대로 넘기면 된다.
+let deletedJobsById = {};
+
+function formatDeletedJobLabel(job){
+  let whenText = '';
+  if(job.deleted_at){
+    const d = new Date(job.deleted_at);
+    whenText = `[삭제 ${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}] `;
+  }
+  const label = job.template_label || job.template_id;
+  return `${whenText}${label} · ${fmtOptions(job.options)}`;
+}
+
+async function fetchDeletedJobs(){
+  const select = document.getElementById('deleted-jobs-select');
+  const loadBtn = document.getElementById('deleted-jobs-load-btn');
+  let data;
+  try{
+    const res = await fetch('/api/jobs/deleted');
+    data = await res.json();
+  }catch(e){
+    data = { jobs: [] };
+  }
+
+  if(data.retention !== undefined){
+    document.getElementById('deleted-jobs-retention').textContent = data.retention;
+  }
+
+  deletedJobsById = {};
+  select.innerHTML = '';
+  const jobsList = data.jobs || [];
+  if(jobsList.length === 0){
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '(삭제된 작업 없음)';
+    select.appendChild(opt);
+    select.disabled = true;
+    loadBtn.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  loadBtn.disabled = false;
+  for(const job of jobsList){
+    deletedJobsById[job.id] = job;
+    const opt = document.createElement('option');
+    opt.value = job.id;
+    opt.textContent = formatDeletedJobLabel(job);
+    select.appendChild(opt);
+  }
+}
+
+document.getElementById('deleted-jobs-load-btn').addEventListener('click', () => {
+  const select = document.getElementById('deleted-jobs-select');
+  const job = deletedJobsById[select.value];
+  if(job) loadJobSettings(job);
+});
 
 templateSelect.addEventListener('change', onTemplateChange);
 
@@ -1466,6 +1546,7 @@ document.getElementById('delete-images-btn').addEventListener('click', async () 
 
 fetchTemplates();
 fetchJobs();
+fetchDeletedJobs();
 fetchComfyStatus();
 setInterval(fetchJobs, 2000);
 setInterval(() => { if(expandedId) loadLog(expandedId); }, 2000);

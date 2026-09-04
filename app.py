@@ -71,6 +71,12 @@ COMFY_CHECK_TIMEOUT = 2
 # 보고할 때 사용하는, nightshift 자신의 주소. 서버가 항상 이 포트로 뜨므로 고정값.
 SELF_URL = "http://127.0.0.1:8000"
 
+# "작업 목록"에서 삭제한 작업은 실제로는 지우지 않고 deleted 플래그만 세워서
+# (소프트 삭제) 상단의 "삭제된 작업 설정 불러오기" 드롭다운에서 계속 고를 수 있게
+# 한다. 디스크가 무한정 늘어나지 않도록 가장 최근 이만큼만 남기고, 그보다 오래
+# 삭제된 작업은 워크플로우/CSV 파일까지 완전히 지운다.
+DELETED_JOBS_RETENTION = int(os.environ.get("NIGHTSHIFT_DELETED_JOBS_RETENTION", "30"))
+
 job_queue: "queue.Queue[str]" = queue.Queue()
 jobs: dict[str, dict] = {}
 lock = threading.Lock()
@@ -91,6 +97,22 @@ def load_state():
     if STATE_FILE.exists():
         with open(STATE_FILE) as f:
             jobs.update(json.load(f))
+
+
+def prune_deleted_jobs():
+    # 소프트 삭제된 작업 중 DELETED_JOBS_RETENTION개를 넘는 오래된 것들은 이제
+    # 완전히 정리한다(레코드 + 워크플로우/CSV 파일). lock을 쥔 채로 호출해야 한다.
+    deleted = sorted(
+        (job for job in jobs.values() if job.get("deleted")),
+        key=lambda job: job.get("deleted_at") or "",
+        reverse=True,
+    )
+    for job in deleted[DELETED_JOBS_RETENTION:]:
+        for field in ("workflow_filename", "csv_filename"):
+            filename = job.get(field)
+            if filename:
+                (JOBS_DIR / filename).unlink(missing_ok=True)
+        del jobs[job["id"]]
 
 
 def load_templates_list() -> list[dict]:
@@ -426,6 +448,8 @@ async def upload(request: Request):
             "finished_at": None,
             "returncode": None,
             "progress": None,
+            "deleted": False,
+            "deleted_at": None,
         }
     save_state()
     return jobs[job_id]
@@ -449,9 +473,27 @@ def start_queue():
 @app.get("/api/jobs")
 def list_jobs():
     with lock:
-        ordered = sorted(jobs.values(), key=lambda j: j["queued_at"], reverse=True)
+        ordered = sorted(
+            (j for j in jobs.values() if not j.get("deleted")),
+            key=lambda j: j["queued_at"],
+            reverse=True,
+        )
     pending_ids = list(job_queue.queue)
     return {"jobs": ordered, "pending_count": len(pending_ids)}
+
+
+@app.get("/api/jobs/deleted")
+def list_deleted_jobs():
+    # "작업 목록"에서 삭제한 작업들 — 상단의 "삭제된 작업 설정 불러오기" 드롭다운을
+    # 채우는 용도. 소프트 삭제이므로 워크플로우/CSV는 prune_deleted_jobs()가 지우기
+    # 전까지 GET /api/jobs/{id}/workflow·csv로 계속 읽을 수 있다.
+    with lock:
+        ordered = sorted(
+            (j for j in jobs.values() if j.get("deleted")),
+            key=lambda j: j.get("deleted_at") or "",
+            reverse=True,
+        )
+    return {"jobs": ordered, "retention": DELETED_JOBS_RETENTION}
 
 
 @app.get("/api/jobs/{job_id}/log")
@@ -513,7 +555,7 @@ async def write_job_attachment(job_id: str, field: str, request: Request, valida
 
     with lock:
         job = jobs.get(job_id)
-        if not job:
+        if not job or job.get("deleted"):
             raise HTTPException(404, "없는 작업이에요.")
         if job["status"] != "pending":
             raise HTTPException(400, "대기 중인 작업만 수정할 수 있어요.")
@@ -568,11 +610,16 @@ async def update_job_csv(job_id: str, request: Request):
 def delete_job(job_id: str):
     with lock:
         job = jobs.get(job_id)
-        if not job:
+        if not job or job.get("deleted"):
             raise HTTPException(404, "없는 작업이에요.")
         if job["status"] in ("running", "queued"):
             raise HTTPException(400, "실행 중이거나 이미 시작된 작업은 지울 수 없어요.")
-        del jobs[job_id]
+        # 실제로 지우지 않고 소프트 삭제만 한다 — "작업 목록"에서는 사라지지만,
+        # 상단의 "삭제된 작업 설정 불러오기" 드롭다운에서는 (보관 기간 안이면)
+        # 계속 고를 수 있다. prune_deleted_jobs()가 오래된 것부터 완전히 정리한다.
+        job["deleted"] = True
+        job["deleted_at"] = now_iso()
+        prune_deleted_jobs()
     save_state()
     return {"ok": True}
 
