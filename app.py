@@ -143,6 +143,19 @@ class RecentFileStore:
         with lock:
             return [{"id": it["id"], "filename": it["filename"], "uploaded_at": it["uploaded_at"]} for it in self.items]
 
+    def delete(self, item_id: str) -> bool:
+        # "최근 워크플로우"/"최근 CSV" 모달의 휴지통 버튼이 호출한다. 목록에서 항목을
+        # 지우고 사본 파일도 같이 지운다. 존재하지 않으면(이미 지워졌거나 애초에
+        # 없는 id) False를 돌려주고 아무것도 하지 않는다.
+        with lock:
+            entry = next((it for it in self.items if it["id"] == item_id), None)
+            if entry is None:
+                return False
+            self.items.remove(entry)
+            (self.dir_path / entry["stored_filename"]).unlink(missing_ok=True)
+            self.save()
+            return True
+
     def get(self, item_id: str) -> dict | None:
         with lock:
             return next((it for it in self.items if it["id"] == item_id), None)
@@ -670,6 +683,13 @@ def get_recent_workflow(workflow_id: str):
     return Response(content=path.read_text(encoding="utf-8"), media_type="application/json")
 
 
+@app.delete("/api/recent-workflows/{workflow_id}")
+def delete_recent_workflow(workflow_id: str):
+    if not recent_workflows_store.delete(workflow_id):
+        raise HTTPException(404, "해당 워크플로우를 찾을 수 없어요.")
+    return {"ok": True}
+
+
 @app.get("/api/recent-csvs")
 def list_recent_csvs():
     # "새 작업 추가"의 CSV 슬롯 옆 "최근 CSV" 버튼이 호출한다.
@@ -685,6 +705,13 @@ def get_recent_csv(csv_id: str):
     if not path.exists():
         raise HTTPException(404, "CSV 파일이 서버에 없어요.")
     return Response(content=path.read_text(encoding="utf-8"), media_type="text/csv")
+
+
+@app.delete("/api/recent-csvs/{csv_id}")
+def delete_recent_csv(csv_id: str):
+    if not recent_csvs_store.delete(csv_id):
+        raise HTTPException(404, "해당 CSV를 찾을 수 없어요.")
+    return {"ok": True}
 
 
 @app.post("/api/upload")

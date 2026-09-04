@@ -206,6 +206,25 @@
     white-space:nowrap;
     flex-shrink:0;
   }
+  /* 문구 없이 아이콘 하나만 담는 작은 버튼(휴지통 등) — .del-btn과 같은 색
+     규칙(hover 시 빨강)을 쓰되 정사각형 아이콘 크기로 맞춘다. */
+  .icon-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:26px;
+    height:26px;
+    padding:0;
+    flex-shrink:0;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    color:var(--text-dim);
+    cursor:pointer;
+    transition: border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .icon-btn:hover{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
+  .icon-btn svg{ width:14px; height:14px; }
   /* "삭제된 작업 설정 불러오기" — 드롭다운은 남는 폭을 채우고 버튼은 그 옆(라벨
      높이만큼 내려 select와 밑선을 맞춤)에 붙는다. 좁은 화면에서는 세로로 쌓는다. */
   .deleted-jobs-row{
@@ -2132,6 +2151,10 @@ document.getElementById('reset-form-btn').addEventListener('click', () => {
 // (app.py의 RecentFileStore), 여기서는 그 목록을 모달로 보여주고 고른 걸 해당
 // 슬롯에 채워 넣기만 한다. 워크플로우/CSV 둘 다 구조가 완전히 같아서(버튼 →
 // 모달 목록 → 선택 → 슬롯에 채우기) 설정만 다르게 넘겨 하나의 함수로 만든다.
+const TRASH_ICON_SVG = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M2.5 4h11M6 4V2.6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V4M6.5 7.2v4.8M9.5 7.2v4.8M3.5 4l.6 8.4a1 1 0 0 0 1 .9h5.8a1 1 0 0 0 1-.9L12.5 4"/>
+</svg>`;
+
 function setupRecentFilePicker({
   btnId, modalId, closeId, cancelId, listId, emptyId, errorId, retentionId,
   listApi, itemApi, itemsKey, mimeType, setFile,
@@ -2178,11 +2201,15 @@ function setupRecentFilePicker({
           <span class="recent-workflow-name" title="${escapeHtml(w.filename)}">${escapeHtml(w.filename)}</span>
           <span class="recent-workflow-time">${whenText}</span>
           <button class="load-btn" data-recent-id="${w.id}" type="button">선택</button>
+          <button class="icon-btn" data-recent-remove-id="${w.id}" type="button" aria-label="목록에서 삭제" title="목록에서 삭제">${TRASH_ICON_SVG}</button>
         </div>`;
     }).join('');
 
     list.querySelectorAll('[data-recent-id]').forEach(btn => {
       btn.addEventListener('click', () => select(btn.dataset.recentId));
+    });
+    list.querySelectorAll('[data-recent-remove-id]').forEach(btn => {
+      btn.addEventListener('click', () => remove(btn.dataset.recentRemoveId));
     });
   }
 
@@ -2203,6 +2230,25 @@ function setupRecentFilePicker({
       close();
     }catch(e){
       errorEl.textContent = '파일을 불러오지 못했어요.';
+    }
+  }
+
+  async function remove(id){
+    const errorEl = document.getElementById(errorId);
+    errorEl.textContent = '';
+    const entry = byId[id];
+    if(!entry) return;
+    if(!confirm(`'${entry.filename}'을(를) 최근 목록에서 삭제할까요?`)) return;
+    try{
+      const res = await fetch(itemApi(id), { method: 'DELETE' });
+      if(!res.ok){
+        const data = await res.json().catch(() => ({}));
+        errorEl.textContent = data.detail || '삭제에 실패했어요.';
+        return;
+      }
+      await open();
+    }catch(e){
+      errorEl.textContent = '삭제에 실패했어요.';
     }
   }
 
