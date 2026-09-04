@@ -38,12 +38,15 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
+from PIL import Image
 
 from email_sender import EmailSendError, find_image_files, send_output_images
 from output_images import (
+    IMAGE_EXTENSIONS,
     OUTPUT_DIR,
     OutputFolderError,
     delete_output_images,
+    list_output_images,
     rotate_landscape_images,
 )
 from pose_assets import (
@@ -675,6 +678,67 @@ async def send_email(request: Request):
     except EmailSendError as e:
         raise HTTPException(400, str(e))
     return result
+
+
+def list_output_images_meta() -> list[dict]:
+    # 갤러리 탭을 채우는 용도. zip/이메일 발송과 달리 폴더가 비어 있거나 아직 없는 것도
+    # 정상 상태로 취급한다(뭔가 있어야 의미 있는 동작이 아니라, 그냥 목록을 보여줄 뿐이므로).
+    try:
+        files = list_output_images(OUTPUT_DIR)
+    except OutputFolderError:
+        return []
+    items = []
+    for f in files:
+        stat = f.stat()
+        items.append({
+            "name": f.name,
+            "size": stat.st_size,
+            "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        })
+    items.sort(key=lambda item: item["mtime"], reverse=True)
+    return items
+
+
+@app.get("/api/output-images")
+def list_output_images_api():
+    return {"images": list_output_images_meta()}
+
+
+def resolve_output_image(filename: str) -> Path:
+    # 파일명만 받고 경로 조작(예: "../../etc/passwd")은 막는다 — Path(filename).name으로
+    # 디렉터리 구분자를 다 잘라낸 뒤, 원래 요청과 완전히 같을 때만(=애초에 순수 파일명
+    # 이었을 때만) 통과시킨다.
+    safe_name = Path(filename).name
+    if not safe_name or safe_name != filename:
+        raise HTTPException(400, "올바르지 않은 파일명이에요.")
+    path = Path(OUTPUT_DIR) / safe_name
+    if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
+        raise HTTPException(404, "이미지를 찾을 수 없어요.")
+    return path
+
+
+@app.get("/api/output-images/{filename}")
+def get_output_image(filename: str):
+    # 갤러리 라이트박스에서 원본 크기로 보여주는 용도.
+    return FileResponse(resolve_output_image(filename))
+
+
+@app.get("/api/output-images/{filename}/thumbnail")
+def get_output_image_thumbnail(filename: str, size: int = 320):
+    # 갤러리 격자를 채우는 용도 — 원본을 그대로 내려받으면 느리고 대역폭을 낭비하므로,
+    # 매 요청마다 그 자리에서 축소본을 만들어 돌려준다(디스크에 캐시하지 않음 — 이
+    # 도구 규모에서는 매번 다시 만들어도 충분히 빠름).
+    path = resolve_output_image(filename)
+    size = max(64, min(size, 800))
+    try:
+        with Image.open(path) as img:
+            img = img.convert("RGB")
+            img.thumbnail((size, size))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=80)
+    except Exception as e:
+        raise HTTPException(500, f"썸네일을 만들지 못했어요: {e}")
+    return Response(content=buf.getvalue(), media_type="image/jpeg")
 
 
 def build_output_zip() -> Path:
