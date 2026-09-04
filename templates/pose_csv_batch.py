@@ -281,12 +281,24 @@ def make_picker(mode, files):
 # csv_batch.py / pose_batch.py 공통 헬퍼 — 사본
 # ============================================================================
 
-PROMPT_FIELD_TITLES = {
-    "trigger_prompt": "trigger_prompt",
-    "main_prompt": "main_prompt",
-    "quality_prompt": "quality_prompt",
-    "negative_prompt": "negative_prompt",
-    "prompt": "prompt",
+# main_prompt/prompt는 두 가지 워크플로우 방식을 다 지원한다: CLIPTextEncode(제목에
+# "main_prompt"/"prompt", 입력 필드 "text")는 프롬프트를 곧장 CLIP 인코딩에 넣는
+# 옛 방식, PrimitiveStringMultiline(제목에 "user prompt", 입력 필드 "value")은
+# LLM으로 프롬프트를 다듬는 최신 워크플로우(예: krea2_turbo_t2i)에서 "사용자
+# 프롬프트" 원본을 담아두는 노드다. csv_batch.py의 PROMPT_FIELD_CANDIDATES와
+# 동일 — 사본이므로 한쪽을 고치면 다른 쪽도 반드시 같이 고쳐야 함.
+PROMPT_FIELD_CANDIDATES = {
+    "trigger_prompt": [("trigger_prompt", "CLIPTextEncode", "text")],
+    "main_prompt": [
+        ("main_prompt", "CLIPTextEncode", "text"),
+        ("user prompt", "PrimitiveStringMultiline", "value"),
+    ],
+    "quality_prompt": [("quality_prompt", "CLIPTextEncode", "text")],
+    "negative_prompt": [("negative_prompt", "CLIPTextEncode", "text")],
+    "prompt": [
+        ("prompt", "CLIPTextEncode", "text"),
+        ("user prompt", "PrimitiveStringMultiline", "value"),
+    ],
 }
 
 RESOLUTION_PRESETS = {
@@ -359,24 +371,30 @@ def sanitize_stem(text):
 
 def apply_prompts(workflow, row):
     applied = False
-    for field, title_substring in PROMPT_FIELD_TITLES.items():
+    for field, candidates in PROMPT_FIELD_CANDIDATES.items():
         value = (row.get(field) or "").strip()
         if not value:
             continue
-        node_id, node = find_node(
-            workflow,
-            title_substring=title_substring,
-            class_types=("CLIPTextEncode",),
-            allow_class_fallback=False,
-        )
+        # find_node의 title 매칭 분기는 class_type을 안 가리므로, 후보마다
+        # class_type이 실제로 맞는지 여기서 직접 확인한다(엉뚱한 노드를 덮어쓰지
+        # 않기 위함).
+        node = None
+        field_name = None
+        for title_substring, class_type, candidate_field in candidates:
+            node_id, candidate_node = find_node(workflow, title_substring=title_substring)
+            if candidate_node is not None and candidate_node.get("class_type") == class_type:
+                node = candidate_node
+                field_name = candidate_field
+                break
         if node is None:
+            titles = ", ".join(f"'{c[0]}'" for c in candidates)
             print(
                 f"[pose_csv_batch] 경고: '{field}' 값을 넣을 노드를 찾지 못했습니다 "
-                f"(제목에 '{title_substring}'가 포함된 CLIPTextEncode 없음)",
+                f"(제목에 {titles} 중 하나가 포함된 노드 없음)",
                 file=sys.stderr,
             )
             continue
-        node.setdefault("inputs", {})["text"] = value
+        node.setdefault("inputs", {})[field_name] = value
         applied = True
     if not applied:
         print("[pose_csv_batch] 경고: 이 행에 프롬프트 컬럼 값이 하나도 없습니다.", file=sys.stderr)

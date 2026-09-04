@@ -88,22 +88,42 @@ def apply_seed(workflow, seed):
     node.setdefault("inputs", {})["seed"] = seed
 
 
+# "메인 프롬프트"를 담는 노드의 종류와 입력 필드 이름이 워크플로우마다 다를 수 있어서,
+# 후보를 순서대로 시도한다.
+#   - CLIPTextEncode(제목에 "main_prompt") — 프롬프트를 곧장 CLIP 인코딩에 넣는
+#     옛 방식 워크플로우. 입력 필드는 "text".
+#   - PrimitiveStringMultiline(제목에 "user prompt") — LLM으로 프롬프트를 다듬는
+#     최신 워크플로우(예: krea2_turbo_t2i)에서 "사용자 프롬프트" 원본만 담아두는
+#     노드. 그 값이 시스템 프롬프트와 합쳐져 LLM에 들어가거나 LoRA 트리거워드와
+#     합쳐지는 식으로 몇 단계를 거쳐 최종 CLIPTextEncode까지 흘러간다. 입력 필드는
+#     "value".
+# 첫 번째 후보가 없으면 두 번째를 시도하고, 둘 다 없으면 경고만 남기고 건너뛴다
+# (엉뚱한 노드를 덮어쓰지 않기 위해 class_type까지 정확히 일치해야 함).
+MAIN_PROMPT_NODE_CANDIDATES = (
+    ("main_prompt", "CLIPTextEncode", "text"),
+    ("user prompt", "PrimitiveStringMultiline", "value"),
+)
+
+
 def apply_main_prompt(workflow, main_prompt):
     main_prompt = (main_prompt or "").strip()
     if not main_prompt:
         # 비워두면 업로드된 워크플로우의 프롬프트를 그대로 둔다.
         return
-    # class_types를 넘기지 않으므로(find_node가 title 매칭 실패 시 아무 노드로도
-    # 대체하지 않음) 제목에 "main_prompt"가 없으면 조용히 건너뛴다.
-    node_id, node = find_node(workflow, title_substring="main_prompt")
-    if node is None or node.get("class_type") != "CLIPTextEncode":
-        print(
-            "[seed_batch] 경고: MAIN_PROMPT를 넣을 노드를 찾지 못했습니다 "
-            "(제목에 'main_prompt'가 포함된 CLIPTextEncode 없음)",
-            file=sys.stderr,
-        )
-        return
-    node.setdefault("inputs", {})["text"] = main_prompt
+    for title_substring, class_type, field in MAIN_PROMPT_NODE_CANDIDATES:
+        # class_types를 넘기지 않으므로(find_node가 title 매칭 실패 시 아무 노드로도
+        # 대체하지 않음) 제목이 안 맞으면 이 후보는 조용히 건너뛴다. 제목이 맞아도
+        # class_type까지 정확히 일치해야만 채택한다(엉뚱한 노드를 덮어쓰지 않기 위함).
+        node_id, node = find_node(workflow, title_substring=title_substring)
+        if node is not None and node.get("class_type") == class_type:
+            node.setdefault("inputs", {})[field] = main_prompt
+            return
+    titles = ", ".join(f"'{c[0]}'" for c in MAIN_PROMPT_NODE_CANDIDATES)
+    print(
+        f"[seed_batch] 경고: MAIN_PROMPT를 넣을 노드를 찾지 못했습니다 "
+        f"(제목에 {titles} 중 하나가 포함된 노드가 없음)",
+        file=sys.stderr,
+    )
 
 
 def get_default_batch_size(workflow):

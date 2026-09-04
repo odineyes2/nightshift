@@ -18,11 +18,14 @@ ComfyUI에서 어떻게 워크플로우를 구성했는지에 따라 다르므�
         trigger_prompt, main_prompt, quality_prompt, negative_prompt, prompt
 
     (예: 워크플로우에 "main_prompt", "negative_prompt"라는 제목의 CLIPTextEncode
-    노드가 있다면, CSV에 같은 이름의 컬럼을 두면 그대로 매칭된다.) 이름이 다르면
-    워크플로우의 실제 노드 제목에 맞춰 위 목록이나 아래 PROMPT_FIELD_TITLES를
-    조정한다. 프롬프트 노드가 여러 개일 수 있으므로, 이름이 일치하는 노드를
-    못 찾으면 다른 CLIPTextEncode로 대체하지 않고 건너뛴다(엉뚱한 노드를 덮어쓰는
-    사고를 막기 위함).
+    노드가 있다면, CSV에 같은 이름의 컬럼을 두면 그대로 매칭된다.) main_prompt/
+    prompt는 CLIPTextEncode 대신, LLM으로 프롬프트를 다듬는 최신 워크플로우
+    (예: krea2_turbo_t2i)에서 "사용자 프롬프트" 원본을 담아두는 데 쓰는
+    PrimitiveStringMultiline 노드(제목에 "user prompt" 포함, 입력 필드 "value")도
+    후보로 시도한다 — 아래 PROMPT_FIELD_CANDIDATES 참고. 이름이 다르면 워크플로우의
+    실제 노드 제목에 맞춰 그 목록을 조정한다. 프롬프트 노드가 여러 개일 수 있으므로,
+    후보 중 제목과 class_type이 정확히 일치하는 노드를 못 찾으면 다른 노드로
+    대체하지 않고 건너뛴다(엉뚱한 노드를 덮어쓰는 사고를 막기 위함).
 
 환경변수:
     WORKFLOW_PATH   (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
@@ -95,14 +98,32 @@ import urllib.error
 import urllib.request
 import uuid
 
-# CSV 컬럼 이름 = 매칭할 CLIPTextEncode 노드의 _meta.title 부분 문자열.
-# 워크플로우의 실제 노드 제목이 다르면 이 목록을 맞춰서 조정한다.
-PROMPT_FIELD_TITLES = {
-    "trigger_prompt": "trigger_prompt",
-    "main_prompt": "main_prompt",
-    "quality_prompt": "quality_prompt",
-    "negative_prompt": "negative_prompt",
-    "prompt": "prompt",
+# CSV 컬럼 이름 = 그 값을 넣을 노드를 찾는 후보 목록 (제목 부분 문자열, class_type,
+# 입력 필드 이름). 후보를 순서대로 시도해서 먼저 맞는 것을 쓴다. 워크플로우의 실제
+# 노드 제목이 다르면 이 목록을 맞춰서 조정한다.
+#
+# main_prompt/prompt는 두 가지 워크플로우 방식을 다 지원한다:
+#   - CLIPTextEncode(제목에 "main_prompt"/"prompt") — 프롬프트를 곧장 CLIP
+#     인코딩에 넣는 옛 방식 워크플로우. 입력 필드는 "text".
+#   - PrimitiveStringMultiline(제목에 "user prompt") — LLM으로 프롬프트를 다듬는
+#     최신 워크플로우(예: krea2_turbo_t2i)에서 "사용자 프롬프트" 원본만 담아두는
+#     노드. 입력 필드는 "value".
+# trigger_prompt/quality_prompt/negative_prompt는 옛 방식 워크플로우에만 있는
+# 개념이라 CLIPTextEncode 후보 하나만 시도한다 — 그런 노드가 없는 워크플로우면
+# (예: negative가 ConditioningZeroOut으로 완전히 자동화된 워크플로우) 지금처럼
+# 경고만 남기고 그 컬럼은 건너뛴다.
+PROMPT_FIELD_CANDIDATES = {
+    "trigger_prompt": [("trigger_prompt", "CLIPTextEncode", "text")],
+    "main_prompt": [
+        ("main_prompt", "CLIPTextEncode", "text"),
+        ("user prompt", "PrimitiveStringMultiline", "value"),
+    ],
+    "quality_prompt": [("quality_prompt", "CLIPTextEncode", "text")],
+    "negative_prompt": [("negative_prompt", "CLIPTextEncode", "text")],
+    "prompt": [
+        ("prompt", "CLIPTextEncode", "text"),
+        ("user prompt", "PrimitiveStringMultiline", "value"),
+    ],
 }
 
 RESOLUTION_PRESETS = {
@@ -175,26 +196,31 @@ def sanitize_prefix(text, fallback):
 
 def apply_prompts(workflow, row):
     applied = False
-    for field, title_substring in PROMPT_FIELD_TITLES.items():
+    for field, candidates in PROMPT_FIELD_CANDIDATES.items():
         value = (row.get(field) or "").strip()
         if not value:
             continue
         # 프롬프트 노드가 여러 개(트리거/본문/퀄리티/네거티브)일 수 있으므로
-        # 제목이 정확히 일치하지 않으면 다른 CLIPTextEncode로 대체하지 않는다.
-        node_id, node = find_node(
-            workflow,
-            title_substring=title_substring,
-            class_types=("CLIPTextEncode",),
-            allow_class_fallback=False,
-        )
+        # 제목이 정확히 일치하지 않으면 다른 노드로 대체하지 않는다. find_node의
+        # title 매칭 분기는 class_type을 안 가리므로, 후보마다 class_type이 실제로
+        # 맞는지 여기서 직접 확인한다(엉뚱한 노드를 덮어쓰지 않기 위함).
+        node = None
+        field_name = None
+        for title_substring, class_type, candidate_field in candidates:
+            node_id, candidate_node = find_node(workflow, title_substring=title_substring)
+            if candidate_node is not None and candidate_node.get("class_type") == class_type:
+                node = candidate_node
+                field_name = candidate_field
+                break
         if node is None:
+            titles = ", ".join(f"'{c[0]}'" for c in candidates)
             print(
                 f"[csv_batch] 경고: '{field}' 값을 넣을 노드를 찾지 못했습니다 "
-                f"(제목에 '{title_substring}'가 포함된 CLIPTextEncode 없음)",
+                f"(제목에 {titles} 중 하나가 포함된 노드 없음)",
                 file=sys.stderr,
             )
             continue
-        node.setdefault("inputs", {})["text"] = value
+        node.setdefault("inputs", {})[field_name] = value
         applied = True
     if not applied:
         print("[csv_batch] 경고: 이 행에 프롬프트 컬럼 값이 하나도 없습니다.", file=sys.stderr)
