@@ -40,6 +40,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 ## 요구 사항
 
 - Python 3.9 이상 권장 (`dict[str, dict]` 등 최신 타입 힌트 문법 사용)
+- (권장) Node.js/npm — 아래 pm2 기반 실행 방법에 필요. 없어도 "python3로 직접 실행" 방법은 그대로 씁니다
 
 ## 설치
 
@@ -47,6 +48,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 git clone https://github.com/odineyes2/nightshift.git
 cd nightshift
 pip install -r requirements.txt
+npm install   # pm2로 서버를 실행/관리하려면 (아래 "실행 방법" 참고)
 ```
 
 `requirements.txt`에 포함된 패키지:
@@ -56,22 +58,54 @@ pip install -r requirements.txt
 - `python-multipart` (파일 업로드 처리에 필요)
 - `Pillow` (가로형 이미지 자동 회전에 필요)
 
+`npm install`은 서버 코드와 무관하게 [pm2](https://pm2.keymetrics.io/)(프로세스 매니저) 하나만 `node_modules/`에 내려받습니다 — 프론트엔드 빌드 과정이 아닙니다. Node.js가 없는 환경이라면 이 단계는 건너뛰고 아래 "python3로 직접 실행" 방법을 쓰세요.
+
 ## 실행 방법
+
+### pm2로 실행 (권장)
+
+```bash
+npm start
+```
+
+`python3 app.py`를 터미널에 붙잡아두는 대신, [pm2](https://pm2.keymetrics.io/)가 서버를 백그라운드 프로세스로 띄우고 감독합니다.
+
+- **터미널을 닫거나 `Ctrl+C`를 눌러도 서버는 계속 돌아갑니다** — `npm start`는 서버를 띄운 뒤 로그를 그 자리에서 이어 보여주는(`pm2 logs`) 것뿐이라, 로그 보기를 그만둬도(`Ctrl+C`) 서버 프로세스 자체는 안 죽습니다. 아래 `npm run stop`을 실행해야 실제로 멈춥니다.
+- **코드를 고치면 자동으로 반영됩니다** — 내부적으로 `uvicorn --reload`로 띄우므로, `app.py`/`templates/`/`static/` 등을 저장하는 순간 감지해서 그 부분만 다시 로드합니다. 서버를 껐다 켤 필요가 없습니다.
+- **로그가 지저분하게 쌓이지 않습니다** — pm2가 로그를 파일로 관리하고(`~/.pm2/logs/nightshift-*.log`), `npm run logs`로 필요할 때만 깔끔하게 tail해서 봅니다.
+
+자주 쓰는 명령:
+
+| 명령 | 동작 |
+|---|---|
+| `npm start` | 서버 시작(이미 떠 있으면 재시작) + 로그 tail 시작 |
+| `npm run stop` | 서버 완전히 중지 |
+| `npm run restart` | 서버 재시작 (코드 변경은 자동 반영되므로 보통 필요 없음 — 환경변수를 바꿨을 때 등에 사용) |
+| `npm run status` | 지금 떠 있는지, PID/메모리/재시작 횟수 등을 표로 확인 (`pm2 status`) |
+| `npm run logs` | 로그만 따로 열어보기 (`Ctrl+C`로 빠져나와도 서버는 안 멈춤) |
+
+내부적으로는 `ecosystem.config.js`에 정의된 pm2 앱 설정(`python3 -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload`)을 그대로 실행합니다 — 필요하면 이 파일에서 포트나 옵션을 직접 조정할 수 있습니다.
+
+### python3로 직접 실행
+
+Node.js가 없거나 pm2 없이 단순하게 실행하고 싶다면:
 
 ```bash
 python3 app.py
 ```
 
-기본적으로 `0.0.0.0:8000`에서 서버가 뜹니다. (RunPod 등에서 ComfyUI가 흔히 8188 포트를 쓰기 때문에 겹치지 않도록 8000번을 사용합니다.)
-
-- 로컬에서 실행 중이라면: `http://localhost:8000`
-- RunPod 등 원격 인스턴스라면: 해당 플랫폼에서 8000번 포트를 프록시로 노출한 뒤, 제공되는 URL로 접속
-
-개발 중 자동 리로드가 필요하다면 uvicorn을 직접 실행할 수도 있습니다.
+이 경우 터미널을 닫으면 서버도 같이 종료되고, 코드를 고친 뒤에는 직접 재시작해야 합니다. 자동 리로드만 필요하다면 uvicorn을 직접 실행할 수도 있습니다.
 
 ```bash
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+### 접속
+
+기본적으로 `0.0.0.0:8000`에서 서버가 뜹니다. (RunPod 등에서 ComfyUI가 흔히 8188 포트를 쓰기 때문에 겹치지 않도록 8000번을 사용합니다.)
+
+- 로컬에서 실행 중이라면: `http://localhost:8000`
+- RunPod 등 원격 인스턴스라면: 해당 플랫폼에서 8000번 포트를 프록시로 노출한 뒤, 제공되는 URL로 접속
 
 ## 사용 방법
 
@@ -314,6 +348,8 @@ nightshift/
 ├── output_images.py          # 출력 폴더 공용 로직 (목록 조회/삭제/가로형 이미지 회전)
 ├── pose_assets.py             # 포즈 세트 폴더 스캔/업로드 시점 검증 로직
 ├── requirements.txt
+├── package.json               # pm2 실행용 npm 스크립트(`npm start` 등) — 서버 코드와 무관
+├── ecosystem.config.js        # pm2 앱 설정 (uvicorn --reload를 이 설정으로 감독)
 ├── static/
 │   └── index.html            # 프론트엔드 (단일 HTML 파일)
 ├── templates/
