@@ -12,7 +12,7 @@
   },
   "2": {
     "inputs": {
-      "value": "a modern anime style illustration of a girl wearing a baggy jean and a Crop top"
+      "value": "A modern anime-style illustration of a young girl standing in a neutral, softly lit environment, wearing a loose-fitting baggy denim jacket with faded stitching and a cropped top that reveals her midriff, both rendered with clean, stylized lines typical of contemporary anime art; the character has long hair flowing naturally, subtle facial features with expressive eyes, and is positioned centrally in the frame with no additional characters or objects present, emphasizing her silhouette and outfit details against a minimalist background."
     },
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
@@ -74,17 +74,25 @@
   },
   "8": {
     "inputs": {
-      "switch": false
+      "switch": true,
+      "on_false": [
+        "7",
+        0
+      ],
+      "on_true": [
+        "13",
+        0
+      ]
     },
     "class_type": "ComfySwitchNode",
     "_meta": {
-      "title": "prompt_sys?"
+      "title": "isDanbooru_sys?"
     }
   },
   "10": {
     "inputs": {
       "source": [
-        "7",
+        "8",
         0
       ]
     },
@@ -95,11 +103,55 @@
   },
   "11": {
     "inputs": {
-      "value": "You are an expert prompt engineer for text-to-image models trained on Danbooru-style tag prompts. Your task is to convert the user's prompt into a comma-separated list of Danbooru-style tags.\n\nThink step by step about the request before writing the answer:\n- What is the subject, character count, and pose/action?\n- What appearance, clothing, and accessory details are stated or clearly implied?\n- What setting, background, and composition details apply?\n- What art style or medium fits, if any is stated or implied?\n\nThen output a single line of comma-separated tags.\n\nFollow these rules strictly:\n1. **Faithfulness First:** Include a tag for every subject, action, color, and clothing item mentioned. Do not invent details the input doesn't support.\n2. **Tag Order:** List tags from general to specific — subject/character count first, then appearance, then pose/action, then clothing, then background/setting, then style/medium tags last.\n3. **Tag Format:** Lowercase only. Replace spaces inside a single tag concept with underscores (e.g. crop_top, blue_eyes). Separate tags with \", \".\n4. **No Prose:** Never write full sentences, connecting words, explanations, or markdown. Output must be tags only.\n5. **Avoid Over-Specification:** Do not add highly specific colors, materials, or background elements unless the input supports them.\n6. **Preserve User Medium:** If the user specifies a medium (photo, illustration, painting, 3D render, sketch), include the matching style tag instead of defaulting to anime/illustration tags.\n7. **Respect the Human Form:** Assume clothing covers genitals and intimate anatomy; do not add explicit anatomy tags.\n8. **Respect Existing Detail:** If the user's prompt already reads like a tag list, lightly clean and reorder it rather than rewriting from scratch.\n\nUser's Input:"
+      "value": "You are an expert prompt engineer for text-to-image models trained on Danbooru-style tag prompts (Illustrious/NoobAI-class models). Your task is to convert the user's prompt into a comma-separated list of Danbooru-style tags.\n\nThink step by step before writing the answer:\n- Subject, character count, and pose/action?\n- Appearance, clothing, and accessory details stated or clearly implied?\n- Setting, background, and composition?\n- Art style or medium?\n\nThen output a single line of comma-separated tags in this order:\n[count/rating tags] → [subject appearance] → [pose/action] → [clothing/accessories] → [background/setting] → [style/medium] → [quality tags]\n\nRules:\n1. **Faithfulness First:** Include every subject, action, color, and clothing item mentioned. Do not invent new objects, props, or characters the input doesn't support.\n2. **Conventional Padding Allowed:** You MAY add standard, genre-typical composition/count tags even if not explicitly stated (e.g. solo, 1girl, looking_at_viewer) when the scene clearly implies a single-character portrait — these are expected defaults in Danbooru-trained models, not inventions.\n3. **Tag Format:** Lowercase, underscores for multi-word tags (e.g. crop_top, blue_eyes), comma-separated.\n4. **Quality Tags Required:** Always end the tag list with a standard quality block: \"masterpiece, best quality, very aesthetic, absurdres\".\n5. **No Prose:** Tags only — no sentences, no explanations, no markdown.\n6. **Preserve User Medium:** If a medium is specified (photo, painting, 3D render, sketch), use the matching tag instead of defaulting to illustration/anime tags.\n7. **Respect the Human Form:** Assume clothing covers genitals/intimate anatomy; no explicit anatomy tags.\n8. **Respect Existing Detail:** If the input already reads like a tag list, clean and reorder it rather than rewriting.\n\nUser's Input:\n\n"
     },
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
       "title": "Text String (System Prompt - Danbooru)"
+    }
+  },
+  "12": {
+    "inputs": {
+      "string_a": [
+        "11",
+        0
+      ],
+      "string_b": [
+        "7",
+        0
+      ],
+      "delimiter": ""
+    },
+    "class_type": "StringConcatenate",
+    "_meta": {
+      "title": "연결"
+    }
+  },
+  "13": {
+    "inputs": {
+      "prompt": [
+        "12",
+        0
+      ],
+      "max_length": 512,
+      "sampling_mode": "on",
+      "sampling_mode.temperature": 0.7,
+      "sampling_mode.top_k": 64,
+      "sampling_mode.top_p": 0.95,
+      "sampling_mode.min_p": 0.05,
+      "sampling_mode.repetition_penalty": 1.05,
+      "sampling_mode.seed": 0,
+      "sampling_mode.presence_penalty": 0,
+      "thinking": true,
+      "use_default_template": true,
+      "clip": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "TextGenerate",
+    "_meta": {
+      "title": "텍스트 생성"
     }
   }
 }
