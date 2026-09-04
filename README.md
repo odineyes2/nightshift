@@ -60,9 +60,23 @@ npm install   # pm2로 서버를 실행/관리하려면 (아래 "실행 방법" 
 
 `npm install`은 서버 코드와 무관하게 [pm2](https://pm2.keymetrics.io/)(프로세스 매니저) 하나만 `node_modules/`에 내려받습니다 — 프론트엔드 빌드 과정이 아닙니다. Node.js가 없는 환경이라면 이 단계는 건너뛰고 아래 "python3로 직접 실행" 방법을 쓰세요.
 
+RunPod처럼 pod를 재시작할 때마다 위 두 설치 단계를 다시 해야 하는 환경이라면, 위 명령을 직접 치는 대신 아래 "실행 방법"의 `./bootstrap.sh`로 한 번에 처리할 수 있습니다.
+
 ## 실행 방법
 
-### pm2로 실행 (권장)
+### pod를 재시작했거나 처음 설치할 때 (RunPod 등)
+
+```bash
+./bootstrap.sh
+```
+
+RunPod 같은 pod는 보통 네트워크 볼륨을 `/workspace`에만 마운트합니다. 이 저장소(`/workspace/nightshift`)는 거기 있어서 pod를 재시작해도 남아있지만, `pip install`로 설치한 패키지나 `apt`로 설치한 Node.js는 컨테이너 시스템 경로(`/usr` 등)에 들어가서 네트워크 볼륨 바깥입니다 — 그래서 pod가 재시작될 때마다 컨테이너가 기본 이미지로 초기화되면서 매번 같이 사라집니다.
+
+`bootstrap.sh`는 그걸 확인해서 없는 것만 골라 다시 설치한 뒤(Python 의존성 → Node.js(없으면 NodeSource로 설치) → `npm install`) 곧바로 `npm start`로 서버까지 띄웁니다. 이미 다 설치돼 있으면(같은 세션에서 다시 실행한 경우) 대부분 빠르게 지나가므로, **pod를 새로 시작할 때마다 이 스크립트 하나만 실행하면 됩니다.**
+
+### pm2로 실행 (같은 세션에서 다시 시작할 때)
+
+이미 `bootstrap.sh`로 한 번 띄워둔 뒤, 같은 pod 세션 안에서 서버만 다시 시작/중지하고 싶다면 의존성 설치를 매번 다시 확인할 필요 없이 곧바로:
 
 ```bash
 npm start
@@ -352,6 +366,7 @@ nightshift/
 ├── requirements.txt
 ├── package.json               # pm2 실행용 npm 스크립트(`npm start` 등) — 서버 코드와 무관
 ├── ecosystem.config.js        # pm2 앱 설정 (uvicorn --reload를 이 설정으로 감독)
+├── bootstrap.sh                # pod 재시작 후 의존성 재설치 + 서버 시작을 한 번에 (RunPod용)
 ├── static/
 │   └── index.html            # 프론트엔드 (단일 HTML 파일)
 ├── templates/
