@@ -6,3 +6,6 @@ logs/*
 # 파이썬 캐시
 __pycache__/
 *.pyc
+
+# pm2 실행용 npm 의존성 (package.json만 커밋, 실제 모듈은 npm install로 각자 받음)
+node_modules/
