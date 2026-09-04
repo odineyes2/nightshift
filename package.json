@@ -1,0 +1,16 @@
+{
+  "name": "nightshift",
+  "private": true,
+  "version": "1.0.0",
+  "description": "nightshift 잡 큐 서버(app.py, Python/FastAPI) 실행·관리용 pm2 스크립트. 서버 코드 자체는 이 패키지가 아니라 Python으로 작성돼 있음.",
+  "scripts": {
+    "start": "pm2 start ecosystem.config.js && pm2 logs nightshift",
+    "stop": "pm2 stop nightshift",
+    "restart": "pm2 restart nightshift",
+    "status": "pm2 status",
+    "logs": "pm2 logs nightshift"
+  },
+  "devDependencies": {
+    "pm2": "^7.0.0"
+  }
+}

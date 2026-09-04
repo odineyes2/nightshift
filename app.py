@@ -6,6 +6,10 @@ RunPod Job Queue — 등록된 스크립트 템플릿을 큐에 쌓아두면 워
     python3 app.py
     (RunPod라면 8188 등 이미 쓰는 포트와 겹치지 않게 8000번을 열어둠)
 
+    pm2로 백그라운드 실행 + 코드 변경 자동 반영 + 깔끔한 로그를 원하면
+    `npm install && npm start`를 대신 쓴다 (README "실행 방법" 참고,
+    설정은 ecosystem.config.js).
+
 접속:
     브라우저에서 http://<pod-ip>:8000  (RunPod는 포트 8000을 프록시로 노출해야 함)
 """
