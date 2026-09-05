@@ -34,6 +34,13 @@ CSV 입력과 프롬프트 주입 없이 시드만 바꾸는 가장 단순한 �
                     "sequential"을 쓴다.
     MAIN_PROMPT     메인 프롬프트 (nightshift가 템플릿 옵션 "main_prompt"로 주입, 기본
                     빈 값 — 비워두면 워크플로우의 프롬프트를 그대로 씀)
+    DANBOORU_SEED_PROMPTS  시드별로 다르게 쓸 프롬프트 목록(JSON 문자열 배열, nightshift가
+                    템플릿 옵션 "danbooru_seed_prompts"로 주입). 작업 관리 화면의 "시드마다
+                    Danbooru로 다른 프롬프트 생성" 체크박스를 켰을 때만 채워지며, 큐에
+                    추가하는 시점에 이미 시드 개수만큼 뽑아둔 값이다. i번째 시드는
+                    이 배열의 (i-1)번째 값을 쓰고, 비어 있거나 길이가 모자라면 그
+                    시드는 MAIN_PROMPT로 대체한다(체크 안 하면 기본이 빈 값이라
+                    예전처럼 모든 시드가 MAIN_PROMPT 하나를 그대로 씀).
     WIDTH, HEIGHT   해상도 (nightshift가 템플릿 옵션 "width"/"height"로 주입, 기본 빈 값
                     — 둘 다 비워두면 워크플로우의 값을 그대로 씀)
     COMFY_URL       ComfyUI 서버 주소 (기본 http://127.0.0.1:8188)
@@ -306,6 +313,20 @@ def main():
     seed_count = int(seed_count_raw)
     seed_mode = env("SEED_MODE", "random")
     main_prompt = env("MAIN_PROMPT", "")
+    # 작업 관리 화면의 "시드마다 Danbooru로 다른 프롬프트 생성" 체크박스가 켜져
+    # 있었으면, nightshift가 큐에 추가하는 시점에 이미 시드 개수만큼 뽑아둔
+    # 프롬프트 목록(JSON 문자열 배열)을 여기로 넘긴다 — 시드마다 그중 하나씩
+    # 쓴다. 비어 있거나 파싱에 실패하면(체크 안 한 경우가 기본) 예전처럼
+    # main_prompt 하나를 모든 시드에 그대로 쓴다.
+    danbooru_seed_prompts = []
+    danbooru_seed_prompts_raw = env("DANBOORU_SEED_PROMPTS", "")
+    if danbooru_seed_prompts_raw:
+        try:
+            parsed = json.loads(danbooru_seed_prompts_raw)
+            if isinstance(parsed, list):
+                danbooru_seed_prompts = [str(p) for p in parsed]
+        except json.JSONDecodeError:
+            print("[seed_batch] 경고: DANBOORU_SEED_PROMPTS가 올바른 JSON이 아니어서 무시합니다.", file=sys.stderr)
     width = env("WIDTH", "")
     height = env("HEIGHT", "")
     base_workflow = load_workflow(workflow_path)
@@ -321,7 +342,12 @@ def main():
     done_images = 0
     for index in range(1, seed_count + 1):
         seed = random.randint(0, 2**31 - 1) if seed_mode == "random" else index - 1
-        run_once(base_workflow, comfy_url, seed, index, main_prompt, width, height)
+        prompt_for_seed = (
+            danbooru_seed_prompts[index - 1]
+            if index - 1 < len(danbooru_seed_prompts)
+            else main_prompt
+        )
+        run_once(base_workflow, comfy_url, seed, index, prompt_for_seed, width, height)
         done_images += default_batch_size
         report_progress(job_id, nightshift_url, total_images, done_images)
 
