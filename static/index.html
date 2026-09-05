@@ -1455,6 +1455,18 @@
     </div>
   </div>
 
+  <div class="panel collapsed" id="danbooru-nsfw-panel">
+    <div class="panel-header">
+      <div class="panel-header-title">
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
+        <div class="section-label">🔞 NSFW</div>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div id="danbooru-nsfw-categories"></div>
+    </div>
+  </div>
+
   <div class="panel collapsed" id="danbooru-history-panel">
     <div class="panel-header">
       <div class="panel-header-title">
@@ -1917,6 +1929,23 @@ function buildPromptEnhanceControl(opt){
 
   const middle = document.createElement('div');
   middle.className = 'prompt-enhance-middle';
+
+  // Danbooru 프롬프트 탭의 카테고리/규칙/랜덤 로직(danbooruRandomizeAll)을 그대로
+  // 재사용해서 왼쪽 "직접 입력"을 채운다 — 그 탭에서 고정(🔒)해둔 카테고리는
+  // 손대지 않고 나머지만 새로 뽑고, 모순 태그를 피하는 검증도 그대로 적용된다
+  // (danbooruRandomizeAll/danbooruDrawRange 등은 이 함수보다 아래에서 정의되지만
+  // function 선언이라 호이스팅되어 여기서 바로 참조해도 문제없다).
+  const randomizeBtn = document.createElement('button');
+  randomizeBtn.type = 'button';
+  randomizeBtn.className = 'load-btn';
+  randomizeBtn.textContent = '🎲 Danbooru 랜덤 생성';
+  randomizeBtn.title = 'Danbooru 프롬프트 탭에서 고정(🔒)해둔 항목은 그대로 두고 나머지만 무작위로 뽑아 왼쪽에 채워요';
+  randomizeBtn.addEventListener('click', () => {
+    danbooruRandomizeAll();
+    rawTextarea.value = danbooruAssemblePrompt();
+    rawTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  middle.appendChild(randomizeBtn);
 
   const modeToggle = document.createElement('div');
   modeToggle.className = 'enhance-mode';
@@ -3391,13 +3420,20 @@ const DANBOORU_CATEGORIES = [
   { key: 'pose', label: '포즈', kind: 'tags', order: 11,
     randomStrategy: { type: 'range', min: 0, max: 2 },
     tags: ['standing', 'sitting', 'looking up', 'looking back', 'arms up', 'leaning forward'] },
-  { key: 'place', label: '배경·장소·시간대·날씨', kind: 'tags', order: 12,
+  // NSFW — 기본 풀을 일부러 비워둔다(artist와 같은 방식). 구체적인 태그는 사용자가
+  // 아래 "태그 풀 편집"에서 직접 채워 넣는다. section: 'nsfw'로 표시된 카테고리는
+  // danbooruBuildCategoriesDOM()이 메인 카테고리 목록이 아니라 별도의 접힌 NSFW
+  // 패널에 렌더링한다 — 프롬프트 조립 순서(배열 순서)에는 그대로 포함된다.
+  { key: 'nsfw', label: 'NSFW', kind: 'tags', order: 12, section: 'nsfw',
+    randomStrategy: { type: 'range', min: 0, max: 2 },
+    tags: [] },
+  { key: 'place', label: '배경·장소·시간대·날씨', kind: 'tags', order: 13,
     randomStrategy: { type: 'place' },
     tags: DANBOORU_PLACE_POOL },
-  { key: 'light', label: '조명', kind: 'tags', order: 13,
+  { key: 'light', label: '조명', kind: 'tags', order: 14,
     randomStrategy: { type: 'light' },
     tags: DANBOORU_LIGHT_POOL },
-  { key: 'extra', label: '자유 추가', kind: 'text', order: 14,
+  { key: 'extra', label: '자유 추가', kind: 'text', order: 15,
     placeholder: '그 밖에 추가하고 싶은 프롬프트를 자유롭게 입력하세요' },
 ];
 const DANBOORU_CATEGORY_BY_KEY = Object.fromEntries(DANBOORU_CATEGORIES.map(c => [c.key, c]));
@@ -3938,59 +3974,71 @@ async function danbooruDeleteHistoryEntry(id){
 }
 
 // ---- 초기 DOM 구성 ----
-function danbooruBuildCategoriesDOM(){
-  const container = document.getElementById('danbooru-categories');
-  container.innerHTML = DANBOORU_CATEGORIES.map(cat => {
-    if(cat.kind === 'text'){
-      return `
-        <div class="danbooru-cat" data-key="${cat.key}">
-          <div class="danbooru-cat-header">
-            <div class="danbooru-cat-label">${escapeHtml(cat.label)}</div>
-          </div>
-          <textarea class="option-input danbooru-text-input" data-key="${cat.key}" rows="2" placeholder="${escapeHtml(cat.placeholder || '')}"></textarea>
-        </div>
-      `;
-    }
+function danbooruCategoryCardHtml(cat){
+  if(cat.kind === 'text'){
     return `
       <div class="danbooru-cat" data-key="${cat.key}">
         <div class="danbooru-cat-header">
           <div class="danbooru-cat-label">${escapeHtml(cat.label)}</div>
-          <div class="danbooru-cat-actions">
-            <button type="button" class="danbooru-icon-btn danbooru-lock-btn${cat.lockedByDefault ? ' active' : ''}" data-key="${cat.key}" title="고정 (랜덤 조합에서 제외)">🔒</button>
-            <button type="button" class="danbooru-icon-btn danbooru-reroll-btn" data-key="${cat.key}" title="이 항목만 다시 뽑기">🎲</button>
-            <button type="button" class="danbooru-icon-btn danbooru-edit-toggle-btn" data-key="${cat.key}" title="태그 풀 편집">✎</button>
-          </div>
         </div>
-        <div class="danbooru-chips" data-key="${cat.key}"></div>
-        <div class="danbooru-pool-editor" data-key="${cat.key}" hidden>
-          ${cat.key === 'artist' ? '<div class="danbooru-pool-hint">"by artistname" 형식으로 추가하세요 (예: by wlop)</div>' : ''}
-          <div class="danbooru-pool-chips" data-key="${cat.key}"></div>
-          <div class="danbooru-pool-add-row">
-            <input type="text" class="option-input danbooru-pool-add-input" data-key="${cat.key}" placeholder="쉼표로 구분해 여러 개 추가">
-            <button type="button" class="load-btn danbooru-pool-add-btn" data-key="${cat.key}">추가</button>
-          </div>
-        </div>
+        <textarea class="option-input danbooru-text-input" data-key="${cat.key}" rows="2" placeholder="${escapeHtml(cat.placeholder || '')}"></textarea>
       </div>
     `;
-  }).join('');
+  }
+  return `
+    <div class="danbooru-cat" data-key="${cat.key}">
+      <div class="danbooru-cat-header">
+        <div class="danbooru-cat-label">${escapeHtml(cat.label)}</div>
+        <div class="danbooru-cat-actions">
+          <button type="button" class="danbooru-icon-btn danbooru-lock-btn${cat.lockedByDefault ? ' active' : ''}" data-key="${cat.key}" title="고정 (랜덤 조합에서 제외)">🔒</button>
+          <button type="button" class="danbooru-icon-btn danbooru-reroll-btn" data-key="${cat.key}" title="이 항목만 다시 뽑기">🎲</button>
+          <button type="button" class="danbooru-icon-btn danbooru-edit-toggle-btn" data-key="${cat.key}" title="태그 풀 편집">✎</button>
+        </div>
+      </div>
+      <div class="danbooru-chips" data-key="${cat.key}"></div>
+      <div class="danbooru-pool-editor" data-key="${cat.key}" hidden>
+        ${cat.key === 'artist' ? '<div class="danbooru-pool-hint">"by artistname" 형식으로 추가하세요 (예: by wlop)</div>' : ''}
+        ${cat.key === 'nsfw' ? '<div class="danbooru-pool-hint">원하는 danbooru 태그를 직접 추가하세요.</div>' : ''}
+        <div class="danbooru-pool-chips" data-key="${cat.key}"></div>
+        <div class="danbooru-pool-add-row">
+          <input type="text" class="option-input danbooru-pool-add-input" data-key="${cat.key}" placeholder="쉼표로 구분해 여러 개 추가">
+          <button type="button" class="load-btn danbooru-pool-add-btn" data-key="${cat.key}">추가</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
 
-  container.querySelectorAll('.danbooru-lock-btn').forEach(btn => {
+// NSFW로 표시된 카테고리(section: 'nsfw')는 메인 카테고리 목록이 아니라 별도의
+// 접힌 패널(#danbooru-nsfw-categories)에 그린다 — 프롬프트 조립 순서(배열 순서)에는
+// 그대로 포함되므로 렌더링 위치만 나뉜다. 렌더/편집 함수들은 data-key로 문서
+// 전체에서 요소를 찾으므로 어느 컨테이너에 있든 그대로 동작한다.
+function danbooruBuildCategoriesDOM(){
+  const mainContainer = document.getElementById('danbooru-categories');
+  const nsfwContainer = document.getElementById('danbooru-nsfw-categories');
+  const mainCats = DANBOORU_CATEGORIES.filter(c => c.section !== 'nsfw');
+  const nsfwCats = DANBOORU_CATEGORIES.filter(c => c.section === 'nsfw');
+
+  mainContainer.innerHTML = mainCats.map(danbooruCategoryCardHtml).join('');
+  nsfwContainer.innerHTML = nsfwCats.map(danbooruCategoryCardHtml).join('');
+
+  document.querySelectorAll('.danbooru-lock-btn').forEach(btn => {
     btn.addEventListener('click', () => danbooruToggleLock(btn.dataset.key));
   });
-  container.querySelectorAll('.danbooru-reroll-btn').forEach(btn => {
+  document.querySelectorAll('.danbooru-reroll-btn').forEach(btn => {
     btn.addEventListener('click', () => danbooruRerollCategory(btn.dataset.key));
   });
-  container.querySelectorAll('.danbooru-edit-toggle-btn').forEach(btn => {
+  document.querySelectorAll('.danbooru-edit-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => danbooruTogglePoolEditor(btn.dataset.key));
   });
-  container.querySelectorAll('.danbooru-pool-add-btn').forEach(btn => {
+  document.querySelectorAll('.danbooru-pool-add-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const input = container.querySelector(`.danbooru-pool-add-input[data-key="${btn.dataset.key}"]`);
+      const input = document.querySelector(`.danbooru-pool-add-input[data-key="${btn.dataset.key}"]`);
       danbooruAddPoolTags(btn.dataset.key, input.value);
       input.value = '';
     });
   });
-  container.querySelectorAll('.danbooru-pool-add-input').forEach(input => {
+  document.querySelectorAll('.danbooru-pool-add-input').forEach(input => {
     input.addEventListener('keydown', (e) => {
       if(e.key === 'Enter'){
         e.preventDefault();
@@ -3999,7 +4047,7 @@ function danbooruBuildCategoriesDOM(){
       }
     });
   });
-  container.querySelectorAll('.danbooru-text-input').forEach(ta => {
+  document.querySelectorAll('.danbooru-text-input').forEach(ta => {
     ta.addEventListener('input', () => {
       danbooruState.texts[ta.dataset.key] = ta.value;
       danbooruUpdateAll();
