@@ -74,6 +74,19 @@ RunPod 같은 pod는 보통 네트워크 볼륨을 `/workspace`에만 마운트�
 
 `bootstrap.sh`는 그걸 확인해서 없는 것만 골라 다시 설치한 뒤(Python 의존성 → Node.js(없으면 NodeSource로 설치) → `npm install`) 곧바로 `npm start`로 서버까지 띄웁니다. 이미 다 설치돼 있으면(같은 세션에서 다시 실행한 경우) 대부분 빠르게 지나가므로, **pod를 새로 시작할 때마다 이 스크립트 하나만 실행하면 됩니다.**
 
+#### 웹앱 접속 주소를 폰으로 받기 (ntfy.sh, RunPod)
+
+RunPod는 pod를 재시작할 때마다 프록시 주소(`https://{POD_ID}-{PORT}.proxy.runpod.net/`)가 바뀝니다. `bootstrap.sh`는 서버를 띄우기 직전에 `notify_ntfy.sh`를 백그라운드로 실행해서, 서버가 완전히 뜬 걸 확인(최대 30초 헬스체크)한 뒤 그 주소를 [ntfy.sh](https://ntfy.sh/) 토픽으로 push합니다 — 폰에 ntfy 앱을 깔고 같은 토픽을 구독해두면 pod를 재시작할 때마다 알림을 탭해서 바로 접속할 수 있습니다.
+
+설정 방법:
+
+```bash
+cp .env.example .env
+vi .env   # NTFY_TOPIC=아무나-추측하기-어려운-이름 을 채운다
+```
+
+`NTFY_TOPIC`을 비워두면(=`.env`를 안 만들면) 알림 없이 조용히 건너뛰므로, 이 기능은 순수 선택 사항입니다. 포트를 8000이 아닌 값으로 바꿨다면 `.env`의 `NIGHTSHIFT_PORT`도 같이 맞춰야 주소가 정확합니다. 헬스체크가 타임아웃돼도(서버가 예상보다 늦게 뜨는 경우) 알림은 그대로 보내되 `logs/notify_ntfy.log`에 경고를 남기고, ntfy 전송 자체가 실패해도 한 번 재시도한 뒤 로그만 남기고 넘어가서 웹앱 실행 자체를 막지 않습니다. 수동 재전송 등 테스트 방법은 `notify_ntfy.sh` 상단 주석에 정리돼 있습니다.
+
 ### pm2로 실행 (같은 세션에서 다시 시작할 때)
 
 이미 `bootstrap.sh`로 한 번 띄워둔 뒤, 같은 pod 세션 안에서 서버만 다시 시작/중지하고 싶다면 의존성 설치를 매번 다시 확인할 필요 없이 곧바로:
@@ -383,6 +396,8 @@ nightshift/
 ├── package.json               # pm2 실행용 npm 스크립트(`npm start` 등) — 서버 코드와 무관
 ├── ecosystem.config.js        # pm2 앱 설정 (uvicorn --reload를 이 설정으로 감독)
 ├── bootstrap.sh                # pod 재시작 후 의존성 재설치 + 서버 시작을 한 번에 (RunPod용)
+├── notify_ntfy.sh              # 웹앱 접속 주소를 ntfy.sh로 폰에 알림 (bootstrap.sh가 백그라운드로 호출)
+├── .env.example                # notify_ntfy.sh용 환경변수 예시 (.env로 복사해서 사용, git 제외)
 ├── static/
 │   └── index.html            # 프론트엔드 (단일 HTML 파일)
 ├── templates/

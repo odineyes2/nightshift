@@ -11,3 +11,6 @@ __pycache__/
 
 # pm2 실행용 npm 의존성 (package.json만 커밋, 실제 모듈은 npm install로 각자 받음)
 node_modules/
+
+# ntfy.sh 토픽 등 민감정보 — .env.example만 커밋하고 실제 .env는 각자 만들어 씀
+.env
