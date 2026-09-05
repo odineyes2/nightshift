@@ -38,6 +38,28 @@
     --grad-danger: linear-gradient(135deg, #E5484D, #C81E23);
     --grad-danger-hover: linear-gradient(135deg, #EE6367, #DC2626);
   }
+  /* 밤 모드 — OS 설정을 기본으로 따르되(prefers-color-scheme), 사용자가 헤더의
+     토글로 명시적으로 고르면 그 선택(html[data-theme])이 OS 설정보다 우선한다.
+     accent 색(queued/running/done/failed/interrupted, 그라데이션)은 두 테마에서
+     이미 충분히 선명해 그대로 두고, 배경/글자 계열만 뒤집는다. */
+  @media (prefers-color-scheme: dark){
+    html:not([data-theme="light"]){
+      --bg: #14161B;
+      --panel: #1C1F26;
+      --border: #2C3038;
+      --text: #E7E9ED;
+      --text-dim: #97A0AC;
+      --log-text: #B8C0CC;
+    }
+  }
+  html[data-theme="dark"]{
+    --bg: #14161B;
+    --panel: #1C1F26;
+    --border: #2C3038;
+    --text: #E7E9ED;
+    --text-dim: #97A0AC;
+    --log-text: #B8C0CC;
+  }
   *{ box-sizing: border-box; }
   body{
     margin:0;
@@ -101,6 +123,24 @@
   .comfy-status .cdot{ width:6px; height:6px; border-radius:50%; background:currentColor; }
   .comfy-status.connected{ color:var(--done); border-color:currentColor; background:rgba(var(--done-rgb),0.08); }
   .comfy-status.disconnected{ color:var(--failed); border-color:currentColor; background:rgba(var(--failed-rgb),0.08); }
+
+  /* 밤 모드/낮 모드 전환 버튼 — .comfy-status와 같은 필(pill) 형태로 헤더 톤을 맞춘다. */
+  .theme-toggle-btn{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    font-weight:600;
+    padding:4px 10px;
+    border-radius:20px;
+    border:1px solid var(--border);
+    background:var(--panel);
+    color:var(--text-dim);
+    cursor:pointer;
+    transition: border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .theme-toggle-btn:hover{ border-color:var(--queued); color:var(--queued); }
 
   .tab-bar{
     background:var(--panel);
@@ -846,8 +886,10 @@
     align-items:center;
     justify-content:space-between;
     gap:8px;
+    flex-wrap:wrap;
     margin-bottom:6px;
   }
+  .danbooru-prompt-row-actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .danbooru-prompt-label{
     font-family:var(--mono);
     font-size:10.5px;
@@ -1150,12 +1192,28 @@
   }
   .modal-btn-secondary:hover{ border-color:var(--text-dim); color:var(--text); }
 </style>
+<script>
+  // 본문 렌더링 전에 저장된 테마를 먼저 적용해서, 밤 모드로 저장해둔 사용자가
+  // 새로고침할 때 잠깐 낮 모드로 번쩍였다가 바뀌는(FOUC) 걸 막는다. 저장된 값이
+  // 없으면 속성 자체를 세팅하지 않아 OS 설정(prefers-color-scheme)을 그대로 따른다.
+  (function(){
+    try{
+      const saved = localStorage.getItem('nightshift-theme');
+      if(saved === 'light' || saved === 'dark'){
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    }catch(e){
+      // localStorage를 못 쓰는 환경이면 그냥 OS 설정을 따른다.
+    }
+  })();
+</script>
 </head>
 <body>
 
 <header>
   <div class="brand"><span class="dot"></span> job queue</div>
   <div class="header-right">
+    <button class="theme-toggle-btn" id="theme-toggle-btn" type="button"></button>
     <div class="comfy-status" id="comfy-status"><span class="cdot"></span><span id="comfy-status-text">ComfyUI 확인 중…</span></div>
     <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
   </div>
@@ -1376,9 +1434,13 @@
       <div class="danbooru-prompt-box">
         <div class="danbooru-prompt-row">
           <div class="danbooru-prompt-label">조립된 프롬프트</div>
-          <span id="danbooru-copy-slot"></span>
+          <div class="danbooru-prompt-row-actions">
+            <button class="load-btn" id="danbooru-send-btn" type="button">작업 관리 → 메인 프롬프트로 보내기</button>
+            <span id="danbooru-copy-slot"></span>
+          </div>
         </div>
         <div class="danbooru-prompt-text" id="danbooru-prompt-text"></div>
+        <div class="enhance-status" id="danbooru-send-status"></div>
       </div>
       <div class="danbooru-conflicts" id="danbooru-conflicts" hidden></div>
     </div>
@@ -2864,6 +2926,50 @@ document.getElementById('delete-images-btn').addEventListener('click', async () 
   }
 });
 
+// ---- 밤 모드 / 낮 모드 ----
+const THEME_STORAGE_KEY = 'nightshift-theme';
+const themeToggleBtn = document.getElementById('theme-toggle-btn');
+const prefersDarkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+function getSavedTheme(){
+  try{ return localStorage.getItem(THEME_STORAGE_KEY); }catch(e){ return null; }
+}
+
+function getEffectiveTheme(){
+  const saved = getSavedTheme();
+  if(saved === 'light' || saved === 'dark') return saved;
+  return (prefersDarkQuery && prefersDarkQuery.matches) ? 'dark' : 'light';
+}
+
+function updateThemeToggleLabel(theme){
+  themeToggleBtn.textContent = theme === 'dark' ? '☀ 낮 모드' : '🌙 밤 모드';
+  themeToggleBtn.title = theme === 'dark' ? '낮 모드(밝은 화면)로 전환' : '밤 모드(어두운 화면)로 전환';
+}
+
+function applyTheme(theme, persist){
+  document.documentElement.setAttribute('data-theme', theme);
+  if(persist){
+    try{ localStorage.setItem(THEME_STORAGE_KEY, theme); }catch(e){ /* 저장 실패해도 이번 세션 안에서는 그대로 동작 */ }
+  }
+  updateThemeToggleLabel(theme);
+}
+
+themeToggleBtn.addEventListener('click', () => {
+  const next = getEffectiveTheme() === 'dark' ? 'light' : 'dark';
+  applyTheme(next, true);
+});
+
+// 사용자가 명시적으로 고른 적 없으면(저장된 값이 없으면) OS 테마가 바뀔 때 같이 따라간다.
+if(prefersDarkQuery){
+  const onSystemThemeChange = (e) => {
+    if(!getSavedTheme()) applyTheme(e.matches ? 'dark' : 'light', false);
+  };
+  if(prefersDarkQuery.addEventListener) prefersDarkQuery.addEventListener('change', onSystemThemeChange);
+  else if(prefersDarkQuery.addListener) prefersDarkQuery.addListener(onSystemThemeChange);
+}
+
+applyTheme(getEffectiveTheme(), false);
+
 // ---- 탭 전환 (작업 관리 / 갤러리 / Danbooru 프롬프트) ----
 const TAB_MAINS = {
   jobs: document.getElementById('tab-jobs'),
@@ -3903,6 +4009,30 @@ function danbooruBuildCategoriesDOM(){
 
 document.getElementById('danbooru-randomize-btn').addEventListener('click', danbooruRandomizeAll);
 document.getElementById('danbooru-history-save-btn').addEventListener('click', danbooruSaveHistory);
+
+// 1장 — "작업 관리" 탭의 메인 프롬프트로 보내기. main_prompt 옵션이 있는
+// 템플릿(시드 반복/포즈 참조 배치)이 선택돼 있을 때만 그 입력란(.enhance-raw)이
+// 렌더링돼 있으므로, 없으면 어느 템플릿을 골라야 하는지 안내만 하고 아무것도
+// 바꾸지 않는다.
+function danbooruSendToMainPrompt(){
+  const statusEl = document.getElementById('danbooru-send-status');
+  const raw = document.querySelector('#options-fields .enhance-raw');
+  if(!raw){
+    statusEl.textContent = '현재 선택된 템플릿에는 메인 프롬프트 입력란이 없어요. "작업 관리" 탭에서 메인 프롬프트가 있는 템플릿(시드 반복/포즈 참조 배치)을 먼저 선택하세요.';
+    statusEl.classList.remove('success');
+    statusEl.classList.add('error');
+    return;
+  }
+  raw.value = danbooruAssemblePrompt();
+  raw.dispatchEvent(new Event('input', { bubbles: true }));
+  statusEl.textContent = '메인 프롬프트로 보냈어요.';
+  statusEl.classList.remove('error');
+  statusEl.classList.add('success');
+  document.querySelector('.tab-btn[data-tab="jobs"]').click();
+  raw.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  raw.focus();
+}
+document.getElementById('danbooru-send-btn').addEventListener('click', danbooruSendToMainPrompt);
 
 async function initDanbooru(){
   try{
