@@ -172,6 +172,38 @@ recent_csvs_store = RecentFileStore(
     int(os.environ.get("NIGHTSHIFT_RECENT_CSVS_RETENTION", "30")),
 )
 
+# "Danbooru 프롬프트 조립" 탭의 영구 저장 대상 두 가지 — 태그 풀 편집(카테고리별
+# 추가/삭제)과 조합 기록. 규칙 엔진·랜덤 조합·프롬프트 조립 자체는 클릭마다 즉시
+# 반응해야 해서 static/index.html에 선언적 데이터+로직으로 들어있고, 여기서는
+# "사용자가 편집/저장한 상태"만 그대로 보관했다 내려준다 (형태를 이해할 필요가 없음).
+DANBOORU_TAG_EDITS_FILE = BASE_DIR / "danbooru_tag_edits.json"
+DANBOORU_HISTORY_FILE = BASE_DIR / "danbooru_history.json"
+DANBOORU_HISTORY_LIMIT = 40
+
+danbooru_tag_edits: dict = {}   # {categoryKey: {"added": [...], "removed": [...]}}
+danbooru_history: list = []     # 최신순, 최대 DANBOORU_HISTORY_LIMIT개
+
+
+def load_danbooru_state():
+    if DANBOORU_TAG_EDITS_FILE.exists():
+        with open(DANBOORU_TAG_EDITS_FILE) as f:
+            danbooru_tag_edits.update(json.load(f))
+    if DANBOORU_HISTORY_FILE.exists():
+        with open(DANBOORU_HISTORY_FILE) as f:
+            danbooru_history.extend(json.load(f))
+
+
+def save_danbooru_tag_edits():
+    with lock:
+        with open(DANBOORU_TAG_EDITS_FILE, "w") as f:
+            json.dump(danbooru_tag_edits, f, indent=2, ensure_ascii=False)
+
+
+def save_danbooru_history():
+    with lock:
+        with open(DANBOORU_HISTORY_FILE, "w") as f:
+            json.dump(danbooru_history, f, indent=2, ensure_ascii=False)
+
 # ComfyUI는 같은 파드 안에서 돌아가지만 설치 방식에 따라 포트가 다를 수 있어, 이 후보들을
 # 순서대로 짧은 타임아웃으로 찔러보고 처음 응답하는 곳을 채택한다. COMFY_URL 환경변수가
 # 명시적으로 설정돼 있으면 이 감지 과정을 건너뛰고 그 값을 그대로 쓴다.
@@ -459,6 +491,7 @@ async def lifespan(app: FastAPI):
     load_state()
     recent_workflows_store.load()
     recent_csvs_store.load()
+    load_danbooru_state()
     # 재시작 전에 running/queued 상태로 남아있던 기록은 재실행되지 않으므로 상태만 정리
     with lock:
         for job in jobs.values():
@@ -1193,6 +1226,81 @@ async def rotate_images():
     except OutputFolderError as e:
         raise HTTPException(404, str(e))
     return result
+
+
+@app.get("/api/danbooru/tag-edits")
+def get_danbooru_tag_edits():
+    return danbooru_tag_edits
+
+
+@app.put("/api/danbooru/tag-edits")
+async def put_danbooru_tag_edits(request: Request):
+    # 프론트엔드가 편집 상태 전체({categoryKey: {added, removed}})를 매번 통째로
+    # 보내서 그대로 덮어쓴다 — 카테고리가 많지 않고 편집도 잦지 않아 부분 patch를
+    # 둘 이유가 없다.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "카테고리별 편집 내역(객체)이어야 해요.")
+    for key, value in data.items():
+        if not isinstance(value, dict) or not all(
+            isinstance(value.get(field, []), list) for field in ("added", "removed")
+        ):
+            raise HTTPException(400, f"'{key}' 항목 형식이 올바르지 않아요.")
+
+    danbooru_tag_edits.clear()
+    danbooru_tag_edits.update(data)
+    save_danbooru_tag_edits()
+    return danbooru_tag_edits
+
+
+@app.get("/api/danbooru/history")
+def get_danbooru_history():
+    return {"history": danbooru_history}
+
+
+@app.post("/api/danbooru/history")
+async def add_danbooru_history(request: Request):
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+
+    selection = data.get("selection")
+    texts = data.get("texts")
+    if not isinstance(selection, dict) or not isinstance(texts, dict):
+        raise HTTPException(400, "selection/texts는 객체여야 해요.")
+    name = data.get("name") or ""
+    if not isinstance(name, str):
+        raise HTTPException(400, "name은 문자열이어야 해요.")
+
+    entry = {
+        "id": str(uuid.uuid4())[:8],
+        "name": name,
+        "timestamp": int(time.time() * 1000),
+        "selection": selection,
+        "texts": texts,
+    }
+    with lock:
+        danbooru_history.insert(0, entry)
+        del danbooru_history[DANBOORU_HISTORY_LIMIT:]
+    save_danbooru_history()
+    return entry
+
+
+@app.delete("/api/danbooru/history/{entry_id}")
+def delete_danbooru_history(entry_id: str):
+    with lock:
+        entry = next((h for h in danbooru_history if h["id"] == entry_id), None)
+        if entry is None:
+            raise HTTPException(404, "없는 기록이에요.")
+        danbooru_history.remove(entry)
+    save_danbooru_history()
+    return {"ok": True}
 
 
 app.mount("/", StaticFiles(directory=str(BASE_DIR / "static"), html=True), name="static")
