@@ -461,6 +461,20 @@
   }
   .enhance-status.error{ color:var(--failed); }
   .enhance-status.success{ color:var(--done); }
+  .danbooru-per-seed-row{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--text-dim);
+    cursor:pointer;
+    margin-top:6px;
+  }
+  .danbooru-per-seed-row input[type="checkbox"]{
+    accent-color:var(--queued);
+    cursor:pointer;
+  }
   @media (max-width:640px){
     .prompt-enhance{ grid-template-columns:1fr; }
     .prompt-enhance-middle{ padding-top:0; }
@@ -1455,18 +1469,6 @@
     </div>
   </div>
 
-  <div class="panel collapsed" id="danbooru-nsfw-panel">
-    <div class="panel-header">
-      <div class="panel-header-title">
-        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
-        <div class="section-label">🔞 NSFW</div>
-      </div>
-    </div>
-    <div class="panel-body">
-      <div id="danbooru-nsfw-categories"></div>
-    </div>
-  </div>
-
   <div class="panel collapsed" id="danbooru-history-panel">
     <div class="panel-header">
       <div class="panel-header-title">
@@ -1775,6 +1777,11 @@ function resetForm(){
 
 const templateSelect = document.getElementById('template-select');
 const optionsFields = document.getElementById('options-fields');
+// 큐에 추가하기 직전에 실행할 콜백 목록 — 지금은 seed_batch의 "시드마다 다른
+// Danbooru 프롬프트" 체크박스가 여기 자기 재계산 함수를 등록해서, 제출 시점의
+// 최신 시드 개수/Danbooru 상태로 마지막에 한 번 더 갱신한다(renderOptionFields가
+// 템플릿을 바꿀 때마다 비움).
+const danbooruPreSubmitHooks = [];
 const csvField = document.getElementById('csv-field');
 const uploadError = document.getElementById('upload-error');
 
@@ -1926,6 +1933,70 @@ function buildPromptEnhanceControl(opt){
   rawLabelRow.appendChild(createCopyButton(() => rawTextarea.value.trim()));
   rawCol.appendChild(rawLabelRow);
   rawCol.appendChild(rawTextarea);
+
+  // 시드 배치에서만: "시드마다 다른 프롬프트" 체크박스. seed_count 필드가 있는
+  // 템플릿(지금은 seed_batch만)에서만 나타난다 — manifest에서 seed_count가
+  // main_prompt보다 앞에 선언돼 있어서 이 시점엔 이미 DOM에 렌더링돼 있다.
+  // 켜면 지금 Danbooru 탭의 잠금/선택 상태를 기준으로 시드 개수만큼 독립적으로
+  // 뽑은 프롬프트를 숨겨진 필드(danbooru_seed_prompts)에 담아 큐에 추가할 때
+  // 함께 보낸다 — seed_batch.py는 이 값이 있으면 시드마다 그중 하나씩 쓰고,
+  // 없으면(체크 안 하면) 지금처럼 main_prompt 하나를 모든 시드에 그대로 쓴다.
+  const seedCountInput = optionsFields.querySelector('[data-name="seed_count"]');
+  if(seedCountInput){
+    const perSeedRow = document.createElement('label');
+    perSeedRow.className = 'danbooru-per-seed-row';
+    perSeedRow.title = '켜면 시드마다 독립적으로 무작위 조합을 다시 뽑아요 — Danbooru 탭에서 고정(🔒)해둔 항목은 모든 시드에서 그대로 유지됩니다.';
+    const perSeedCheckbox = document.createElement('input');
+    perSeedCheckbox.type = 'checkbox';
+    const perSeedText = document.createElement('span');
+    perSeedText.textContent = '시드마다 Danbooru로 다른 프롬프트 생성 (고정 항목은 유지)';
+    perSeedRow.appendChild(perSeedCheckbox);
+    perSeedRow.appendChild(perSeedText);
+
+    const seedPromptsHidden = document.createElement('input');
+    seedPromptsHidden.type = 'hidden';
+    seedPromptsHidden.className = 'option-input';
+    seedPromptsHidden.dataset.name = 'danbooru_seed_prompts';
+
+    let previousRawValue = null;
+
+    function recomputeSeedPrompts(){
+      if(!perSeedCheckbox.checked){
+        seedPromptsHidden.value = '';
+        return;
+      }
+      const n = Math.max(1, parseInt(seedCountInput.value, 10) || 1);
+      const prompts = danbooruGenerateSeedPrompts(n);
+      seedPromptsHidden.value = JSON.stringify(prompts);
+      rawTextarea.value = prompts[0] || '';
+      rawTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    perSeedCheckbox.addEventListener('change', () => {
+      if(perSeedCheckbox.checked){
+        previousRawValue = rawTextarea.value;
+        rawTextarea.disabled = true;
+        recomputeSeedPrompts();
+      }else{
+        rawTextarea.disabled = false;
+        seedPromptsHidden.value = '';
+        if(previousRawValue !== null){
+          rawTextarea.value = previousRawValue;
+          rawTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+    });
+    // 체크된 상태로 시드 개수를 바꾸면 미리보기/개수를 그때그때 다시 맞춘다.
+    seedCountInput.addEventListener('input', () => {
+      if(perSeedCheckbox.checked) recomputeSeedPrompts();
+    });
+    // 제출 직전에 한 번 더 — Danbooru 탭에서 잠금/선택을 바꾸고 바로 큐에
+    // 추가해도 그 최신 상태로 다시 계산되게 한다.
+    danbooruPreSubmitHooks.push(recomputeSeedPrompts);
+
+    rawCol.appendChild(perSeedRow);
+    rawCol.appendChild(seedPromptsHidden);
+  }
 
   const middle = document.createElement('div');
   middle.className = 'prompt-enhance-middle';
@@ -2239,6 +2310,10 @@ function buildOptionControl(opt){
 
 function renderOptionFields(template){
   optionsFields.innerHTML = '';
+  // 템플릿을 바꿀 때마다 이전 템플릿이 등록해둔 "제출 직전 훅"(시드별 Danbooru
+  // 프롬프트 재계산 등)을 비운다 — 안 그러면 이미 사라진 DOM을 참조하는 낡은
+  // 훅이 다음 제출 때도 계속 불려서 에러가 나거나 아무 의미 없는 일을 한다.
+  danbooruPreSubmitHooks.length = 0;
   const options = template ? template.options || [] : [];
   // width/height가 둘 다 있는 템플릿(seed_batch/pose_batch)은 두 옵션을 따로
   // 그리지 않고 "이미지 크기" 필드 하나로 묶어서, 직접 입력/화면비·해상도 두
@@ -2249,6 +2324,9 @@ function renderOptionFields(template){
 
   for(const opt of options){
     if(hasResolutionPair && opt.name === 'height') continue; // width 자리에서 함께 그려짐
+    // danbooru_seed_prompts는 자체 필드/라벨 없이 buildPromptEnhanceControl이
+    // main_prompt 옆에 숨겨진 입력으로 직접 넣는다(아래 참고).
+    if(opt.name === 'danbooru_seed_prompts') continue;
     const field = document.createElement('div');
     field.className = 'field';
 
@@ -2525,6 +2603,10 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
       return;
     }
   }
+
+  // 폼 값을 모으기 직전에 마지막으로 한 번 더 갱신 — "시드마다 다른 Danbooru
+  // 프롬프트" 체크박스가 켜져 있으면 지금 시드 개수/Danbooru 상태로 다시 계산한다.
+  danbooruPreSubmitHooks.forEach(fn => fn());
 
   const form = new FormData();
   form.append('template_id', templateId);
@@ -3421,10 +3503,9 @@ const DANBOORU_CATEGORIES = [
     randomStrategy: { type: 'range', min: 0, max: 2 },
     tags: ['standing', 'sitting', 'looking up', 'looking back', 'arms up', 'leaning forward'] },
   // NSFW — 기본 풀을 일부러 비워둔다(artist와 같은 방식). 구체적인 태그는 사용자가
-  // 아래 "태그 풀 편집"에서 직접 채워 넣는다. section: 'nsfw'로 표시된 카테고리는
-  // danbooruBuildCategoriesDOM()이 메인 카테고리 목록이 아니라 별도의 접힌 NSFW
-  // 패널에 렌더링한다 — 프롬프트 조립 순서(배열 순서)에는 그대로 포함된다.
-  { key: 'nsfw', label: 'NSFW', kind: 'tags', order: 12, section: 'nsfw',
+  // 아래 "태그 풀 편집"에서 직접 채워 넣는다. 다른 카테고리와 똑같이 메인 카테고리
+  // 목록 안에 그려진다(예전엔 별도 접힌 패널이었으나 요청에 따라 통합).
+  { key: 'nsfw', label: 'NSFW', kind: 'tags', order: 12,
     randomStrategy: { type: 'range', min: 0, max: 2 },
     tags: [] },
   { key: 'place', label: '배경·장소·시간대·날씨', kind: 'tags', order: 13,
@@ -3433,8 +3514,12 @@ const DANBOORU_CATEGORIES = [
   { key: 'light', label: '조명', kind: 'tags', order: 14,
     randomStrategy: { type: 'light' },
     tags: DANBOORU_LIGHT_POOL },
-  { key: 'extra', label: '자유 추가', kind: 'text', order: 15,
-    placeholder: '그 밖에 추가하고 싶은 프롬프트를 자유롭게 입력하세요' },
+  // 자유 추가 — 예전엔 자유 입력 textarea였으나, 입력한 내용이 재사용(다음 세션에도
+  // 다시 선택)되도록 다른 카테고리와 같은 "태그 풀 편집" 방식(kind: 'tags')으로
+  // 바꿨다. 기본 풀은 비워두고 사용자가 원하는 걸 자유롭게 추가해서 쓴다.
+  { key: 'extra', label: '자유 추가', kind: 'tags', order: 15,
+    randomStrategy: { type: 'range', min: 0, max: 2 },
+    tags: [] },
 ];
 const DANBOORU_CATEGORY_BY_KEY = Object.fromEntries(DANBOORU_CATEGORIES.map(c => [c.key, c]));
 
@@ -3676,18 +3761,39 @@ function danbooruDrawCategory(key, contextSet){
   return [];
 }
 
-// 전체 무작위 조합 — 고정 안 된 카테고리는 일단 비운 뒤(잔여값이 검증에 끼어들지
-// 않게) order 순서대로 채운다. place → light 순서라 4.3의 "light는 place 이후"
-// 조건이 자연히 충족된다.
-function danbooruRandomizeAll(){
+// 고정 안 된 카테고리만 새로 뽑아 "선택 스냅샷"을 돌려주는 순수 버전 — 화면
+// 상태(danbooruState.selections)를 건드리지 않는다. 고정된 카테고리는 지금
+// 선택을 그대로 복사해서 쓰고, 나머지는 일단 비운 뒤(잔여값이 검증에 끼어들지
+// 않게) order 순서대로 채운다 — place → light 순서라 4.3의 "light는 place
+// 이후" 조건이 자연히 충족된다. danbooruRandomizeAll(화면용)과 시드 배치의
+// "시드마다 다른 프롬프트"(danbooruGenerateSeedPrompts, 여러 번 독립적으로
+// 호출해야 해서 전역 상태를 바꾸면 안 됨) 둘 다 이 함수를 재사용한다 — 검증/
+// 모순 방지 로직(danbooruDrawCategory 안의 danbooruDrawRange 등)이 한 곳에만
+// 있으니 두 기능이 항상 같은 규칙을 따른다.
+function danbooruComputeRandomSelections(){
+  const selections = {};
   for(const cat of DANBOORU_CATEGORIES){
-    if(cat.kind === 'tags' && !danbooruState.locked[cat.key]) danbooruState.selections[cat.key] = [];
+    if(cat.kind !== 'tags') continue;
+    selections[cat.key] = danbooruState.locked[cat.key]
+      ? (danbooruState.selections[cat.key] || []).slice()
+      : [];
   }
   for(const cat of DANBOORU_CATEGORIES){
     if(cat.kind !== 'tags' || danbooruState.locked[cat.key]) continue;
-    const context = danbooruSelectedTagSetExcluding(cat.key);
-    danbooruState.selections[cat.key] = danbooruDrawCategory(cat.key, context);
+    const context = new Set();
+    for(const c of DANBOORU_CATEGORIES){
+      if(c.kind !== 'tags' || c.key === cat.key) continue;
+      for(const t of selections[c.key]) context.add(t);
+    }
+    selections[cat.key] = danbooruDrawCategory(cat.key, context);
   }
+  return selections;
+}
+
+// 화면(Danbooru 탭)에서 쓰는 전체 무작위 조합 — 위 순수 함수의 결과를 실제
+// danbooruState.selections에 반영하고 다시 그린다.
+function danbooruRandomizeAll(){
+  Object.assign(danbooruState.selections, danbooruComputeRandomSelections());
   danbooruUpdateAll();
 }
 
@@ -3704,20 +3810,40 @@ function danbooruRerollCategory(key){
 function danbooruEscapeTag(tag){
   return tag.replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
-function danbooruAssemblePrompt(){
+// selections/texts를 인자로 받는 순수 버전 — 화면에 보이는 조립(danbooruAssemblePrompt)과
+// 시드 배치의 "시드마다 다른 프롬프트"(danbooruGenerateSeedPrompts) 둘 다 이 함수
+// 하나로 조립해서, 조립 규칙(순서/이스케이프/빈 값 건너뛰기)이 항상 똑같이 적용된다.
+function danbooruAssembleFromSelections(selections, texts){
   const parts = [];
   for(const cat of DANBOORU_CATEGORIES){
     if(cat.kind === 'tags'){
-      const tags = danbooruState.selections[cat.key] || [];
+      const tags = selections[cat.key] || [];
       if(tags.length === 0) continue;
       parts.push(tags.map(danbooruEscapeTag).join(', '));
     }else{
-      const text = (danbooruState.texts[cat.key] || '').trim();
+      const text = (texts[cat.key] || '').trim();
       if(!text) continue;
       parts.push(text);
     }
   }
   return parts.join(', ');
+}
+function danbooruAssemblePrompt(){
+  return danbooruAssembleFromSelections(danbooruState.selections, danbooruState.texts);
+}
+
+// 시드 배치 전용 — n개를 서로 독립적으로 뽑아 조립된 프롬프트 문자열 배열로
+// 돌려준다. danbooruComputeRandomSelections가 화면 상태를 안 건드리는 순수
+// 함수라, 이 함수를 여러 번 불러도 Danbooru 탭에 지금 보이는 조합은 그대로다.
+// 고정된 카테고리는 매번 같은 값, 나머지는 매번 새로 뽑히며, 모순 방지 검증도
+// danbooruDrawCategory를 그대로 재사용하므로 화면의 "무작위 조합"과 동일하게 적용된다.
+function danbooruGenerateSeedPrompts(n){
+  const prompts = [];
+  for(let i = 0; i < n; i++){
+    const selections = danbooruComputeRandomSelections();
+    prompts.push(danbooruAssembleFromSelections(selections, danbooruState.texts));
+  }
+  return prompts;
 }
 
 // ---- 렌더링 ----
@@ -3999,6 +4125,7 @@ function danbooruCategoryCardHtml(cat){
       <div class="danbooru-pool-editor" data-key="${cat.key}" hidden>
         ${cat.key === 'artist' ? '<div class="danbooru-pool-hint">"by artistname" 형식으로 추가하세요 (예: by wlop)</div>' : ''}
         ${cat.key === 'nsfw' ? '<div class="danbooru-pool-hint">원하는 danbooru 태그를 직접 추가하세요.</div>' : ''}
+        ${cat.key === 'extra' ? '<div class="danbooru-pool-hint">자유롭게 태그나 문구를 추가하세요 — 여기 추가한 항목은 다음에도 다시 골라 쓸 수 있어요.</div>' : ''}
         <div class="danbooru-pool-chips" data-key="${cat.key}"></div>
         <div class="danbooru-pool-add-row">
           <input type="text" class="option-input danbooru-pool-add-input" data-key="${cat.key}" placeholder="쉼표로 구분해 여러 개 추가">
@@ -4009,18 +4136,9 @@ function danbooruCategoryCardHtml(cat){
   `;
 }
 
-// NSFW로 표시된 카테고리(section: 'nsfw')는 메인 카테고리 목록이 아니라 별도의
-// 접힌 패널(#danbooru-nsfw-categories)에 그린다 — 프롬프트 조립 순서(배열 순서)에는
-// 그대로 포함되므로 렌더링 위치만 나뉜다. 렌더/편집 함수들은 data-key로 문서
-// 전체에서 요소를 찾으므로 어느 컨테이너에 있든 그대로 동작한다.
 function danbooruBuildCategoriesDOM(){
   const mainContainer = document.getElementById('danbooru-categories');
-  const nsfwContainer = document.getElementById('danbooru-nsfw-categories');
-  const mainCats = DANBOORU_CATEGORIES.filter(c => c.section !== 'nsfw');
-  const nsfwCats = DANBOORU_CATEGORIES.filter(c => c.section === 'nsfw');
-
-  mainContainer.innerHTML = mainCats.map(danbooruCategoryCardHtml).join('');
-  nsfwContainer.innerHTML = nsfwCats.map(danbooruCategoryCardHtml).join('');
+  mainContainer.innerHTML = DANBOORU_CATEGORIES.map(danbooruCategoryCardHtml).join('');
 
   document.querySelectorAll('.danbooru-lock-btn').forEach(btn => {
     btn.addEventListener('click', () => danbooruToggleLock(btn.dataset.key));
