@@ -1,18 +1,19 @@
 """
-CSV + 포즈 배치 템플릿 — csv_batch.py의 CSV 기반 배치 제출(프롬프트 여러 개, 시드,
-해상도, 배치수)에 pose_batch.py의 포즈 레퍼런스 주입을 결합한다. CSV 행마다 pose
-컬럼으로 ControlNet에 쓸 포즈 레퍼런스 이미지를 지정할 수 있고, 비어 있으면 그
-행은 ControlNet 없이(비활성화) 생성한다.
+CSV + depth 배치 템플릿 — csv_batch.py의 CSV 기반 배치 제출(프롬프트 여러 개, 시드,
+해상도, 배치수)에 depth_batch.py의 depth 레퍼런스 주입을 결합한다. CSV 행마다 depth
+컬럼으로 ControlNet에 쓸 depth 레퍼런스 이미지를 지정할 수 있고, 비어 있으면 그
+행은 ControlNet 없이(비활성화) 생성한다. pose_csv_batch.py와 완전히 동일한 구조를
+갖는 독립 스크립트다 — "주(main) 참조"만 depth로 고정돼 있다.
 
-주의: csv_batch.py, pose_batch.py와 마찬가지로 이 저장소의 템플릿은 서로 임포트하지
+주의: csv_batch.py, pose_csv_batch.py와 마찬가지로 이 저장소의 템플릿은 서로 임포트하지
 않고 필요한 로직을 그대로 복사해서 자기 완결적으로 작성하는 게 컨벤션이다. 특히 아래
-"포즈 참조 해석" 섹션(PoseSetRef/PoseFileRef/resolve_pose_reference 등)은
+"참조 해석" 섹션(RefSetRef/RefFileRef/resolve_ref_reference 등)은
 ref_assets.py의 resolve_ref와 완전히 같은 알고리즘이어야 하는 단일 소스를 복사해온
 것이다 — ref_assets.py의 resolve_ref를 고치면 여기도 반드시 같이
 고쳐야 한다(app.py는 업로드 시점에 ref_assets.py 쪽을 직접 호출해서 검증하고,
 이 스크립트는 실행 시점에 이 사본으로 다시 검증한다 — 둘이 다르게 판단하면 안 됨).
 
-CSV 컬럼 (csv_batch.py와 동일 + pose):
+CSV 컬럼 (csv_batch.py와 동일 + depth):
     title           결과 파일명 접두사로 쓰일 제목 (선택, name도 허용)
     trigger_prompt   트리거워드 프롬프트 (선택)
     main_prompt      본문 프롬프트 (prompt와 동일하게 취급, 둘 중 하나는 있어야 함)
@@ -25,28 +26,28 @@ CSV 컬럼 (csv_batch.py와 동일 + pose):
     batch_no         한 번에 생성할 이미지 수 (EmptyLatentImage류 노드의 batch_size)
     width, height    해상도를 가로/세로 각각 픽셀 값으로 직접 지정 (둘 다 채워야 적용)
     resolution       width/height가 비어 있을 때 대신 쓰이는 해상도 (WxH 또는 프리셋)
-    pose             이 행에 쓸 포즈 레퍼런스. 비어 있으면 이 행은 ControlNet을
+    depth            이 행에 쓸 depth 레퍼런스. 비어 있으면 이 행은 ControlNet을
                      비활성화(strength=0)한 채로 생성하며, 이때 char_no는 의미가
-                     없으므로 무시된다. 값이 있으면 아래 "포즈 참조 해석" 규칙으로
+                     없으므로 무시된다. 값이 있으면 아래 "참조 해석" 규칙으로
                      char_no가 가리키는 폴더 안에서 해석한다.
-    char_no          이 행이 몇 인물용 포즈 참조인지(예: "1"=solo, "2"=duo).
-                     비어 있으면 "1"로 취급한다. pose가 비어 있으면 이 컬럼은
-                     안 읽는다. 정수로 안 바뀌면 pose 해석 실패와 같은 수준으로
+    char_no          이 행이 몇 인물용 depth 참조인지(예: "1"=solo, "2"=duo).
+                     비어 있으면 "1"로 취급한다. depth가 비어 있으면 이 컬럼은
+                     안 읽는다. 정수로 안 바뀌면 depth 해석 실패와 같은 수준으로
                      취급해 배치 전체를 에러로 중단한다(아래 참고).
     secondary_ref    (선택) 이 행에 함께 쓸 보조 참조 이미지 — SECONDARY_KIND
                      환경변수(job 전체에 하나, 아래 "보조 참조" 절 참고)가
-                     "none"이 아닐 때만 읽힌다. pose 컬럼과 완전히 같은 규칙
+                     "none"이 아닐 때만 읽힌다. depth 컬럼과 완전히 같은 규칙
                      (<세트>/<파일명> 또는 세트 이름 또는 파일명 단독)으로
                      SECONDARY_KIND 종류의 폴더 안에서 해석한다. 비어 있으면
                      이 행은 보조 참조 없이 생성한다. 값이 있는데 해석에
-                     실패하면(존재하지 않는 세트/파일 등) pose 컬럼과 마찬가지로
+                     실패하면(존재하지 않는 세트/파일 등) depth 컬럼과 마찬가지로
                      배치 전체를 에러로 중단한다.
     secondary_char_no (선택) secondary_ref가 몇 인물용인지. 비어 있으면 "1".
                      secondary_ref가 비어 있으면 이 컬럼은 안 읽는다.
 
-포즈 레퍼런스 폴더 구조(char_no로 스코프됨):
-    NIGHTSHIFT_ASSETS_DIR(기본 /workspace/dataset/assets)/pose/
-    (레거시: NIGHTSHIFT_POSES_DIR을 설정하면 대신 그 값을 씀)
+depth 레퍼런스 폴더 구조(char_no로 스코프됨):
+    NIGHTSHIFT_ASSETS_DIR(기본 /workspace/dataset/assets)/depth/
+    (레거시/개별 override: NIGHTSHIFT_DEPTH_DIR을 설정하면 대신 그 값을 씀)
         1/                  1인물(solo) 세트들
             <세트>/<파일>...
         2/                  2인물(duo) 세트들 — 1과 완전히 분리된 별개의 이름공간
@@ -54,16 +55,16 @@ CSV 컬럼 (csv_batch.py와 동일 + pose):
     char_no가 다르면 같은 이름의 세트(예: "1/battle"과 "2/battle")가 있어도
     서로 완전히 다른 폴더로 취급된다 — CSV 작성자가 duo용 세트를 쓰려다 실수로
     solo용 세트를 섞어 넣는 사고를, 폴더 구조 자체로 막는 게 이 스코프의
-    목적이다(기능 확장이 아니라 오사용 방지). 이 범위는 "포즈 스켈레톤 이미지
-    1장에 여러 인물이 이미 함께 그려져 있어 ControlNet 노드 1개로 그대로 처리
+    목적이다(기능 확장이 아니라 오사용 방지). 이 범위는 "depth 이미지 1장에
+    여러 인물이 이미 함께 표현돼 있어 ControlNet 노드 1개로 그대로 처리
     가능한 경우"로 한정하며, 캐릭터별로 별도 ControlNet을 붙이는 멀티
     ControlNet 구조는 다루지 않는다.
 
-포즈 참조 해석(pose/secondary_ref 컬럼 값, resolve_pose_reference(kind_dir, char_no, name)):
+참조 해석(depth/secondary_ref 컬럼 값, resolve_ref_reference(kind_dir, char_no, name)):
     1. "/"가 있으면 "<세트>/<파일명>" 형식의, char_no 폴더 안에서의 정확한
        경로로 취급한다.
     2. "/"가 없고 kind_dir/char_no 아래 세트 폴더 이름과 정확히
-       일치하면 "세트 지정"으로 취급한다 — 그 세트 전용 피커(POSE_MODE에 따라
+       일치하면 "세트 지정"으로 취급한다 — 그 세트 전용 피커(DEPTH_MODE에 따라
        순차/랜덤)에서 하나를 뽑는다. 같은 (char_no, 세트 이름) 조합이 여러
        행에 나오면 피커 하나를 공유해서 순서대로 소비한다(행을 처리하는 순서
        = CSV 순서). char_no가 다르면 세트 이름이 같아도 별개의 피커다.
@@ -77,8 +78,8 @@ CSV 컬럼 (csv_batch.py와 동일 + pose):
     정확한 경로(1)/파일명 단독 지정(3)인 행은 피커 상태에 영향을 주지 않는다(그
     세트를 "소비"하지 않음) — 세트 지정(2)인 행만 피커를 소비한다.
 
-    pose/char_no 값 해석은 잡을 큐에 올리는 시점(app.py 업로드 검증)에 CSV
-    전체를 미리 한 번 돌려 확인하지만, 그 사이 포즈 폴더 내용이 바뀌었을 수
+    depth/char_no 값 해석은 잡을 큐에 올리는 시점(app.py 업로드 검증)에 CSV
+    전체를 미리 한 번 돌려 확인하지만, 그 사이 depth 폴더 내용이 바뀌었을 수
     있으므로 이 스크립트도 실행 시작 시 전체 CSV에 대해 해석을 다시 수행한다
     (제출을 시작하기 전에 — 일부만 제출된 채 실패하는 일이 없도록). 한 행이라도
     해석에 실패하면 그 행만 건너뛰지 않고 배치 전체를 에러로 중단한다.
@@ -86,49 +87,49 @@ CSV 컬럼 (csv_batch.py와 동일 + pose):
 환경변수:
     WORKFLOW_PATH      (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
     CSV_PATH           (필수) 위 컬럼을 가진 csv 경로 (nightshift가 주입)
-    POSE_MODE          "sequential" 또는 "random" (nightshift가 템플릿 옵션 "pose_mode"로
-                       주입, 기본 sequential) — pose 컬럼에 세트 이름만 지정한 행에 적용
+    DEPTH_MODE         "sequential" 또는 "random" (nightshift가 템플릿 옵션 "depth_mode"로
+                       주입, 기본 sequential) — depth 컬럼에 세트 이름만 지정한 행에 적용
                        (secondary_ref에 세트 이름만 지정한 행에도 같은 값을 씀)
     SECONDARY_KIND      "none"(기본, 꺼짐)/"pose"/"depth"/"lineart" — CSV의
                        secondary_ref/secondary_char_no 컬럼을 어느 종류의 폴더에서
                        해석할지 (nightshift가 템플릿 옵션 "secondary_kind"로 주입).
                        job 전체에 하나만 고를 수 있다(행마다 다른 종류를 쓸 수는 없음).
     SECONDARY_NODE_TITLE 보조 참조 이미지를 주입할 LoadImage 노드의 _meta.title
-                       부분일치 (기본 "secondary" — POSE_NODE_TITLE과 달리 정확히
+                       부분일치 (기본 "secondary" — DEPTH_NODE_TITLE과 달리 정확히
                        이 제목을 가진 노드가 없으면 다른 노드로 대체하지 않고 건너뜀)
     NIGHTSHIFT_ASSETS_DIR  pose/depth/lineart 종류별 폴더들이 있는 상위 디렉토리
                        (기본 /workspace/dataset/assets)
-    NIGHTSHIFT_POSES_DIR   (레거시 override) pose 종류의 세트들이 있는 상위 폴더를
-                       NIGHTSHIFT_ASSETS_DIR/pose 대신 개별 지정. nightshift
+    NIGHTSHIFT_DEPTH_DIR   (선택 override) depth 종류의 세트들이 있는 상위 폴더를
+                       NIGHTSHIFT_ASSETS_DIR/depth 대신 개별 지정. nightshift
                        서버(ref_assets.py)와 같은 값을 봐야 하므로 손대지 않는 게 안전함
-    NIGHTSHIFT_DEPTH_DIR   (선택) depth 종류의 세트들이 있는 상위 폴더를 개별 지정
-                       (보조 참조로 depth를 쓸 때만 의미가 있음)
+    NIGHTSHIFT_POSES_DIR   (선택) pose 종류의 세트들이 있는 상위 폴더를 개별 지정
+                       (보조 참조로 pose를 쓸 때만 의미가 있음)
     NIGHTSHIFT_LINEART_DIR (선택) lineart 종류의 세트들이 있는 상위 폴더를 개별 지정
                        (보조 참조로 lineart를 쓸 때만 의미가 있음)
     NIGHTSHIFT_OUTPUT_DIR  ComfyUI가 이미지를 저장하는 폴더 (기본 /workspace/output).
-                       재현성 기록용 jsonl(pose_csv_batch_manifest.jsonl)을 여기 같이 남긴다
+                       재현성 기록용 jsonl(depth_csv_batch_manifest.jsonl)을 여기 같이 남긴다
     COMFY_URL          ComfyUI 서버 주소 (기본 http://127.0.0.1:8188)
     JOB_ID             nightshift가 주입하는 이 작업의 id (진행 상황 보고용, 없으면 보고 생략)
     NIGHTSHIFT_URL     nightshift 자신의 주소 (진행 상황 보고용, 기본 http://127.0.0.1:8000)
     SEED_NODE_TITLE    시드를 주입할 노드의 _meta.title 부분일치 (기본 "KSampler")
     LATENT_NODE_TITLE  해상도/배치수를 주입할 노드의 _meta.title 부분일치 (기본 "latent")
     SAVE_NODE_TITLE    파일명 접두사를 주입할 노드의 _meta.title 부분일치 (기본 "Save")
-    POSE_NODE_TITLE    포즈 이미지를 주입할 LoadImage 노드의 _meta.title 부분일치
+    DEPTH_NODE_TITLE   depth 이미지를 주입할 LoadImage 노드의 _meta.title 부분일치
                        (기본 "Load" — 일치하는 노드가 없으면 워크플로우에 LoadImage가
                        하나뿐일 때 그 노드를 대신 쓴다)
-    CONTROLNET_NODE_TITLE  pose가 비어 있을 때 비활성화(strength=0)할 노드의
+    CONTROLNET_NODE_TITLE  depth가 비어 있을 때 비활성화(strength=0)할 노드의
                        _meta.title 부분일치 (기본 "ControlNet" — 마찬가지로 일치하는
                        노드가 없으면 ControlNetApplyAdvanced/ControlNetApply 노드가
                        하나뿐일 때 그 노드를 대신 쓴다)
     POLL_INTERVAL_SEC  히스토리 폴링 간격 초 (기본 2)
     POLL_TIMEOUT_SEC   개별 작업 완료 대기 제한 초 (기본 600)
 
-ComfyUI로의 포즈 이미지 주입 방식:
-    pose_batch.py와 동일 — LoadImage가 참조하는 파일은 ComfyUI 자신의 input
+ComfyUI로의 depth 이미지 주입 방식:
+    depth_batch.py와 동일 — LoadImage가 참조하는 파일은 ComfyUI 자신의 input
     폴더에 있어야 하므로, 파일시스템 공유 여부와 무관하게 항상 동작하도록 매번
     ComfyUI의 POST /upload/image API로 업로드하고 응답받은 파일명을 주입한다.
 
-ControlNet 비활성화(pose가 비어 있는 행):
+ControlNet 비활성화(depth가 비어 있는 행):
     그래프를 재배선하지 않고, apply_seed와 같은 패턴으로 ControlNetApplyAdvanced류
     노드는 그대로 둔 채 strength 입력값만 0으로 덮어써서 사실상 꺼진 것과 같은
     효과를 낸다.
@@ -140,9 +141,9 @@ ControlNet 비활성화(pose가 비어 있는 행):
     batch_no로 한 행에서 여러 장을 만들면 그만큼 이미지 수는 늘어남).
 
 재현성 기록:
-    pose_batch.py와 같은 형식으로 NIGHTSHIFT_OUTPUT_DIR에
-    pose_csv_batch_manifest.jsonl을 이어쓰기(append)한다. pose가 비어 있던 행은
-    char_no/pose_set/pose_file을 모두 null로 남겨 "의도적으로 ControlNet 없이
+    depth_batch.py와 같은 형식으로 NIGHTSHIFT_OUTPUT_DIR에
+    depth_csv_batch_manifest.jsonl을 이어쓰기(append)한다. depth가 비어 있던 행은
+    char_no/depth_set/depth_file을 모두 null로 남겨 "의도적으로 ControlNet 없이
     생성했다"는 걸 구분한다. char_no가 기본값(1)이 아니면 SaveImage의
     filename_prefix에도 "_char<N>"이 붙는다(결과물을 인물 수 기준으로 정리할 때 씀).
     보조 참조를 쓴 행은 secondary_kind/secondary_set/secondary_file도 함께 남긴다.
@@ -150,16 +151,16 @@ ControlNet 비활성화(pose가 비어 있는 행):
     밑에 그 job_id 폴더를 만들고 그 안에 저장하게 한다 — nightshift 갤러리의
     "작업별 보기"가 이 폴더 이름으로 묶어서 보여준다(output_images.py 참고).
 
-보조 참조(SECONDARY_KIND 등) — 포즈와 depth/lineart를 한 생성에 같이 쓰기:
-    이 템플릿의 "주(main) 참조"는 항상 pose다(위 pose/char_no 컬럼). 그와 별개로,
+보조 참조(SECONDARY_KIND 등) — depth와 pose/lineart를 한 생성에 같이 쓰기:
+    이 템플릿의 "주(main) 참조"는 항상 depth다(위 depth/char_no 컬럼). 그와 별개로,
     SECONDARY_KIND를 "none"이 아닌 값으로 설정하면 CSV의 secondary_ref/
-    secondary_char_no 컬럼이 활성화되어, 행마다 depth나 lineart 레퍼런스를
+    secondary_char_no 컬럼이 활성화되어, 행마다 pose나 lineart 레퍼런스를
     "보조 참조"로 하나 더 얹을 수 있다. 워크플로우에서 제목에 SECONDARY_NODE_TITLE
-    (기본 "secondary")이 포함된 LoadImage 노드를 찾아 주입하며, 이 노드는 pose_batch.py와
+    (기본 "secondary")이 포함된 LoadImage 노드를 찾아 주입하며, 이 노드는 depth_batch.py와
     마찬가지로 "정확히 제목이 일치해야만" 쓴다(class_type 대체 없음 — 워크플로우에
     LoadImage가 하나뿐일 때 주 참조 노드를 실수로 덮어쓰는 걸 막기 위함). 이 노드가
     없으면 경고만 남기고 그 실행은 보조 참조 없이 진행한다(best-effort). 다만 CSV의
-    secondary_ref 값 자체는(노드 존재 여부와 별개로) pose 컬럼과 같은 엄격함으로
+    secondary_ref 값 자체는(노드 존재 여부와 별개로) depth 컬럼과 같은 엄격함으로
     해석한다 — 값이 있는데 세트/파일을 찾지 못하면 배치 전체를 에러로 중단한다.
 """
 
@@ -181,12 +182,12 @@ from pathlib import Path
 
 # ============================================================================
 # 참조 이미지 해석 — ref_assets.py의 resolve_ref와 완전히 같은 알고리즘의
-# 사본(아래 함수들은 poses_dir을 그냥 "어떤 종류든 그 종류의 루트 폴더"로 받는
-# 제네릭한 구현이라 secondary_ref 해석에도 그대로 재사용한다). ref_assets.py
-# 쪽을 고치면 이 블록도 반드시 같이 고칠 것.
+# 사본(아래 함수들은 kind_dir을 그냥 "어떤 종류든 그 종류의 루트 폴더"로 받는
+# 제네릭한 구현이라 주 참조(depth)/보조 참조 해석에 똑같이 재사용한다).
+# ref_assets.py 쪽을 고치면 이 블록도 반드시 같이 고칠 것.
 # ============================================================================
 
-POSE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+REF_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 # ref_assets.py의 DEFAULT_CHAR_NO 사본 — char_no 컬럼이 비어 있을 때(1인물/solo).
 DEFAULT_CHAR_NO = "1"
@@ -204,7 +205,7 @@ REF_KIND_ENV_OVERRIDE = {
 
 def ref_kind_dir(kind):
     """kind("pose"/"depth"/"lineart")의 세트들이 있는 상위 폴더. 개별 override
-    환경변수(NIGHTSHIFT_POSES_DIR 등)가 있으면 그걸, 없으면 NIGHTSHIFT_ASSETS_DIR/kind를
+    환경변수(NIGHTSHIFT_DEPTH_DIR 등)가 있으면 그걸, 없으면 NIGHTSHIFT_ASSETS_DIR/kind를
     쓴다 — ref_assets.py의 kind_dir()과 같은 규칙."""
     override = os.environ.get(REF_KIND_ENV_OVERRIDE.get(kind, ""))
     if override:
@@ -213,50 +214,50 @@ def ref_kind_dir(kind):
     return str(Path(assets_dir) / kind)
 
 
-class PoseReferenceError(Exception):
+class RefReferenceError(Exception):
     pass
 
 
-class PoseReferenceNotFoundError(PoseReferenceError):
+class RefReferenceNotFoundError(RefReferenceError):
     pass
 
 
-class PoseReferenceAmbiguousError(PoseReferenceError):
+class RefReferenceAmbiguousError(RefReferenceError):
     pass
 
 
 @dataclass
-class PoseSetRef:
+class RefSetRef:
     set_name: str
 
 
 @dataclass
-class PoseFileRef:
+class RefFileRef:
     set_name: str
     path: Path
 
 
-def _char_dir(poses_dir, char_no):
-    return Path(poses_dir) / str(char_no)
+def _char_dir(kind_dir, char_no):
+    return Path(kind_dir) / str(char_no)
 
 
-def _pose_set_dir(poses_dir, char_no, name):
-    return _char_dir(poses_dir, char_no) / name
+def _ref_set_dir(kind_dir, char_no, name):
+    return _char_dir(kind_dir, char_no) / name
 
 
-def list_pose_images_in_set(poses_dir, char_no, name):
-    d = _pose_set_dir(poses_dir, char_no, name)
+def list_ref_images_in_set(kind_dir, char_no, name):
+    d = _ref_set_dir(kind_dir, char_no, name)
     if not d.is_dir():
         return []
     return sorted(
         p for p in d.iterdir()
-        if p.is_file() and p.suffix.lower() in POSE_IMAGE_EXTENSIONS
+        if p.is_file() and p.suffix.lower() in REF_IMAGE_EXTENSIONS
     )
 
 
 def parse_char_no(raw):
     """char_no 컬럼 값을 해석한다. 빈 값이면 기본값(1인물/solo). 정수로 바뀌지
-    않으면 ValueError — pose 해석 실패와 같은 심각도로 다뤄서 그 행만 건너뛰지
+    않으면 ValueError — 참조 해석 실패와 같은 심각도로 다뤄서 그 행만 건너뛰지
     않고 배치 전체를 에러로 중단시킨다(build_plan 참고)."""
     raw = (raw or "").strip()
     if not raw:
@@ -264,50 +265,50 @@ def parse_char_no(raw):
     return str(int(raw))
 
 
-def resolve_pose_reference(poses_dir, char_no, name):
+def resolve_ref_reference(kind_dir, char_no, name):
     name = (name or "").strip()
     if not name:
-        raise PoseReferenceNotFoundError("포즈 참조 값이 비어 있어요.")
+        raise RefReferenceNotFoundError("참조 값이 비어 있어요.")
 
     if "/" in name:
         set_name, _, filename = name.partition("/")
         set_name = set_name.strip()
         filename = filename.strip()
         if not set_name or not filename:
-            raise PoseReferenceNotFoundError(
+            raise RefReferenceNotFoundError(
                 f"'{name}' 형식이 올바르지 않아요 (<세트>/<파일명> 형식이어야 해요)."
             )
-        path = _pose_set_dir(poses_dir, char_no, set_name) / filename
-        if not path.is_file() or path.suffix.lower() not in POSE_IMAGE_EXTENSIONS:
-            raise PoseReferenceNotFoundError(f"'{name}' 파일을 찾을 수 없어요 (char_no={char_no}).")
-        return PoseFileRef(set_name=set_name, path=path)
+        path = _ref_set_dir(kind_dir, char_no, set_name) / filename
+        if not path.is_file() or path.suffix.lower() not in REF_IMAGE_EXTENSIONS:
+            raise RefReferenceNotFoundError(f"'{name}' 파일을 찾을 수 없어요 (char_no={char_no}).")
+        return RefFileRef(set_name=set_name, path=path)
 
-    if _pose_set_dir(poses_dir, char_no, name).is_dir():
-        if not list_pose_images_in_set(poses_dir, char_no, name):
-            raise PoseReferenceNotFoundError(f"'{name}' 포즈 세트에 이미지가 하나도 없어요 (char_no={char_no}).")
-        return PoseSetRef(set_name=name)
+    if _ref_set_dir(kind_dir, char_no, name).is_dir():
+        if not list_ref_images_in_set(kind_dir, char_no, name):
+            raise RefReferenceNotFoundError(f"'{name}' 세트에 이미지가 하나도 없어요 (char_no={char_no}).")
+        return RefSetRef(set_name=name)
 
     matches = []
-    base = _char_dir(poses_dir, char_no)
+    base = _char_dir(kind_dir, char_no)
     if base.is_dir():
         for entry in sorted(base.iterdir()):
             if not entry.is_dir() or entry.name.startswith("."):
                 continue
             candidate = entry / name
-            if candidate.is_file() and candidate.suffix.lower() in POSE_IMAGE_EXTENSIONS:
+            if candidate.is_file() and candidate.suffix.lower() in REF_IMAGE_EXTENSIONS:
                 matches.append(entry.name)
 
     if len(matches) == 1:
-        return PoseFileRef(set_name=matches[0], path=_pose_set_dir(poses_dir, char_no, matches[0]) / name)
+        return RefFileRef(set_name=matches[0], path=_ref_set_dir(kind_dir, char_no, matches[0]) / name)
     if len(matches) > 1:
-        raise PoseReferenceAmbiguousError(
+        raise RefReferenceAmbiguousError(
             f"'{name}'가 여러 세트({', '.join(matches)})에 있어요. "
             f"'<세트>/{name}' 형식으로 명시해주세요."
         )
-    raise PoseReferenceNotFoundError(f"'{name}'를 세트 이름으로도 파일명으로도 찾지 못했어요 (char_no={char_no}).")
+    raise RefReferenceNotFoundError(f"'{name}'를 세트 이름으로도 파일명으로도 찾지 못했어요 (char_no={char_no}).")
 
 
-# 포즈 파일 선택 전략 — pose_batch.py의 사본 -------------------------------
+# 참조 파일 선택 전략 — depth_batch.py의 사본 -------------------------------
 
 class SequentialPicker:
     """파일명 정렬 순서대로 순환. 개수를 넘기면 처음부터 다시."""
@@ -343,7 +344,7 @@ def make_picker(mode, files):
 
 
 # ============================================================================
-# csv_batch.py / pose_batch.py 공통 헬퍼 — 사본
+# csv_batch.py / depth_batch.py 공통 헬퍼 — 사본
 # ============================================================================
 
 PROMPT_FIELD_TITLES = {
@@ -464,7 +465,7 @@ def sanitize_prefix(text, fallback):
 
 def sanitize_stem(text):
     text = re.sub(r"[^\w\-가-힣]+", "_", text or "")
-    return text[:40] or "pose"
+    return text[:40] or "depth"
 
 
 def apply_prompts(workflow, row):
@@ -481,7 +482,7 @@ def apply_prompts(workflow, row):
         input_field = primitive_value_field(node) if node is not None else None
         if input_field is None:
             print(
-                f"[pose_csv_batch] 경고: '{field}' 값을 넣을 노드를 찾지 못했습니다 "
+                f"[depth_csv_batch] 경고: '{field}' 값을 넣을 노드를 찾지 못했습니다 "
                 f"(제목에 '{title_substring}'가 포함된 CLIPTextEncode/Primitive 텍스트 노드 없음)",
                 file=sys.stderr,
             )
@@ -489,7 +490,7 @@ def apply_prompts(workflow, row):
         node.setdefault("inputs", {})[input_field] = value
         applied = True
     if not applied:
-        print("[pose_csv_batch] 경고: 이 행에 프롬프트 컬럼 값이 하나도 없습니다.", file=sys.stderr)
+        print("[depth_csv_batch] 경고: 이 행에 프롬프트 컬럼 값이 하나도 없습니다.", file=sys.stderr)
 
 
 def apply_seed(workflow, seed):
@@ -499,12 +500,12 @@ def apply_seed(workflow, seed):
         class_types=("KSampler", "KSamplerAdvanced"),
     )
     if node is None:
-        print("[pose_csv_batch] 경고: 시드를 넣을 노드를 찾지 못했습니다 (KSampler 없음)", file=sys.stderr)
+        print("[depth_csv_batch] 경고: 시드를 넣을 노드를 찾지 못했습니다 (KSampler 없음)", file=sys.stderr)
         return
     try:
         node.setdefault("inputs", {})["seed"] = int(seed)
     except (TypeError, ValueError):
-        print(f"[pose_csv_batch] 경고: seed 값 '{seed}'을 정수로 변환하지 못했습니다", file=sys.stderr)
+        print(f"[depth_csv_batch] 경고: seed 값 '{seed}'을 정수로 변환하지 못했습니다", file=sys.stderr)
 
 
 def parse_batch_size(batch_no):
@@ -514,7 +515,7 @@ def parse_batch_size(batch_no):
     try:
         value = int(batch_no)
     except ValueError:
-        print(f"[pose_csv_batch] 경고: batch_no 값 '{batch_no}'을 정수로 변환하지 못했습니다", file=sys.stderr)
+        print(f"[depth_csv_batch] 경고: batch_no 값 '{batch_no}'을 정수로 변환하지 못했습니다", file=sys.stderr)
         return None
     return max(1, value)
 
@@ -540,7 +541,7 @@ def apply_batch_size(workflow, batch_no):
         prefer_connected=True,
     )
     if node is None:
-        print("[pose_csv_batch] 경고: batch_no를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
+        print("[depth_csv_batch] 경고: batch_no를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
         return
     node.setdefault("inputs", {})["batch_size"] = batch_size
 
@@ -555,13 +556,13 @@ def resolve_resolution(width, height, resolution):
             return int(width), int(height)
         except ValueError:
             print(
-                f"[pose_csv_batch] 경고: width/height 값 '{width}x{height}'을 정수로 변환하지 못했습니다. "
+                f"[depth_csv_batch] 경고: width/height 값 '{width}x{height}'을 정수로 변환하지 못했습니다. "
                 "resolution 컬럼으로 대체합니다.",
                 file=sys.stderr,
             )
     elif width or height:
         print(
-            "[pose_csv_batch] 경고: width/height는 둘 다 채워야 적용됩니다 (하나만 비어 있음). "
+            "[depth_csv_batch] 경고: width/height는 둘 다 채워야 적용됩니다 (하나만 비어 있음). "
             "resolution 컬럼으로 대체합니다.",
             file=sys.stderr,
         )
@@ -576,7 +577,7 @@ def resolve_resolution(width, height, resolution):
     match = re.match(r"^(\d+)\s*[xX]\s*(\d+)$", resolution)
     if not match:
         print(
-            f"[pose_csv_batch] 경고: resolution 값 '{resolution}'을 해석하지 못했습니다 "
+            f"[depth_csv_batch] 경고: resolution 값 '{resolution}'을 해석하지 못했습니다 "
             f"(WxH 형식이거나 {list(RESOLUTION_PRESETS)} 중 하나여야 함)",
             file=sys.stderr,
         )
@@ -595,14 +596,14 @@ def apply_resolution(workflow, width, height, resolution):
         prefer_connected=True,
     )
     if node is None:
-        print("[pose_csv_batch] 경고: 해상도를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
+        print("[depth_csv_batch] 경고: 해상도를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
         return
     width_value, height_value = resolved
     set_linked_value(workflow, node, "width", width_value)
     set_linked_value(workflow, node, "height", height_value)
 
 
-def apply_filename_prefix(workflow, title, index, seed, char_no, pose_path):
+def apply_filename_prefix(workflow, title, index, seed, char_no, depth_path):
     node_id, node = find_node(
         workflow,
         title_substring=env("SAVE_NODE_TITLE", "Save"),
@@ -614,10 +615,10 @@ def apply_filename_prefix(workflow, title, index, seed, char_no, pose_path):
     prefix = f"{prefix}_seed{seed}"
     # 기본값(1인물/solo)일 때는 기존 파일명 그대로 두고, 2인물 이상일 때만
     # char_no를 덧붙여 결과물 정리 시 인물 수로 구분할 수 있게 한다.
-    if pose_path is not None and char_no is not None and char_no != DEFAULT_CHAR_NO:
+    if depth_path is not None and char_no is not None and char_no != DEFAULT_CHAR_NO:
         prefix = f"{prefix}_char{char_no}"
-    if pose_path is not None:
-        prefix = f"{prefix}_{sanitize_stem(pose_path.stem)}"
+    if depth_path is not None:
+        prefix = f"{prefix}_{sanitize_stem(depth_path.stem)}"
     # JOB_ID가 있으면 ComfyUI 출력 폴더 밑에 그 job_id 하위 폴더를 만들어 저장한다 —
     # filename_prefix의 "/"를 ComfyUI SaveImage가 하위 폴더로 해석한다. nightshift
     # 갤러리는 이 폴더 이름으로 "작업별 보기"를 구성한다(output_images.py 참고).
@@ -640,21 +641,21 @@ def report_progress(job_id, nightshift_url, total, done):
         )
         urllib.request.urlopen(req, timeout=10).read()
     except Exception as e:
-        print(f"[pose_csv_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
+        print(f"[depth_csv_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
 
 
 def append_manifest(output_dir, record):
     try:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        path = Path(output_dir) / "pose_csv_batch_manifest.jsonl"
+        path = Path(output_dir) / "depth_csv_batch_manifest.jsonl"
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception as e:
-        print(f"[pose_csv_batch] 경고: 재현성 기록 실패: {e}", file=sys.stderr)
+        print(f"[depth_csv_batch] 경고: 재현성 기록 실패: {e}", file=sys.stderr)
 
 
 # ============================================================================
-# ComfyUI 연동 — pose_batch.py의 사본
+# ComfyUI 연동 — depth_batch.py의 사본
 # ============================================================================
 
 def upload_image_to_comfy(comfy_url, image_path):
@@ -688,22 +689,22 @@ def upload_image_to_comfy(comfy_url, image_path):
     return result["name"]
 
 
-def apply_pose_image(workflow, comfy_url, pose_path):
+def apply_depth_image(workflow, comfy_url, depth_path):
     node_id, node = find_node(
         workflow,
-        title_substring=env("POSE_NODE_TITLE", "Load"),
+        title_substring=env("DEPTH_NODE_TITLE", "Load"),
         class_types=("LoadImage",),
         prefer_connected=True,
     )
     if node is None:
-        print("[pose_csv_batch] 경고: 포즈 이미지를 넣을 노드를 찾지 못했습니다 (LoadImage 없음)", file=sys.stderr)
+        print("[depth_csv_batch] 경고: depth 이미지를 넣을 노드를 찾지 못했습니다 (LoadImage 없음)", file=sys.stderr)
         return
-    uploaded_name = upload_image_to_comfy(comfy_url, pose_path)
+    uploaded_name = upload_image_to_comfy(comfy_url, depth_path)
     node.setdefault("inputs", {})["image"] = uploaded_name
 
 
 def apply_secondary_reference(workflow, comfy_url, secondary_kind, ref_path):
-    """보조 참조(SECONDARY_KIND) 이미지 주입 — best-effort. 주 참조(apply_pose_image)와
+    """보조 참조(SECONDARY_KIND) 이미지 주입 — best-effort. 주 참조(apply_depth_image)와
     달리 class_type 대체(fallback) 없이 SECONDARY_NODE_TITLE과 제목이 정확히 일치하는
     노드만 쓴다(모듈 docstring "보조 참조" 절 참고) — 워크플로우에 LoadImage가 하나뿐일
     때 주 참조 노드를 실수로 덮어쓰는 걸 막기 위함이다."""
@@ -711,14 +712,14 @@ def apply_secondary_reference(workflow, comfy_url, secondary_kind, ref_path):
     node_id, node = find_node(workflow, title_substring=title, allow_class_fallback=False)
     if node is None:
         print(
-            f"[pose_csv_batch] 안내: 보조 참조({secondary_kind}) 이미지를 넣을 노드(제목에 "
+            f"[depth_csv_batch] 안내: 보조 참조({secondary_kind}) 이미지를 넣을 노드(제목에 "
             f"'{title}' 포함)를 찾지 못해 이번 실행은 보조 참조 없이 진행합니다.",
             file=sys.stderr,
         )
         return
     if node.get("class_type") != "LoadImage":
         print(
-            f"[pose_csv_batch] 경고: SECONDARY_NODE_TITLE('{title}')로 찾은 노드가 LoadImage가 "
+            f"[depth_csv_batch] 경고: SECONDARY_NODE_TITLE('{title}')로 찾은 노드가 LoadImage가 "
             "아니라 보조 참조를 건너뜁니다.",
             file=sys.stderr,
         )
@@ -728,7 +729,7 @@ def apply_secondary_reference(workflow, comfy_url, secondary_kind, ref_path):
 
 
 def disable_controlnet(workflow):
-    """pose 컬럼이 비어 있는 행 — 그래프를 재배선하지 않고 ControlNetApplyAdvanced류
+    """depth 컬럼이 비어 있는 행 — 그래프를 재배선하지 않고 ControlNetApplyAdvanced류
     노드의 strength만 0으로 덮어써서 사실상 꺼진 것과 같은 효과를 낸다(apply_seed와
     동일한 "노드는 그대로, 값만 덮어쓰기" 패턴)."""
     node_id, node = find_node(
@@ -739,7 +740,7 @@ def disable_controlnet(workflow):
     )
     if node is None:
         print(
-            "[pose_csv_batch] 경고: ControlNet 노드를 찾지 못해 비활성화를 건너뜁니다 "
+            "[depth_csv_batch] 경고: ControlNet 노드를 찾지 못해 비활성화를 건너뜁니다 "
             "(ControlNetApplyAdvanced/ControlNetApply 없음)",
             file=sys.stderr,
         )
@@ -783,17 +784,17 @@ def wait_for_completion(comfy_url, prompt_id):
 # 실행 계획 수립 + 제출
 # ============================================================================
 
-def build_plan(base_workflow, rows, poses_dir, pose_mode, secondary_kind=None, secondary_dir=None):
-    """CSV 행마다 (row, title, seed, batch_size, char_no, pose_path, secondary_path)를
-    미리 계산한다. pose/char_no(및 secondary_kind가 설정됐으면 secondary_ref/
+def build_plan(base_workflow, rows, depth_dir, depth_mode, secondary_kind=None, secondary_dir=None):
+    """CSV 행마다 (row, title, seed, batch_size, char_no, depth_path, secondary_path)를
+    미리 계산한다. depth/char_no(및 secondary_kind가 설정됐으면 secondary_ref/
     secondary_char_no) 컬럼 해석은 여기서 전부 끝내둔다 — 세트 지정 행은 이 단계에서
     피커를 소비해 실제 파일을 정하고, 해석에 실패하는 행이 하나라도 있으면 그
-    자리에서 배치 전체를 중단한다(건너뛰지 않음) — pose와 secondary_ref 둘 다 같은
+    자리에서 배치 전체를 중단한다(건너뛰지 않음) — depth와 secondary_ref 둘 다 같은
     엄격함으로 다룬다(모듈 docstring "보조 참조" 절 참고).
 
     피커는 (char_no, set_name) 조합별로 하나씩 lazy하게 만든다 — char_no가
     다르면 같은 이름의 세트라도 완전히 다른 폴더(다른 파일 목록)이므로, set_name만
-    으로 캐시하면 서로 다른 세트가 피커 하나를 잘못 공유하게 된다. 주 참조(pose)와
+    으로 캐시하면 서로 다른 세트가 피커 하나를 잘못 공유하게 된다. 주 참조(depth)와
     보조 참조는 폴더 자체가 다를 수 있으므로 피커 캐시도 서로 별도로 둔다."""
     default_batch_size = get_default_batch_size(base_workflow)
     pickers = {}
@@ -802,10 +803,10 @@ def build_plan(base_workflow, rows, poses_dir, pose_mode, secondary_kind=None, s
     def get_picker(cache, base_dir, char_no, set_name, label):
         key = (char_no, set_name)
         if key not in cache:
-            files = list_pose_images_in_set(base_dir, char_no, set_name)
+            files = list_ref_images_in_set(base_dir, char_no, set_name)
             if not files:
-                raise PoseReferenceNotFoundError(f"'{set_name}' {label} 세트에 이미지가 없습니다 (char_no={char_no}).")
-            cache[key] = make_picker(pose_mode, files)
+                raise RefReferenceNotFoundError(f"'{set_name}' {label} 세트에 이미지가 없습니다 (char_no={char_no}).")
+            cache[key] = make_picker(depth_mode, files)
         return cache[key]
 
     plan = []
@@ -813,7 +814,7 @@ def build_plan(base_workflow, rows, poses_dir, pose_mode, secondary_kind=None, s
         title = (row.get("title") or row.get("name") or "").strip()
         main_prompt = (row.get("main_prompt") or row.get("prompt") or "").strip()
         if not main_prompt:
-            print(f"[pose_csv_batch] 건너뜀 (main_prompt/prompt 없음, {line_no}번째 줄): {row}")
+            print(f"[depth_csv_batch] 건너뜀 (main_prompt/prompt 없음, {line_no}번째 줄): {row}")
             continue
 
         batch_size = parse_batch_size(row.get("batch_no"))
@@ -823,28 +824,28 @@ def build_plan(base_workflow, rows, poses_dir, pose_mode, secondary_kind=None, s
         row_seed = (row.get("seed") or "").strip()
         seed = row_seed if row_seed else random.randint(0, 2**31 - 1)
 
-        pose_raw = (row.get("pose") or "").strip()
+        depth_raw = (row.get("depth") or "").strip()
         char_no = None
-        pose_path = None
-        if pose_raw:
+        depth_path = None
+        if depth_raw:
             try:
                 char_no = parse_char_no(row.get("char_no"))
             except ValueError:
                 print(
-                    f"[pose_csv_batch] 오류: {line_no}번째 줄의 char_no 값 "
+                    f"[depth_csv_batch] 오류: {line_no}번째 줄의 char_no 값 "
                     f"'{row.get('char_no')}'을 정수로 변환하지 못했습니다.",
                     file=sys.stderr,
                 )
                 sys.exit(1)
             try:
-                ref = resolve_pose_reference(poses_dir, char_no, pose_raw)
-                if isinstance(ref, PoseFileRef):
-                    pose_path = ref.path
+                ref = resolve_ref_reference(depth_dir, char_no, depth_raw)
+                if isinstance(ref, RefFileRef):
+                    depth_path = ref.path
                 else:
-                    pose_path = get_picker(pickers, poses_dir, char_no, ref.set_name, "포즈").pick()
-            except PoseReferenceError as e:
+                    depth_path = get_picker(pickers, depth_dir, char_no, ref.set_name, "depth").pick()
+            except RefReferenceError as e:
                 print(
-                    f"[pose_csv_batch] 오류: {line_no}번째 줄의 pose 값 '{pose_raw}' "
+                    f"[depth_csv_batch] 오류: {line_no}번째 줄의 depth 값 '{depth_raw}' "
                     f"(char_no={char_no})을 해석하지 못했습니다: {e}",
                     file=sys.stderr,
                 )
@@ -858,22 +859,22 @@ def build_plan(base_workflow, rows, poses_dir, pose_mode, secondary_kind=None, s
                     secondary_char_no = parse_char_no(row.get("secondary_char_no"))
                 except ValueError:
                     print(
-                        f"[pose_csv_batch] 오류: {line_no}번째 줄의 secondary_char_no 값 "
+                        f"[depth_csv_batch] 오류: {line_no}번째 줄의 secondary_char_no 값 "
                         f"'{row.get('secondary_char_no')}'을 정수로 변환하지 못했습니다.",
                         file=sys.stderr,
                     )
                     sys.exit(1)
                 try:
-                    ref = resolve_pose_reference(secondary_dir, secondary_char_no, secondary_raw)
-                    if isinstance(ref, PoseFileRef):
+                    ref = resolve_ref_reference(secondary_dir, secondary_char_no, secondary_raw)
+                    if isinstance(ref, RefFileRef):
                         secondary_path = ref.path
                     else:
                         secondary_path = get_picker(
                             secondary_pickers, secondary_dir, secondary_char_no, ref.set_name, f"보조 참조({secondary_kind})"
                         ).pick()
-                except PoseReferenceError as e:
+                except RefReferenceError as e:
                     print(
-                        f"[pose_csv_batch] 오류: {line_no}번째 줄의 secondary_ref 값 '{secondary_raw}' "
+                        f"[depth_csv_batch] 오류: {line_no}번째 줄의 secondary_ref 값 '{secondary_raw}' "
                         f"(secondary_char_no={secondary_char_no})을 해석하지 못했습니다: {e}",
                         file=sys.stderr,
                     )
@@ -885,14 +886,14 @@ def build_plan(base_workflow, rows, poses_dir, pose_mode, secondary_kind=None, s
             "seed": seed,
             "batch_size": batch_size,
             "char_no": char_no,
-            "pose_path": pose_path,
+            "depth_path": depth_path,
             "secondary_path": secondary_path,
         })
 
     return plan
 
 
-def run_once(base_workflow, comfy_url, row, title, seed, char_no, pose_path, index, job_id, output_dir,
+def run_once(base_workflow, comfy_url, row, title, seed, char_no, depth_path, index, job_id, output_dir,
              secondary_kind=None, secondary_path=None):
     workflow = copy.deepcopy(base_workflow)
     apply_prompts(workflow, row)
@@ -900,30 +901,30 @@ def run_once(base_workflow, comfy_url, row, title, seed, char_no, pose_path, ind
     apply_batch_size(workflow, row.get("batch_no"))
     apply_resolution(workflow, row.get("width"), row.get("height"), row.get("resolution"))
 
-    if pose_path is not None:
-        apply_pose_image(workflow, comfy_url, pose_path)
+    if depth_path is not None:
+        apply_depth_image(workflow, comfy_url, depth_path)
     else:
         disable_controlnet(workflow)
 
     if secondary_path is not None:
         apply_secondary_reference(workflow, comfy_url, secondary_kind, secondary_path)
 
-    apply_filename_prefix(workflow, title, index, seed, char_no, pose_path)
+    apply_filename_prefix(workflow, title, index, seed, char_no, depth_path)
 
     prompt_id = queue_prompt(comfy_url, workflow)
-    pose_label = f"{pose_path.name}(char_no={char_no})" if pose_path is not None else "(없음, ControlNet 비활성화)"
+    depth_label = f"{depth_path.name}(char_no={char_no})" if depth_path is not None else "(없음, ControlNet 비활성화)"
     secondary_log = f" secondary({secondary_kind})={secondary_path.name}" if secondary_path is not None else ""
-    print(f"[pose_csv_batch] [{index}] title={title!r} seed={seed} pose={pose_label}{secondary_log} 큐 등록 (prompt_id={prompt_id})")
+    print(f"[depth_csv_batch] [{index}] title={title!r} seed={seed} depth={depth_label}{secondary_log} 큐 등록 (prompt_id={prompt_id})")
     wait_for_completion(comfy_url, prompt_id)
-    print(f"[pose_csv_batch] [{index}] 완료")
+    print(f"[depth_csv_batch] [{index}] 완료")
 
     record = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "job_id": job_id,
         "index": index,
         "char_no": char_no,
-        "pose_set": pose_path.parent.name if pose_path is not None else None,
-        "pose_file": pose_path.name if pose_path is not None else None,
+        "depth_set": depth_path.parent.name if depth_path is not None else None,
+        "depth_file": depth_path.name if depth_path is not None else None,
         "seed": seed,
         "prompt_id": prompt_id,
     }
@@ -938,17 +939,17 @@ def main():
     workflow_path = env("WORKFLOW_PATH")
     csv_path = env("CSV_PATH")
     if not workflow_path or not csv_path:
-        print("[pose_csv_batch] WORKFLOW_PATH와 CSV_PATH 환경변수가 모두 필요합니다.", file=sys.stderr)
+        print("[depth_csv_batch] WORKFLOW_PATH와 CSV_PATH 환경변수가 모두 필요합니다.", file=sys.stderr)
         sys.exit(1)
 
     base_workflow = load_workflow(workflow_path)
     rows = load_rows(csv_path)
     if not rows:
-        print("[pose_csv_batch] CSV에 처리할 행이 없습니다.")
+        print("[depth_csv_batch] CSV에 처리할 행이 없습니다.")
         return
 
-    pose_mode = env("POSE_MODE", "sequential")
-    poses_dir = ref_kind_dir("pose")
+    depth_mode = env("DEPTH_MODE", "sequential")
+    depth_dir = ref_kind_dir("depth")
     output_dir = env("NIGHTSHIFT_OUTPUT_DIR", "/workspace/output")
     comfy_url = env("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
     job_id = env("JOB_ID")
@@ -958,33 +959,33 @@ def main():
     secondary_dir = None
     if secondary_kind not in REF_KINDS:
         if secondary_kind != "none":
-            print(f"[pose_csv_batch] 경고: 알 수 없는 SECONDARY_KIND '{secondary_kind}' — 보조 참조를 끕니다.", file=sys.stderr)
+            print(f"[depth_csv_batch] 경고: 알 수 없는 SECONDARY_KIND '{secondary_kind}' — 보조 참조를 끕니다.", file=sys.stderr)
         secondary_kind = None
     else:
         secondary_dir = ref_kind_dir(secondary_kind)
 
-    plan = build_plan(base_workflow, rows, poses_dir, pose_mode, secondary_kind, secondary_dir)
+    plan = build_plan(base_workflow, rows, depth_dir, depth_mode, secondary_kind, secondary_dir)
     if not plan:
-        print("[pose_csv_batch] 제출할 행이 없습니다 (모두 건너뜀).")
+        print("[depth_csv_batch] 제출할 행이 없습니다 (모두 건너뜀).")
         return
 
     total_images = sum(item["batch_size"] for item in plan)
-    print(f"[pose_csv_batch] 총 {len(plan)}건 제출 예정, 이미지 {total_images}장 예상")
+    print(f"[depth_csv_batch] 총 {len(plan)}건 제출 예정, 이미지 {total_images}장 예상")
     if secondary_kind:
-        print(f"[pose_csv_batch] 보조 참조 사용 가능: 종류={secondary_kind}")
+        print(f"[depth_csv_batch] 보조 참조 사용 가능: 종류={secondary_kind}")
     report_progress(job_id, nightshift_url, total_images, 0)
 
     done_images = 0
     for index, item in enumerate(plan, start=1):
         run_once(
             base_workflow, comfy_url, item["row"], item["title"], item["seed"],
-            item["char_no"], item["pose_path"], index, job_id, output_dir,
+            item["char_no"], item["depth_path"], index, job_id, output_dir,
             secondary_kind=secondary_kind, secondary_path=item["secondary_path"],
         )
         done_images += item["batch_size"]
         report_progress(job_id, nightshift_url, total_images, done_images)
 
-    print(f"[pose_csv_batch] 총 {len(plan)}건 완료 (이미지 {done_images}장)")
+    print(f"[depth_csv_batch] 총 {len(plan)}건 완료 (이미지 {done_images}장)")
 
 
 if __name__ == "__main__":

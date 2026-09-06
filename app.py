@@ -51,18 +51,19 @@ from output_images import (
     list_output_images,
     rotate_landscape_images,
 )
-from pose_assets import (
+from ref_assets import (
     DEFAULT_CHAR_NO,
-    PoseAssetError,
-    PoseReferenceError,
+    REF_KINDS,
+    RefAssetError,
+    RefReferenceError,
     list_assets_tree,
     list_char_nos,
     parse_char_no,
-    resolve_pose_reference,
-    save_pose_image,
+    resolve_ref,
+    save_ref_image,
     validate_new_char_no,
     validate_new_folder_name,
-    validate_pose_set,
+    validate_ref_set,
 )
 
 # 프론트엔드(static/index.html)가 작업 목록/ComfyUI 연결 상태를 실시간처럼 보여주려고
@@ -533,22 +534,34 @@ async def enhance_prompt(request: Request):
     return {"enhanced": enhanced}
 
 
+def parse_ref_kind(raw: str | None, *, allow_none: bool = False) -> str:
+    """요청의 kind 파라미터(pose/depth/lineart)를 검증한다. allow_none이면
+    "none"도 허용한다(보조 참조를 안 쓰는 경우를 나타내는 값)."""
+    choices = REF_KINDS + (("none",) if allow_none else ())
+    if raw not in choices:
+        raise HTTPException(400, f"kind는 {choices} 중 하나여야 해요.")
+    return raw
+
+
 @app.get("/api/assets")
-def list_assets():
-    # 업로드 폼의 "인물 수"/"포즈 세트" 캐스케이딩 드롭다운을 채우는 용도. char_no별
-    # 포즈 세트 목록을 트리로 한 번에 돌려줘서, 프론트엔드가 "인물 수"를 바꿀 때마다
-    # 서버에 다시 요청하지 않고도 "포즈 세트" 드롭다운을 그 자리에서 다시 채울 수
-    # 있게 한다. 매 호출마다 폴더를 다시 스캔해서 방금 새로 올려둔 세트도 반영한다.
-    return {"char_nos": list_assets_tree()}
+def list_assets(kind: str = "pose"):
+    # 업로드 폼의 "인물 수"/"세트" 캐스케이딩 드롭다운을 채우는 용도. kind(pose/
+    # depth/lineart)별로 완전히 분리된 트리를 돌려준다 — char_no별 세트 목록을
+    # 트리로 한 번에 돌려줘서, 프론트엔드가 "인물 수"를 바꿀 때마다 서버에 다시
+    # 요청하지 않고도 "세트" 드롭다운을 그 자리에서 다시 채울 수 있게 한다. 매
+    # 호출마다 폴더를 다시 스캔해서 방금 새로 올려둔 세트도 반영한다.
+    kind = parse_ref_kind(kind)
+    return {"char_nos": list_assets_tree(kind)}
 
 
 @app.post("/api/assets/import-from-output")
-async def import_output_images_to_pose_set(request: Request):
-    # 갤러리에서 마음에 든 결과 이미지를 포즈 세트로 보내는 용도 — 지금까지는
-    # 포즈 세트를 채우려면 서버 파일시스템에 직접 올려야 했는데, 이 엔드포인트가
-    # 그 유일한 업로드 경로다. char_no/pose_set은 존재하지 않으면(새 인물 수·새
-    # 세트) save_pose_image가 그대로 폴더를 만들어서, 이 하나로 기존 세트 추가와
-    # 새 세트 생성을 둘 다 처리한다. 원본은 지우지 않고 사본만 만든다(복사).
+async def import_output_images_to_ref_set(request: Request):
+    # 갤러리에서 마음에 든 결과 이미지를 참조 세트(포즈/depth/lineart)로 보내는
+    # 용도 — 지금까지는 이 세트들을 채우려면 서버 파일시스템에 직접 올려야
+    # 했는데, 이 엔드포인트가 그 유일한 업로드 경로다. char_no/세트는 존재하지
+    # 않으면(새 인물 수·새 세트) save_ref_image가 그대로 폴더를 만들어서, 이
+    # 하나로 기존 세트 추가와 새 세트 생성을 둘 다 처리한다. 원본은 지우지
+    # 않고 사본만 만든다(복사).
     body = await request.body()
     try:
         data = json.loads(body.decode("utf-8"))
@@ -556,10 +569,11 @@ async def import_output_images_to_pose_set(request: Request):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
 
     names = parse_image_names_body(data)
+    kind = parse_ref_kind(data.get("kind", "pose"))
     try:
         char_no = validate_new_char_no(data.get("char_no"))
-        pose_set = validate_new_folder_name(data.get("pose_set"), "포즈 세트")
-    except PoseAssetError as e:
+        ref_set = validate_new_folder_name(data.get("set_name"), "참조 세트")
+    except RefAssetError as e:
         raise HTTPException(400, str(e))
 
     added = 0
@@ -571,7 +585,7 @@ async def import_output_images_to_pose_set(request: Request):
             skipped.append({"name": name, "reason": e.detail})
             continue
 
-        # job_id별 하위 폴더(작업 정보 없으면 그대로)에서 온 이름이라, 포즈 세트의
+        # job_id별 하위 폴더(작업 정보 없으면 그대로)에서 온 이름이라, 참조 세트의
         # 평평한 구조에 맞게 "<job_id>_<원본파일명>"으로 합친다 — 어느 작업에서
         # 나온 참조인지 파일명만 보고 알 수 있게 하기 위함(output_images.py 참고).
         parts = name.split("/")
@@ -579,13 +593,28 @@ async def import_output_images_to_pose_set(request: Request):
 
         try:
             content = await asyncio.to_thread(path.read_bytes)
-            await asyncio.to_thread(save_pose_image, char_no, pose_set, dest_filename, content)
+            await asyncio.to_thread(save_ref_image, kind, char_no, ref_set, dest_filename, content)
         except OSError as e:
             skipped.append({"name": name, "reason": f"저장 실패: {e}"})
             continue
         added += 1
 
     return {"added": added, "skipped": skipped}
+
+
+def resolve_option_kind(option: dict, options_so_far: dict) -> str:
+    """char_no/asset_folder 옵션이 참조할 종류(pose/depth/lineart/none)를 정한다.
+    "kind"를 정적으로 선언했으면 그대로(주 참조), "kind_from"을 선언했으면
+    (manifest에서 이 옵션보다 앞에 선언된) 다른 옵션이 고른 종류를 그대로
+    따라간다(보조 참조 — 예: secondary_kind가 "depth"면 secondary_char_no/
+    secondary_set도 depth 트리를 본다). 둘 다 없으면 예전 pose 전용 동작과
+    같도록 "pose"를 기본값으로 쓴다."""
+    if option.get("kind"):
+        return option["kind"]
+    kind_from = option.get("kind_from")
+    if kind_from:
+        return options_so_far.get(kind_from, "none")
+    return "pose"
 
 
 def coerce_option(option: dict, raw: str | None, options_so_far: dict):
@@ -620,34 +649,49 @@ def coerce_option(option: dict, raw: str | None, options_so_far: dict):
         return raw
 
     if opt_type == "char_no":
-        # "인물 수" 드롭다운 — 실제 존재하는 POSES_DIR 하위 숫자 폴더 중 하나여야 함.
+        # "인물 수" 드롭다운 — 실제 존재하는 <kind> 종류 하위 숫자 폴더 중 하나여야
+        # 함. kind는 옵션이 정적으로 선언(주 참조, 예: "kind": "pose")하거나,
+        # "kind_from"으로 다른 옵션(보조 참조 종류 선택)의 값을 그대로 따라간다 —
+        # 그 옵션 값이 "none"(보조 참조 안 씀)이면 이 옵션도 의미가 없으니 빈
+        # 값을 그대로 통과시킨다(검증하지 않음).
+        kind = resolve_option_kind(option, options_so_far)
+        if kind == "none":
+            return ""
         value = "" if raw is None else str(raw)
-        if value not in list_char_nos():
+        if value not in list_char_nos(kind):
             raise HTTPException(400, f"'{option['label']}' 값이 올바르지 않아요.")
         return value
 
     if opt_type == "asset_folder":
-        # 잡을 큐에 올리는 시점(업로드 시)에 포즈 세트 폴더가 실제로 있고 이미지가
-        # 있는지 미리 확인해서, 큐 시작 이후에야 실패하는 일이 없게 한다. 같은
-        # 템플릿에 "char_no" 타입 옵션이 있으면(manifest에서 이 옵션보다 앞에
-        # 선언돼 있어야 함) 그 값을 스코프로 쓰고, 없으면 DEFAULT_CHAR_NO를 쓴다.
+        # 잡을 큐에 올리는 시점(업로드 시)에 참조 세트 폴더가 실제로 있고 이미지가
+        # 있는지 미리 확인해서, 큐 시작 이후에야 실패하는 일이 없게 한다. char_no는
+        # option["char_no_option"](기본 "char_no")이 가리키는 다른 옵션의 이미
+        # 처리된 값을 스코프로 쓰고, 없으면 DEFAULT_CHAR_NO를 쓴다. kind는 위
+        # char_no와 같은 규칙("kind" 정적 선언 또는 "kind_from") — "none"이면
+        # 보조 참조를 안 쓰는 경우이니 검증 없이 빈 값을 통과시킨다.
+        kind = resolve_option_kind(option, options_so_far)
+        if kind == "none":
+            return ""
         value = "" if raw is None else str(raw)
-        char_no = options_so_far.get("char_no", DEFAULT_CHAR_NO)
+        char_no_key = option.get("char_no_option", "char_no")
+        char_no = options_so_far.get(char_no_key, DEFAULT_CHAR_NO)
         try:
-            validate_pose_set(value, char_no)
-        except PoseAssetError as e:
+            validate_ref_set(kind, value, char_no)
+        except RefAssetError as e:
             raise HTTPException(400, str(e))
         return value
 
     return "" if raw is None else str(raw)
 
 
-def validate_pose_csv_rows(csv_bytes: bytes):
-    # pose_csv_batch 전용 업로드 시점 검증: CSV의 모든 행을 미리 훑어 pose(및
-    # char_no) 컬럼 값이 실제로 해석 가능한지(resolve_pose_reference) 확인한다.
-    # 스크립트가 실행되다가 특정 행에서야 실패하는 일이 없도록, 한 행이라도
-    # 문제가 있으면 업로드 자체를 거부한다. char_no는 pose를 지정한 행에서만
-    # 의미가 있으므로(포즈 폴더의 탐색 루트일 뿐), pose가 비어 있는 행은 건드리지 않는다.
+def validate_ref_csv_rows(csv_bytes: bytes, kind: str, ref_column: str, char_no_column: str = "char_no"):
+    # *_csv_batch 공용 업로드 시점 검증: CSV의 모든 행을 미리 훑어 ref_column(및
+    # char_no_column) 값이 실제로 해석 가능한지(resolve_ref) 확인한다. 스크립트가
+    # 실행되다가 특정 행에서야 실패하는 일이 없도록, 한 행이라도 문제가 있으면
+    # 업로드 자체를 거부한다. char_no_column은 ref_column을 지정한 행에서만
+    # 의미가 있으므로(참조 폴더의 탐색 루트일 뿐), ref_column이 비어 있는 행은
+    # 건드리지 않는다 — 주 참조든 보조 참조든 같은 규칙이라 이 함수 하나를
+    # 컬럼 이름만 바꿔서 재사용한다.
     try:
         text = csv_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -656,46 +700,70 @@ def validate_pose_csv_rows(csv_bytes: bytes):
     rows = list(csv.DictReader(io.StringIO(text)))
     errors = []
     for line_no, row in enumerate(rows, start=2):  # 헤더가 1번 줄
-        pose = (row.get("pose") or "").strip()
-        if not pose:
+        ref_value = (row.get(ref_column) or "").strip()
+        if not ref_value:
             continue
         try:
-            char_no = parse_char_no(row.get("char_no"))
+            char_no = parse_char_no(row.get(char_no_column))
         except ValueError:
-            errors.append(f"{line_no}번째 줄(char_no='{row.get('char_no')}'): 정수가 아니에요.")
+            errors.append(f"{line_no}번째 줄({char_no_column}='{row.get(char_no_column)}'): 정수가 아니에요.")
             continue
         try:
-            resolve_pose_reference(pose, char_no)
-        except PoseReferenceError as e:
-            errors.append(f"{line_no}번째 줄(pose='{pose}', char_no='{char_no}'): {e}")
+            resolve_ref(kind, ref_value, char_no)
+        except RefReferenceError as e:
+            errors.append(f"{line_no}번째 줄({ref_column}='{ref_value}', {char_no_column}='{char_no}'): {e}")
 
     if errors:
-        raise HTTPException(400, "CSV의 pose/char_no 컬럼을 확인하세요.\n" + "\n".join(errors))
+        raise HTTPException(400, f"CSV의 {ref_column}/{char_no_column} 컬럼을 확인하세요.\n" + "\n".join(errors))
 
 
-def csv_has_pose_reference(csv_bytes: bytes) -> bool:
-    # pose_csv_batch는 CSV 행마다 pose가 비어 있으면 그 행은 의도적으로 ControlNet
-    # 없이 생성한다(README "CSV + 포즈 배치" 절 참고) — 모든 행의 pose가 비어 있으면
-    # 워크플로우에 LoadImage 노드가 없어도 문제가 없으므로, 그런 경우까지 아래
-    # validate_workflow_has_pose_node()가 막아버리지 않도록 미리 구분해둔다.
+def csv_has_ref_value(csv_bytes: bytes, column: str) -> bool:
+    # *_csv_batch는 CSV 행마다 참조 컬럼이 비어 있으면 그 행은 의도적으로
+    # ControlNet 없이 생성한다(README 참고) — 모든 행의 값이 비어 있으면 워크플로우에
+    # LoadImage 노드가 없어도 문제가 없으므로, 그런 경우까지 아래
+    # validate_workflow_has_ref_node()가 막아버리지 않도록 미리 구분해둔다.
     try:
         text = csv_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:
-        return False  # 디코딩 자체는 validate_pose_csv_rows가 이미 걸러줌
+        return False  # 디코딩 자체는 validate_ref_csv_rows가 이미 걸러줌
     rows = csv.DictReader(io.StringIO(text))
-    return any((row.get("pose") or "").strip() for row in rows)
+    return any((row.get(column) or "").strip() for row in rows)
 
 
-POSE_NODE_REQUIRED_TEMPLATES = {"pose_batch", "pose_csv_batch"}
+# 템플릿 id -> 그 템플릿의 "주(main) 참조 종류". 값이 있는 템플릿만 "주 참조 필수"
+# 템플릿이다(업로드 시점에 LoadImage 노드 존재를 강제 검증) — csv_batch처럼 참조
+# 이미지가 아예 없는 템플릿은 여기 없다. 보조 참조(secondary_kind 옵션)는 있으면
+# 좋고 없어도 그만인 선택 기능이라 이 딕셔너리와 무관하게 항상 best-effort다
+# (노드가 없으면 실행 스크립트가 경고만 남기고 계속 진행 — MAIN_PROMPT 노드를
+# 못 찾았을 때와 같은 관용).
+TEMPLATE_PRIMARY_KIND = {
+    "pose_batch": "pose",
+    "pose_csv_batch": "pose",
+    "depth_batch": "depth",
+    "depth_csv_batch": "depth",
+    "lineart_batch": "lineart",
+    "lineart_csv_batch": "lineart",
+}
+REF_NODE_REQUIRED_TEMPLATES = set(TEMPLATE_PRIMARY_KIND)
+
+# 주 참조 종류별로 LoadImage 노드 제목 매칭에 쓰는 환경변수 이름 — 템플릿
+# 스크립트가 쓰는 것과 정확히 같은 이름이어야 업로드 시점 검증과 실행 시점 동작이
+# 일치한다(templates/*_batch.py의 환경변수 문서 참고).
+REF_KIND_NODE_TITLE_ENV = {"pose": "POSE_NODE_TITLE", "depth": "DEPTH_NODE_TITLE", "lineart": "LINEART_NODE_TITLE"}
+REF_KIND_LABELS = {"pose": "포즈", "depth": "depth", "lineart": "lineart"}
+
+# CSV 템플릿에서 주 참조를 지정하는 컬럼 이름 — pose_csv_batch는 하위호환을 위해
+# "pose" 그대로 쓰고, 새 템플릿은 종류 이름을 그대로 컬럼명으로 쓴다.
+CSV_PRIMARY_REF_COLUMN = {"pose_csv_batch": "pose", "depth_csv_batch": "depth", "lineart_csv_batch": "lineart"}
 
 
-def find_pose_load_image_node(workflow: dict, title_substring: str):
-    """templates/pose_batch.py·pose_csv_batch.py의 apply_pose_image()가 실행 시점에
-    실제로 어떤 노드를 골라 포즈 이미지를 주입할지 업로드 시점에 미리 예측한다 —
-    두 스크립트의 find_node()와 정확히 같은 알고리즘이다: 제목에 title_substring이
+def find_ref_load_image_node(workflow: dict, title_substring: str):
+    """templates/*_batch.py의 apply_ref_image()류가 실행 시점에 실제로 어떤
+    노드를 골라 참조 이미지를 주입할지 업로드 시점에 미리 예측한다 — 각
+    스크립트의 find_node()와 정확히 같은 알고리즘이다: 제목에 title_substring이
     포함된 노드가 있으면 class_type과 무관하게 그 노드를 최우선으로 고르고(그래서
     "Load Checkpoint"처럼 우연히 제목에 "Load"가 들어간 LoadImage가 아닌 노드가
-    먼저 골라질 수 있다 — 이 경우도 아래에서 "포즈 노드 없음"으로 취급해야 함),
+    먼저 골라질 수 있다 — 이 경우도 아래에서 "참조 노드 없음"으로 취급해야 함),
     없으면 다른 노드의 입력에 실제로 연결된 LoadImage 노드를 우선으로 고른다."""
     title_substring = (title_substring or "").lower()
     connected = set()
@@ -723,11 +791,13 @@ def find_pose_load_image_node(workflow: dict, title_substring: str):
     return fallback_connected or fallback
 
 
-def validate_workflow_has_pose_node(workflow_bytes: bytes):
-    # pose_batch/pose_csv_batch는 포즈 레퍼런스 이미지를 LoadImage 노드에 주입해야
-    # ControlNet이 실제로 동작한다. 이 노드가 없는 워크플로우를 잘못 올리면, 실행
-    # 스크립트는 stderr에 경고만 남기고 포즈 없이 이미지 생성을 계속 진행한다 —
-    # 큐에 올리기 전에 미리 걸러서 그런 사고를 막는다.
+def validate_workflow_has_ref_node(workflow_bytes: bytes, kind: str):
+    # *_batch/*_csv_batch는 주 참조 이미지를 LoadImage 노드에 주입해야 ControlNet이
+    # 실제로 동작한다. 이 노드가 없는 워크플로우를 잘못 올리면, 실행 스크립트는
+    # stderr에 경고만 남기고 참조 없이 이미지 생성을 계속 진행한다 — 큐에 올리기
+    # 전에 미리 걸러서 그런 사고를 막는다. (이 검사는 "주 참조"에만 적용된다 —
+    # 보조 참조는 있으면 좋고 없어도 그만인 선택 기능이라 노드가 없어도 업로드를
+    # 막지 않고 실행 시점에 경고만 남긴다.)
     try:
         workflow = json.loads(workflow_bytes)
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
@@ -735,14 +805,15 @@ def validate_workflow_has_pose_node(workflow_bytes: bytes):
     if not isinstance(workflow, dict):
         raise HTTPException(400, "워크플로우가 올바른 ComfyUI API 형식(JSON 객체)이 아니에요.")
 
-    title_substring = os.environ.get("POSE_NODE_TITLE", "Load")
-    node = find_pose_load_image_node(workflow, title_substring)
+    title_substring = os.environ.get(REF_KIND_NODE_TITLE_ENV[kind], "Load")
+    node = find_ref_load_image_node(workflow, title_substring)
+    label = REF_KIND_LABELS[kind]
     if node is None or node.get("class_type") != "LoadImage":
         raise HTTPException(
             400,
-            "이 워크플로우에는 포즈 이미지를 넣을 LoadImage 노드가 없어요. "
+            f"이 워크플로우에는 {label} 이미지를 넣을 LoadImage 노드가 없어요. "
             f"(제목에 '{title_substring}'가 포함된 노드가 있다면 LoadImage가 아니고, "
-            "그런 노드가 아예 없다면 다른 LoadImage 노드도 찾지 못했어요.) 포즈 참조 "
+            "그런 노드가 아예 없다면 다른 LoadImage 노드도 찾지 못했어요.) 참조 "
             "없이 이미지가 생성되는 사고를 막기 위해 업로드를 거부했어요 — 워크플로우에 "
             "LoadImage 노드를 추가하거나 제목을 확인한 뒤 다시 업로드하세요.",
         )
@@ -820,15 +891,28 @@ async def upload(request: Request):
     # 여기서 미리 한 번만 읽어둔다.
     workflow_bytes = await workflow.read()
     csv_bytes = await csv_file.read() if requires_csv else None
-    if template_id == "pose_csv_batch" and csv_bytes is not None:
-        validate_pose_csv_rows(csv_bytes)
 
-    if template_id in POSE_NODE_REQUIRED_TEMPLATES:
-        needs_pose_node = True
-        if template_id == "pose_csv_batch":
-            needs_pose_node = csv_bytes is not None and csv_has_pose_reference(csv_bytes)
-        if needs_pose_node:
-            validate_workflow_has_pose_node(workflow_bytes)
+    primary_kind = TEMPLATE_PRIMARY_KIND.get(template_id)
+    primary_csv_column = CSV_PRIMARY_REF_COLUMN.get(template_id)
+    if primary_csv_column and csv_bytes is not None:
+        validate_ref_csv_rows(csv_bytes, primary_kind, primary_csv_column)
+
+        # 보조 참조(CSV 템플릿 전용) — secondary_kind가 "none"이 아니면 CSV의
+        # secondary_ref/secondary_char_no 컬럼도 미리 검증한다. 아직 옵션을
+        # coerce하기 전이라 폼에서 원본 값을 직접 읽는다(정식 검증은 select
+        # 타입 처리에서 한 번 더 함 — 여기서는 "CSV 컬럼 검사가 필요한지"
+        # 판단용으로만 가볍게 읽는다).
+        secondary_kind_raw = form.get("secondary_kind")
+        secondary_kind_raw = secondary_kind_raw if isinstance(secondary_kind_raw, str) else None
+        if secondary_kind_raw in REF_KINDS:
+            validate_ref_csv_rows(csv_bytes, secondary_kind_raw, "secondary_ref", "secondary_char_no")
+
+    if primary_kind:
+        needs_ref_node = True
+        if primary_csv_column:
+            needs_ref_node = csv_bytes is not None and csv_has_ref_value(csv_bytes, primary_csv_column)
+        if needs_ref_node:
+            validate_workflow_has_ref_node(workflow_bytes, primary_kind)
 
     options = {}
     for option in template.get("options", []):

@@ -1119,7 +1119,7 @@
     align-items:center;
     justify-content:center;
     padding:24px;
-    /* .lightbox-overlay(z-index:60)보다 위여야 한다 — "포즈 세트로 보내기"를
+    /* .lightbox-overlay(z-index:60)보다 위여야 한다 — "참조 세트로 보내기"를
        라이트박스 안에서 열 수 있어서, 이 모달이 라이트박스에 가려지면 안 된다. */
     z-index:70;
   }
@@ -1428,7 +1428,7 @@
       <div class="gallery-toolbar" id="gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="gallery-toolbar-count"></span>
         <button class="load-btn" id="gallery-download-selected-btn" type="button">다운로드</button>
-        <button class="load-btn" id="gallery-send-to-pose-btn" type="button">포즈 세트로 보내기</button>
+        <button class="load-btn" id="gallery-send-to-pose-btn" type="button">참조 세트로 보내기</button>
         <button class="del-btn" id="gallery-delete-selected-btn" type="button">삭제</button>
         <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button">선택 해제</button>
       </div>
@@ -1499,7 +1499,7 @@
     <div class="lightbox-info" id="gallery-lightbox-info"></div>
     <div class="lightbox-actions">
       <button class="modal-btn-secondary" id="gallery-lightbox-download-btn" type="button">다운로드</button>
-      <button class="modal-btn-secondary" id="gallery-lightbox-send-to-pose-btn" type="button">포즈 세트로 보내기</button>
+      <button class="modal-btn-secondary" id="gallery-lightbox-send-to-pose-btn" type="button">참조 세트로 보내기</button>
       <button class="danger-btn" id="gallery-lightbox-delete-btn" type="button">삭제</button>
     </div>
     <div class="lightbox-error" id="gallery-lightbox-error"></div>
@@ -1510,20 +1510,28 @@
 <div class="modal-overlay" id="pose-import-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
-      <div class="modal-title">포즈 세트로 보내기</div>
+      <div class="modal-title">참조 세트로 보내기</div>
       <button class="modal-close" id="pose-import-modal-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
       <div class="email-hint" id="pose-import-count-hint"></div>
+      <div class="field">
+        <label class="field-label">종류</label>
+        <select class="option-input" id="pose-import-kind-select">
+          <option value="pose">포즈</option>
+          <option value="depth">depth</option>
+          <option value="lineart">lineart</option>
+        </select>
+      </div>
       <div class="field">
         <label class="field-label">인물 수</label>
         <select class="option-input" id="pose-import-char-no-select"></select>
         <input type="text" class="option-input" id="pose-import-char-no-new" placeholder="새 인물 수 (숫자, 예: 2)" style="display:none;">
       </div>
       <div class="field">
-        <label class="field-label">포즈 세트</label>
+        <label class="field-label">참조 세트</label>
         <select class="option-input" id="pose-import-set-select"></select>
-        <input type="text" class="option-input" id="pose-import-set-new" placeholder="새 포즈 세트 이름" style="display:none;">
+        <input type="text" class="option-input" id="pose-import-set-new" placeholder="새 참조 세트 이름" style="display:none;">
       </div>
       <div class="enhance-status" id="pose-import-status" style="text-align:left; max-width:none;"></div>
     </div>
@@ -1816,42 +1824,69 @@ const danbooruPreSubmitHooks = [];
 const csvField = document.getElementById('csv-field');
 const uploadError = document.getElementById('upload-error');
 
-let assetsTree = [];  // /api/assets 캐시 — [{name: char_no, pose_sets: [{name, count}, ...]}, ...].
-                       // "인물 수"(char_no)/"포즈 세트" 캐스케이딩 드롭다운에 씀
+let assetsTreeByKind = { pose: [], depth: [], lineart: [] };
+// /api/assets?kind=X 캐시 종류별 — 각각 [{name: char_no, pose_sets: [{name, count}, ...]}, ...]
+// (서버 응답 키는 하위호환으로 "pose_sets"라는 이름을 그대로 쓴다, kind와 무관).
+// "인물 수"(char_no)/"참조 세트" 캐스케이딩 드롭다운에 씀.
 
 async function fetchAssets(){
-  try{
-    const res = await fetch('/api/assets');
-    const data = await res.json();
-    assetsTree = data.char_nos || [];
-  }catch(e){
-    assetsTree = [];
-  }
+  await Promise.all(['pose', 'depth', 'lineart'].map(async (kind) => {
+    try{
+      const res = await fetch(`/api/assets?kind=${kind}`);
+      const data = await res.json();
+      assetsTreeByKind[kind] = data.char_nos || [];
+    }catch(e){
+      assetsTreeByKind[kind] = [];
+    }
+  }));
 }
 
-function poseSetsForCharNo(charNo){
-  const entry = assetsTree.find(t => t.name === charNo);
+function refSetsForCharNo(kind, charNo){
+  const tree = assetsTreeByKind[kind] || [];
+  const entry = tree.find(t => t.name === charNo);
   return entry ? entry.pose_sets : [];
 }
 
+// 옵션이 어느 참조 종류(pose/depth/lineart)를 다루는지 정한다 — app.py의
+// resolve_option_kind와 같은 규칙: "kind"를 정적으로 선언했으면 그대로(주 참조),
+// "kind_from"을 선언했으면 그 이름의 다른 옵션(보조 참조 종류 선택 select)의
+// 현재 값을 그대로 따라간다(그 옵션이 아직 안 그려졌거나 값이 없으면 "none").
+// 둘 다 없으면 기존 pose_batch/pose_csv_batch 매니페스트와의 하위호환을 위해
+// "pose"를 기본값으로 쓴다.
+function resolveOptionKind(opt){
+  if(opt.kind) return opt.kind;
+  if(opt.kind_from){
+    const sourceSelect = optionsFields.querySelector(`[data-name="${opt.kind_from}"]`);
+    return sourceSelect ? sourceSelect.value : 'none';
+  }
+  return 'pose';
+}
+
 function choicesFor(opt){
+  const kind = resolveOptionKind(opt);
+  if(kind === 'none') return [];
   if(opt.type === 'char_no'){
-    return assetsTree.map(t => ({ value: t.name, label: `${t.name}명`, disabled: false }));
+    const tree = assetsTreeByKind[kind] || [];
+    return tree.map(t => ({ value: t.name, label: `${t.name}명`, disabled: false }));
   }
   if(opt.type === 'asset_folder'){
-    // pose_set은 char_no 스코프 안에서 골라야 하므로, 같은 폼에 이미 렌더링돼
-    // 있는 "char_no" 필드의 현재 선택값을 그 자리에서 읽어와 필터링한다
-    // (manifest에서 char_no 옵션이 asset_folder 옵션보다 앞에 선언돼 있어야 함).
-    const charNoSelect = optionsFields.querySelector('[data-name="char_no"]');
+    // 참조 세트는 char_no 스코프 안에서 골라야 하므로, 같은 폼에 이미 렌더링돼
+    // 있는 char_no 옵션(opt.char_no_option, 기본 "char_no")의 현재 선택값을 그
+    // 자리에서 읽어와 필터링한다(manifest에서 그 char_no 옵션이 이 asset_folder
+    // 옵션보다 앞에 선언돼 있어야 함).
+    const charNoOptName = opt.char_no_option || 'char_no';
+    const charNoSelect = optionsFields.querySelector(`[data-name="${charNoOptName}"]`);
     const charNo = charNoSelect ? charNoSelect.value : '';
-    return poseSetsForCharNo(charNo).map(ps => ({ value: ps.name, label: `${ps.name} (${ps.count}장)`, disabled: ps.count === 0 }));
+    return refSetsForCharNo(kind, charNo).map(ps => ({ value: ps.name, label: `${ps.name} (${ps.count}장)`, disabled: ps.count === 0 }));
   }
   return (opt.choices || []).map(c => ({ value: c, label: c, disabled: false }));
 }
 
 function emptyTextFor(opt){
+  const kind = resolveOptionKind(opt);
+  if(kind === 'none') return '(보조 참조 사용 안 함)';
   if(opt.type === 'char_no') return '(사용 가능한 인물 수 없음)';
-  if(opt.type === 'asset_folder') return '(사용 가능한 포즈 세트 없음)';
+  if(opt.type === 'asset_folder') return `(사용 가능한 ${kind} 세트 없음)`;
   return '(선택지 없음)';
 }
 
@@ -2380,16 +2415,35 @@ function renderOptionFields(template){
     optionsFields.appendChild(field);
   }
 
-  // "인물 수" 드롭다운을 바꿀 때마다 "포즈 세트" 드롭다운을 그 자리에서 다시
-  // 채운다(캐스케이딩) — 페이지를 다시 그리지 않으므로 다른 필드 값은 그대로 유지된다.
-  const charNoSelect = optionsFields.querySelector('[data-name="char_no"]');
-  if(charNoSelect){
-    charNoSelect.addEventListener('change', () => {
-      for(const opt of options){
-        if(opt.type !== 'asset_folder') continue;
-        const poseSetSelect = optionsFields.querySelector(`[data-name="${opt.name}"]`);
-        if(!poseSetSelect) continue;
-        populateSelectOptions(poseSetSelect, choicesFor(opt), emptyTextFor(opt));
+  // 캐스케이딩 드롭다운 — "인물 수"(char_no) 옵션을 바꾸면 그걸 스코프로 쓰는
+  // asset_folder 옵션이, "secondary_kind" 같은 select를 바꾸면 그 kind_from을
+  // 따르는 char_no/asset_folder 옵션이 그 자리에서 다시 채워져야 한다. 각
+  // 옵션이 의존하는 "소스" 옵션 이름들(kind_from 대상, asset_folder라면
+  // char_no_option 대상)을 모아 소스 -> 의존 옵션 목록의 역방향 맵을 만들고,
+  // 소스 select에 change 리스너를 하나씩 붙인다. 의존 옵션 자신도 다른 옵션의
+  // 소스일 수 있으므로(예: secondary_char_no가 secondary_set의 char_no_option
+  // 대상) 다시 채운 뒤 그 select에도 change 이벤트를 전파해 체인이 이어지게
+  // 한다 — 페이지를 다시 그리지 않으므로 다른 필드 값은 그대로 유지된다.
+  const dependents = {};
+  for(const opt of options){
+    const sources = new Set();
+    if(opt.kind_from) sources.add(opt.kind_from);
+    if(opt.type === 'asset_folder') sources.add(opt.char_no_option || 'char_no');
+    for(const src of sources){
+      if(!dependents[src]) dependents[src] = [];
+      dependents[src].push(opt.name);
+    }
+  }
+  for(const [sourceName, depNames] of Object.entries(dependents)){
+    const sourceSelect = optionsFields.querySelector(`[data-name="${sourceName}"]`);
+    if(!sourceSelect) continue;
+    sourceSelect.addEventListener('change', () => {
+      for(const depName of depNames){
+        const depOpt = options.find(o => o.name === depName);
+        const depSelect = optionsFields.querySelector(`[data-name="${depName}"]`);
+        if(!depOpt || !depSelect) continue;
+        populateSelectOptions(depSelect, choicesFor(depOpt), emptyTextFor(depOpt));
+        depSelect.dispatchEvent(new Event('change'));
       }
     });
   }
@@ -3405,27 +3459,31 @@ document.getElementById('gallery-clear-selection-btn').addEventListener('click',
   updateGalleryToolbar();
 });
 
-// ---- 갤러리 → 포즈 세트로 보내기 ----
-// 마음에 든 결과 이미지를 pose_batch/pose_csv_batch가 참조하는 포즈 세트
-// 폴더(NIGHTSHIFT_POSES_DIR/<char_no>/<세트>/)에 사본으로 넣는다. 원본은 지우지
-// 않는다(복사). char_no/포즈 세트 드롭다운은 "새 작업 추가" 폼과 같은
-// assetsTree/poseSetsForCharNo를 재사용하고, 둘 다 "새로 만들기"를 고르면
-// 텍스트 입력이 나타나 없는 인물 수/세트도 그 자리에서 새로 만들 수 있다
-// (실제 생성은 서버의 save_pose_image가 폴더를 그때 만든다).
+// ---- 갤러리 → 참조 세트로 보내기 ----
+// 마음에 든 결과 이미지를 pose_batch/depth_batch/lineart_batch(및 각 csv 버전)가
+// 참조하는 세트 폴더(NIGHTSHIFT_ASSETS_DIR/<kind>/<char_no>/<세트>/)에 사본으로
+// 넣는다. 원본은 지우지 않는다(복사). 종류(kind)/char_no/참조 세트 드롭다운은
+// "새 작업 추가" 폼과 같은 assetsTreeByKind/refSetsForCharNo를 재사용하고,
+// char_no/세트 둘 다 "새로 만들기"를 고르면 텍스트 입력이 나타나 없는 인물 수/
+// 세트도 그 자리에서 새로 만들 수 있다(실제 생성은 서버의 save_ref_image가
+// 폴더를 그때 만든다).
 const poseImportModal = document.getElementById('pose-import-modal');
 let poseImportTargetNames = [];
 
 function populatePoseImportCharNoSelect(){
+  const kind = document.getElementById('pose-import-kind-select').value;
   const select = document.getElementById('pose-import-char-no-select');
-  select.innerHTML = assetsTree.map(t => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}명</option>`).join('')
+  const tree = assetsTreeByKind[kind] || [];
+  select.innerHTML = tree.map(t => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}명</option>`).join('')
     + '<option value="__new__">+ 새 인물 수 만들기</option>';
 }
 
 function populatePoseImportSetSelect(charNo){
+  const kind = document.getElementById('pose-import-kind-select').value;
   const select = document.getElementById('pose-import-set-select');
-  const sets = charNo === '__new__' ? [] : poseSetsForCharNo(charNo);
+  const sets = charNo === '__new__' ? [] : refSetsForCharNo(kind, charNo);
   select.innerHTML = sets.map(s => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)} (${s.count}장)</option>`).join('')
-    + '<option value="__new__">+ 새 포즈 세트 만들기</option>';
+    + '<option value="__new__">+ 새 참조 세트 만들기</option>';
   // 고를 수 있는 기존 세트가 없으면(새 인물 수 포함) "새로 만들기"가 유일한
   // 선택지이니 처음부터 그 상태로 보여준다.
   if(sets.length === 0) select.value = '__new__';
@@ -3439,6 +3497,10 @@ function updatePoseImportNewInputsVisibility(){
   document.getElementById('pose-import-set-new').style.display = setSelect.value === '__new__' ? '' : 'none';
 }
 
+document.getElementById('pose-import-kind-select').addEventListener('change', () => {
+  populatePoseImportCharNoSelect();
+  populatePoseImportSetSelect(document.getElementById('pose-import-char-no-select').value);
+});
 document.getElementById('pose-import-char-no-select').addEventListener('change', (e) => {
   populatePoseImportSetSelect(e.target.value);
 });
@@ -3450,9 +3512,10 @@ async function openPoseImportModal(names){
   const statusEl = document.getElementById('pose-import-status');
   statusEl.textContent = '';
   statusEl.classList.remove('error', 'success');
-  document.getElementById('pose-import-count-hint').textContent = `선택한 이미지 ${names.length}장을 보낼 인물 수/포즈 세트를 고르세요.`;
+  document.getElementById('pose-import-count-hint').textContent = `선택한 이미지 ${names.length}장을 보낼 종류/인물 수/참조 세트를 고르세요.`;
   document.getElementById('pose-import-char-no-new').value = '';
   document.getElementById('pose-import-set-new').value = '';
+  document.getElementById('pose-import-kind-select').value = 'pose';
 
   await fetchAssets(); // 방금 새로 만든 세트까지 반영해서 최신 목록으로 연다.
   populatePoseImportCharNoSelect();
@@ -3476,12 +3539,13 @@ document.getElementById('pose-import-confirm-btn').addEventListener('click', asy
   statusEl.textContent = '';
   statusEl.classList.remove('error', 'success');
 
+  const kind = document.getElementById('pose-import-kind-select').value;
   const charNoSelect = document.getElementById('pose-import-char-no-select');
   const setSelect = document.getElementById('pose-import-set-select');
   const charNo = charNoSelect.value === '__new__'
     ? document.getElementById('pose-import-char-no-new').value.trim()
     : charNoSelect.value;
-  const poseSet = setSelect.value === '__new__'
+  const refSet = setSelect.value === '__new__'
     ? document.getElementById('pose-import-set-new').value.trim()
     : setSelect.value;
 
@@ -3490,8 +3554,8 @@ document.getElementById('pose-import-confirm-btn').addEventListener('click', asy
     statusEl.classList.add('error');
     return;
   }
-  if(!poseSet){
-    statusEl.textContent = '포즈 세트 이름을 입력하세요.';
+  if(!refSet){
+    statusEl.textContent = '참조 세트 이름을 입력하세요.';
     statusEl.classList.add('error');
     return;
   }
@@ -3502,7 +3566,7 @@ document.getElementById('pose-import-confirm-btn').addEventListener('click', asy
     const res = await fetch('/api/assets/import-from-output', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ names: poseImportTargetNames, char_no: charNo, pose_set: poseSet }),
+      body: JSON.stringify({ names: poseImportTargetNames, kind: kind, char_no: charNo, set_name: refSet }),
     });
     const data = await res.json().catch(() => ({}));
     if(!res.ok){
@@ -3512,7 +3576,7 @@ document.getElementById('pose-import-confirm-btn').addEventListener('click', asy
     }
     const skippedCount = (data.skipped || []).length;
     if(skippedCount === 0){
-      statusEl.textContent = `${data.added}장을 '${poseSet}'에 추가했어요.`;
+      statusEl.textContent = `${data.added}장을 '${refSet}'에 추가했어요.`;
       statusEl.classList.add('success');
       await fetchAssets();
       setTimeout(closePoseImportModal, 900);
