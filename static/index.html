@@ -1119,7 +1119,9 @@
     align-items:center;
     justify-content:center;
     padding:24px;
-    z-index:50;
+    /* .lightbox-overlay(z-index:60)보다 위여야 한다 — "포즈 세트로 보내기"를
+       라이트박스 안에서 열 수 있어서, 이 모달이 라이트박스에 가려지면 안 된다. */
+    z-index:70;
   }
   .modal-panel{
     background:var(--panel);
@@ -1426,6 +1428,7 @@
       <div class="gallery-toolbar" id="gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="gallery-toolbar-count"></span>
         <button class="load-btn" id="gallery-download-selected-btn" type="button">다운로드</button>
+        <button class="load-btn" id="gallery-send-to-pose-btn" type="button">포즈 세트로 보내기</button>
         <button class="del-btn" id="gallery-delete-selected-btn" type="button">삭제</button>
         <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button">선택 해제</button>
       </div>
@@ -1496,11 +1499,39 @@
     <div class="lightbox-info" id="gallery-lightbox-info"></div>
     <div class="lightbox-actions">
       <button class="modal-btn-secondary" id="gallery-lightbox-download-btn" type="button">다운로드</button>
+      <button class="modal-btn-secondary" id="gallery-lightbox-send-to-pose-btn" type="button">포즈 세트로 보내기</button>
       <button class="danger-btn" id="gallery-lightbox-delete-btn" type="button">삭제</button>
     </div>
     <div class="lightbox-error" id="gallery-lightbox-error"></div>
   </div>
   <button class="lightbox-nav lightbox-next" id="gallery-next" aria-label="다음 이미지" type="button">&rsaquo;</button>
+</div>
+
+<div class="modal-overlay" id="pose-import-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">포즈 세트로 보내기</div>
+      <button class="modal-close" id="pose-import-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint" id="pose-import-count-hint"></div>
+      <div class="field">
+        <label class="field-label">인물 수</label>
+        <select class="option-input" id="pose-import-char-no-select"></select>
+        <input type="text" class="option-input" id="pose-import-char-no-new" placeholder="새 인물 수 (숫자, 예: 2)" style="display:none;">
+      </div>
+      <div class="field">
+        <label class="field-label">포즈 세트</label>
+        <select class="option-input" id="pose-import-set-select"></select>
+        <input type="text" class="option-input" id="pose-import-set-new" placeholder="새 포즈 세트 이름" style="display:none;">
+      </div>
+      <div class="enhance-status" id="pose-import-status" style="text-align:left; max-width:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="pose-import-cancel-btn">취소</button>
+      <button class="submit-btn" id="pose-import-confirm-btn">추가</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="workflow-modal" style="display:none;">
@@ -3361,6 +3392,9 @@ document.getElementById('gallery-select-all-btn').addEventListener('click', () =
 document.getElementById('gallery-download-selected-btn').addEventListener('click', () => {
   downloadGalleryImages(Array.from(selectedGalleryNames));
 });
+document.getElementById('gallery-send-to-pose-btn').addEventListener('click', () => {
+  openPoseImportModal(Array.from(selectedGalleryNames));
+});
 document.getElementById('gallery-delete-selected-btn').addEventListener('click', () => {
   deleteGalleryImages(Array.from(selectedGalleryNames));
 });
@@ -3369,6 +3403,133 @@ document.getElementById('gallery-clear-selection-btn').addEventListener('click',
   document.querySelectorAll('.gallery-item.selected').forEach(el => el.classList.remove('selected'));
   document.querySelectorAll('.gallery-item-select input').forEach(cb => { cb.checked = false; });
   updateGalleryToolbar();
+});
+
+// ---- 갤러리 → 포즈 세트로 보내기 ----
+// 마음에 든 결과 이미지를 pose_batch/pose_csv_batch가 참조하는 포즈 세트
+// 폴더(NIGHTSHIFT_POSES_DIR/<char_no>/<세트>/)에 사본으로 넣는다. 원본은 지우지
+// 않는다(복사). char_no/포즈 세트 드롭다운은 "새 작업 추가" 폼과 같은
+// assetsTree/poseSetsForCharNo를 재사용하고, 둘 다 "새로 만들기"를 고르면
+// 텍스트 입력이 나타나 없는 인물 수/세트도 그 자리에서 새로 만들 수 있다
+// (실제 생성은 서버의 save_pose_image가 폴더를 그때 만든다).
+const poseImportModal = document.getElementById('pose-import-modal');
+let poseImportTargetNames = [];
+
+function populatePoseImportCharNoSelect(){
+  const select = document.getElementById('pose-import-char-no-select');
+  select.innerHTML = assetsTree.map(t => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}명</option>`).join('')
+    + '<option value="__new__">+ 새 인물 수 만들기</option>';
+}
+
+function populatePoseImportSetSelect(charNo){
+  const select = document.getElementById('pose-import-set-select');
+  const sets = charNo === '__new__' ? [] : poseSetsForCharNo(charNo);
+  select.innerHTML = sets.map(s => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)} (${s.count}장)</option>`).join('')
+    + '<option value="__new__">+ 새 포즈 세트 만들기</option>';
+  // 고를 수 있는 기존 세트가 없으면(새 인물 수 포함) "새로 만들기"가 유일한
+  // 선택지이니 처음부터 그 상태로 보여준다.
+  if(sets.length === 0) select.value = '__new__';
+  updatePoseImportNewInputsVisibility();
+}
+
+function updatePoseImportNewInputsVisibility(){
+  const charNoSelect = document.getElementById('pose-import-char-no-select');
+  const setSelect = document.getElementById('pose-import-set-select');
+  document.getElementById('pose-import-char-no-new').style.display = charNoSelect.value === '__new__' ? '' : 'none';
+  document.getElementById('pose-import-set-new').style.display = setSelect.value === '__new__' ? '' : 'none';
+}
+
+document.getElementById('pose-import-char-no-select').addEventListener('change', (e) => {
+  populatePoseImportSetSelect(e.target.value);
+});
+document.getElementById('pose-import-set-select').addEventListener('change', updatePoseImportNewInputsVisibility);
+
+async function openPoseImportModal(names){
+  if(names.length === 0) return;
+  poseImportTargetNames = names;
+  const statusEl = document.getElementById('pose-import-status');
+  statusEl.textContent = '';
+  statusEl.classList.remove('error', 'success');
+  document.getElementById('pose-import-count-hint').textContent = `선택한 이미지 ${names.length}장을 보낼 인물 수/포즈 세트를 고르세요.`;
+  document.getElementById('pose-import-char-no-new').value = '';
+  document.getElementById('pose-import-set-new').value = '';
+
+  await fetchAssets(); // 방금 새로 만든 세트까지 반영해서 최신 목록으로 연다.
+  populatePoseImportCharNoSelect();
+  populatePoseImportSetSelect(document.getElementById('pose-import-char-no-select').value);
+  poseImportModal.style.display = 'flex';
+}
+
+function closePoseImportModal(){
+  poseImportModal.style.display = 'none';
+}
+
+document.getElementById('pose-import-modal-close').addEventListener('click', closePoseImportModal);
+document.getElementById('pose-import-cancel-btn').addEventListener('click', closePoseImportModal);
+poseImportModal.addEventListener('click', (e) => { if(e.target === poseImportModal) closePoseImportModal(); });
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape' && poseImportModal.style.display !== 'none') closePoseImportModal();
+});
+
+document.getElementById('pose-import-confirm-btn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('pose-import-status');
+  statusEl.textContent = '';
+  statusEl.classList.remove('error', 'success');
+
+  const charNoSelect = document.getElementById('pose-import-char-no-select');
+  const setSelect = document.getElementById('pose-import-set-select');
+  const charNo = charNoSelect.value === '__new__'
+    ? document.getElementById('pose-import-char-no-new').value.trim()
+    : charNoSelect.value;
+  const poseSet = setSelect.value === '__new__'
+    ? document.getElementById('pose-import-set-new').value.trim()
+    : setSelect.value;
+
+  if(!charNo){
+    statusEl.textContent = '인물 수를 입력하세요.';
+    statusEl.classList.add('error');
+    return;
+  }
+  if(!poseSet){
+    statusEl.textContent = '포즈 세트 이름을 입력하세요.';
+    statusEl.classList.add('error');
+    return;
+  }
+
+  const confirmBtn = document.getElementById('pose-import-confirm-btn');
+  confirmBtn.disabled = true;
+  try{
+    const res = await fetch('/api/assets/import-from-output', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names: poseImportTargetNames, char_no: charNo, pose_set: poseSet }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok){
+      statusEl.textContent = data.detail || '전송에 실패했어요.';
+      statusEl.classList.add('error');
+      return;
+    }
+    const skippedCount = (data.skipped || []).length;
+    if(skippedCount === 0){
+      statusEl.textContent = `${data.added}장을 '${poseSet}'에 추가했어요.`;
+      statusEl.classList.add('success');
+      await fetchAssets();
+      setTimeout(closePoseImportModal, 900);
+    }else if(data.added > 0){
+      statusEl.textContent = `${data.added}장 추가, ${skippedCount}장은 건너뛰었어요 (이미 지워진 이미지 등).`;
+      statusEl.classList.add('success');
+      await fetchAssets();
+    }else{
+      statusEl.textContent = `전부 건너뛰었어요 — ${(data.skipped && data.skipped[0] && data.skipped[0].reason) || '알 수 없는 이유'}`;
+      statusEl.classList.add('error');
+    }
+  }catch(e){
+    statusEl.textContent = '전송에 실패했어요.';
+    statusEl.classList.add('error');
+  }finally{
+    confirmBtn.disabled = false;
+  }
 });
 
 function renderLightbox(){
@@ -3411,6 +3572,10 @@ document.getElementById('gallery-next').addEventListener('click', showNextImage)
 document.getElementById('gallery-lightbox-download-btn').addEventListener('click', () => {
   const img = displayedGalleryImages[lightboxIndex];
   if(img) triggerAnchorDownload(`/api/output-images/${encodeURIComponent(img.name)}`, img.name);
+});
+document.getElementById('gallery-lightbox-send-to-pose-btn').addEventListener('click', () => {
+  const img = displayedGalleryImages[lightboxIndex];
+  if(img) openPoseImportModal([img.name]);
 });
 document.getElementById('gallery-lightbox-delete-btn').addEventListener('click', async () => {
   const img = displayedGalleryImages[lightboxIndex];

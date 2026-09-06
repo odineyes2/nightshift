@@ -59,6 +59,9 @@ from pose_assets import (
     list_char_nos,
     parse_char_no,
     resolve_pose_reference,
+    save_pose_image,
+    validate_new_char_no,
+    validate_new_folder_name,
     validate_pose_set,
 )
 
@@ -537,6 +540,52 @@ def list_assets():
     # 서버에 다시 요청하지 않고도 "포즈 세트" 드롭다운을 그 자리에서 다시 채울 수
     # 있게 한다. 매 호출마다 폴더를 다시 스캔해서 방금 새로 올려둔 세트도 반영한다.
     return {"char_nos": list_assets_tree()}
+
+
+@app.post("/api/assets/import-from-output")
+async def import_output_images_to_pose_set(request: Request):
+    # 갤러리에서 마음에 든 결과 이미지를 포즈 세트로 보내는 용도 — 지금까지는
+    # 포즈 세트를 채우려면 서버 파일시스템에 직접 올려야 했는데, 이 엔드포인트가
+    # 그 유일한 업로드 경로다. char_no/pose_set은 존재하지 않으면(새 인물 수·새
+    # 세트) save_pose_image가 그대로 폴더를 만들어서, 이 하나로 기존 세트 추가와
+    # 새 세트 생성을 둘 다 처리한다. 원본은 지우지 않고 사본만 만든다(복사).
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+
+    names = parse_image_names_body(data)
+    try:
+        char_no = validate_new_char_no(data.get("char_no"))
+        pose_set = validate_new_folder_name(data.get("pose_set"), "포즈 세트")
+    except PoseAssetError as e:
+        raise HTTPException(400, str(e))
+
+    added = 0
+    skipped = []
+    for name in names:
+        try:
+            path = resolve_output_image(name)
+        except HTTPException as e:
+            skipped.append({"name": name, "reason": e.detail})
+            continue
+
+        # job_id별 하위 폴더(작업 정보 없으면 그대로)에서 온 이름이라, 포즈 세트의
+        # 평평한 구조에 맞게 "<job_id>_<원본파일명>"으로 합친다 — 어느 작업에서
+        # 나온 참조인지 파일명만 보고 알 수 있게 하기 위함(output_images.py 참고).
+        parts = name.split("/")
+        dest_filename = f"{parts[0]}_{parts[-1]}" if len(parts) > 1 else parts[0]
+
+        try:
+            content = await asyncio.to_thread(path.read_bytes)
+            await asyncio.to_thread(save_pose_image, char_no, pose_set, dest_filename, content)
+        except OSError as e:
+            skipped.append({"name": name, "reason": f"저장 실패: {e}"})
+            continue
+        added += 1
+
+    return {"added": added, "skipped": skipped}
 
 
 def coerce_option(option: dict, raw: str | None, options_so_far: dict):
