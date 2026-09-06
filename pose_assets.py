@@ -135,6 +135,43 @@ def list_assets_tree() -> list[dict]:
     ]
 
 
+def validate_new_char_no(raw: str | None) -> str:
+    """갤러리 이미지를 포즈 세트로 보낼 때 "새 인물 수" 입력값을 검증한다.
+    list_char_nos()가 숫자 이름 폴더만 인식하므로(char_no.isdigit()), 새로
+    만드는 값도 반드시 1 이상의 정수여야 다음에 다시 목록에 나타난다."""
+    raw = (raw or "").strip()
+    if not raw or not raw.isdigit() or int(raw) < 1:
+        raise PoseAssetError("인물 수는 1 이상의 숫자여야 해요.")
+    return str(int(raw))  # "01" 같은 표기를 "1"로 정규화
+
+
+def validate_new_folder_name(name: str | None, what: str) -> str:
+    """새 포즈 세트 이름처럼, 사용자가 자유롭게 입력하는 폴더 이름을 검증한다.
+    Path(name).name이 원래 값과 다르면(경로 구분자나 상위 폴더 이동이
+    포함됐다는 뜻) 거부한다 — 두 플랫폼(POSIX "/", Windows "\\") 모두 방어."""
+    name = (name or "").strip()
+    if not name or name in (".", "..") or Path(name).name != name:
+        raise PoseAssetError(f"{what} 이름이 올바르지 않아요 (폴더 구분자나 '..'는 쓸 수 없어요).")
+    return name
+
+
+def save_pose_image(char_no: str, pose_set: str, filename: str, content: bytes) -> str:
+    """char_no/pose_set 폴더에 content를 filename으로 저장한다. 폴더가 없으면
+    (새 인물 수·새 세트여도) 그대로 만든다. 이미 같은 이름의 파일이 있으면
+    지우지 않고 파일명 끝에 _2, _3...을 붙여 저장한다. 실제로 저장한 파일명을
+    돌려준다(호출부가 화면에 "N장 추가" 결과를 보여줄 때 참고용)."""
+    d = _pose_set_dir(char_no, pose_set)
+    d.mkdir(parents=True, exist_ok=True)
+    stem, suffix = Path(filename).stem, Path(filename).suffix
+    candidate = filename
+    n = 2
+    while (d / candidate).exists():
+        candidate = f"{stem}_{n}{suffix}"
+        n += 1
+    (d / candidate).write_bytes(content)
+    return candidate
+
+
 def validate_pose_set(name: str, char_no: str = DEFAULT_CHAR_NO) -> Path:
     """char_no 아래 포즈 세트 name이 실제로 존재하고 이미지가 1장 이상 있는지
     확인한다. 잡을 큐에 올리는 시점(업로드 시)에 검사해서, 시작한 뒤에야
