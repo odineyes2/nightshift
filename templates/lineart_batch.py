@@ -1,33 +1,35 @@
 """
-포즈 참조 배치 템플릿 — ControlNet(OpenPose 등)에 쓸 포즈 레퍼런스 이미지를 서버에
-미리 쌓아둔 폴더(포즈 세트)에서 순차 또는 랜덤으로 뽑아 LoadImage 노드에 주입하면서,
-워크플로우 하나를 pose_count번 반복 실행한다. seed_batch.py와 같은 ComfyUI 연동
-방식(워크플로우 노드 찾기/제출/폴링/진행률 보고)을 쓰되, 매 반복마다 시드뿐 아니라
-포즈 레퍼런스 이미지도 함께 바꾼다.
+lineart 참조 배치 템플릿 — ControlNet(Lineart 등)에 쓸 lineart 레퍼런스 이미지를 서버에
+미리 쌓아둔 폴더(lineart 세트)에서 순차 또는 랜덤으로 뽑아 LoadImage 노드에 주입하면서,
+워크플로우 하나를 lineart_count번 반복 실행한다. pose_batch.py/seed_batch.py와 같은
+ComfyUI 연동 방식(워크플로우 노드 찾기/제출/폴링/진행률 보고)을 쓰되, 매 반복마다
+시드뿐 아니라 lineart 레퍼런스 이미지도 함께 바꾼다. pose_batch.py와 완전히 동일한
+구조를 갖는 독립 스크립트다(templates/ 아래 스크립트들은 서로 import하지 않고 각자
+알고리즘 사본을 갖는다는 이 저장소의 관례) — "주(main) 참조"만 lineart로 고정돼 있다.
 
-포즈 레퍼런스 폴더 구조(char_no로 스코프됨):
-    NIGHTSHIFT_ASSETS_DIR(기본 /workspace/dataset/assets)/pose/
+lineart 레퍼런스 폴더 구조(char_no로 스코프됨):
+    NIGHTSHIFT_ASSETS_DIR(기본 /workspace/dataset/assets)/lineart/
         1/                          인물 수 1(solo)
-            <POSE_SET 이름>/
+            <LINEART_SET 이름>/
                 image1.png
                 image2.jpg
                 ...
         2/                          인물 수 2(duo)
             ...
-    (레거시: NIGHTSHIFT_POSES_DIR을 설정하면 위 경로 대신 그 값을 pose 종류의
-    루트로 쓴다 — 기존 /workspace/dataset/poses 배치를 옮기지 않아도 되도록.)
+    (레거시/개별 override: NIGHTSHIFT_LINEART_DIR을 설정하면 위 경로 대신 그 값을
+    lineart 종류의 루트로 쓴다.)
     nightshift 웹 UI에서 업로드할 때 "인물 수"(char_no) 드롭다운을 먼저 고르고,
-    그 값에 따라 "포즈 세트" 드롭다운이 그 폴더의 <char_no> 아래 하위 폴더
-    목록으로 다시 채워지는 캐스케이딩 방식이다(GET /api/assets?kind=pose가 char_no별
+    그 값에 따라 "lineart 세트" 드롭다운이 그 폴더의 <char_no> 아래 하위 폴더
+    목록으로 다시 채워지는 캐스케이딩 방식이다(GET /api/assets?kind=lineart가 char_no별
     세트 목록을 트리로 돌려준다). 고른 인물 수와 세트 이름이 각각 CHAR_NO,
-    POSE_SET 환경변수로 전달된다. 여러 인물이 CSV 행마다 서로 다른 포즈/char_no를
-    쓰는 경우는 pose_csv_batch 템플릿을 쓴다. 세트 존재 여부/이미지 유무는
+    LINEART_SET 환경변수로 전달된다. 여러 인물이 CSV 행마다 서로 다른 lineart/char_no를
+    쓰는 경우는 lineart_csv_batch 템플릿을 쓴다. 세트 존재 여부/이미지 유무는
     업로드 시점에 nightshift(app.py + ref_assets.py)가 이미 검증했으므로 큐
     시작 이후 그것 때문에 실패하는 일은 없지만, 실행 중 폴더가 바뀌는 등의
     만일의 상황을 대비해 이 스크립트도 시작할 때 한 번 더 확인한다.
 
-포즈 선택 방식(POSE_MODE):
-    sequential  파일명 정렬 순서대로 순환. pose_count가 이미지 수보다 많으면
+lineart 선택 방식(LINEART_MODE):
+    sequential  파일명 정렬 순서대로 순환. lineart_count가 이미지 수보다 많으면
                 처음으로 되돌아가 반복한다.
     random      매번 무작위로 뽑되, 폴더가 다 소진될 때까지는 같은 이미지를 다시
                 뽑지 않는다(완전 무작위보다 다양성이 보장됨). 다 뽑고 나면
@@ -61,11 +63,11 @@ ComfyUI로의 이미지 주입 방식:
 
 환경변수:
     WORKFLOW_PATH      (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
-    POSE_COUNT         (필수) 반복 생성할 이미지 개수 (nightshift가 템플릿 옵션 "pose_count"로 주입)
-    POSE_SET           (필수) 포즈 세트 폴더 이름 (nightshift가 템플릿 옵션 "pose_set"으로 주입)
-    CHAR_NO            인물 수(포즈 세트가 있는 POSES_DIR 하위 숫자 폴더 이름). nightshift가
+    LINEART_COUNT        (필수) 반복 생성할 이미지 개수 (nightshift가 템플릿 옵션 "lineart_count"로 주입)
+    LINEART_SET          (필수) lineart 세트 폴더 이름 (nightshift가 템플릿 옵션 "lineart_set"으로 주입)
+    CHAR_NO            인물 수(lineart 세트가 있는 폴더 하위 숫자 폴더 이름). nightshift가
                        템플릿 옵션 "char_no"로 주입, 기본 "1"(1인물/solo)
-    POSE_MODE          "sequential" 또는 "random" (nightshift가 템플릿 옵션 "pose_mode"로 주입, 기본 sequential)
+    LINEART_MODE         "sequential" 또는 "random" (nightshift가 템플릿 옵션 "lineart_mode"로 주입, 기본 sequential)
     MAIN_PROMPT        메인 프롬프트 (nightshift가 템플릿 옵션 "main_prompt"로 주입, 기본
                        빈 값 — 비워두면 워크플로우의 프롬프트를 그대로 씀)
     WIDTH, HEIGHT      해상도 (nightshift가 템플릿 옵션 "width"/"height"로 주입, 기본 빈 값
@@ -77,24 +79,25 @@ ComfyUI로의 이미지 주입 방식:
     SECONDARY_SET       보조 참조 세트 폴더 이름 (nightshift가 템플릿 옵션
                        "secondary_set"으로 주입, SECONDARY_KIND가 "none"이면 무시됨)
     SECONDARY_NODE_TITLE 보조 참조 이미지를 주입할 LoadImage 노드의 _meta.title
-                       부분일치 (기본 "secondary" — POSE_NODE_TITLE과 달리 정확히
+                       부분일치 (기본 "secondary" — LINEART_NODE_TITLE과 달리 정확히
                        이 제목을 가진 노드가 없으면 다른 노드로 대체하지 않고 건너뜀)
     NIGHTSHIFT_ASSETS_DIR  pose/depth/lineart 종류별 폴더들이 있는 상위 디렉토리
-                       (기본 /workspace/dataset/assets). 보조 참조가 이 아래에서 찾아짐
-    NIGHTSHIFT_POSES_DIR   (레거시 override) pose 종류의 세트들이 있는 상위 폴더를
-                       NIGHTSHIFT_ASSETS_DIR/pose 대신 개별 지정 (기본값 없으면
-                       NIGHTSHIFT_ASSETS_DIR/pose를 씀). nightshift 서버(ref_assets.py)와
-                       같은 값을 봐야 하므로 손대지 않는 게 안전함
+                       (기본 /workspace/dataset/assets)
+    NIGHTSHIFT_LINEART_DIR (선택 override) lineart 종류의 세트들이 있는 상위 폴더를
+                       NIGHTSHIFT_ASSETS_DIR/lineart 대신 개별 지정. nightshift
+                       서버(ref_assets.py)와 같은 값을 봐야 하므로 손대지 않는 게 안전함
+    NIGHTSHIFT_POSES_DIR   (선택) pose 종류의 세트들이 있는 상위 폴더를 개별 지정
+                       (보조 참조로 pose를 쓸 때만 의미가 있음)
     NIGHTSHIFT_DEPTH_DIR   (선택) depth 종류의 세트들이 있는 상위 폴더를 개별 지정
-    NIGHTSHIFT_LINEART_DIR (선택) lineart 종류의 세트들이 있는 상위 폴더를 개별 지정
+                       (보조 참조로 depth를 쓸 때만 의미가 있음)
     NIGHTSHIFT_OUTPUT_DIR  ComfyUI가 이미지를 저장하는 폴더 (기본 /workspace/output).
-                       재현성 기록용 jsonl(pose_batch_manifest.jsonl)을 여기 같이 남긴다
+                       재현성 기록용 jsonl(lineart_batch_manifest.jsonl)을 여기 같이 남긴다
     COMFY_URL          ComfyUI 서버 주소 (기본 http://127.0.0.1:8188)
     JOB_ID             nightshift가 주입하는 이 작업의 id (진행 상황 보고용, 없으면 보고 생략)
     NIGHTSHIFT_URL     nightshift 자신의 주소 (진행 상황 보고용, 기본 http://127.0.0.1:8000)
     SEED_NODE_TITLE    시드를 주입할 노드의 _meta.title 부분일치 (기본 "KSampler")
     LATENT_NODE_TITLE  해상도를 주입할 노드의 _meta.title 부분일치 (기본 "latent")
-    POSE_NODE_TITLE    포즈 이미지를 주입할 LoadImage 노드의 _meta.title 부분일치
+    LINEART_NODE_TITLE   lineart 이미지를 주입할 LoadImage 노드의 _meta.title 부분일치
                        (기본 "Load" — 정확히 일치하는 노드가 없으면, 워크플로우에
                        LoadImage 노드가 하나뿐일 때 그 노드를 대신 쓴다. 여러 개인
                        워크플로우라면 이 값을 실제 노드 제목에 맞게 조정해야 한다)
@@ -103,45 +106,44 @@ ComfyUI로의 이미지 주입 방식:
     POLL_TIMEOUT_SEC   개별 작업 완료 대기 제한 초 (기본 600)
 
 진행 상황 보고:
-    pose_count를 그대로 예상 총 이미지 수로 보고 PUT /api/jobs/{job_id}/progress로
+    lineart_count를 그대로 예상 총 이미지 수로 보고 PUT /api/jobs/{job_id}/progress로
     {"total": N, "done": M}을 보고한다. seed_batch.py와 달리 EmptyLatentImage의
-    batch_size는 반영하지 않는다(포즈 배치는 보통 한 번에 1장씩 생성하는 용도라
+    batch_size는 반영하지 않는다(이 배치는 보통 한 번에 1장씩 생성하는 용도라
     단순하게 유지) — batch_size를 키워 쓰는 워크플로우라면 총 개수가 실제 이미지
     수보다 적게 잡힐 수 있다.
 
 재현성 기록:
-    매 반복마다 어떤 포즈 이미지를 썼는지 stdout 로그에 남기고, SaveImage의
-    filename_prefix에도 포즈 파일명(확장자 제외, 안전한 문자로 치환)을 포함시킨다
-    (예: pose_batch_3_seed482913_standing_01.png). char_no가 기본값(1)이 아니면
-    "_char<N>"도 덧붙인다(예: pose_batch_3_seed482913_standing_01_char2.png —
+    매 반복마다 어떤 lineart 이미지를 썼는지 stdout 로그에 남기고, SaveImage의
+    filename_prefix에도 lineart 파일명(확장자 제외, 안전한 문자로 치환)을 포함시킨다
+    (예: lineart_batch_3_seed482913_room_01.png). char_no가 기본값(1)이 아니면
+    "_char<N>"도 덧붙인다(예: lineart_batch_3_seed482913_room_01_char2.png —
     결과물을 인물 수 기준으로 정리할 때 씀). JOB_ID가 있으면 이 filename_prefix
     앞에 "<JOB_ID>/"를 붙여 ComfyUI가 출력 폴더 밑에 그 job_id 폴더를 만들고 그
     안에 저장하게 한다 — nightshift 갤러리의 "작업별 보기"가 이 폴더 이름으로
     묶어서 보여준다(output_images.py 참고). 추가로 NIGHTSHIFT_OUTPUT_DIR에
-    pose_batch_manifest.jsonl을 이어쓰기(append)로 남겨, 한 줄마다
-    {timestamp, job_id, index, char_no, pose_set, pose_file, seed, prompt_id,
+    lineart_batch_manifest.jsonl을 이어쓰기(append)로 남겨, 한 줄마다
+    {timestamp, job_id, index, char_no, lineart_set, lineart_file, seed, prompt_id,
     (보조 참조를 썼다면) secondary_kind, secondary_set, secondary_file}을
     기록한다 — 나중에 "이 컷이 왜 이렇게 나왔는지" 추적할 때 쓴다. 기록에
     실패해도(출력 폴더가 아직 없는 등) 배치 자체는 계속 진행한다.
 
-보조 참조(SECONDARY_KIND 등) — 포즈와 depth/lineart를 한 생성에 같이 쓰기:
-    이 템플릿의 "주(main) 참조"는 항상 pose다(위 POSE_SET/CHAR_NO). 그와 별개로,
-    같은 생성에 depth나 lineart 레퍼런스를 "보조 참조"로 하나 더 얹을 수 있다 —
-    예를 들어 워크플로우에 ControlNet(OpenPose)과 ControlNet(Depth)을 함께 쓰는
-    노드 두 쌍이 있을 때, 포즈는 주 참조로, depth는 보조 참조로 넣는 식이다.
-    SECONDARY_KIND가 "none"(기본값)이면 보조 참조 기능 자체가 꺼진다. "pose"
-    이외의 값("depth" 또는 "lineart")이면 NIGHTSHIFT_ASSETS_DIR(또는 해당 종류의
-    개별 override) 아래에서 SECONDARY_CHAR_NO/SECONDARY_SET에 해당하는 세트를
-    똑같은 방식(POSE_MODE에 따라 순차/랜덤)으로 골라, 워크플로우에서 제목에
-    SECONDARY_NODE_TITLE(기본 "secondary")이 포함된 LoadImage 노드를 찾아
-    주입한다. 주 참조(포즈)와 달리 이 노드는 "정확히 제목이 일치해야만" 쓴다 —
-    class_type만으로 아무 LoadImage에나 대신 꽂아버리면 워크플로우에 LoadImage가
-    하나뿐인 경우 주 참조 노드를 실수로 덮어쓸 수 있기 때문이다. 그래서
-    보조 참조는 항상 best-effort다: 세트 안에 이미지가 없거나, 워크플로우에
-    맞는 제목의 LoadImage 노드가 없으면 경고만 남기고 그 실행은 보조 참조 없이
-    계속 진행한다(업로드 시점에 nightshift가 CSV/세트 존재 여부는 검증하지만,
-    워크플로우 노드 존재 여부까지는 검증하지 않는다 — MAIN_PROMPT 노드 매칭과
-    같은 정책).
+보조 참조(SECONDARY_KIND 등) — lineart와 pose/depth를 한 생성에 같이 쓰기:
+    이 템플릿의 "주(main) 참조"는 항상 lineart다(위 LINEART_SET/CHAR_NO). 그와 별개로,
+    같은 생성에 pose나 depth 레퍼런스를 "보조 참조"로 하나 더 얹을 수 있다 —
+    예를 들어 워크플로우에 ControlNet(Lineart)과 ControlNet(OpenPose)을 함께 쓰는
+    노드 두 쌍이 있을 때, lineart는 주 참조로, 포즈는 보조 참조로 넣는 식이다.
+    SECONDARY_KIND가 "none"(기본값)이면 보조 참조 기능 자체가 꺼진다. 다른
+    값이면 NIGHTSHIFT_ASSETS_DIR(또는 해당 종류의 개별 override) 아래에서
+    SECONDARY_CHAR_NO/SECONDARY_SET에 해당하는 세트를 똑같은 방식(LINEART_MODE에
+    따라 순차/랜덤)으로 골라, 워크플로우에서 제목에 SECONDARY_NODE_TITLE(기본
+    "secondary")이 포함된 LoadImage 노드를 찾아 주입한다. 주 참조(lineart)와 달리
+    이 노드는 "정확히 제목이 일치해야만" 쓴다 — class_type만으로 아무 LoadImage에나
+    대신 꽂아버리면 워크플로우에 LoadImage가 하나뿐인 경우 주 참조 노드를 실수로
+    덮어쓸 수 있기 때문이다. 그래서 보조 참조는 항상 best-effort다: 세트 안에
+    이미지가 없거나, 워크플로우에 맞는 제목의 LoadImage 노드가 없으면 경고만
+    남기고 그 실행은 보조 참조 없이 계속 진행한다(업로드 시점에 nightshift가
+    CSV/세트 존재 여부는 검증하지만, 워크플로우 노드 존재 여부까지는 검증하지
+    않는다 — MAIN_PROMPT 노드 매칭과 같은 정책).
 """
 
 import copy
@@ -158,7 +160,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-POSE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+REF_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 # ref_assets.py의 DEFAULT_CHAR_NO 사본 — CHAR_NO 환경변수가 비어 있을 때(1인물/solo).
 DEFAULT_CHAR_NO = "1"
@@ -222,10 +224,10 @@ def find_node(workflow, title_substring=None, class_types=(), allow_class_fallba
 
 def sanitize_stem(text):
     text = re.sub(r"[^\w\-가-힣]+", "_", text or "")
-    return text[:40] or "pose"
+    return text[:40] or "lineart"
 
 
-# 포즈 파일 선택 전략 ---------------------------------------------------------
+# lineart 파일 선택 전략 -------------------------------------------------------
 
 class SequentialPicker:
     """파일명 정렬 순서대로 순환. 개수를 넘기면 처음부터 다시."""
@@ -262,7 +264,7 @@ def make_picker(mode, files):
 
 def ref_kind_dir(kind):
     """kind("pose"/"depth"/"lineart")의 세트들이 있는 상위 폴더. 개별 override
-    환경변수(NIGHTSHIFT_POSES_DIR 등)가 있으면 그걸, 없으면 NIGHTSHIFT_ASSETS_DIR/kind를
+    환경변수(NIGHTSHIFT_LINEART_DIR 등)가 있으면 그걸, 없으면 NIGHTSHIFT_ASSETS_DIR/kind를
     쓴다 — ref_assets.py의 kind_dir()과 같은 규칙."""
     override = env(REF_KIND_ENV_OVERRIDE.get(kind, ""))
     if override:
@@ -277,7 +279,7 @@ def list_ref_images(base_dir, char_no, set_name):
         return []
     return sorted(
         p for p in d.iterdir()
-        if p.is_file() and p.suffix.lower() in POSE_IMAGE_EXTENSIONS
+        if p.is_file() and p.suffix.lower() in REF_IMAGE_EXTENSIONS
     )
 
 
@@ -361,22 +363,22 @@ def set_linked_value(workflow, node, field, value):
     inputs[field] = value
 
 
-def apply_pose_image(workflow, comfy_url, pose_path):
+def apply_lineart_image(workflow, comfy_url, lineart_path):
     node_id, node = find_node(
         workflow,
-        title_substring=env("POSE_NODE_TITLE", "Load"),
+        title_substring=env("LINEART_NODE_TITLE", "Load"),
         class_types=("LoadImage",),
         prefer_connected=True,
     )
     if node is None:
-        print("[pose_batch] 경고: 포즈 이미지를 넣을 노드를 찾지 못했습니다 (LoadImage 없음)", file=sys.stderr)
+        print("[lineart_batch] 경고: lineart 이미지를 넣을 노드를 찾지 못했습니다 (LoadImage 없음)", file=sys.stderr)
         return
-    uploaded_name = upload_image_to_comfy(comfy_url, pose_path)
+    uploaded_name = upload_image_to_comfy(comfy_url, lineart_path)
     node.setdefault("inputs", {})["image"] = uploaded_name
 
 
 def apply_secondary_reference(workflow, comfy_url, secondary_kind, ref_path):
-    """보조 참조(SECONDARY_KIND) 이미지 주입 — best-effort. 주 참조(apply_pose_image)와
+    """보조 참조(SECONDARY_KIND) 이미지 주입 — best-effort. 주 참조(apply_lineart_image)와
     달리 class_type 대체(fallback) 없이 SECONDARY_NODE_TITLE과 제목이 정확히 일치하는
     노드만 쓴다(모듈 docstring "보조 참조" 절 참고) — 워크플로우에 LoadImage가 하나뿐일
     때 주 참조 노드를 실수로 덮어쓰는 걸 막기 위함이다."""
@@ -384,14 +386,14 @@ def apply_secondary_reference(workflow, comfy_url, secondary_kind, ref_path):
     node_id, node = find_node(workflow, title_substring=title, allow_class_fallback=False)
     if node is None:
         print(
-            f"[pose_batch] 안내: 보조 참조({secondary_kind}) 이미지를 넣을 노드(제목에 "
+            f"[lineart_batch] 안내: 보조 참조({secondary_kind}) 이미지를 넣을 노드(제목에 "
             f"'{title}' 포함)를 찾지 못해 이번 실행은 보조 참조 없이 진행합니다.",
             file=sys.stderr,
         )
         return
     if node.get("class_type") != "LoadImage":
         print(
-            f"[pose_batch] 경고: SECONDARY_NODE_TITLE('{title}')로 찾은 노드가 LoadImage가 "
+            f"[lineart_batch] 경고: SECONDARY_NODE_TITLE('{title}')로 찾은 노드가 LoadImage가 "
             "아니라 보조 참조를 건너뜁니다.",
             file=sys.stderr,
         )
@@ -407,7 +409,7 @@ def apply_seed(workflow, seed):
         class_types=("KSampler", "KSamplerAdvanced"),
     )
     if node is None:
-        print("[pose_batch] 경고: 시드를 넣을 노드를 찾지 못했습니다 (KSampler 없음)", file=sys.stderr)
+        print("[lineart_batch] 경고: 시드를 넣을 노드를 찾지 못했습니다 (KSampler 없음)", file=sys.stderr)
         return
     node.setdefault("inputs", {})["seed"] = seed
 
@@ -423,7 +425,7 @@ def apply_main_prompt(workflow, main_prompt):
     field = primitive_value_field(node) if node is not None else None
     if field is None:
         print(
-            "[pose_batch] 경고: MAIN_PROMPT를 넣을 노드를 찾지 못했습니다 "
+            "[lineart_batch] 경고: MAIN_PROMPT를 넣을 노드를 찾지 못했습니다 "
             "(제목에 'main_prompt'가 포함된 CLIPTextEncode/Primitive 텍스트 노드 없음)",
             file=sys.stderr,
         )
@@ -439,7 +441,7 @@ def apply_resolution(workflow, width, height):
         return
     if not width or not height:
         print(
-            "[pose_batch] 경고: WIDTH/HEIGHT는 둘 다 채워야 적용됩니다 (하나만 비어 있음). 무시합니다.",
+            "[lineart_batch] 경고: WIDTH/HEIGHT는 둘 다 채워야 적용됩니다 (하나만 비어 있음). 무시합니다.",
             file=sys.stderr,
         )
         return
@@ -447,7 +449,7 @@ def apply_resolution(workflow, width, height):
         width_value = int(float(width))
         height_value = int(float(height))
     except ValueError:
-        print(f"[pose_batch] 경고: WIDTH/HEIGHT 값 '{width}x{height}'을 정수로 변환하지 못했습니다.", file=sys.stderr)
+        print(f"[lineart_batch] 경고: WIDTH/HEIGHT 값 '{width}x{height}'을 정수로 변환하지 못했습니다.", file=sys.stderr)
         return
 
     node_id, node = find_node(
@@ -457,13 +459,13 @@ def apply_resolution(workflow, width, height):
         prefer_connected=True,
     )
     if node is None:
-        print("[pose_batch] 경고: 해상도를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
+        print("[lineart_batch] 경고: 해상도를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
         return
     set_linked_value(workflow, node, "width", width_value)
     set_linked_value(workflow, node, "height", height_value)
 
 
-def apply_filename_prefix(workflow, index, seed, char_no, pose_path):
+def apply_filename_prefix(workflow, index, seed, char_no, lineart_path):
     node_id, node = find_node(
         workflow,
         title_substring=env("SAVE_NODE_TITLE", "Save"),
@@ -471,8 +473,8 @@ def apply_filename_prefix(workflow, index, seed, char_no, pose_path):
     )
     if node is None:
         return
-    pose_stem = sanitize_stem(pose_path.stem)
-    prefix = f"pose_batch_{index}_seed{seed}_{pose_stem}"
+    lineart_stem = sanitize_stem(lineart_path.stem)
+    prefix = f"lineart_batch_{index}_seed{seed}_{lineart_stem}"
     if char_no != DEFAULT_CHAR_NO:
         prefix = f"{prefix}_char{char_no}"
     # JOB_ID가 있으면 ComfyUI 출력 폴더 밑에 그 job_id 하위 폴더를 만들어 저장한다 —
@@ -497,17 +499,17 @@ def report_progress(job_id, nightshift_url, total, done):
         )
         urllib.request.urlopen(req, timeout=10).read()
     except Exception as e:
-        print(f"[pose_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
+        print(f"[lineart_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
 
 
 def append_manifest(output_dir, record):
     try:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        path = Path(output_dir) / "pose_batch_manifest.jsonl"
+        path = Path(output_dir) / "lineart_batch_manifest.jsonl"
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception as e:
-        print(f"[pose_batch] 경고: 재현성 기록 실패: {e}", file=sys.stderr)
+        print(f"[lineart_batch] 경고: 재현성 기록 실패: {e}", file=sys.stderr)
 
 
 def queue_prompt(comfy_url, workflow):
@@ -542,30 +544,30 @@ def wait_for_completion(comfy_url, prompt_id):
     raise TimeoutError(f"prompt_id={prompt_id} 완료 대기 시간({timeout}s) 초과")
 
 
-def run_once(base_workflow, comfy_url, seed, char_no, pose_path, index, job_id, output_dir, main_prompt, width, height,
+def run_once(base_workflow, comfy_url, seed, char_no, lineart_path, index, job_id, output_dir, main_prompt, width, height,
              secondary_kind=None, secondary_path=None):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
     apply_main_prompt(workflow, main_prompt)
     apply_resolution(workflow, width, height)
-    apply_pose_image(workflow, comfy_url, pose_path)
+    apply_lineart_image(workflow, comfy_url, lineart_path)
     if secondary_path is not None:
         apply_secondary_reference(workflow, comfy_url, secondary_kind, secondary_path)
-    apply_filename_prefix(workflow, index, seed, char_no, pose_path)
+    apply_filename_prefix(workflow, index, seed, char_no, lineart_path)
 
     prompt_id = queue_prompt(comfy_url, workflow)
     secondary_log = f" secondary({secondary_kind})={secondary_path.name}" if secondary_path is not None else ""
-    print(f"[pose_batch] [{index}] seed={seed} char_no={char_no} pose={pose_path.name}{secondary_log} 큐 등록 (prompt_id={prompt_id})")
+    print(f"[lineart_batch] [{index}] seed={seed} char_no={char_no} lineart={lineart_path.name}{secondary_log} 큐 등록 (prompt_id={prompt_id})")
     wait_for_completion(comfy_url, prompt_id)
-    print(f"[pose_batch] [{index}] 완료")
+    print(f"[lineart_batch] [{index}] 완료")
 
     record = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "job_id": job_id,
         "index": index,
         "char_no": char_no,
-        "pose_set": pose_path.parent.name,
-        "pose_file": pose_path.name,
+        "lineart_set": lineart_path.parent.name,
+        "lineart_file": lineart_path.name,
         "seed": seed,
         "prompt_id": prompt_id,
     }
@@ -578,76 +580,76 @@ def run_once(base_workflow, comfy_url, seed, char_no, pose_path, index, job_id, 
 
 def main():
     workflow_path = env("WORKFLOW_PATH")
-    pose_count_raw = env("POSE_COUNT")
-    pose_set = env("POSE_SET")
-    if not workflow_path or not pose_count_raw or not pose_set:
-        print("[pose_batch] WORKFLOW_PATH, POSE_COUNT, POSE_SET 환경변수가 모두 필요합니다.", file=sys.stderr)
+    lineart_count_raw = env("LINEART_COUNT")
+    lineart_set = env("LINEART_SET")
+    if not workflow_path or not lineart_count_raw or not lineart_set:
+        print("[lineart_batch] WORKFLOW_PATH, LINEART_COUNT, LINEART_SET 환경변수가 모두 필요합니다.", file=sys.stderr)
         sys.exit(1)
 
-    pose_count = int(pose_count_raw)
-    pose_mode = env("POSE_MODE", "sequential")
+    lineart_count = int(lineart_count_raw)
+    lineart_mode = env("LINEART_MODE", "sequential")
     char_no = env("CHAR_NO", DEFAULT_CHAR_NO)
     main_prompt = env("MAIN_PROMPT", "")
     width = env("WIDTH", "")
     height = env("HEIGHT", "")
-    poses_dir = ref_kind_dir("pose")
+    lineart_dir = ref_kind_dir("lineart")
     output_dir = env("NIGHTSHIFT_OUTPUT_DIR", "/workspace/output")
 
-    pose_files = list_ref_images(poses_dir, char_no, pose_set)
-    if not pose_files:
+    lineart_files = list_ref_images(lineart_dir, char_no, lineart_set)
+    if not lineart_files:
         # nightshift가 업로드 시점에 이미 확인했어야 하지만, 그 사이 폴더가 비워졌을
         # 수도 있으니 실행 시점에도 한 번 더 확인한다.
-        print(f"[pose_batch] '{pose_set}' 포즈 세트에 이미지가 없습니다 ({poses_dir}/{char_no}/{pose_set})", file=sys.stderr)
+        print(f"[lineart_batch] '{lineart_set}' lineart 세트에 이미지가 없습니다 ({lineart_dir}/{char_no}/{lineart_set})", file=sys.stderr)
         sys.exit(1)
 
     secondary_kind = env("SECONDARY_KIND", "none")
     secondary_picker = None
     if secondary_kind not in REF_KINDS:
         if secondary_kind != "none":
-            print(f"[pose_batch] 경고: 알 수 없는 SECONDARY_KIND '{secondary_kind}' — 보조 참조를 끕니다.", file=sys.stderr)
+            print(f"[lineart_batch] 경고: 알 수 없는 SECONDARY_KIND '{secondary_kind}' — 보조 참조를 끕니다.", file=sys.stderr)
         secondary_kind = None
     else:
         secondary_char_no = env("SECONDARY_CHAR_NO", DEFAULT_CHAR_NO)
         secondary_set = env("SECONDARY_SET", "")
         if not secondary_set:
-            print("[pose_batch] 경고: SECONDARY_KIND가 설정됐지만 SECONDARY_SET이 비어 있어 보조 참조를 끕니다.", file=sys.stderr)
+            print("[lineart_batch] 경고: SECONDARY_KIND가 설정됐지만 SECONDARY_SET이 비어 있어 보조 참조를 끕니다.", file=sys.stderr)
             secondary_kind = None
         else:
             secondary_dir = ref_kind_dir(secondary_kind)
             secondary_files = list_ref_images(secondary_dir, secondary_char_no, secondary_set)
             if not secondary_files:
                 print(
-                    f"[pose_batch] 경고: 보조 참조 세트 '{secondary_set}'에 이미지가 없어 "
+                    f"[lineart_batch] 경고: 보조 참조 세트 '{secondary_set}'에 이미지가 없어 "
                     f"({secondary_dir}/{secondary_char_no}/{secondary_set}) 보조 참조를 끕니다.",
                     file=sys.stderr,
                 )
                 secondary_kind = None
             else:
-                secondary_picker = make_picker(pose_mode, secondary_files)
+                secondary_picker = make_picker(lineart_mode, secondary_files)
 
     base_workflow = load_workflow(workflow_path)
     comfy_url = env("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
     job_id = env("JOB_ID")
     nightshift_url = env("NIGHTSHIFT_URL", "http://127.0.0.1:8000")
 
-    picker = make_picker(pose_mode, pose_files)
+    picker = make_picker(lineart_mode, lineart_files)
 
-    print(f"[pose_batch] 총 {pose_count}건 제출 예정 (인물 수: {char_no}, 포즈 세트: {pose_set}, {len(pose_files)}장, 방식: {pose_mode})")
+    print(f"[lineart_batch] 총 {lineart_count}건 제출 예정 (인물 수: {char_no}, lineart 세트: {lineart_set}, {len(lineart_files)}장, 방식: {lineart_mode})")
     if secondary_picker is not None:
-        print(f"[pose_batch] 보조 참조 사용: 종류={secondary_kind}")
-    report_progress(job_id, nightshift_url, pose_count, 0)
+        print(f"[lineart_batch] 보조 참조 사용: 종류={secondary_kind}")
+    report_progress(job_id, nightshift_url, lineart_count, 0)
 
     done = 0
-    for index in range(1, pose_count + 1):
+    for index in range(1, lineart_count + 1):
         seed = random.randint(0, 2**31 - 1)
-        pose_path = picker.pick()
+        lineart_path = picker.pick()
         secondary_path = secondary_picker.pick() if secondary_picker is not None else None
-        run_once(base_workflow, comfy_url, seed, char_no, pose_path, index, job_id, output_dir, main_prompt, width, height,
+        run_once(base_workflow, comfy_url, seed, char_no, lineart_path, index, job_id, output_dir, main_prompt, width, height,
                  secondary_kind=secondary_kind, secondary_path=secondary_path)
         done += 1
-        report_progress(job_id, nightshift_url, pose_count, done)
+        report_progress(job_id, nightshift_url, lineart_count, done)
 
-    print(f"[pose_batch] 총 {pose_count}건 완료")
+    print(f"[lineart_batch] 총 {lineart_count}건 완료")
 
 
 if __name__ == "__main__":

@@ -29,12 +29,51 @@
     "requires_csv": false,
     "options": [
       { "name": "pose_count", "label": "생성 개수", "type": "number", "default": 10 },
-      { "name": "char_no", "label": "인물 수", "type": "char_no", "default": "1" },
-      { "name": "pose_set", "label": "포즈 세트", "type": "asset_folder", "default": "" },
+      { "name": "char_no", "label": "인물 수", "type": "char_no", "kind": "pose", "default": "1" },
+      { "name": "pose_set", "label": "포즈 세트", "type": "asset_folder", "kind": "pose", "default": "" },
       { "name": "pose_mode", "label": "선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
       { "name": "main_prompt", "label": "메인 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 업로드한 워크플로우의 프롬프트를 그대로 사용해요" },
       { "name": "width", "label": "너비(width)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
-      { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
+      { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
+      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "depth", "lineart"], "default": "none" },
+      { "name": "secondary_char_no", "label": "보조 참조 인물 수", "type": "char_no", "kind_from": "secondary_kind", "default": "1" },
+      { "name": "secondary_set", "label": "보조 참조 세트", "type": "asset_folder", "kind_from": "secondary_kind", "char_no_option": "secondary_char_no", "default": "" }
+    ]
+  },
+  {
+    "id": "depth_batch",
+    "label": "Depth 참조 배치",
+    "script_filename": "depth_batch.py",
+    "requires_csv": false,
+    "options": [
+      { "name": "depth_count", "label": "생성 개수", "type": "number", "default": 10 },
+      { "name": "char_no", "label": "인물 수", "type": "char_no", "kind": "depth", "default": "1" },
+      { "name": "depth_set", "label": "depth 세트", "type": "asset_folder", "kind": "depth", "default": "" },
+      { "name": "depth_mode", "label": "선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
+      { "name": "main_prompt", "label": "메인 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 업로드한 워크플로우의 프롬프트를 그대로 사용해요" },
+      { "name": "width", "label": "너비(width)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
+      { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
+      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "lineart"], "default": "none" },
+      { "name": "secondary_char_no", "label": "보조 참조 인물 수", "type": "char_no", "kind_from": "secondary_kind", "default": "1" },
+      { "name": "secondary_set", "label": "보조 참조 세트", "type": "asset_folder", "kind_from": "secondary_kind", "char_no_option": "secondary_char_no", "default": "" }
+    ]
+  },
+  {
+    "id": "lineart_batch",
+    "label": "Lineart 참조 배치",
+    "script_filename": "lineart_batch.py",
+    "requires_csv": false,
+    "options": [
+      { "name": "lineart_count", "label": "생성 개수", "type": "number", "default": 10 },
+      { "name": "char_no", "label": "인물 수", "type": "char_no", "kind": "lineart", "default": "1" },
+      { "name": "lineart_set", "label": "lineart 세트", "type": "asset_folder", "kind": "lineart", "default": "" },
+      { "name": "lineart_mode", "label": "선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
+      { "name": "main_prompt", "label": "메인 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 업로드한 워크플로우의 프롬프트를 그대로 사용해요" },
+      { "name": "width", "label": "너비(width)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
+      { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
+      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "depth"], "default": "none" },
+      { "name": "secondary_char_no", "label": "보조 참조 인물 수", "type": "char_no", "kind_from": "secondary_kind", "default": "1" },
+      { "name": "secondary_set", "label": "보조 참조 세트", "type": "asset_folder", "kind_from": "secondary_kind", "char_no_option": "secondary_char_no", "default": "" }
     ]
   },
   {
@@ -43,7 +82,28 @@
     "script_filename": "pose_csv_batch.py",
     "requires_csv": true,
     "options": [
-      { "name": "pose_mode", "label": "세트 선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" }
+      { "name": "pose_mode", "label": "세트 선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
+      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "depth", "lineart"], "default": "none" }
+    ]
+  },
+  {
+    "id": "depth_csv_batch",
+    "label": "CSV + Depth 배치",
+    "script_filename": "depth_csv_batch.py",
+    "requires_csv": true,
+    "options": [
+      { "name": "depth_mode", "label": "세트 선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
+      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "lineart"], "default": "none" }
+    ]
+  },
+  {
+    "id": "lineart_csv_batch",
+    "label": "CSV + Lineart 배치",
+    "script_filename": "lineart_csv_batch.py",
+    "requires_csv": true,
+    "options": [
+      { "name": "lineart_mode", "label": "세트 선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
+      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "depth"], "default": "none" }
     ]
   }
 ]

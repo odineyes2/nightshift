@@ -28,7 +28,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 - "결과 이미지 이메일 전송" 패널에서 보내는 메일 계정/비밀번호/받는 메일 계정을 입력하면, 서버의 출력 폴더에 쌓인 이미지를 모아 용량 한도 안에서 여러 통으로 나눠 발송 (계정 정보는 저장하지 않고 그 요청 처리에만 사용)
 - "결과 이미지 ZIP 다운로드" 패널에서 버튼 하나로 출력 폴더의 이미지를 모두 zip으로 묶어 바로 다운로드
 - "결과 이미지 관리" 패널에서 가로형(hires-fix/USDU 등으로 만들어진 1536×704 비율) 이미지를 시계 방향으로 90도 돌려서 저장하거나, 출력 폴더의 이미지를 한 번에 삭제 (삭제는 되돌릴 수 없어 브라우저 확인창을 한 번 더 거침)
-- `pose_batch` 템플릿 — ControlNet(OpenPose 등)에 쓸 포즈 레퍼런스 이미지를 서버에 미리 쌓아둔 폴더(포즈 세트)에서 순차/랜덤으로 뽑아 LoadImage 노드에 주입하면서 배치 생성. 업로드 폼의 "포즈 세트" 드롭다운은 서버가 스캔한 폴더 목록에서 고르게 되어 있어 오타/빈 폴더로 인한 실패를 업로드 시점에 막음
+- `pose_batch`/`depth_batch`/`lineart_batch` 템플릿 — ControlNet(OpenPose/Depth/Lineart 등)에 쓸 레퍼런스 이미지를 서버에 미리 쌓아둔 폴더(참조 세트)에서 순차/랜덤으로 뽑아 LoadImage 노드에 주입하면서 배치 생성. 업로드 폼의 "참조 세트" 드롭다운은 서버가 스캔한 폴더 목록에서 고르게 되어 있어 오타/빈 폴더로 인한 실패를 업로드 시점에 막음. 각 템플릿은 자기 종류(pose/depth/lineart)를 "주(main) 참조"로 고정하되, 선택적으로 다른 종류 하나를 "보조 참조"로 얹어 한 생성에 두 종류를 동시에 쓸 수도 있음
 
 ## 기술 스택
 
@@ -204,7 +204,10 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
 |---|---|
 | `name` | 옵션 이름. 폼 필드명이자, 대문자로 변환되어 스크립트에 환경변수로 전달됨 (예: `seed_count` → `SEED_COUNT`) |
 | `label` | 입력 필드 위에 표시될 사람이 읽는 이름 |
-| `type` | `"number"`/`"text"`(한 줄 직접 입력), `"textarea"`(여러 줄 직접 입력 — 프롬프트처럼 긴 텍스트용), `"select"`(고정 드롭다운, `choices` 필요), `"char_no"`("인물 수" 드롭다운 — 아래 참고), `"asset_folder"`(포즈 세트 드롭다운, 선택된 `"char_no"` 값으로 스코프됨 — 아래 참고) |
+| `type` | `"number"`/`"text"`(한 줄 직접 입력), `"textarea"`(여러 줄 직접 입력 — 프롬프트처럼 긴 텍스트용), `"select"`(고정 드롭다운, `choices` 필요), `"char_no"`("인물 수" 드롭다운 — 아래 참고), `"asset_folder"`(참조 세트 드롭다운, 선택된 char_no 값으로 스코프됨 — 아래 참고) |
+| `kind` | `"char_no"`/`"asset_folder"` 타입에서만 사용 — 이 옵션이 다루는 참조 종류를 `"pose"`/`"depth"`/`"lineart"` 중 하나로 정적으로 고정. 생략하면(and `kind_from`도 없으면) 하위호환으로 `"pose"` |
+| `kind_from` | `"char_no"`/`"asset_folder"` 타입에서만 사용 — `kind`를 정적으로 고정하는 대신, 같은 폼의 다른 옵션(보통 `secondary_kind` 같은 select) 이름을 가리켜서 그 옵션의 "현재 선택값"을 종류로 그대로 따라감(동적). 그 값이 `"none"`이면 이 옵션은 비활성화됨(선택지 없음, 빈 문자열로 취급) |
+| `char_no_option` | `"asset_folder"` 타입에서만 사용 — 이 세트를 스코프할 char_no 값을 어느 형제 옵션에서 읽을지 지정 (기본 `"char_no"`). 보조 참조처럼 `"secondary_char_no"`라는 별도 이름의 char_no 옵션을 참조할 때 씀 |
 | `default` | 입력 필드에 미리 채워지는 기본값. 폼에서 값이 비어 있으면 서버가 이 기본값으로 대체함 |
 | `choices` | `type`이 `"select"`일 때만 사용 — 드롭다운에 나열할 문자열 배열. 서버는 이 목록에 없는 값을 400으로 거부함 |
 | `placeholder` | `"text"`/`"textarea"`일 때만 사용 — 입력 필드가 비어 있을 때 표시되는 흐린 안내 문구 (선택) |
@@ -217,58 +220,77 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
   - 프롬프트 노드가 여러 개일 수 있으므로, 컬럼 이름과 제목이 정확히 일치하는 노드를 못 찾으면 다른 CLIPTextEncode로 대체 주입하지 않고 건너뜁니다(엉뚱한 노드를 덮어쓰는 사고 방지). 워크플로우의 실제 노드 제목이 다르면 스크립트 상단의 `PROMPT_FIELD_TITLES`를 맞춰서 조정하세요.
   - EmptyLatentImage 노드도 여러 개일 수 있습니다(해상도 프리셋을 바꿔가며 테스트하다 보면 배선 안 된 노드가 남기 쉬움). `LATENT_NODE_TITLE`로 제목 매칭이 안 되면, 아무 EmptyLatentImage나 고르지 않고 실제로 다른 노드의 입력에 연결돼 있는(=워크플로우 실행에 쓰이는) 노드를 우선으로 고릅니다.
   - 컬럼 형식을 그대로 보여주는 샘플 파일이 `templates/csv_batch.sample.csv`에 있습니다. CSV 배치 작업을 등록할 때 이 파일을 복사해서 값만 바꾸면 됩니다.
-- **`pose_batch`** (`templates/pose_batch.py`) — ControlNet(OpenPose 등)에 쓸 포즈 레퍼런스 이미지를 서버에 미리 쌓아둔 폴더에서 순차/랜덤으로 뽑아 LoadImage 노드에 주입하면서, 워크플로우 하나를 `pose_count`번 반복 실행합니다. `seed_batch`와 같은 방식의 `main_prompt` 옵션(선택)도 지원합니다. 자세한 내용은 아래 "포즈 참조 배치" 절 참고.
-- **`pose_csv_batch`** (`templates/pose_csv_batch.py`) — `csv_batch`의 CSV 기반 배치(프롬프트/시드/해상도/batch_no)에 `pose_batch`의 포즈 레퍼런스 주입을 결합한 템플릿입니다. CSV의 `pose` 컬럼으로 행마다 포즈 레퍼런스를 지정하고, 비어 있으면 그 행은 ControlNet 없이 생성합니다. 자세한 내용은 아래 "CSV + 포즈 배치" 절 참고.
+- **`pose_batch`** (`templates/pose_batch.py`) — ControlNet(OpenPose 등)에 쓸 포즈 레퍼런스 이미지를 서버에 미리 쌓아둔 폴더에서 순차/랜덤으로 뽑아 LoadImage 노드에 주입하면서, 워크플로우 하나를 `pose_count`번 반복 실행합니다. `seed_batch`와 같은 방식의 `main_prompt` 옵션(선택)도 지원합니다. 자세한 내용은 아래 "포즈/depth/lineart 참조 배치" 절 참고.
+- **`depth_batch`** (`templates/depth_batch.py`) — `pose_batch`와 완전히 같은 구조로, "주(main) 참조" 종류만 depth로 고정된 독립 템플릿입니다(옵션은 `depth_count`/`depth_set`/`depth_mode` 등 이름만 다름).
+- **`lineart_batch`** (`templates/lineart_batch.py`) — 위와 동일하게 "주(main) 참조" 종류만 lineart로 고정된 독립 템플릿입니다.
+- **`pose_csv_batch`** (`templates/pose_csv_batch.py`) — `csv_batch`의 CSV 기반 배치(프롬프트/시드/해상도/batch_no)에 `pose_batch`의 포즈 레퍼런스 주입을 결합한 템플릿입니다. CSV의 `pose` 컬럼으로 행마다 포즈 레퍼런스를 지정하고, 비어 있으면 그 행은 ControlNet 없이 생성합니다. 자세한 내용은 아래 "CSV + 포즈/depth/lineart 배치" 절 참고.
+- **`depth_csv_batch`** (`templates/depth_csv_batch.py`) — `pose_csv_batch`와 완전히 같은 구조로, CSV의 주 참조 컬럼 이름만 `depth`로 고정된 독립 템플릿입니다.
+- **`lineart_csv_batch`** (`templates/lineart_csv_batch.py`) — 위와 동일하게 CSV의 주 참조 컬럼 이름만 `lineart`로 고정된 독립 템플릿입니다.
+
+`pose_batch`/`depth_batch`/`lineart_batch`와 그 CSV 버전 6개 템플릿은 모두 선택적으로 "보조 참조"(`secondary_kind`/`secondary_set` 등, CSV 버전은 CSV의 `secondary_ref` 컬럼)를 지원해서, 한 생성에 자기 종류 + 다른 종류 하나를 ControlNet 두 개로 동시에 넣을 수 있습니다. 자세한 내용은 두 절 모두의 "보조 참조" 소절 참고.
 
 모든 CSV/시드 템플릿은 ComfyUI workflow API를 호출하는 best-effort 구현입니다. 실제 ComfyUI 워크플로우의 노드 제목/구조에 맞춰 `SEED_NODE_TITLE`/`LATENT_NODE_TITLE`/`SAVE_NODE_TITLE` 등 환경변수나 노드 매칭 로직을 조정해야 할 수 있습니다. 자세한 사용법은 각 스크립트 상단 docstring을 참고하세요.
 
 #### 결과물(이미지) 파일명 규칙
 
-템플릿마다 매 제출마다 SaveImage류 노드(`SAVE_NODE_TITLE`로 찾음)의 `filename_prefix`를 아래처럼 채운 뒤 ComfyUI에 넘깁니다. ComfyUI가 실제 저장할 때 여기에 자기 카운터(`_00001_` 등)와 확장자를 붙이므로, **파일명만 보고도 몇 번째 시도였는지, 어떤 시드로 생성됐는지, (`pose_batch`라면) 어떤 포즈를 썼는지 바로 알 수 있습니다.**
+템플릿마다 매 제출마다 SaveImage류 노드(`SAVE_NODE_TITLE`로 찾음)의 `filename_prefix`를 아래처럼 채운 뒤 ComfyUI에 넘깁니다. ComfyUI가 실제 저장할 때 여기에 자기 카운터(`_00001_` 등)와 확장자를 붙이므로, **파일명만 보고도 몇 번째 시도였는지, 어떤 시드로 생성됐는지, (참조 배치라면) 어떤 참조 이미지를 썼는지 바로 알 수 있습니다.** (보조 참조는 파일명에는 반영되지 않고, 아래 재현성 기록의 manifest jsonl에만 남습니다.)
 
 | 템플릿 | `filename_prefix` 형식 | 예시 (실제 저장 파일명) |
 |---|---|---|
 | `seed_batch` | `seed_batch_<순번>_seed<시드값>` | `seed_batch_3_seed482913_00001_.png` |
 | `csv_batch` | `<title(안전한 문자로 치환, 없으면 batch_<순번>)>_seed<시드값>` | `고양이_seed482913_00001_.png` |
 | `pose_batch` | `pose_batch_<순번>_seed<시드값>_<포즈 파일명(확장자 제외)>` | `pose_batch_3_seed482913_standing_01_00001_.png` |
-| `pose_csv_batch` | `<title(안전한 문자로 치환, 없으면 batch_<순번>)>_seed<시드값>[_<포즈 파일명(확장자 제외)>]` | `고양이_seed482913_standing_01_00001_.png` (pose가 비어 있으면 포즈 부분 생략) |
+| `depth_batch` | `depth_batch_<순번>_seed<시드값>_<depth 파일명(확장자 제외)>` | `depth_batch_3_seed482913_room_01_00001_.png` |
+| `lineart_batch` | `lineart_batch_<순번>_seed<시드값>_<lineart 파일명(확장자 제외)>` | `lineart_batch_3_seed482913_sketch_01_00001_.png` |
+| `pose_csv_batch` | `<title(안전한 문자로 치환, 없으면 batch_<순번>)>_seed<시드값>[_<포즈 파일명(확장자 제외)>]` | `고양이_seed482913_standing_01_00001_.png` (pose가 비어 있으면 참조 부분 생략) |
+| `depth_csv_batch` | 위와 동일, depth 컬럼 기준 | `고양이_seed482913_room_01_00001_.png` |
+| `lineart_csv_batch` | 위와 동일, lineart 컬럼 기준 | `고양이_seed482913_sketch_01_00001_.png` |
 
 `title` 컬럼이 없거나 비어 있으면 `csv_batch`는 `batch_<순번>_seed<시드값>`으로 대체합니다. 이 규칙을 바꾸고 싶다면 각 스크립트의 `apply_filename_prefix()`를 수정하세요.
 
 새 템플릿을 추가하려면 `templates/`에 스크립트를 넣고 `manifest.json`에 항목을 추가하면 됩니다(서버 재시작 불필요 — `/api/templates`가 매 요청마다 파일을 다시 읽습니다).
 
-### 포즈 참조 배치 (`pose_batch`, `pose_assets.py`)
+### 포즈/depth/lineart 참조 배치 (`pose_batch`/`depth_batch`/`lineart_batch`, `ref_assets.py`)
 
-ControlNet(OpenPose 등)으로 포즈를 고정한 채 배치 생성할 때, 매번 다른 포즈 레퍼런스 이미지를 워크플로우의 LoadImage 노드에 넣어가며 반복 실행하는 템플릿입니다.
+ControlNet(OpenPose/Depth/Lineart 등)으로 참조 이미지를 고정한 채 배치 생성할 때, 매번 다른 레퍼런스 이미지를 워크플로우의 LoadImage 노드에 넣어가며 반복 실행하는 세 템플릿입니다. `pose_batch`/`depth_batch`/`lineart_batch`는 완전히 독립된 스크립트지만(`templates/` 아래 스크립트들은 서로 import하지 않는다는 이 저장소의 관례), 종류(pose/depth/lineart)만 다를 뿐 로직은 동일합니다 — 아래 설명은 `pose_batch`를 예로 들지만 다른 두 템플릿도 이름만 바꿔 그대로 적용됩니다(`POSE_SET`→`DEPTH_SET`/`LINEART_SET`, `POSE_MODE`→`DEPTH_MODE`/`LINEART_MODE`, `POSE_NODE_TITLE`→`DEPTH_NODE_TITLE`/`LINEART_NODE_TITLE` 등).
 
-**포즈 레퍼런스 폴더 구조**: `NIGHTSHIFT_POSES_DIR`(기본 `/workspace/dataset/poses`) 아래에 먼저 `char_no`(그 세트가 몇 인물용 참조인지 — `"1"`=1인물/solo, `"2"`=2인물/duo, ...) 폴더를 두고, 그 아래에 포즈 세트별 하위 폴더를 두고, 그 안에 png/jpg/jpeg/webp 이미지를 쌓아둡니다.
+**레퍼런스 폴더 구조**: `NIGHTSHIFT_ASSETS_DIR`(기본 `/workspace/dataset/assets`) 아래에 `pose`/`depth`/`lineart` 종류별 폴더가 있고, 그 아래에 먼저 `char_no`(그 세트가 몇 인물용 참조인지 — `"1"`=1인물/solo, `"2"`=2인물/duo, ...) 폴더를 두고, 그 아래에 참조 세트별 하위 폴더를 두고, 그 안에 png/jpg/jpeg/webp 이미지를 쌓아둡니다.
 
 ```
-/workspace/dataset/poses/
-├── 1/                       1인물(solo) 세트
-│   ├── casual_standing/
-│   │   ├── pose_01.png
-│   │   └── pose_02.png
-│   └── action_pose/
-│       └── pose_01.png
-└── 2/                       2인물(duo) 세트 — 1과 완전히 분리된 이름공간
-    └── casual_standing/     같은 세트 이름이어도 1/의 것과는 별개
-        └── pose_01.png
+/workspace/dataset/assets/
+├── pose/
+│   ├── 1/                       1인물(solo) 세트
+│   │   ├── casual_standing/
+│   │   │   ├── pose_01.png
+│   │   │   └── pose_02.png
+│   │   └── action_pose/
+│   │       └── pose_01.png
+│   └── 2/                       2인물(duo) 세트 — 1과 완전히 분리된 이름공간
+│       └── casual_standing/     같은 세트 이름이어도 1/의 것과는 별개
+│           └── pose_01.png
+├── depth/
+│   └── 1/
+│       └── room/...
+└── lineart/
+    └── 1/
+        └── sketch/...
 ```
 
-이 char_no 스코프는 "포즈 스켈레톤 이미지 1장에 여러 인물이 이미 함께 그려져 있어 ControlNet 노드 1개로 그대로 처리 가능한 경우"만 다룹니다 — 캐릭터별로 별도 ControlNet을 붙이는 멀티 ControlNet 구조는 다루지 않습니다. 목적은 기능 확장이 아니라 오사용 방지입니다: CSV 작성자가 duo용 세트를 쓰려다 실수로 solo용 세트를 섞어 넣는 사고를 폴더 구조 자체로 막습니다.
+각 종류별 루트는 개별 환경변수로 `NIGHTSHIFT_ASSETS_DIR/<kind>` 대신 개별 지정할 수 있습니다: `NIGHTSHIFT_POSES_DIR`(레거시 이름, pose 전용), `NIGHTSHIFT_DEPTH_DIR`(depth 전용), `NIGHTSHIFT_LINEART_DIR`(lineart 전용). 값이 설정돼 있으면 `NIGHTSHIFT_ASSETS_DIR` 아래 위치와 무관하게 그 경로를 그대로 씁니다.
 
-`pose_batch` 템플릿은 업로드 폼에서 "인물 수"(char_no) 드롭다운을 먼저 고르고, 그 값에 따라 "포즈 세트" 드롭다운이 다시 채워지는 캐스케이딩 방식으로 char_no를 선택합니다(기본값 `"1"`). `GET /api/assets`가 char_no별 포즈 세트 목록을 `{"char_nos": [{"name": "1", "pose_sets": [...]}, {"name": "2", "pose_sets": [...]}]}` 트리 형태로 한 번에 돌려줘서, 프론트엔드는 "인물 수"를 바꿀 때마다 서버에 다시 요청하지 않고도 "포즈 세트" 드롭다운을 그 자리에서 다시 채웁니다. 업로드 시점 검증(`pose_assets.validate_pose_set(name, char_no)`)도 같은 요청에 담긴 char_no 값으로 스코프됩니다. CSV 행마다 서로 다른 char_no를 섞어 쓰려면 아래 `pose_csv_batch`의 CSV `char_no` 컬럼을 씁니다.
+이 char_no 스코프는 "참조 이미지 1장에 여러 인물이 이미 함께 표현돼 있어 ControlNet 노드 1개로 그대로 처리 가능한 경우"만 다룹니다 — 캐릭터별로 별도 ControlNet을 붙이는 멀티 ControlNet 구조는 다루지 않습니다. 목적은 기능 확장이 아니라 오사용 방지입니다: CSV 작성자가 duo용 세트를 쓰려다 실수로 solo용 세트를 섞어 넣는 사고를 폴더 구조 자체로 막습니다.
 
-**기존 설치 마이그레이션**: 이 구조가 도입되기 전에는 `NIGHTSHIFT_POSES_DIR` 바로 아래에 세트 폴더가 있었습니다(전부 1인물 참조였음). 아래처럼 전부 `1/` 아래로 옮기면 기존 세트를 그대로 계속 씁니다.
+`pose_batch` 템플릿은 업로드 폼에서 "인물 수"(char_no) 드롭다운을 먼저 고르고, 그 값에 따라 "포즈 세트" 드롭다운이 다시 채워지는 캐스케이딩 방식으로 char_no를 선택합니다(기본값 `"1"`). `GET /api/assets?kind=pose`가 char_no별 포즈 세트 목록을 `{"char_nos": [{"name": "1", "pose_sets": [...]}, {"name": "2", "pose_sets": [...]}]}` 트리 형태로 한 번에 돌려줘서(응답 키는 하위호환으로 `kind`와 무관하게 항상 `"pose_sets"`), 프론트엔드는 "인물 수"를 바꿀 때마다 서버에 다시 요청하지 않고도 "포즈 세트" 드롭다운을 그 자리에서 다시 채웁니다. 업로드 시점 검증(`ref_assets.validate_ref_set(kind, name, char_no)`)도 같은 요청에 담긴 char_no 값으로 스코프됩니다. CSV 행마다 서로 다른 char_no를 섞어 쓰려면 아래 `pose_csv_batch`의 CSV `char_no` 컬럼을 씁니다.
+
+**기존 설치 마이그레이션**: `NIGHTSHIFT_ASSETS_DIR` 통합 구조가 도입되기 전에는 `NIGHTSHIFT_POSES_DIR` 바로 아래에 `char_no` 폴더가 있었습니다(pose 전용, 다른 종류 없음). `NIGHTSHIFT_POSES_DIR`을 그대로 설정해두면 이 레거시 구조가 계속 pose 종류의 루트로 쓰이므로 아무것도 옮길 필요가 없습니다. 완전히 통합 구조로 옮기고 싶다면 그 내용을 `NIGHTSHIFT_ASSETS_DIR/pose/`로 복사하고 `NIGHTSHIFT_POSES_DIR`을 지우면 됩니다. (더 예전, char_no 폴더 자체가 없던 설치라면 아래처럼 전부 `1/` 아래로 옮기면 됩니다.)
 
 ```bash
-cd /workspace/dataset/poses
+cd /workspace/dataset/poses   # 또는 NIGHTSHIFT_ASSETS_DIR/pose
 mkdir -p 1
 for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 ```
 
-업로드 폼의 "인물 수" 드롭다운은 `GET /api/assets`가 스캔한 `POSES_DIR` 바로 아래의 숫자 폴더 목록을 보여주고, "포즈 세트" 드롭다운은 그중 선택된 char_no 폴더 아래의 하위 폴더 목록(및 각 폴더의 이미지 개수)을 보여줍니다. 이미지가 0장인 세트는 드롭다운에서 선택할 수 없게 비활성화됩니다. 그래도 만약(다른 방식으로) 빈 폴더나 존재하지 않는 폴더/char_no가 선택되면, 업로드 시점(`POST /api/upload`)에 `pose_assets.validate_pose_set()`/`list_char_nos()`가 막아서 잡이 시작된 뒤에야 실패하는 일이 없게 합니다.
+업로드 폼의 "인물 수" 드롭다운은 `GET /api/assets?kind=pose`가 스캔한 그 종류 루트 바로 아래의 숫자 폴더 목록을 보여주고, "포즈 세트" 드롭다운은 그중 선택된 char_no 폴더 아래의 하위 폴더 목록(및 각 폴더의 이미지 개수)을 보여줍니다. 이미지가 0장인 세트는 드롭다운에서 선택할 수 없게 비활성화됩니다. 그래도 만약(다른 방식으로) 빈 폴더나 존재하지 않는 폴더/char_no가 선택되면, 업로드 시점(`POST /api/upload`)에 `ref_assets.validate_ref_set()`/`list_char_nos()`가 막아서 잡이 시작된 뒤에야 실패하는 일이 없게 합니다.
 
 **선택 방식(`pose_mode`)**: `sequential`(파일명 정렬 순서대로 순환, 개수를 넘기면 처음부터 다시)과 `random`(폴더가 다 소진될 때까지 중복 없이 뽑고 그 다음에 다시 섞어서 리셋 — 완전 무작위보다 다양성이 보장됨) 중 선택합니다. 이 선택 로직은 전부 `templates/pose_batch.py` 안에 있고, `app.py`는 어떤 포즈 세트/방식을 쓸지 다른 옵션과 똑같이 `POSE_SET`/`POSE_MODE` 환경변수로 전달만 합니다.
 
@@ -276,31 +298,45 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 **ComfyUI로의 이미지 주입 방식**: LoadImage 노드가 참조하는 파일은 ComfyUI 자신의 input 폴더에 있어야 합니다. nightshift와 ComfyUI가 파일시스템을 공유한다는 보장이 없으므로(다른 컨테이너/파드로 분리될 수 있음), 파일을 직접 복사하지 않고 매번 ComfyUI의 `POST /upload/image` API로 업로드한 뒤 응답으로 받은 파일명을 LoadImage 노드의 `image` 입력에 넣습니다. 이미지마다 HTTP 업로드가 한 번씩 더 들어가 느리지만, 파일시스템 공유 여부와 무관하게 항상 동작합니다. 어느 노드에 주입할지는 다른 템플릿과 동일하게 `_meta.title`로 찾습니다(`POSE_NODE_TITLE`, 기본 `"Load"`) — 일치하는 제목이 없으면 워크플로우에 LoadImage 노드가 하나뿐일 때 그 노드를 대신 씁니다.
 
-**업로드 시점 LoadImage 노드 검증**: 워크플로우를 잘못 골라 올려서(예: 포즈용이 아닌 워크플로우) LoadImage 노드가 아예 없으면, 실행 스크립트는 stderr에 경고만 남기고 포즈 참조 없이 이미지 생성을 계속 진행합니다 — 이 사고를 큐에 올리기 전에 막기 위해, `POST /api/upload`가 스크립트와 정확히 같은 알고리즘으로 "실행 시점에 실제로 어떤 노드가 선택될지"를 미리 계산해서 그 노드가 없거나 `LoadImage`가 아니면(예: `_meta.title`이 우연히 `"Load"`를 포함하는 다른 노드, 흔히 `"Load Checkpoint"` — 가 먼저 골라지는 경우도 포함) 업로드 자체를 400으로 거부합니다. `pose_csv_batch`는 CSV의 모든 행에서 `pose`가 비어 있으면(=모든 행이 의도적으로 ControlNet 없이 생성) 이 검사를 건너뜁니다 — LoadImage 노드가 필요 없기 때문입니다. `pose_batch`는 항상 포즈 참조가 필요하므로 예외 없이 검사합니다.
+**업로드 시점 LoadImage 노드 검증**: 워크플로우를 잘못 골라 올려서(예: 포즈용이 아닌 워크플로우) LoadImage 노드가 아예 없으면, 실행 스크립트는 stderr에 경고만 남기고 포즈 참조 없이 이미지 생성을 계속 진행합니다 — 이 사고를 큐에 올리기 전에 막기 위해, `POST /api/upload`가 스크립트와 정확히 같은 알고리즘으로 "실행 시점에 실제로 어떤 노드가 선택될지"를 미리 계산해서 그 노드가 없거나 `LoadImage`가 아니면(예: `_meta.title`이 우연히 `"Load"`를 포함하는 다른 노드, 흔히 `"Load Checkpoint"` — 가 먼저 골라지는 경우도 포함) 업로드 자체를 400으로 거부합니다. `pose_csv_batch`는 CSV의 모든 행에서 `pose`가 비어 있으면(=모든 행이 의도적으로 ControlNet 없이 생성) 이 검사를 건너뜁니다 — LoadImage 노드가 필요 없기 때문입니다. `pose_batch`는 항상 포즈 참조가 필요하므로 예외 없이 검사합니다. 이 검증은 "주(main) 참조"에만 적용됩니다 — 아래 "보조 참조"는 노드가 없어도 업로드를 막지 않고 실행 시점에 경고만 남깁니다.
 
-**재현성 기록**: 매 반복마다 어떤 포즈 이미지를 썼는지 로그와 `filename_prefix`에 남기는 것 외에, `NIGHTSHIFT_OUTPUT_DIR`에 `pose_batch_manifest.jsonl`을 이어쓰기(append)로도 남깁니다. 한 줄마다 `{timestamp, job_id, index, char_no, pose_set, pose_file, seed, prompt_id}`를 기록해서, 나중에 "이 컷이 왜 이렇게 나왔는지" 추적할 수 있습니다. `char_no`가 기본값(`1`)이 아니면 `pose_csv_batch`와 같은 방식으로 `filename_prefix`에도 `_char<N>`이 붙습니다.
+**재현성 기록**: 매 반복마다 어떤 포즈 이미지를 썼는지 로그와 `filename_prefix`에 남기는 것 외에, `NIGHTSHIFT_OUTPUT_DIR`에 `pose_batch_manifest.jsonl`을 이어쓰기(append)로도 남깁니다. 한 줄마다 `{timestamp, job_id, index, char_no, pose_set, pose_file, seed, prompt_id}`(보조 참조를 썼다면 `secondary_kind`/`secondary_set`/`secondary_file`도 함께)를 기록해서, 나중에 "이 컷이 왜 이렇게 나왔는지" 추적할 수 있습니다. `char_no`가 기본값(`1`)이 아니면 `pose_csv_batch`와 같은 방식으로 `filename_prefix`에도 `_char<N>`이 붙습니다.
 
-기존 템플릿(`seed_batch`/`csv_batch`)과 매니페스트는 이 기능과 무관하게 그대로 동작합니다 — `pose_batch`는 옵션이 켜진(=이 템플릿을 선택한) 경우에만 활성화되는 별도 템플릿입니다.
+기존 템플릿(`seed_batch`/`csv_batch`)과 매니페스트는 이 기능과 무관하게 그대로 동작합니다 — `pose_batch`/`depth_batch`/`lineart_batch`는 옵션이 켜진(=그 템플릿을 선택한) 경우에만 활성화되는 별도 템플릿입니다.
 
-### CSV + 포즈 배치 (`pose_csv_batch`)
+#### 보조 참조 — 포즈+depth를 한 생성에 같이 쓰기
 
-`csv_batch`의 CSV 컬럼(`title`/`trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`/`prompt`/`seed`/`batch_no`/`width`/`height`/`resolution`)을 그대로 지원하는 위에, `pose`/`char_no` 컬럼으로 행마다 ControlNet 포즈 레퍼런스를 지정합니다. `csv_batch`와 달리 "케이스당 시드 개수" 개념이 없습니다 — CSV 행 하나가 곧 반복 한 번입니다(옵션은 `pose_mode`뿐).
+세 템플릿 각각은 "주(main) 참조" 종류가 자기 이름대로 고정돼 있지만(`pose_batch`는 pose), 그와 별개로 다른 종류 하나를 "보조 참조"로 하나 더 얹어 한 생성에 두 ControlNet(예: OpenPose + Depth)을 동시에 쓸 수 있습니다.
+
+- `secondary_kind` — `"none"`(기본, 꺼짐) 또는 다른 두 종류 중 하나. `"none"`이면 아래 두 옵션도 자동으로 비활성화됩니다.
+- `secondary_char_no`/`secondary_set` — `secondary_kind`가 정한 종류의 폴더 안에서 `char_no`/`asset_folder`와 완전히 같은 방식으로 세트를 고릅니다(`secondary_kind`를 바꾸면 업로드 폼에서 이 두 드롭다운도 그 종류 기준으로 자동으로 다시 채워집니다).
+
+워크플로우에서는 제목에 `SECONDARY_NODE_TITLE`(기본 `"secondary"`)이 포함된 LoadImage 노드를 찾아 주입합니다. 주 참조 노드 찾기와 달리 **class_type 대체(fallback) 없이 제목이 정확히 일치해야만** 그 노드를 씁니다 — 워크플로우에 LoadImage가 하나뿐인 경우 주 참조 노드를 실수로 덮어쓰는 사고를 막기 위함입니다. 그래서 보조 참조는 항상 best-effort입니다: 그 제목의 노드가 없으면 경고만 남기고 그 실행은 보조 참조 없이 계속 진행합니다(업로드는 막지 않음). 반면 세트/파일 자체가 존재하지 않는 등 값 자체의 오류는 주 참조와 똑같이 엄격하게 검증되어 업로드 시점에 400으로 거부됩니다.
+
+### CSV + 포즈/depth/lineart 배치 (`pose_csv_batch`/`depth_csv_batch`/`lineart_csv_batch`)
+
+`csv_batch`의 CSV 컬럼(`title`/`trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`/`prompt`/`seed`/`batch_no`/`width`/`height`/`resolution`)을 그대로 지원하는 위에, `pose`/`char_no` 컬럼으로 행마다 ControlNet 포즈 레퍼런스를 지정합니다. `csv_batch`와 달리 "케이스당 시드 개수" 개념이 없습니다 — CSV 행 하나가 곧 반복 한 번입니다(옵션은 `pose_mode`와 아래 "보조 참조"의 `secondary_kind`뿐). `depth_csv_batch`/`lineart_csv_batch`는 완전히 독립된 스크립트로, 주(main) 참조 컬럼 이름만 각각 `depth`/`lineart`로 고정된 것 외에는 이름만 다를 뿐(`POSE_MODE`→`DEPTH_MODE`/`LINEART_MODE` 등) 로직이 동일합니다 — 아래 설명은 `pose_csv_batch`를 예로 듭니다.
 
 - `char_no` — 이 행이 몇 인물용 포즈 참조인지(`"1"`=solo, `"2"`=duo, ...). 비어 있으면 `"1"`. `pose`가 비어 있으면 안 읽습니다. 정수로 안 바뀌면 아래 `pose` 해석 실패와 같은 수준(배치 전체 중단)으로 취급합니다.
 - `pose` — 이 행에 쓸 포즈 레퍼런스. 비어 있으면 이 행은 `char_no`와 무관하게 ControlNet 없이 생성합니다.
+- `secondary_ref`/`secondary_char_no` — (선택) 아래 "보조 참조" 절 참고. `secondary_kind` 옵션이 `"none"`이 아닐 때만 읽힙니다.
 
-**`pose` 컬럼 값 해석 규칙**(우선순위 순, char_no로 지정된 `NIGHTSHIFT_POSES_DIR/<char_no>/` 아래에서만 찾음 — `pose_assets.resolve_pose_reference(name, char_no)`가 단일 소스이며 `pose_csv_batch.py`는 같은 알고리즘을 자기완결적으로 복사해서 씀. 둘 중 하나를 고치면 다른 쪽도 반드시 같이 고쳐야 함):
+**`pose` 컬럼 값 해석 규칙**(우선순위 순, char_no로 지정된 그 종류 루트의 `<char_no>/` 아래에서만 찾음 — `ref_assets.resolve_ref(kind, name, char_no)`가 단일 소스이며 `pose_csv_batch.py`는 같은 알고리즘을 자기완결적으로 복사해서 씀. 둘 중 하나를 고치면 다른 쪽도 반드시 같이 고쳐야 함):
 
-1. `"/"`가 있으면 `"<세트>/<파일명>"` 형식의, `<char_no>/` 안에서의 정확한 경로로 취급 (예: char_no가 `2`면 `NIGHTSHIFT_POSES_DIR/2/casual/pose_02.png`)
+1. `"/"`가 있으면 `"<세트>/<파일명>"` 형식의, `<char_no>/` 안에서의 정확한 경로로 취급 (예: char_no가 `2`면 `.../pose/2/casual/pose_02.png`)
 2. `"/"`가 없고 `<char_no>/` 아래 포즈 세트 폴더 이름과 정확히 일치하면 "세트 지정"으로 취급 — 그 세트 전용 피커(`pose_mode`에 따라 순차/랜덤)에서 하나를 뽑음. 같은 `(char_no, 세트 이름)` 조합이 여러 행에 나오면 피커 하나를 공유해서 CSV 순서대로 소비함(char_no가 다르면 세트 이름이 같아도 별개의 피커)
 3. `"/"`가 없고 세트 이름과는 안 맞지만 `<char_no>/` 아래 어느 한 세트 안에 그 파일명이 있으면 "파일명 단독 지정"으로 취급(같은 char_no의 세트만 통틀어 검색). 같은 파일명이 그 안에서 둘 이상의 세트에 동시에 있으면 모호함 에러(예: `'pose_01.png'가 여러 세트(casual, action)에 있어요. '<세트>/pose_01.png' 형식으로 명시해주세요.`)
 4. 위 어디에도 안 맞으면 에러 — **존재하지 않는 char_no를 참조하면(예: solo 세트만 있는데 `char_no=2`) 여기로 자연스럽게 떨어져 실패합니다.** 이게 char_no 스코프의 핵심 안전장치입니다.
 
+`secondary_ref`/`secondary_char_no` 컬럼도(활성화돼 있으면) 같은 규칙으로, `secondary_kind`가 정한 종류의 루트 아래에서 해석됩니다.
+
 정확한 경로(1)/파일명 단독 지정(3)인 행은 세트 피커의 상태에 영향을 주지 않습니다(그 세트를 "소비"하지 않음) — 세트 지정(2)인 행만 피커를 소비합니다. `pose` 값이 비어 있으면 그 행은 그래프를 재배선하지 않고 `ControlNetApplyAdvanced`류 노드의 `strength`를 0으로 주입해 ControlNet을 비활성화합니다(`apply_seed`와 같은 "노드는 그대로, 값만 덮어쓰기" 패턴).
 
-**업로드 시점 검증**: CSV를 올리면 `POST /api/upload`가 모든 행의 `pose`(및 `char_no`) 컬럼 값을 미리 위 규칙으로 해석해보고, 하나라도 실패하면(세트/파일 없음, 모호함, char_no가 정수가 아님) 어떤 줄의 어떤 값이 왜 실패했는지 담아 업로드 자체를 400으로 거부합니다. 실행 시점에도(포즈 폴더 내용이 그 사이 바뀌었을 수 있으므로) `pose_csv_batch.py`가 제출을 시작하기 전에 CSV 전체를 다시 한번 해석합니다 — 한 행이라도 실패하면 그 행만 건너뛰지 않고 배치 전체를 에러로 중단합니다. CSV의 어느 행이든 `pose`가 채워져 있으면, 워크플로우에 실제로 주입 가능한 LoadImage 노드가 있는지도 같이 검증합니다 — 위 "포즈 참조 배치" 절의 "업로드 시점 LoadImage 노드 검증" 참고.
+**업로드 시점 검증**: CSV를 올리면 `POST /api/upload`가 모든 행의 `pose`(및 `char_no`, 활성화돼 있으면 `secondary_ref`/`secondary_char_no`도) 컬럼 값을 미리 위 규칙으로 해석해보고, 하나라도 실패하면(세트/파일 없음, 모호함, char_no가 정수가 아님) 어떤 줄의 어떤 값이 왜 실패했는지 담아 업로드 자체를 400으로 거부합니다. 실행 시점에도(포즈 폴더 내용이 그 사이 바뀌었을 수 있으므로) `pose_csv_batch.py`가 제출을 시작하기 전에 CSV 전체를 다시 한번 해석합니다 — 한 행이라도 실패하면 그 행만 건너뛰지 않고 배치 전체를 에러로 중단합니다. CSV의 어느 행이든 `pose`가 채워져 있으면, 워크플로우에 실제로 주입 가능한 LoadImage 노드가 있는지도 같이 검증합니다 — 위 "포즈/depth/lineart 참조 배치" 절의 "업로드 시점 LoadImage 노드 검증" 참고. (이 노드 검증은 주 참조에만 적용되고, 보조 참조는 값 자체만 엄격히 검증될 뿐 노드 존재 여부는 실행 시점 best-effort입니다.)
 
-**재현성 기록**: `pose_batch`와 같은 형식으로 `NIGHTSHIFT_OUTPUT_DIR`에 `pose_csv_batch_manifest.jsonl`을 남기되 `char_no` 필드도 함께 기록합니다. `pose`가 비어 있던 행은 `char_no`/`pose_set`/`pose_file`을 모두 `null`로 기록해 "의도적으로 ControlNet 없이 생성했다"는 걸 구분할 수 있습니다. `char_no`가 기본값(`1`)이 아니면 `filename_prefix`에도 `_char<N>`이 붙어 결과물을 인물 수 기준으로 정리하기 쉽습니다.
+**재현성 기록**: `pose_batch`와 같은 형식으로 `NIGHTSHIFT_OUTPUT_DIR`에 `pose_csv_batch_manifest.jsonl`을 남기되 `char_no` 필드도 함께 기록합니다. `pose`가 비어 있던 행은 `char_no`/`pose_set`/`pose_file`을 모두 `null`로 기록해 "의도적으로 ControlNet 없이 생성했다"는 걸 구분할 수 있습니다. `char_no`가 기본값(`1`)이 아니면 `filename_prefix`에도 `_char<N>`이 붙어 결과물을 인물 수 기준으로 정리하기 쉽습니다. 보조 참조를 쓴 행은 `secondary_kind`/`secondary_set`/`secondary_file`도 함께 기록됩니다.
+
+**보조 참조**: 위 "포즈/depth/lineart 참조 배치" 절의 "보조 참조" 소절과 같은 개념이지만, CSV 버전에서는 종류 선택(`secondary_kind`)만 업로드 폼의 job 옵션이고 실제 값은 CSV의 `secondary_ref`/`secondary_char_no` 컬럼으로 행마다 지정합니다(같은 job 안에서는 종류 하나만 고를 수 있음 — 행마다 다른 종류를 섞어 쓸 수는 없습니다). `secondary_kind`가 `"none"`이면 두 컬럼은 아예 읽지 않습니다.
 
 ### 워크플로우 JSON / CSV / 옵션과 스크립트 연동
 
@@ -342,8 +378,9 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 |---|---|---|
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
 | `GET` | `/api/comfy-status` | 감지된 ComfyUI 주소(`url`)와 연결 가능 여부(`connected`)를 조회. 매 호출마다 실시간으로 재확인함 |
-| `GET` | `/api/assets` | `NIGHTSHIFT_POSES_DIR` 아래의 char_no별 포즈 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"char_nos": [{"name": char_no, "pose_sets": [{"name", "count"}, ...]}, ...]}`로 반환. 업로드 폼의 "인물 수"/"포즈 세트" 캐스케이딩 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함 |
-| `POST` | `/api/upload` | 작업을 `pending`(대기중) 상태로 등록만 함 — 아직 실행 큐에 들어가지 않음 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨). `template_id`가 `pose_csv_batch`면 CSV의 `pose` 컬럼 값을 전부 미리 해석해보고, 실패하는 행이 있으면 400으로 거부함 |
+| `GET` | `/api/assets?kind=pose` | `kind`(`pose`/`depth`/`lineart`, 기본 `pose`)가 가리키는 종류의 루트 아래 char_no별 참조 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"char_nos": [{"name": char_no, "pose_sets": [{"name", "count"}, ...]}, ...]}`로 반환(응답 키는 하위호환으로 `kind`와 무관하게 항상 `"pose_sets"`). 업로드 폼의 "인물 수"/"참조 세트" 캐스케이딩 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함. 알 수 없는 `kind`는 400 |
+| `POST` | `/api/assets/import-from-output` | 출력 폴더의 결과 이미지를 참조 세트에 사본으로 추가(원본은 그대로 둠) — 갤러리의 "참조 세트로 보내기". 요청 본문 `{"names": [파일명...], "kind": "pose", "char_no": "1", "set_name": "새_세트"}` (`kind`는 `pose`/`depth`/`lineart`, 없으면 `"pose"`). 존재하지 않는 char_no/세트 이름은 그 자리에서 새로 만듦. 응답 `{"added": N, "skipped": [{"name", "reason"}, ...]}` — 그 사이 지워진 이미지 등은 건너뛰고 이유를 담아 반환 |
+| `POST` | `/api/upload` | 작업을 `pending`(대기중) 상태로 등록만 함 — 아직 실행 큐에 들어가지 않음 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨). `template_id`가 `pose_csv_batch`/`depth_csv_batch`/`lineart_csv_batch`면 CSV의 주 참조 컬럼(`pose`/`depth`/`lineart`) 값을 전부 미리 해석해보고, 실패하는 행이 있으면 400으로 거부함(`secondary_kind` 필드가 `"none"`이 아니면 CSV의 `secondary_ref`/`secondary_char_no` 컬럼도 같이 검증함) |
 | `POST` | `/api/queue/start` | 그 시점에 `pending`인 작업 **전체**를 대기 등록 순서대로 실행 큐에 넣음 (상태를 `queued`로 일괄 전환). 응답으로 `{"started": N}`(실제로 시작된 개수)을 반환하며, 대기 중인 작업이 없으면 `N`은 0 |
 | `GET` | `/api/jobs` | 삭제되지 않은 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수 조회 |
 | `GET` | `/api/jobs/deleted` | 소프트 삭제된(아래 `DELETE /api/jobs/{job_id}` 참고) 작업 목록을 최근 삭제순으로 반환. "삭제된 작업 설정 불러오기" 드롭다운을 채우는 용도. `{"jobs": [...], "retention": N}` — `retention`은 `NIGHTSHIFT_DELETED_JOBS_RETENTION`(기본 30) |
@@ -382,7 +419,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 - **가로형 이미지 자동 회전**: `LatentUpscaleBy`/USDU 등으로 hires-fix 2단계를 거치는 워크플로우는 1단계를 가로(`1536×704`)로 생성한 뒤 최종적으로 세로 이미지를 의도하는 경우가 있는데, 저장된 파일 자체는 가로로 남습니다. 이 버튼은 출력 폴더에서 가로/세로 비율이 `1536:704`(24:11, ±2% 오차 허용)와 같은 이미지를 찾아 — 원본이든 `LatentUpscaleBy`로 확대된 배수(예: 1.5배인 `2304×1056`)든 비율만 같으면 매칭됩니다 — PIL의 `ROTATE_270`으로 시계 방향 90도 회전시켜 같은 파일에 덮어씁니다(아래쪽 변이 왼쪽으로 오도록). 이미 회전된(세로) 이미지는 비율이 안 맞아 자동으로 건너뛰므로, 버튼을 여러 번 눌러도 이미 돌린 이미지를 또 돌리지 않습니다. 판정 기준 해상도나 오차 범위를 바꾸려면 `output_images.py`의 `LANDSCAPE_BASE_SIZE`/`LANDSCAPE_RATIO_TOLERANCE`를 조정하세요.
 - **이미지 전체 삭제**: 출력 폴더의 이미지 파일을 모두 지웁니다. 되돌릴 수 없는 작업이라 프론트엔드에서 브라우저 확인창(`confirm`)을 한 번 더 거친 뒤에만 요청을 보냅니다.
 
-포즈 참조 배치 기능(`pose_assets.py`, `templates/pose_batch.py`)은 위 "포즈 참조 배치" 절 참고.
+포즈/depth/lineart 참조 배치 기능(`ref_assets.py`, `templates/pose_batch.py` 등)은 위 "포즈/depth/lineart 참조 배치" 절 참고.
 
 ## 동작 방식 / 디렉터리 구조
 
@@ -391,7 +428,7 @@ nightshift/
 ├── app.py                    # FastAPI 서버 + 큐 워커
 ├── email_sender.py           # 결과 이미지 이메일 발송 로직
 ├── output_images.py          # 출력 폴더 공용 로직 (목록 조회/삭제/가로형 이미지 회전)
-├── pose_assets.py             # 포즈 세트 폴더 스캔/업로드 시점 검증 로직
+├── ref_assets.py              # pose/depth/lineart 참조 세트 폴더 스캔/업로드 시점 검증 로직
 ├── requirements.txt
 ├── package.json               # pm2 실행용 npm 스크립트(`npm start` 등) — 서버 코드와 무관
 ├── ecosystem.config.js        # pm2 앱 설정 (uvicorn --reload를 이 설정으로 감독)
@@ -405,8 +442,12 @@ nightshift/
 │   ├── seed_batch.py         # 템플릿 스크립트
 │   ├── csv_batch.py          # 템플릿 스크립트 (필요에 따라 계속 추가)
 │   ├── csv_batch.sample.csv  # csv_batch용 샘플 CSV
-│   ├── pose_batch.py         # 템플릿 스크립트 (포즈 레퍼런스 순차/랜덤 주입)
-│   └── pose_csv_batch.py     # 템플릿 스크립트 (csv_batch + pose_batch 결합)
+│   ├── pose_batch.py         # 템플릿 스크립트 (포즈 레퍼런스 순차/랜덤 주입, 보조 참조 지원)
+│   ├── pose_csv_batch.py     # 템플릿 스크립트 (csv_batch + pose_batch 결합)
+│   ├── depth_batch.py        # 템플릿 스크립트 (pose_batch와 동일 구조, 주 참조만 depth)
+│   ├── depth_csv_batch.py    # 템플릿 스크립트 (pose_csv_batch와 동일 구조, 주 참조만 depth)
+│   ├── lineart_batch.py      # 템플릿 스크립트 (pose_batch와 동일 구조, 주 참조만 lineart)
+│   └── lineart_csv_batch.py  # 템플릿 스크립트 (pose_csv_batch와 동일 구조, 주 참조만 lineart)
 ├── jobs/                      # 업로드된 워크플로우/CSV가 저장되는 곳 (자동 생성)
 ├── logs/                      # 작업별 실행 로그 (자동 생성)
 └── jobs_state.json            # 작업 이력 저장 파일 (자동 생성)
