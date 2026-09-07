@@ -2042,6 +2042,32 @@ function createCopyButton(getText){
   return btn;
 }
 
+// getText()가 돌려주는 텍스트를 Danbooru 탭의 "자유 추가" 카테고리로 보내는
+// 작은 버튼 — danbooruSendToMainPrompt(Danbooru → 메인 프롬프트)의 반대 방향.
+// 실제 전송 로직(danbooruSendTextToExtra)은 이 함수보다 아래에서 정의되지만
+// function 선언이라 호이스팅되어 여기서 바로 참조해도 문제없다(randomizeBtn 등과
+// 같은 패턴).
+function createSendToDanbooruButton(getText){
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'copy-btn';
+  btn.title = 'Danbooru 탭의 "자유 추가"로 보내기 (쉼표 기준으로 태그를 나눠 추가·선택해요)';
+  btn.textContent = '📤 Danbooru로';
+  let resetTimer = null;
+  btn.addEventListener('click', () => {
+    const ok = danbooruSendTextToExtra(getText());
+    btn.textContent = ok ? '✅ 보냄' : '⚠ 내용 없음';
+    btn.classList.remove('copied', 'copy-error');
+    btn.classList.add(ok ? 'copied' : 'copy-error');
+    clearTimeout(resetTimer);
+    resetTimer = setTimeout(() => {
+      btn.textContent = '📤 Danbooru로';
+      btn.classList.remove('copied', 'copy-error');
+    }, 1500);
+  });
+  return btn;
+}
+
 function buildSelectControl(opt){
   const select = document.createElement('select');
   select.className = 'option-input';
@@ -2079,6 +2105,7 @@ function buildPromptEnhanceControl(opt){
   if(opt.default !== undefined && opt.default !== null) rawTextarea.value = opt.default;
   rawLabelRow.appendChild(rawLabel);
   rawLabelRow.appendChild(createCopyButton(() => rawTextarea.value.trim()));
+  rawLabelRow.appendChild(createSendToDanbooruButton(() => rawTextarea.value.trim()));
   rawCol.appendChild(rawLabelRow);
   rawCol.appendChild(rawTextarea);
 
@@ -2215,6 +2242,7 @@ function buildPromptEnhanceControl(opt){
   resultTextarea.placeholder = 'Prompt Enhance를 누르면 여기에 개선된 프롬프트가 표시돼요 (직접 수정 가능)';
   resultLabelRow.appendChild(resultLabel);
   resultLabelRow.appendChild(createCopyButton(() => resultTextarea.value.trim()));
+  resultLabelRow.appendChild(createSendToDanbooruButton(() => resultTextarea.value.trim()));
   resultCol.appendChild(resultLabelRow);
   resultCol.appendChild(resultTextarea);
 
@@ -4644,6 +4672,25 @@ function danbooruSendToMainPrompt(){
   raw.focus();
 }
 document.getElementById('danbooru-send-btn').addEventListener('click', danbooruSendToMainPrompt);
+
+// 반대 방향 — "작업 관리" 탭의 "직접 입력"/"Prompt Enhance 결과" 텍스트를 Danbooru
+// 탭의 "자유 추가" 카테고리로 보낸다(createSendToDanbooruButton이 호출). 태그 풀
+// 편집의 "➕ 추가"와 똑같이 쉼표로 나눠 여러 태그로 넣고(danbooruAddPoolTags가
+// 풀에 추가 + 서버에 영구 저장까지 처리), 거기에 더해 그 태그들을 바로 선택 상태로
+// 만들어서 "조립된 프롬프트"에 즉시 반영되게 한다. 이미 선택돼 있던 다른 자유
+// 추가 태그는 그대로 두고 새 태그만 덧붙인다(비워두고 새로 시작하고 싶으면
+// Danbooru 탭에서 직접 해제).
+function danbooruSendTextToExtra(text){
+  const trimmed = (text || '').trim();
+  if(!trimmed) return false;
+  danbooruAddPoolTags('extra', trimmed);
+  const newTags = trimmed.split(',').map(t => t.trim()).filter(Boolean);
+  danbooruState.selections.extra = danbooruDedupe([...(danbooruState.selections.extra || []), ...newTags]);
+  danbooruUpdateAll();
+  document.querySelector('.tab-btn[data-tab="danbooru"]').click();
+  document.getElementById('danbooru-prompt-text').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  return true;
+}
 
 async function initDanbooru(){
   try{
