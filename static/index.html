@@ -815,9 +815,10 @@
     grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
     gap:10px;
   }
-  /* 작업별 보기 — 작업(job)마다 소제목과 그 작업의 이미지 격자를 세로로 나열한다.
-     #gallery-grid 자체가 grid라서(전체 보기용), grid-column을 꽉 채우지 않으면
-     그룹들이 한 줄에 나란히 놓여버린다 — 항상 한 행 전체를 차지하게 만든다. */
+  /* 작업별/날짜별 보기 — 그룹(작업 또는 날짜)마다 소제목과 그 그룹의 이미지 격자를
+     세로로 나열한다. #gallery-grid 자체가 grid라서(전체 보기용), grid-column을
+     꽉 채우지 않으면 그룹들이 한 줄에 나란히 놓여버린다 — 항상 한 행 전체를
+     차지하게 만든다. */
   .gallery-group{ grid-column:1 / -1; margin-bottom:20px; }
   .gallery-group:last-child{ margin-bottom:0; }
   .gallery-group-header{
@@ -828,6 +829,18 @@
     padding:6px 2px;
     margin-bottom:8px;
     border-bottom:1px solid var(--border);
+  }
+  /* 그룹 소제목의 체크박스 — 그 그룹의 이미지 전체를 한 번에 선택/해제한다. */
+  .gallery-group-select-label{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    cursor:pointer;
+  }
+  .gallery-group-select-label input{
+    width:14px; height:14px;
+    cursor:pointer;
+    accent-color:var(--queued);
   }
   .gallery-group-grid{
     display:grid;
@@ -1436,6 +1449,7 @@
         <div class="enhance-mode" id="gallery-view-toggle">
           <button class="enhance-mode-btn active" type="button" data-view="all" title="전체 보기">🖼 전체</button>
           <button class="enhance-mode-btn" type="button" data-view="byjob" title="작업별 보기">🗂 작업별</button>
+          <button class="enhance-mode-btn" type="button" data-view="bydate" title="날짜별 보기">📅 날짜별</button>
         </div>
         <button class="load-btn" id="gallery-select-all-btn" type="button" disabled title="전체 선택">☑ 전체선택</button>
         <button class="load-btn" id="gallery-refresh-btn" type="button" title="새로고침">🔄</button>
@@ -1639,6 +1653,24 @@ function fmtTime(iso){
   if(!iso) return "—";
   const d = new Date(iso);
   return `<span class="time-hm">${pad2(d.getHours())}:${pad2(d.getMinutes())}</span><span class="time-s">:${pad2(d.getSeconds())}</span>`;
+}
+
+// 갤러리 "날짜별 보기" 그룹핑에 씀 — mtime(UTC ISO 문자열)을 브라우저의 로컬
+// 시간대 기준 달력 날짜로 변환한다(fmtTime과 같은 방식으로 new Date(iso)의
+// 로컬 getter를 쓰므로 표시되는 시:분과 날짜 경계가 항상 일치한다).
+const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'];
+
+function fmtDateKey(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function fmtDateLabel(dateKey){
+  if(!dateKey) return '날짜 정보 없음';
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const weekday = WEEKDAY_KO[new Date(y, m - 1, d).getDay()];
+  return `${y}.${pad2(m)}.${pad2(d)} (${weekday})`;
 }
 
 function fmtDuration(ms){
@@ -3251,7 +3283,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 let galleryImages = [];
 let lightboxIndex = -1;
 let selectedGalleryNames = new Set();
-let galleryViewMode = 'all'; // 'all' | 'byjob'
+let galleryViewMode = 'all'; // 'all' | 'byjob' | 'bydate'
 let galleryJobLabels = {}; // job_id -> 사람이 읽을 수 있는 라벨(템플릿명 · 옵션)
 // 현재 화면에 실제로 그려진 순서 — 전체 보기는 galleryImages와 같고, 작업별 보기는
 // 그룹별로 재배열된 순서다. 라이트박스의 이전/다음 탐색은 항상 이 배열을 따른다.
@@ -3403,6 +3435,8 @@ function wireGalleryItems(){
       else selectedGalleryNames.delete(name);
       el.classList.toggle('selected', checkbox.checked);
       updateGalleryToolbar();
+      const groupEl = el.closest('.gallery-group');
+      if(groupEl) updateGroupCheckboxState(groupEl);
     });
 
     el.querySelector('.gallery-item-delete').addEventListener('click', (e) => {
@@ -3412,24 +3446,81 @@ function wireGalleryItems(){
   });
 }
 
-// galleryImages(전체 목록)를 galleryViewMode에 맞춰 그린다. 작업별 보기에서는
-// job_id별로 묶고, 각 그룹은 그 안의 가장 최근 이미지 기준으로 정렬된다 —
-// galleryImages가 이미 mtime 내림차순이라 각 job_id가 처음 등장하는 순서를
+// 그룹(작업별/날짜별 보기의 소제목) 체크박스를 그 그룹 안 이미지들의 현재 선택
+// 상태에 맞춘다 — 전부 선택돼 있으면 체크, 하나도 없으면 빈 채, 일부만 선택돼
+// 있으면 indeterminate(가로줄) 표시. 개별 이미지 체크박스를 바꿀 때, 그리고
+// 매번 그룹을 새로 그린 직후 호출한다.
+function updateGroupCheckboxState(groupEl){
+  const groupCheckbox = groupEl.querySelector('.gallery-group-checkbox');
+  if(!groupCheckbox) return;
+  const itemEls = groupEl.querySelectorAll('.gallery-item');
+  const selectedCount = Array.from(itemEls).filter(el => el.classList.contains('selected')).length;
+  groupCheckbox.checked = itemEls.length > 0 && selectedCount === itemEls.length;
+  groupCheckbox.indeterminate = selectedCount > 0 && selectedCount < itemEls.length;
+}
+
+function refreshAllGroupCheckboxStates(){
+  document.querySelectorAll('.gallery-group').forEach(updateGroupCheckboxState);
+}
+
+// 그룹 소제목의 체크박스를 눌렀을 때 그 그룹 안 이미지 전체를 한꺼번에 선택/해제한다
+// (요구사항: "작업별 보기를 할 때 작업별로 한꺼번에 선택"). 개별 이미지 체크박스와
+// 상태를 그 자리에서 서로 맞춘다.
+function wireGalleryGroupCheckboxes(){
+  document.querySelectorAll('.gallery-group').forEach(groupEl => {
+    updateGroupCheckboxState(groupEl);
+    const groupCheckbox = groupEl.querySelector('.gallery-group-checkbox');
+    groupCheckbox.addEventListener('change', () => {
+      const checked = groupCheckbox.checked;
+      groupCheckbox.indeterminate = false;
+      groupEl.querySelectorAll('.gallery-item').forEach(itemEl => {
+        const index = Number(itemEl.dataset.index);
+        const name = displayedGalleryImages[index].name;
+        if(checked) selectedGalleryNames.add(name);
+        else selectedGalleryNames.delete(name);
+        itemEl.classList.toggle('selected', checked);
+        const itemCheckbox = itemEl.querySelector('.gallery-item-select input');
+        if(itemCheckbox) itemCheckbox.checked = checked;
+      });
+      updateGalleryToolbar();
+    });
+  });
+}
+
+// 현재 galleryViewMode에서 img가 속할 그룹의 키를 정한다 — byjob은 job_id,
+// bydate는 mtime을 로컬 날짜로 뭉친 문자열("YYYY-MM-DD").
+function galleryGroupKeyFor(img){
+  if(galleryViewMode === 'byjob') return img.job_id || '';
+  if(galleryViewMode === 'bydate') return fmtDateKey(img.mtime);
+  return '';
+}
+
+function galleryGroupLabelFor(key){
+  if(galleryViewMode === 'byjob'){
+    return key ? (galleryJobLabels[key] || `알 수 없는 작업 (${key})`) : '작업 정보 없음';
+  }
+  if(galleryViewMode === 'bydate') return fmtDateLabel(key);
+  return '';
+}
+
+// galleryImages(전체 목록)를 galleryViewMode에 맞춰 그린다. byjob/bydate는 각각
+// job_id/날짜로 묶고, 각 그룹은 그 안의 가장 최근 이미지 기준으로 정렬된다 —
+// galleryImages가 이미 mtime 내림차순이라 각 그룹 키가 처음 등장하는 순서를
 // 그대로 쓰면 된다(Map은 키를 처음 넣은 순서를 유지한다).
 function renderGalleryGrid(){
   const grid = document.getElementById('gallery-grid');
   displayedGalleryImages = [];
 
-  if(galleryViewMode === 'byjob'){
-    const groups = new Map(); // job_id(없으면 '') -> img[]
+  if(galleryViewMode === 'byjob' || galleryViewMode === 'bydate'){
+    const groups = new Map();
     for(const img of galleryImages){
-      const key = img.job_id || '';
+      const key = galleryGroupKeyFor(img);
       if(!groups.has(key)) groups.set(key, []);
       groups.get(key).push(img);
     }
     let html = '';
     for(const [key, groupImages] of groups){
-      const label = key ? (galleryJobLabels[key] || `알 수 없는 작업 (${key})`) : '작업 정보 없음';
+      const label = galleryGroupLabelFor(key);
       const itemsHtml = groupImages.map(img => {
         const item = galleryItemHtml(img, displayedGalleryImages.length);
         displayedGalleryImages.push(img);
@@ -3437,7 +3528,12 @@ function renderGalleryGrid(){
       }).join('');
       html += `
         <div class="gallery-group">
-          <div class="gallery-group-header">${escapeHtml(label)} · ${groupImages.length}장</div>
+          <div class="gallery-group-header">
+            <label class="gallery-group-select-label" title="이 그룹 전체 선택">
+              <input type="checkbox" class="gallery-group-checkbox">
+              ${escapeHtml(label)} · ${groupImages.length}장
+            </label>
+          </div>
           <div class="gallery-group-grid">${itemsHtml}</div>
         </div>
       `;
@@ -3449,6 +3545,7 @@ function renderGalleryGrid(){
   }
 
   wireGalleryItems();
+  wireGalleryGroupCheckboxes();
 }
 
 document.querySelectorAll('#gallery-view-toggle .enhance-mode-btn').forEach(btn => {
@@ -3503,6 +3600,7 @@ document.getElementById('gallery-select-all-btn').addEventListener('click', () =
   for(const img of galleryImages) selectedGalleryNames.add(img.name);
   document.querySelectorAll('.gallery-item').forEach(el => el.classList.add('selected'));
   document.querySelectorAll('.gallery-item-select input').forEach(cb => { cb.checked = true; });
+  refreshAllGroupCheckboxStates();
   updateGalleryToolbar();
 });
 document.getElementById('gallery-download-selected-btn').addEventListener('click', () => {
@@ -3518,6 +3616,7 @@ document.getElementById('gallery-clear-selection-btn').addEventListener('click',
   selectedGalleryNames.clear();
   document.querySelectorAll('.gallery-item.selected').forEach(el => el.classList.remove('selected'));
   document.querySelectorAll('.gallery-item-select input').forEach(cb => { cb.checked = false; });
+  refreshAllGroupCheckboxStates();
   updateGalleryToolbar();
 });
 
