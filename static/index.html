@@ -3802,12 +3802,13 @@ document.getElementById('gallery-lightbox-send-to-pose-btn').addEventListener('c
   const img = displayedGalleryImages[lightboxIndex];
   if(img) openPoseImportModal([img.name]);
 });
-document.getElementById('gallery-lightbox-delete-btn').addEventListener('click', async () => {
+async function deleteCurrentLightboxImage(){
   const img = displayedGalleryImages[lightboxIndex];
   if(!img) return;
   const ok = await deleteGalleryImages([img.name]);
   if(ok) closeLightbox();
-});
+}
+document.getElementById('gallery-lightbox-delete-btn').addEventListener('click', deleteCurrentLightboxImage);
 galleryLightbox.addEventListener('click', (e) => {
   if(e.target === galleryLightbox) closeLightbox();
 });
@@ -3816,6 +3817,7 @@ document.addEventListener('keydown', (e) => {
   if(e.key === 'Escape') closeLightbox();
   else if(e.key === 'ArrowLeft') showPrevImage();
   else if(e.key === 'ArrowRight') showNextImage();
+  else if(e.key === 'Delete' || e.key === 'Backspace') deleteCurrentLightboxImage();
 });
 
 // ============================================================
