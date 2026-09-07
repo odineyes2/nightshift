@@ -278,20 +278,22 @@
     width:56px;
     justify-content:center;
   }
-  /* "삭제된 작업 설정 불러오기" — 드롭다운은 남는 폭을 채우고 버튼은 그 옆(라벨
-     높이만큼 내려 select와 밑선을 맞춤)에 붙는다. 좁은 화면에서는 세로로 쌓는다. */
+  /* "삭제된 작업 설정 불러오기" — 아코디언 없이 항상 펼쳐진 채로 제목/드롭다운/
+     버튼을 한 줄에 붙여 보여준다. 드롭다운이 남는 폭을 채우고, 제목과 버튼은
+     고정 폭. 좁은 화면에서는 세로로 쌓는다. */
   .deleted-jobs-row{
     display:flex;
-    align-items:flex-end;
+    align-items:center;
     gap:var(--gap-md);
     flex-wrap:wrap;
+    padding:16px 24px;
   }
-  .deleted-jobs-field{ flex:1 1 240px; min-width:200px; }
-  .deleted-jobs-field select{ width:100%; max-width:none; }
+  .deleted-jobs-row .section-label{ margin-bottom:0; flex-shrink:0; }
+  .deleted-jobs-row select{ flex:1 1 240px; min-width:160px; max-width:none; }
   #deleted-jobs-load-btn{ flex-shrink:0; }
   @media (max-width:520px){
     .deleted-jobs-row{ align-items:stretch; }
-    .deleted-jobs-field{ flex-basis:100%; }
+    .deleted-jobs-row select{ flex-basis:100%; }
     #deleted-jobs-load-btn{ width:100%; }
   }
   .options-fields{
@@ -1280,24 +1282,6 @@
 </div>
 
 <main id="tab-jobs">
-  <div class="panel collapsed" id="deleted-jobs-panel">
-    <div class="panel-header">
-      <div class="panel-header-title">
-        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
-        <div class="section-label">삭제된 작업 설정 불러오기</div>
-      </div>
-    </div>
-    <div class="panel-body">
-      <div class="email-hint">"작업 목록"에서 삭제한 작업도 최근 <span id="deleted-jobs-retention">30</span>개까지는 여기서 설정을 다시 불러올 수 있어요.</div>
-      <div class="deleted-jobs-row">
-        <div class="field deleted-jobs-field">
-          <label class="field-label" for="deleted-jobs-select">삭제된 작업</label>
-          <select id="deleted-jobs-select" class="option-input" disabled></select>
-        </div>
-        <button class="submit-btn" id="deleted-jobs-load-btn" disabled title="이 설정 불러오기">📂 불러오기</button>
-      </div>
-    </div>
-  </div>
 
   <div class="panel" id="new-job-panel">
     <div class="panel-header">
@@ -1381,6 +1365,12 @@
       </div>
       <div class="empty" id="empty-msg" style="display:none;">아직 등록된 작업이 없어요</div>
     </div>
+  </div>
+
+  <div class="panel deleted-jobs-row" id="deleted-jobs-panel">
+    <div class="section-label">삭제된 작업 설정 불러오기</div>
+    <select id="deleted-jobs-select" class="option-input" disabled title="삭제된 작업"></select>
+    <button class="submit-btn" id="deleted-jobs-load-btn" disabled title="이 설정 불러오기">📂 불러오기</button>
   </div>
 
   <div class="panel">
@@ -2781,8 +2771,10 @@ async function fetchDeletedJobs(){
     data = { jobs: [] };
   }
 
+  // 예전엔 이 안내를 별도 문구 줄로 보여줬으나, 한 줄짜리 패널로 압축하면서
+  // select의 title(hover 툴팁)로 옮겼다 — 정보는 그대로 남기되 자리를 차지하지 않게.
   if(data.retention !== undefined){
-    document.getElementById('deleted-jobs-retention').textContent = data.retention;
+    select.title = `삭제된 작업 — 최근 ${data.retention}개까지 여기서 설정을 다시 불러올 수 있어요.`;
   }
 
   deletedJobsById = {};
