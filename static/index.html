@@ -271,7 +271,7 @@
      들쭉날쭉해 보이지 않게 한다. */
   .recent-workflow-item .load-btn,
   .recent-workflow-item .icon-btn{
-    width:44px;
+    width:56px;
     justify-content:center;
   }
   /* "삭제된 작업 설정 불러오기" — 드롭다운은 남는 폭을 채우고 버튼은 그 옆(라벨
@@ -1239,9 +1239,9 @@
 
 <div class="tab-bar">
   <div class="tab-bar-inner">
-    <button class="tab-btn active" data-tab="jobs" type="button">작업 관리</button>
-    <button class="tab-btn" data-tab="gallery" type="button">갤러리</button>
-    <button class="tab-btn" data-tab="danbooru" type="button">Danbooru 프롬프트</button>
+    <button class="tab-btn active" data-tab="jobs" type="button">🗂 작업 관리</button>
+    <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
+    <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트">🏷 Danbooru</button>
   </div>
 </div>
 
@@ -1260,7 +1260,7 @@
           <label class="field-label" for="deleted-jobs-select">삭제된 작업</label>
           <select id="deleted-jobs-select" class="option-input" disabled></select>
         </div>
-        <button class="submit-btn" id="deleted-jobs-load-btn" disabled>이 설정 불러오기</button>
+        <button class="submit-btn" id="deleted-jobs-load-btn" disabled title="이 설정 불러오기">📂 불러오기</button>
       </div>
     </div>
   </div>
@@ -1287,7 +1287,7 @@
         <div class="field">
           <div class="field-label-row">
             <label class="field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
-            <button class="load-btn" id="recent-workflows-btn" type="button">최근 워크플로우</button>
+            <button class="load-btn" id="recent-workflows-btn" type="button" title="최근 워크플로우">🕘 최근</button>
           </div>
           <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
           <input type="file" class="slot-input" id="workflow-input" accept=".json">
@@ -1296,7 +1296,7 @@
         <div class="field" id="csv-field" style="display:none;">
           <div class="field-label-row">
             <label class="field-label">CSV <span class="opt">— 이 템플릿에 필수</span></label>
-            <button class="load-btn" id="recent-csvs-btn" type="button">최근 CSV</button>
+            <button class="load-btn" id="recent-csvs-btn" type="button" title="최근 CSV">🕘 최근</button>
           </div>
           <div class="slot" id="csv-slot">.csv 파일을 끌어다 놓거나 클릭</div>
           <input type="file" class="slot-input" id="csv-input" accept=".csv">
@@ -1304,8 +1304,8 @@
 
         <div>
           <div class="new-job-actions">
-            <button class="submit-btn" id="submit-btn">큐에 추가</button>
-            <button class="modal-btn-secondary" id="reset-form-btn" type="button">초기화</button>
+            <button class="submit-btn" id="submit-btn" title="큐에 추가">➕ 추가</button>
+            <button class="modal-btn-secondary" id="reset-form-btn" type="button" title="초기화">↺ 초기화</button>
           </div>
           <div class="upload-error" id="upload-error"></div>
         </div>
@@ -1320,8 +1320,8 @@
         <div class="section-label">작업 목록</div>
       </div>
       <div class="panel-header-actions">
-        <button class="del-btn" id="clear-pending-btn" type="button" disabled>대기중 작업 전체 삭제</button>
-        <button class="start-queue-btn" id="start-queue-btn" disabled>▷ 대기중 작업 시작 (<span id="pending-batch-count">0</span>)</button>
+        <button class="del-btn" id="clear-completed-btn" type="button" disabled title="완료/실패/중단된 작업을 한꺼번에 삭제">🗑 완료 삭제</button>
+        <button class="start-queue-btn" id="start-queue-btn" disabled title="대기중 작업 시작">▶ 시작 (<span id="pending-batch-count">0</span>)</button>
       </div>
     </div>
     <div class="panel-body">
@@ -1360,16 +1360,16 @@
       <div class="email-hint">가로로 생성된 이미지(hires-fix/USDU 등, 1536×704와 같은 비율)를 시계 방향으로 90도 돌려서 저장하거나, 서버에 쌓인 이미지를 한 번에 정리합니다.</div>
       <div class="output-actions">
         <div>
-          <button class="submit-btn" id="zip-download-btn">ZIP으로 다운로드</button>
+          <button class="submit-btn" id="zip-download-btn" title="ZIP으로 다운로드">📦 ZIP</button>
           <div class="upload-error" id="zip-error"></div>
         </div>
         <div>
-          <button class="submit-btn" id="rotate-btn">가로형 이미지 자동 회전</button>
+          <button class="submit-btn" id="rotate-btn" title="가로형 이미지 자동 회전">🔄 회전</button>
           <div class="upload-error" id="rotate-error"></div>
           <div class="email-result" id="rotate-result"></div>
         </div>
         <div>
-          <button class="danger-btn" id="delete-images-btn">이미지 전체 삭제</button>
+          <button class="danger-btn" id="delete-images-btn" title="이미지 전체 삭제">🗑 전체 삭제</button>
           <div class="upload-error" id="delete-error"></div>
           <div class="email-result" id="delete-result"></div>
         </div>
@@ -1404,7 +1404,7 @@
           <input type="number" class="option-input" id="email-max-mb" value="20" min="1" style="max-width:100px;">
         </div>
         <div>
-          <button class="submit-btn" id="email-send-btn">보내기</button>
+          <button class="submit-btn" id="email-send-btn" title="보내기">✉️ 보내기</button>
           <div class="upload-error" id="email-error"></div>
           <div class="email-result" id="email-result"></div>
         </div>
@@ -1420,20 +1420,20 @@
       <div class="panel-header-actions">
         <span class="gallery-count" id="gallery-count"></span>
         <div class="enhance-mode" id="gallery-view-toggle">
-          <button class="enhance-mode-btn active" type="button" data-view="all">전체 보기</button>
-          <button class="enhance-mode-btn" type="button" data-view="byjob">작업별 보기</button>
+          <button class="enhance-mode-btn active" type="button" data-view="all" title="전체 보기">🖼 전체</button>
+          <button class="enhance-mode-btn" type="button" data-view="byjob" title="작업별 보기">🗂 작업별</button>
         </div>
-        <button class="load-btn" id="gallery-select-all-btn" type="button" disabled>전체 선택</button>
-        <button class="load-btn" id="gallery-refresh-btn" type="button">새로고침</button>
+        <button class="load-btn" id="gallery-select-all-btn" type="button" disabled title="전체 선택">☑ 전체선택</button>
+        <button class="load-btn" id="gallery-refresh-btn" type="button" title="새로고침">🔄</button>
       </div>
     </div>
     <div class="panel-body">
       <div class="gallery-toolbar" id="gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="gallery-toolbar-count"></span>
-        <button class="load-btn" id="gallery-download-selected-btn" type="button">다운로드</button>
-        <button class="load-btn" id="gallery-send-to-pose-btn" type="button">참조 세트로 보내기</button>
-        <button class="del-btn" id="gallery-delete-selected-btn" type="button">삭제</button>
-        <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button">선택 해제</button>
+        <button class="load-btn" id="gallery-download-selected-btn" type="button" title="다운로드">⬇ 다운로드</button>
+        <button class="load-btn" id="gallery-send-to-pose-btn" type="button" title="참조 세트로 보내기">📌 세트 추가</button>
+        <button class="del-btn" id="gallery-delete-selected-btn" type="button" title="삭제">🗑 삭제</button>
+        <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button" title="선택 해제">✕ 해제</button>
       </div>
       <div class="upload-error" id="gallery-error"></div>
       <div class="gallery-grid" id="gallery-grid"></div>
@@ -1447,7 +1447,7 @@
     <div class="panel-header">
       <div class="section-label">Danbooru 프롬프트 조립</div>
       <div class="panel-header-actions">
-        <button class="load-btn" id="danbooru-randomize-btn" type="button">🎲 무작위 조합</button>
+        <button class="load-btn" id="danbooru-randomize-btn" type="button" title="무작위 조합">🎲 무작위</button>
       </div>
     </div>
     <div class="panel-body">
@@ -1455,7 +1455,7 @@
         <div class="danbooru-prompt-row">
           <div class="danbooru-prompt-label">조립된 프롬프트</div>
           <div class="danbooru-prompt-row-actions">
-            <button class="load-btn" id="danbooru-send-btn" type="button">작업 관리 → 메인 프롬프트로 보내기</button>
+            <button class="load-btn" id="danbooru-send-btn" type="button" title="작업 관리 → 메인 프롬프트로 보내기">📤 프롬프트로 전송</button>
             <span id="danbooru-copy-slot"></span>
           </div>
         </div>
@@ -1485,7 +1485,7 @@
     <div class="panel-body">
       <div class="danbooru-history-save-row">
         <input type="text" class="option-input danbooru-history-name-input" id="danbooru-history-name" placeholder="이름 (비우면 프롬프트 앞부분)">
-        <button class="load-btn" id="danbooru-history-save-btn" type="button">현재 조합 저장</button>
+        <button class="load-btn" id="danbooru-history-save-btn" type="button" title="현재 조합 저장">💾 저장</button>
       </div>
       <div style="height:12px;"></div>
       <div id="danbooru-history-list"></div>
@@ -1501,9 +1501,9 @@
     <img class="lightbox-img" id="gallery-lightbox-img" src="" alt="">
     <div class="lightbox-info" id="gallery-lightbox-info"></div>
     <div class="lightbox-actions">
-      <button class="modal-btn-secondary" id="gallery-lightbox-download-btn" type="button">다운로드</button>
-      <button class="modal-btn-secondary" id="gallery-lightbox-send-to-pose-btn" type="button">참조 세트로 보내기</button>
-      <button class="danger-btn" id="gallery-lightbox-delete-btn" type="button">삭제</button>
+      <button class="modal-btn-secondary" id="gallery-lightbox-download-btn" type="button" title="다운로드">⬇ 다운로드</button>
+      <button class="modal-btn-secondary" id="gallery-lightbox-send-to-pose-btn" type="button" title="참조 세트로 보내기">📌 세트 추가</button>
+      <button class="danger-btn" id="gallery-lightbox-delete-btn" type="button" title="삭제">🗑 삭제</button>
     </div>
     <div class="lightbox-error" id="gallery-lightbox-error"></div>
   </div>
@@ -1539,8 +1539,8 @@
       <div class="enhance-status" id="pose-import-status" style="text-align:left; max-width:none;"></div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="pose-import-cancel-btn">취소</button>
-      <button class="submit-btn" id="pose-import-confirm-btn">추가</button>
+      <button class="modal-btn-secondary" id="pose-import-cancel-btn">✕ 취소</button>
+      <button class="submit-btn" id="pose-import-confirm-btn">➕ 추가</button>
     </div>
   </div>
 </div>
@@ -1556,8 +1556,8 @@
       <div class="workflow-error" id="workflow-editor-error"></div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="workflow-cancel-btn">취소</button>
-      <button class="submit-btn" id="workflow-save-btn">저장</button>
+      <button class="modal-btn-secondary" id="workflow-cancel-btn">✕ 취소</button>
+      <button class="submit-btn" id="workflow-save-btn">💾 저장</button>
     </div>
   </div>
 </div>
@@ -1575,7 +1575,7 @@
       <div class="empty" id="recent-workflows-empty" style="display:none;">최근 사용한 워크플로우가 없어요</div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="recent-workflows-modal-cancel">닫기</button>
+      <button class="modal-btn-secondary" id="recent-workflows-modal-cancel">✕ 닫기</button>
     </div>
   </div>
 </div>
@@ -1593,7 +1593,7 @@
       <div class="empty" id="recent-csvs-empty" style="display:none;">최근 사용한 CSV가 없어요</div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="recent-csvs-modal-cancel">닫기</button>
+      <button class="modal-btn-secondary" id="recent-csvs-modal-cancel">✕ 닫기</button>
     </div>
   </div>
 </div>
@@ -1673,7 +1673,10 @@ async function fetchJobs(){
   render(data.jobs, data.pending_count);
 }
 
+let lastJobsList = []; // "완료 삭제" 확인창에 몇 개를 지우는지 보여주려고 최근 render() 결과를 기억해둔다.
+
 function render(jobs, pendingCount){
+  lastJobsList = jobs;
   document.getElementById('pending-count').textContent = pendingCount;
   const tbody = document.getElementById('job-rows');
   const emptyMsg = document.getElementById('empty-msg');
@@ -1681,7 +1684,9 @@ function render(jobs, pendingCount){
   const pendingBatchCount = jobs.filter(j => j.status === 'pending').length;
   document.getElementById('pending-batch-count').textContent = pendingBatchCount;
   document.getElementById('start-queue-btn').disabled = pendingBatchCount === 0;
-  document.getElementById('clear-pending-btn').disabled = pendingBatchCount === 0;
+
+  const completedBatchCount = jobs.filter(j => j.status === 'done' || j.status === 'failed' || j.status === 'interrupted').length;
+  document.getElementById('clear-completed-btn').disabled = completedBatchCount === 0;
 
   if(jobs.length === 0){
     tbody.innerHTML = '';
@@ -1720,10 +1725,10 @@ function render(jobs, pendingCount){
         <td class="time-cell${est.finishIso == null ? ' dim' : ''}">${fmtTime(est.finishIso)}</td>
         <td>
           <div class="row-actions">
-            <button class="load-btn" data-loadid="${j.id}">설정 불러오기</button>
-            ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}">워크플로우 수정</button>` : ''}
-            ${j.status === 'pending' && j.csv_filename ? `<button class="edit-btn" data-editkind="csv" data-editid="${j.id}">CSV 수정</button>` : ''}
-            ${j.status !== 'running' && j.status !== 'queued' ? `<button class="del-btn" data-del="${j.id}">삭제</button>` : ''}
+            <button class="load-btn" data-loadid="${j.id}" title="설정 불러오기">📂 불러오기</button>
+            ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}" title="워크플로우 수정">✎ 워크플로우</button>` : ''}
+            ${j.status === 'pending' && j.csv_filename ? `<button class="edit-btn" data-editkind="csv" data-editid="${j.id}" title="CSV 수정">✎ CSV</button>` : ''}
+            ${j.status !== 'running' && j.status !== 'queued' ? `<button class="del-btn" data-del="${j.id}" title="삭제">🗑 삭제</button>` : ''}
           </div>
         </td>
       </tr>`;
@@ -1940,24 +1945,25 @@ function createCopyButton(getText){
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'copy-btn';
-  btn.textContent = '복사';
+  btn.title = '복사';
+  btn.textContent = '📋 복사';
   let resetTimer = null;
   btn.addEventListener('click', async () => {
     const text = getText();
     if(!text) return;
     try{
       await copyTextToClipboard(text);
-      btn.textContent = '복사됨';
+      btn.textContent = '✅ 복사됨';
       btn.classList.remove('copy-error');
       btn.classList.add('copied');
     }catch(e){
-      btn.textContent = '복사 실패';
+      btn.textContent = '⚠ 실패';
       btn.classList.remove('copied');
       btn.classList.add('copy-error');
     }
     clearTimeout(resetTimer);
     resetTimer = setTimeout(() => {
-      btn.textContent = '복사';
+      btn.textContent = '📋 복사';
       btn.classList.remove('copied', 'copy-error');
     }, 1500);
   });
@@ -2079,7 +2085,7 @@ function buildPromptEnhanceControl(opt){
   const randomizeBtn = document.createElement('button');
   randomizeBtn.type = 'button';
   randomizeBtn.className = 'load-btn';
-  randomizeBtn.textContent = '🎲 Danbooru 랜덤 생성';
+  randomizeBtn.textContent = '🎲 랜덤 생성';
   randomizeBtn.title = 'Danbooru 프롬프트 탭에서 고정(🔒)해둔 항목은 그대로 두고 나머지만 무작위로 뽑아 왼쪽에 채워요';
   randomizeBtn.addEventListener('click', () => {
     danbooruRandomizeAll();
@@ -2114,7 +2120,7 @@ function buildPromptEnhanceControl(opt){
   enhanceSpinner.className = 'enhance-spinner';
   enhanceSpinner.hidden = true;
   const enhanceLabel = document.createElement('span');
-  enhanceLabel.textContent = 'Prompt Enhance →';
+  enhanceLabel.textContent = '✨ Enhance';
   enhanceBtn.appendChild(enhanceSpinner);
   enhanceBtn.appendChild(enhanceLabel);
 
@@ -2190,7 +2196,7 @@ function buildPromptEnhanceControl(opt){
       enhanceBtn.disabled = false;
       modeBtns.forEach(b => { b.disabled = false; });
       enhanceSpinner.hidden = true;
-      enhanceLabel.textContent = 'Prompt Enhance →';
+      enhanceLabel.textContent = '✨ Enhance';
     }
   });
 
@@ -2720,10 +2726,10 @@ document.getElementById('start-queue-btn').addEventListener('click', async () =>
   fetchJobs();
 });
 
-document.getElementById('clear-pending-btn').addEventListener('click', async () => {
-  const count = document.getElementById('pending-batch-count').textContent;
-  if(!confirm(`대기중인 작업 ${count}개를 모두 삭제할까요? (개별 삭제와 마찬가지로 "삭제된 작업 설정 불러오기"에서 되돌릴 수 있어요)`)) return;
-  await fetch('/api/jobs/clear-pending', { method: 'POST' });
+document.getElementById('clear-completed-btn').addEventListener('click', async () => {
+  const count = lastJobsList.filter(j => j.status === 'done' || j.status === 'failed' || j.status === 'interrupted').length;
+  if(!confirm(`완료/실패/중단된 작업 ${count}개를 모두 삭제할까요? (개별 삭제와 마찬가지로 "삭제된 작업 설정 불러오기"에서 되돌릴 수 있어요)`)) return;
+  await fetch('/api/jobs/clear-completed', { method: 'POST' });
   fetchJobs();
   fetchDeletedJobs();
 });
@@ -2786,7 +2792,7 @@ function setupRecentFilePicker({
         <div class="recent-workflow-item">
           <span class="recent-workflow-name" data-recent-id="${w.id}" title="${escapeHtml(w.filename)} (눌러서 선택)">${escapeHtml(w.filename)}</span>
           <span class="recent-workflow-time">${whenText}</span>
-          <button class="load-btn" data-recent-id="${w.id}" type="button">선택</button>
+          <button class="load-btn" data-recent-id="${w.id}" type="button" title="선택">✓ 선택</button>
           <button class="icon-btn" data-recent-remove-id="${w.id}" type="button" aria-label="목록에서 삭제" title="목록에서 삭제">${TRASH_ICON_SVG}</button>
         </div>`;
     }).join('');
@@ -3052,7 +3058,7 @@ document.getElementById('email-send-btn').addEventListener('click', async () => 
     errorEl.textContent = '발송에 실패했어요.';
   }finally{
     btn.disabled = false;
-    btn.textContent = '보내기';
+    btn.textContent = '✉️ 보내기';
   }
 });
 
@@ -3079,7 +3085,7 @@ document.getElementById('zip-download-btn').addEventListener('click', async () =
     errorEl.textContent = '다운로드에 실패했어요.';
   }finally{
     btn.disabled = false;
-    btn.textContent = 'ZIP으로 다운로드';
+    btn.textContent = '📦 ZIP';
   }
 });
 
@@ -3103,7 +3109,7 @@ document.getElementById('rotate-btn').addEventListener('click', async () => {
     errorEl.textContent = '회전에 실패했어요.';
   }finally{
     btn.disabled = false;
-    btn.textContent = '가로형 이미지 자동 회전';
+    btn.textContent = '🔄 회전';
   }
 });
 
@@ -3132,7 +3138,7 @@ document.getElementById('delete-images-btn').addEventListener('click', async () 
     errorEl.textContent = '삭제에 실패했어요.';
   }finally{
     btn.disabled = false;
-    btn.textContent = '이미지 전체 삭제';
+    btn.textContent = '🗑 전체 삭제';
   }
 });
 
@@ -3152,7 +3158,7 @@ function getEffectiveTheme(){
 }
 
 function updateThemeToggleLabel(theme){
-  themeToggleBtn.textContent = theme === 'dark' ? '☀ 낮 모드' : '🌙 밤 모드';
+  themeToggleBtn.textContent = theme === 'dark' ? '☀' : '🌙';
   themeToggleBtn.title = theme === 'dark' ? '낮 모드(밝은 화면)로 전환' : '밤 모드(어두운 화면)로 전환';
 }
 
@@ -4259,8 +4265,8 @@ function danbooruRenderHistoryList(){
           <div class="danbooru-history-time">${whenText}</div>
         </div>
         <div class="danbooru-history-actions">
-          <button type="button" class="load-btn danbooru-history-load-btn">불러오기</button>
-          <button type="button" class="del-btn danbooru-history-delete-btn">삭제</button>
+          <button type="button" class="load-btn danbooru-history-load-btn" title="불러오기">📂 불러오기</button>
+          <button type="button" class="del-btn danbooru-history-delete-btn" title="삭제">🗑 삭제</button>
         </div>
       </div>
     `;
@@ -4372,7 +4378,7 @@ function danbooruCategoryCardHtml(cat){
         <div class="danbooru-pool-chips" data-key="${cat.key}"></div>
         <div class="danbooru-pool-add-row">
           <input type="text" class="option-input danbooru-pool-add-input" data-key="${cat.key}" placeholder="쉼표로 구분해 여러 개 추가">
-          <button type="button" class="load-btn danbooru-pool-add-btn" data-key="${cat.key}">추가</button>
+          <button type="button" class="load-btn danbooru-pool-add-btn" data-key="${cat.key}" title="추가">➕ 추가</button>
         </div>
       </div>
     </div>
