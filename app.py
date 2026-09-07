@@ -1452,6 +1452,39 @@ async def rotate_images():
     return result
 
 
+def rotate_one_image(path: Path) -> None:
+    with Image.open(path) as img:
+        img.transpose(Image.Transpose.ROTATE_270).save(path)
+
+
+@app.post("/api/output-images/rotate-selected")
+async def rotate_selected_images(request: Request):
+    # 갤러리에서 고른 이미지를 (가로형 판정 없이) 무조건 시계 방향 90도로 돌려서
+    # 같은 파일에 덮어쓴다 — rotate-landscape처럼 hires-fix 비율 자동 판정을 거치지
+    # 않는다. 사용자가 직접 골라서 누르는 동작이라, 비율과 무관하게 그 판단을 따른다.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    names = parse_image_names_body(data)
+
+    rotated = []
+    for name in names:
+        try:
+            path = resolve_output_image(name)
+        except HTTPException:
+            continue
+        try:
+            await asyncio.to_thread(rotate_one_image, path)
+        except Exception as e:
+            raise HTTPException(500, f"{name} 회전에 실패했어요: {e}")
+        rotated.append(name)
+    if not rotated:
+        raise HTTPException(404, "선택한 이미지를 찾을 수 없어요.")
+    return {"rotated": rotated}
+
+
 @app.get("/api/danbooru/tag-edits")
 def get_danbooru_tag_edits():
     return danbooru_tag_edits

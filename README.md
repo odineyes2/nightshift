@@ -423,6 +423,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `DELETE` | `/api/output-images` | 출력 폴더의 이미지를 모두 삭제. 응답 `{"deleted": N}`. 폴더 자체가 없으면 404, 이미지가 0개면 `{"deleted": 0}` (에러 아님) |
 | `POST` | `/api/output-images/delete-selected` | 요청 본문 `{"names": [파일명...]}`에 담긴 이미지들만 삭제(갤러리에서 여러 장 선택 후 삭제용). 응답 `{"deleted": N}` — 잘못된 이름이나 이미 지워진 파일은 조용히 건너뜀, `names`가 비어있거나 없으면 400 |
 | `POST` | `/api/output-images/rotate-landscape` | 출력 폴더에서 가로형(1536×704와 같은 비율) 이미지를 찾아 시계 방향 90도로 회전해 같은 파일에 덮어씀. 응답 `{"total_checked", "rotated": [파일명...], "errors": [...]}`. 폴더 자체가 없으면 404 |
+| `POST` | `/api/output-images/rotate-selected` | 요청 본문 `{"names": [파일명...]}`에 담긴 이미지만 비율 판정 없이 무조건 시계 방향 90도로 회전해 같은 파일에 덮어씀(갤러리에서 선택한 이미지를 "회전 후 다운로드"할 때 씀). 응답 `{"rotated": [파일명...]}`, 잘못된 이름은 조용히 건너뛰고 하나도 안 남으면 404, `names`가 비어있거나 없으면 400 |
 
 ### 결과 이미지 이메일 전송 (`email_sender.py`)
 

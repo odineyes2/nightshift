@@ -269,6 +269,8 @@
   }
   .icon-btn:hover{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
   .icon-btn svg{ width:14px; height:14px; }
+  /* 삭제처럼 되돌릴 수 없는 동작이 아닌 icon-btn(예: 다운로드)은 빨강 대신 파랑 계열로 hover */
+  .icon-btn-neutral:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
   /* "선택"(.load-btn)과 휴지통(.icon-btn) 버튼의 너비를 맞춰서 나란히 놓았을 때
      들쭉날쭉해 보이지 않게 한다. */
   .recent-workflow-item .load-btn,
@@ -342,6 +344,11 @@
     justify-content:space-between;
     gap:8px;
   }
+  /* 복사/Danbooru로 보내기 버튼을 하나로 묶어서 라벨 오른쪽에 붙인다 — 부모가
+     justify-content:space-between이라, 버튼을 낱개로 넣으면 서로 멀리 떨어져
+     보이는 문제(자식이 3개 이상일 때 균등 배분됨)를 이 래퍼로 자식을 2개(라벨/
+     버튼 묶음)로 줄여서 피한다. */
+  .prompt-enhance-actions{ display:flex; align-items:center; gap:6px; flex-shrink:0; }
   .prompt-enhance-subtitle{
     font-family:var(--mono);
     font-size:10.5px;
@@ -1459,6 +1466,7 @@
       <div class="gallery-toolbar" id="gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="gallery-toolbar-count"></span>
         <button class="load-btn" id="gallery-download-selected-btn" type="button" title="다운로드">⬇ 다운로드</button>
+        <button class="load-btn" id="gallery-rotate-download-selected-btn" type="button" title="선택한 이미지를 시계 방향으로 90도 돌린 뒤 다운로드">🔄⬇ 회전 후 다운로드</button>
         <button class="load-btn" id="gallery-send-to-pose-btn" type="button" title="참조 세트로 보내기">📌 세트 추가</button>
         <button class="del-btn" id="gallery-delete-selected-btn" type="button" title="삭제">🗑 삭제</button>
         <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button" title="선택 해제">✕ 해제</button>
@@ -1480,6 +1488,7 @@
           <button class="enhance-mode-btn active" type="button" data-mode="nsfw" title="무작위 조합에 NSFW 태그도 포함해요">🔞 NSFW</button>
         </div>
         <button class="load-btn" id="danbooru-randomize-btn" type="button" title="무작위 조합">🎲 무작위</button>
+        <button class="modal-btn-secondary" id="danbooru-reset-btn" type="button" title="선택한 태그와 입력한 텍스트를 모두 지워요">🧹 초기화</button>
       </div>
     </div>
     <div class="panel-body">
@@ -2103,9 +2112,12 @@ function buildPromptEnhanceControl(opt){
   rawTextarea.rows = 4;
   if(opt.placeholder) rawTextarea.placeholder = opt.placeholder;
   if(opt.default !== undefined && opt.default !== null) rawTextarea.value = opt.default;
+  const rawActions = document.createElement('div');
+  rawActions.className = 'prompt-enhance-actions';
+  rawActions.appendChild(createCopyButton(() => rawTextarea.value.trim()));
+  rawActions.appendChild(createSendToDanbooruButton(() => rawTextarea.value.trim()));
   rawLabelRow.appendChild(rawLabel);
-  rawLabelRow.appendChild(createCopyButton(() => rawTextarea.value.trim()));
-  rawLabelRow.appendChild(createSendToDanbooruButton(() => rawTextarea.value.trim()));
+  rawLabelRow.appendChild(rawActions);
   rawCol.appendChild(rawLabelRow);
   rawCol.appendChild(rawTextarea);
 
@@ -2118,15 +2130,23 @@ function buildPromptEnhanceControl(opt){
   // 없으면(체크 안 하면) 지금처럼 main_prompt 하나를 모든 시드에 그대로 쓴다.
   const seedCountInput = optionsFields.querySelector('[data-name="seed_count"]');
   if(seedCountInput){
-    const perSeedRow = document.createElement('label');
-    perSeedRow.className = 'danbooru-per-seed-row';
-    perSeedRow.title = '켜면 시드마다 독립적으로 무작위 조합을 다시 뽑아요 — Danbooru 탭에서 고정(🔒)해둔 항목은 모든 시드에서 그대로 유지됩니다.';
-    const perSeedCheckbox = document.createElement('input');
-    perSeedCheckbox.type = 'checkbox';
-    const perSeedText = document.createElement('span');
-    perSeedText.textContent = '시드마다 Danbooru로 다른 프롬프트 생성 (고정 항목은 유지)';
-    perSeedRow.appendChild(perSeedCheckbox);
-    perSeedRow.appendChild(perSeedText);
+    // SFW/NSFW 체크박스 두 개로 나눠서 켜되, 서로 배타적으로 하나만 켜지게 한다
+    // (하나를 켜면 다른 하나는 자동으로 꺼짐) — "시드마다 다른 프롬프트 생성"이라는
+    // 하나의 기능을 어느 모드로 켤지 고르는 것뿐이라, 둘 다 켜진 상태는 없다.
+    function makePerSeedRow(mode, labelText){
+      const row = document.createElement('label');
+      row.className = 'danbooru-per-seed-row';
+      row.title = `켜면 시드마다 독립적으로 ${mode === 'sfw' ? 'SFW(NSFW 제외)' : 'NSFW 포함'} 무작위 조합을 다시 뽑아요 — Danbooru 탭에서 고정(🔒)해둔 항목은 모든 시드에서 그대로 유지됩니다.`;
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      const text = document.createElement('span');
+      text.textContent = labelText;
+      row.appendChild(checkbox);
+      row.appendChild(text);
+      return { row, checkbox };
+    }
+    const sfwOpt = makePerSeedRow('sfw', '시드마다 랜덤(SFW) (고정 항목은 유지)');
+    const nsfwOpt = makePerSeedRow('nsfw', '시드마다 랜덤(NSFW) (고정 항목은 유지)');
 
     const seedPromptsHidden = document.createElement('input');
     seedPromptsHidden.type = 'hidden';
@@ -2134,12 +2154,14 @@ function buildPromptEnhanceControl(opt){
     seedPromptsHidden.dataset.name = 'danbooru_seed_prompts';
 
     let previousRawValue = null;
+    let activeSeedMode = null; // null | 'sfw' | 'nsfw'
 
     function recomputeSeedPrompts(){
-      if(!perSeedCheckbox.checked){
+      if(!activeSeedMode){
         seedPromptsHidden.value = '';
         return;
       }
+      danbooruSetNsfwMode(activeSeedMode);
       const n = Math.max(1, parseInt(seedCountInput.value, 10) || 1);
       const prompts = danbooruGenerateSeedPrompts(n);
       seedPromptsHidden.value = JSON.stringify(prompts);
@@ -2147,9 +2169,13 @@ function buildPromptEnhanceControl(opt){
       rawTextarea.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
-    perSeedCheckbox.addEventListener('change', () => {
-      if(perSeedCheckbox.checked){
-        previousRawValue = rawTextarea.value;
+    function setActiveSeedMode(mode){
+      const wasActive = activeSeedMode !== null;
+      activeSeedMode = mode;
+      sfwOpt.checkbox.checked = mode === 'sfw';
+      nsfwOpt.checkbox.checked = mode === 'nsfw';
+      if(mode){
+        if(!wasActive) previousRawValue = rawTextarea.value;
         rawTextarea.disabled = true;
         recomputeSeedPrompts();
       }else{
@@ -2160,16 +2186,20 @@ function buildPromptEnhanceControl(opt){
           rawTextarea.dispatchEvent(new Event('input', { bubbles: true }));
         }
       }
-    });
+    }
+
+    sfwOpt.checkbox.addEventListener('change', () => setActiveSeedMode(sfwOpt.checkbox.checked ? 'sfw' : null));
+    nsfwOpt.checkbox.addEventListener('change', () => setActiveSeedMode(nsfwOpt.checkbox.checked ? 'nsfw' : null));
     // 체크된 상태로 시드 개수를 바꾸면 미리보기/개수를 그때그때 다시 맞춘다.
     seedCountInput.addEventListener('input', () => {
-      if(perSeedCheckbox.checked) recomputeSeedPrompts();
+      if(activeSeedMode) recomputeSeedPrompts();
     });
     // 제출 직전에 한 번 더 — Danbooru 탭에서 잠금/선택을 바꾸고 바로 큐에
     // 추가해도 그 최신 상태로 다시 계산되게 한다.
     danbooruPreSubmitHooks.push(recomputeSeedPrompts);
 
-    rawCol.appendChild(perSeedRow);
+    rawCol.appendChild(sfwOpt.row);
+    rawCol.appendChild(nsfwOpt.row);
     rawCol.appendChild(seedPromptsHidden);
   }
 
@@ -2179,19 +2209,27 @@ function buildPromptEnhanceControl(opt){
   // Danbooru 프롬프트 탭의 카테고리/규칙/랜덤 로직(danbooruRandomizeAll)을 그대로
   // 재사용해서 왼쪽 "직접 입력"을 채운다 — 그 탭에서 고정(🔒)해둔 카테고리는
   // 손대지 않고 나머지만 새로 뽑고, 모순 태그를 피하는 검증도 그대로 적용된다
-  // (danbooruRandomizeAll/danbooruDrawRange 등은 이 함수보다 아래에서 정의되지만
-  // function 선언이라 호이스팅되어 여기서 바로 참조해도 문제없다).
-  const randomizeBtn = document.createElement('button');
-  randomizeBtn.type = 'button';
-  randomizeBtn.className = 'load-btn';
-  randomizeBtn.textContent = '🎲 랜덤 생성';
-  randomizeBtn.title = 'Danbooru 프롬프트 탭에서 고정(🔒)해둔 항목은 그대로 두고 나머지만 무작위로 뽑아 왼쪽에 채워요';
-  randomizeBtn.addEventListener('click', () => {
-    danbooruRandomizeAll();
-    rawTextarea.value = danbooruAssemblePrompt();
-    rawTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  middle.appendChild(randomizeBtn);
+  // (danbooruRandomizeAll/danbooruDrawRange/danbooruSetNsfwMode 등은 이 함수보다
+  // 아래에서 정의되지만 function 선언이라 호이스팅되어 여기서 바로 참조해도
+  // 문제없다). SFW/NSFW 두 버튼으로 나눠서, 누를 때마다 전역 nsfwMode(Danbooru
+  // 탭의 토글과 공유)를 그 값으로 맞추고 뽑는다 — Danbooru 탭에 돌아가도 마지막
+  // 으로 누른 버튼의 모드가 토글에 그대로 반영돼 있다.
+  function makeRandomizeBtn(mode, label){
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'load-btn';
+    btn.textContent = label;
+    btn.title = `Danbooru 프롬프트 탭에서 고정(🔒)해둔 항목은 그대로 두고 나머지만 ${mode === 'sfw' ? 'SFW(NSFW 제외)' : 'NSFW 포함'}로 무작위로 뽑아 왼쪽에 채워요`;
+    btn.addEventListener('click', () => {
+      danbooruSetNsfwMode(mode);
+      danbooruRandomizeAll();
+      rawTextarea.value = danbooruAssemblePrompt();
+      rawTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    return btn;
+  }
+  middle.appendChild(makeRandomizeBtn('sfw', '🎲 랜덤생성(SFW)'));
+  middle.appendChild(makeRandomizeBtn('nsfw', '🎲 랜덤생성(NSFW)'));
 
   const modeToggle = document.createElement('div');
   modeToggle.className = 'enhance-mode';
@@ -2240,9 +2278,12 @@ function buildPromptEnhanceControl(opt){
   resultTextarea.className = 'enhance-textarea enhance-result';
   resultTextarea.rows = 4;
   resultTextarea.placeholder = 'Prompt Enhance를 누르면 여기에 개선된 프롬프트가 표시돼요 (직접 수정 가능)';
+  const resultActions = document.createElement('div');
+  resultActions.className = 'prompt-enhance-actions';
+  resultActions.appendChild(createCopyButton(() => resultTextarea.value.trim()));
+  resultActions.appendChild(createSendToDanbooruButton(() => resultTextarea.value.trim()));
   resultLabelRow.appendChild(resultLabel);
-  resultLabelRow.appendChild(createCopyButton(() => resultTextarea.value.trim()));
-  resultLabelRow.appendChild(createSendToDanbooruButton(() => resultTextarea.value.trim()));
+  resultLabelRow.appendChild(resultActions);
   resultCol.appendChild(resultLabelRow);
   resultCol.appendChild(resultTextarea);
 
@@ -2368,12 +2409,12 @@ function buildResolutionControl(widthOpt, heightOpt){
   const modeToggle = document.createElement('div');
   modeToggle.className = 'enhance-mode';
   const modeBtns = [
-    { value: 'manual', label: '직접 입력' },
     { value: 'preset', label: '화면비·해상도' },
+    { value: 'manual', label: '직접 입력' },
   ].map(({ value, label }) => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'enhance-mode-btn' + (value === 'manual' ? ' active' : '');
+    btn.className = 'enhance-mode-btn' + (value === 'preset' ? ' active' : '');
     btn.textContent = label;
     btn.dataset.mode = value;
     modeToggle.appendChild(btn);
@@ -2408,7 +2449,7 @@ function buildResolutionControl(widthOpt, heightOpt){
 
   const presetPane = document.createElement('div');
   presetPane.className = 'resolution-preset';
-  presetPane.hidden = true;
+  manualPane.hidden = true;
 
   const aspectSelect = document.createElement('select');
   aspectSelect.className = 'option-input';
@@ -2456,6 +2497,7 @@ function buildResolutionControl(widthOpt, heightOpt){
   wrap.appendChild(modeToggle);
   wrap.appendChild(manualPane);
   wrap.appendChild(presetPane);
+  applyPreset(); // 기본 활성 모드가 "화면비·해상도"라, 처음부터 계산값/미리보기를 채워둔다.
   return wrap;
 }
 
@@ -2856,7 +2898,7 @@ const TRASH_ICON_SVG = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColo
 
 function setupRecentFilePicker({
   btnId, modalId, closeId, cancelId, listId, emptyId, errorId, retentionId,
-  listApi, itemApi, itemsKey, mimeType, setFile,
+  listApi, itemApi, itemsKey, mimeType, setFile, downloadable,
 }){
   let byId = {};
   const modal = document.getElementById(modalId);
@@ -2900,6 +2942,7 @@ function setupRecentFilePicker({
           <span class="recent-workflow-name" data-recent-id="${w.id}" title="${escapeHtml(w.filename)} (눌러서 선택)">${escapeHtml(w.filename)}</span>
           <span class="recent-workflow-time">${whenText}</span>
           <button class="load-btn" data-recent-id="${w.id}" type="button" title="선택">✓ 선택</button>
+          ${downloadable ? `<button class="icon-btn icon-btn-neutral" data-recent-download-id="${w.id}" type="button" aria-label="다운로드" title="다운로드">⬇</button>` : ''}
           <button class="icon-btn" data-recent-remove-id="${w.id}" type="button" aria-label="목록에서 삭제" title="목록에서 삭제">${TRASH_ICON_SVG}</button>
         </div>`;
     }).join('');
@@ -2912,6 +2955,32 @@ function setupRecentFilePicker({
     list.querySelectorAll('[data-recent-remove-id]').forEach(btn => {
       btn.addEventListener('click', () => remove(btn.dataset.recentRemoveId));
     });
+    if(downloadable){
+      list.querySelectorAll('[data-recent-download-id]').forEach(btn => {
+        btn.addEventListener('click', () => downloadItem(btn.dataset.recentDownloadId));
+      });
+    }
+  }
+
+  // 6번 요구사항 — 목록에서 파일을 고르지(select) 않고 그대로 내 컴퓨터로 받는다.
+  // select()와 같은 API(itemApi)로 내용을 받아오되, 폼에 채우는 대신 다운로드만 한다.
+  async function downloadItem(id){
+    const errorEl = document.getElementById(errorId);
+    errorEl.textContent = '';
+    const entry = byId[id];
+    if(!entry) return;
+    try{
+      const res = await fetch(itemApi(id));
+      if(!res.ok){
+        const data = await res.json().catch(() => ({}));
+        errorEl.textContent = data.detail || '파일을 불러오지 못했어요.';
+        return;
+      }
+      const blob = await res.blob();
+      triggerBlobDownload(blob, entry.filename);
+    }catch(e){
+      errorEl.textContent = '다운로드에 실패했어요.';
+    }
   }
 
   async function select(id){
@@ -2971,7 +3040,7 @@ setupRecentFilePicker({
   cancelId: 'recent-workflows-modal-cancel', listId: 'recent-workflows-list', emptyId: 'recent-workflows-empty',
   errorId: 'recent-workflows-error', retentionId: 'recent-workflows-retention',
   listApi: '/api/recent-workflows', itemApi: (id) => `/api/recent-workflows/${id}`, itemsKey: 'workflows',
-  mimeType: 'application/json', setFile: setWorkflowFile,
+  mimeType: 'application/json', setFile: setWorkflowFile, downloadable: true,
 });
 
 setupRecentFilePicker({
@@ -3420,6 +3489,33 @@ async function downloadGalleryImages(names){
   }
 }
 
+// 5번 요구사항 — 선택한 이미지를 서버 파일 그대로 시계 방향 90도 돌린 뒤(가로형
+// 판정 없이 무조건) 다운로드한다. 회전은 원본 파일에 영구히 적용되므로(디스크
+// 상의 실제 파일을 덮어씀), 다운로드가 끝난 뒤 갤러리도 다시 받아와서 회전된
+// 썸네일/원본이 바로 반영되게 한다.
+async function rotateThenDownloadGalleryImages(names){
+  if(names.length === 0) return;
+  const errorEl = document.getElementById('gallery-error');
+  errorEl.textContent = '';
+  try{
+    const res = await fetch('/api/output-images/rotate-selected', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names }),
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      errorEl.textContent = data.detail || '회전에 실패했어요.';
+      return;
+    }
+  }catch(e){
+    errorEl.textContent = '회전에 실패했어요.';
+    return;
+  }
+  await downloadGalleryImages(names);
+  await fetchGalleryImages();
+}
+
 // 활성 작업 + 삭제된 작업(보관 기간 안이면) 전체를 합쳐 돌려준다 — 갤러리가 job_id로
 // 그 작업의 라벨/설정을 찾아야 할 때(작업별 보기 소제목, 라이트박스의 "작업 불러오기")
 // 공용으로 쓴다. 실패하면 조용히 빈 배열(호출부가 각자 사정에 맞게 처리).
@@ -3644,6 +3740,9 @@ document.getElementById('gallery-select-all-btn').addEventListener('click', () =
 });
 document.getElementById('gallery-download-selected-btn').addEventListener('click', () => {
   downloadGalleryImages(Array.from(selectedGalleryNames));
+});
+document.getElementById('gallery-rotate-download-selected-btn').addEventListener('click', () => {
+  rotateThenDownloadGalleryImages(Array.from(selectedGalleryNames));
 });
 document.getElementById('gallery-send-to-pose-btn').addEventListener('click', () => {
   openPoseImportModal(Array.from(selectedGalleryNames));
@@ -4640,14 +4739,38 @@ function danbooruBuildCategoriesDOM(){
   });
 }
 
+// nsfwMode를 바꾸고 Danbooru 탭 토글 UI도 함께 맞춘다 — 이 탭의 SFW/NSFW 토글뿐
+// 아니라 "작업 관리" 탭의 랜덤생성(SFW)/(NSFW), 시드마다 랜덤(SFW)/(NSFW) 버튼도
+// 전부 이 함수로 같은 전역 상태를 바꿔서, 어디서 바꾸든 Danbooru 탭에 돌아왔을 때
+// 마지막으로 쓴 모드가 그대로 반영돼 있다.
+function danbooruSetNsfwMode(mode){
+  danbooruState.nsfwMode = mode;
+  document.querySelectorAll('#danbooru-nsfw-toggle .enhance-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+}
 document.querySelectorAll('#danbooru-nsfw-toggle .enhance-mode-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    danbooruState.nsfwMode = btn.dataset.mode;
-    document.querySelectorAll('#danbooru-nsfw-toggle .enhance-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === danbooruState.nsfwMode));
-  });
+  btn.addEventListener('click', () => danbooruSetNsfwMode(btn.dataset.mode));
 });
 document.getElementById('danbooru-randomize-btn').addEventListener('click', danbooruRandomizeAll);
 document.getElementById('danbooru-history-save-btn').addEventListener('click', danbooruSaveHistory);
+
+// 7번 요구사항 — 프롬프트 초기화: 지금까지 고른 태그(kind:"tags")와 입력한
+// 텍스트(kind:"text")만 비운다. 고정(🔒) 상태와 태그 풀 편집(➕ 추가/✎)은 "지금
+// 조립된 프롬프트"와는 별개의 설정이라 건드리지 않는다 — 초기화 후 바로 무작위를
+// 눌러도 고정해둔 카테고리는 그대로 유지되길 기대할 것이기 때문.
+function danbooruResetPrompt(){
+  if(!confirm('지금까지 고른 태그와 입력한 텍스트를 모두 지울까요?')) return;
+  for(const cat of DANBOORU_CATEGORIES){
+    if(cat.kind === 'tags'){
+      danbooruState.selections[cat.key] = [];
+    }else{
+      danbooruState.texts[cat.key] = '';
+      const input = document.querySelector(`.danbooru-text-input[data-key="${cat.key}"]`);
+      if(input) input.value = '';
+    }
+  }
+  danbooruUpdateAll();
+}
+document.getElementById('danbooru-reset-btn').addEventListener('click', danbooruResetPrompt);
 
 // 1장 — "작업 관리" 탭의 메인 프롬프트로 보내기. main_prompt 옵션이 있는
 // 템플릿(시드 반복/포즈 참조 배치)이 선택돼 있을 때만 그 입력란(.enhance-raw)이
