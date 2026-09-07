@@ -4650,6 +4650,14 @@ initDanbooru();
 setInterval(fetchJobs, 2000);
 setInterval(() => { if(expandedId) loadLog(expandedId); }, 2000);
 setInterval(fetchComfyStatus, 5000);
+// 갤러리 탭이 보이는 동안에는 새 이미지가 생겨도 자동으로 반영되게 주기적으로 새로 받아온다.
+// 라이트박스가 열려 있을 때는 건드리지 않는다 — 보고 있던 이미지가 목록 순서 변화로
+// 갑자기 바뀌거나 닫혀버리면 안 되니까.
+setInterval(() => {
+  if(TAB_MAINS.gallery.style.display === 'none') return;
+  if(galleryLightbox.style.display !== 'none') return;
+  fetchGalleryImages();
+}, 4000);
 </script>
 </body>
 </html>
