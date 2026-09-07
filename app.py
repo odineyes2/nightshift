@@ -43,6 +43,7 @@ from starlette.datastructures import UploadFile
 from PIL import Image
 
 from email_sender import EmailSendError, find_image_files, send_output_images
+from workflow_builder import WorkflowBuildError, build_workflow
 from output_images import (
     IMAGE_EXTENSIONS,
     OUTPUT_DIR,
@@ -609,7 +610,61 @@ async def comfy_object_info(refresh: bool = False):
             key: combo_choices(object_info, class_type, field)
             for key, (class_type, field) in MODEL_LIST_SOURCES.items()
         },
+        # 워크플로우 빌더의 샘플러/스케줄러 드롭다운용 — 설치된 ComfyUI 버전이 실제로
+        # 지원하는 값만 고르게 한다(버전마다 목록이 조금씩 다르다).
+        "samplers": combo_choices(object_info, "KSampler", "sampler_name"),
+        "schedulers": combo_choices(object_info, "KSampler", "scheduler"),
     }
+
+
+@app.post("/api/build-workflow")
+async def build_workflow_api(request: Request):
+    # "워크플로우 빌더" 탭 — 업로드 없이 스펙(체크포인트/LoRA/프롬프트/샘플러/해상도)
+    # 만으로 워크플로우 JSON을 만들어 돌려준다. 만들어진 JSON은 화면에서 작업 관리
+    # 탭의 워크플로우 슬롯에 그대로 채워지고, 그다음은 업로드한 파일과 완전히 같은
+    # 경로(POST /api/upload)를 탄다 — 여기서 큐에 직접 넣지 않는 이유다.
+    body = await request.body()
+    try:
+        spec = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    if not isinstance(spec, dict):
+        raise HTTPException(400, "스펙이 JSON 객체가 아니에요.")
+
+    try:
+        _, object_info = await asyncio.to_thread(fetch_comfy_object_info, False)
+    except Exception:
+        object_info = None
+
+    # ComfyUI가 떠 있으면 고른 값들이 실제로 설치/지원되는지 먼저 본다. 꺼져 있으면
+    # 확인할 기준이 없으니 검증을 건너뛴다(다른 경로들과 같은 규칙).
+    if object_info is not None:
+        def require_installed(value: str, kind: str, label: str):
+            if not value:
+                return
+            source = MODEL_LIST_SOURCES.get(kind)
+            if source is None:
+                return
+            installed = combo_choices(object_info, *source)
+            if installed and value not in installed:
+                raise HTTPException(400, f"{label} '{value}'은(는) 지금 연결된 ComfyUI에 설치돼 있지 않아요.")
+
+        require_installed(str(spec.get("checkpoint") or "").strip(), "checkpoints", "체크포인트")
+        require_installed(str(spec.get("vae") or "").strip(), "vae", "VAE")
+        for lora in (spec.get("loras") or []):
+            if isinstance(lora, dict):
+                require_installed(str(lora.get("name") or "").strip(), "loras", "LoRA")
+        for field, label in (("sampler_name", "샘플러"), ("scheduler", "스케줄러")):
+            value = str(spec.get(field) or "").strip()
+            choices = combo_choices(object_info, "KSampler", field)
+            if value and choices and value not in choices:
+                raise HTTPException(400, f"{label} '{value}'은(는) 이 ComfyUI가 지원하지 않아요.")
+
+    try:
+        workflow = build_workflow(spec)
+    except WorkflowBuildError as e:
+        raise HTTPException(400, str(e))
+    return {"workflow": workflow}
 
 
 @app.post("/api/validate-workflow")
