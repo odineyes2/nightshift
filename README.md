@@ -204,6 +204,25 @@ nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가�
 정상 진행되지만, 워커가 각 작업을 실제로 실행하려는 순간 연결이 안 되면 스크립트를 실행하지 않고 해당 작업을
 곧바로 `failed` 처리하며 로그에 "ComfyUI 서버에 연결할 수 없습니다"를 남깁니다.
 
+### 설치된 모델 조회와 워크플로우 호환성 검사
+
+ComfyUI의 `GET /object_info`는 그 서버에 설치된 **모든 노드 타입**과, 파일을 고르는 입력(체크포인트/LoRA/VAE 등)이
+실제로 고를 수 있는 **선택지 목록**까지 통째로 돌려줍니다. 워크플로우 JSON은 결국 "노드 이름 + 입력값"일 뿐이라,
+이 목록만 있으면 업로드한 워크플로우가 지금 이 서버에서 돌아갈 수 있는지 미리 확인할 수 있습니다.
+
+- **설치된 모델 보기**: 화면 상단(연결 상태 인디케이터 옆)의 **"📋 모델"** 버튼을 누르면 지금 연결된 ComfyUI에 설치된
+  체크포인트/LoRA/VAE/ControlNet/업스케일 모델/CLIP Vision 목록을 종류별로 보여줍니다. 이름으로 거를 수 있고,
+  모델을 새로 설치했다면 "🔄 새로고침"으로 다시 받아옵니다.
+- **워크플로우 호환성 검사**: "새 작업 추가"에서 워크플로우 `.json`을 고르면(최근 목록에서 고르거나 작업 설정을
+  불러오는 경우 포함) 곧바로 `POST /api/validate-workflow`로 검사해서 슬롯 아래에 결과를 보여줍니다 —
+  이 서버에 없는 노드(다른 설치본에서 만든 워크플로우가 쓰는 커스텀 노드 등)나, 없는 모델 파일/설정값
+  (`ckpt_name`, `lora_name`, `sampler_name`처럼 목록에서 고르는 입력)을 짚어줍니다. **어디까지나 안내라 큐 등록은
+  막지 않습니다** — 검사가 틀릴 수도 있고, ComfyUI가 잠깐 꺼져 있을 수도 있어서(그 경우 "확인하지 못했어요"로 구분해
+  표시) 최종 판단은 사용자 몫입니다.
+
+`/object_info` 응답은 커스텀 노드가 많은 서버에서 수 MB까지 커지고 모델 폴더를 훑느라 느리기도 해서 서버가 120초 동안
+캐싱합니다(`?refresh=true`로 강제 갱신).
+
 ### 스크립트 템플릿 등록하기 (`templates/`)
 
 반복해서 쓰는 실행 로직은 `templates/` 아래에 스크립트 파일로 두고 `templates/manifest.json`에 등록하면
@@ -397,6 +416,8 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 |---|---|---|
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
 | `GET` | `/api/comfy-status` | 감지된 ComfyUI 주소(`url`)와 연결 가능 여부(`connected`)를 조회. 매 호출마다 실시간으로 재확인함 |
+| `GET` | `/api/comfy-object-info?refresh=false` | 지금 연결된 ComfyUI에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
+| `POST` | `/api/validate-workflow` | 요청 본문에 워크플로우 JSON(또는 `{"workflow": {...}}`)을 담아 보내면 지금 연결된 ComfyUI 기준으로 검사해서 `{"connected", "ok", "missing_nodes": [노드 타입...], "missing_values": [{"node_id", "class_type", "field", "value"}...], "checked_nodes"}` 반환. 이 서버에 없는 노드와, 목록에서 고르는 입력(`ckpt_name`/`lora_name`/`sampler_name` 등)에 없는 값을 짚어줌. ComfyUI가 안 떠 있으면 `connected: false`(= "문제 없음"이 아니라 "확인 못 함"). JSON이 아니거나 노드 맵 형식이 아니면 400 |
 | `GET` | `/api/assets?kind=pose` | `kind`(`pose`/`depth`/`lineart`, 기본 `pose`)가 가리키는 종류의 루트 아래 char_no별 참조 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"char_nos": [{"name": char_no, "pose_sets": [{"name", "count"}, ...]}, ...]}`로 반환(응답 키는 하위호환으로 `kind`와 무관하게 항상 `"pose_sets"`). 업로드 폼의 "인물 수"/"참조 세트" 캐스케이딩 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함. 알 수 없는 `kind`는 400 |
 | `POST` | `/api/assets/import-from-output` | 출력 폴더의 결과 이미지를 참조 세트에 사본으로 추가(원본은 그대로 둠) — 갤러리의 "참조 세트로 보내기". 요청 본문 `{"names": [파일명...], "kind": "pose", "char_no": "1", "set_name": "새_세트"}` (`kind`는 `pose`/`depth`/`lineart`, 없으면 `"pose"`). 존재하지 않는 char_no/세트 이름은 그 자리에서 새로 만듦. 응답 `{"added": N, "skipped": [{"name", "reason"}, ...]}` — 그 사이 지워진 이미지 등은 건너뛰고 이유를 담아 반환 |
 | `POST` | `/api/upload` | 작업을 `pending`(대기중) 상태로 등록만 함 — 아직 실행 큐에 들어가지 않음 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨). `template_id`가 `pose_csv_batch`/`depth_csv_batch`/`lineart_csv_batch`면 CSV의 주 참조 컬럼(`pose`/`depth`/`lineart`) 값을 전부 미리 해석해보고, 실패하는 행이 있으면 400으로 거부함(`secondary_kind` 필드가 `"none"`이 아니면 CSV의 `secondary_ref`/`secondary_char_no` 컬럼도 같이 검증함) |
