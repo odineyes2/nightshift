@@ -960,8 +960,12 @@ async def upload(request: Request):
 @app.post("/api/queue/start")
 def start_queue():
     with lock:
+        # deleted도 함께 확인해야 한다 — delete_job()/clear_pending_jobs()는 소프트
+        # 삭제라 status를 "pending"으로 그대로 둔 채 deleted=True만 표시하므로,
+        # 이 필터가 없으면 삭제된(그래서 화면에는 안 보이는) 작업이 여기서 다시
+        # 주워져 실행 큐에 들어가는 사고가 난다.
         pending = sorted(
-            (j for j in jobs.values() if j["status"] == "pending"),
+            (j for j in jobs.values() if j["status"] == "pending" and not j.get("deleted")),
             key=lambda j: j["queued_at"],
         )
         for job in pending:
@@ -970,6 +974,23 @@ def start_queue():
     for job in pending:
         job_queue.put(job["id"])
     return {"started": len(pending)}
+
+
+@app.post("/api/jobs/clear-pending")
+def clear_pending_jobs():
+    # "▷ 대기중 작업 시작"으로 큐에 올리기 전에, 대기 목록을 한꺼번에 비우고 싶을 때
+    # 쓴다 — delete_job()과 같은 소프트 삭제라 "삭제된 작업 설정 불러오기"로 실수로
+    # 지운 작업도 되돌릴 수 있다. queued/running 작업은 애초에 status가 pending이
+    # 아니므로 여기서 건드리지 않는다(delete_job()과 같은 보호 규칙).
+    with lock:
+        pending = [j for j in jobs.values() if j["status"] == "pending" and not j.get("deleted")]
+        now = now_iso()
+        for job in pending:
+            job["deleted"] = True
+            job["deleted_at"] = now
+        prune_deleted_jobs()
+    save_state()
+    return {"cleared": len(pending)}
 
 
 @app.get("/api/jobs")

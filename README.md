@@ -23,7 +23,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 - 작업별 실행 로그(stdout/stderr)를 실시간에 가깝게 조회 (2초 폴링)
 - `seed_batch`/`csv_batch` 템플릿은 실행 전에 예상 총 이미지 수(시드/행 수 × batch_size)를 계산해 두고, 이미지가 하나
   완료될 때마다 진행 상황을 서버에 보고 — 작업 목록에서 상태 배지 아래 진행률 바(`done/total`)로 실시간 확인 가능
-- 시작 전(대기중)이거나 완료/실패/중단된 작업 삭제 (이미 시작됐거나 실행 중인 작업은 삭제 불가)
+- 시작 전(대기중)이거나 완료/실패/중단된 작업 삭제 (이미 시작됐거나 실행 중인 작업은 삭제 불가). "작업 목록" 패널의 "대기중 작업 전체 삭제" 버튼으로 대기중인 작업을 한꺼번에 정리할 수도 있음(둘 다 소프트 삭제라 "삭제된 작업 설정 불러오기"로 되돌릴 수 있음)
 - 서버가 재시작되어도 `jobs_state.json`에 저장된 이력은 유지됨 (단, 이미 시작된 상태로 큐에 남아있던 작업은 재실행되지 않고 `interrupted`로 표시됨. 아직 시작하지 않은 `pending` 작업은 그대로 남아 다시 배치를 시작할 수 있음)
 - "결과 이미지 이메일 전송" 패널에서 보내는 메일 계정/비밀번호/받는 메일 계정을 입력하면, 서버의 출력 폴더에 쌓인 이미지를 모아 용량 한도 안에서 여러 통으로 나눠 발송 (계정 정보는 저장하지 않고 그 요청 처리에만 사용)
 - "결과 이미지 ZIP 다운로드" 패널에서 버튼 하나로 출력 폴더의 이미지를 모두 zip으로 묶어 바로 다운로드
@@ -382,6 +382,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/assets/import-from-output` | 출력 폴더의 결과 이미지를 참조 세트에 사본으로 추가(원본은 그대로 둠) — 갤러리의 "참조 세트로 보내기". 요청 본문 `{"names": [파일명...], "kind": "pose", "char_no": "1", "set_name": "새_세트"}` (`kind`는 `pose`/`depth`/`lineart`, 없으면 `"pose"`). 존재하지 않는 char_no/세트 이름은 그 자리에서 새로 만듦. 응답 `{"added": N, "skipped": [{"name", "reason"}, ...]}` — 그 사이 지워진 이미지 등은 건너뛰고 이유를 담아 반환 |
 | `POST` | `/api/upload` | 작업을 `pending`(대기중) 상태로 등록만 함 — 아직 실행 큐에 들어가지 않음 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨). `template_id`가 `pose_csv_batch`/`depth_csv_batch`/`lineart_csv_batch`면 CSV의 주 참조 컬럼(`pose`/`depth`/`lineart`) 값을 전부 미리 해석해보고, 실패하는 행이 있으면 400으로 거부함(`secondary_kind` 필드가 `"none"`이 아니면 CSV의 `secondary_ref`/`secondary_char_no` 컬럼도 같이 검증함) |
 | `POST` | `/api/queue/start` | 그 시점에 `pending`인 작업 **전체**를 대기 등록 순서대로 실행 큐에 넣음 (상태를 `queued`로 일괄 전환). 응답으로 `{"started": N}`(실제로 시작된 개수)을 반환하며, 대기 중인 작업이 없으면 `N`은 0 |
+| `POST` | `/api/jobs/clear-pending` | 그 시점에 `pending`인 작업 **전체**를 한꺼번에 소프트 삭제("작업 목록" 패널의 "대기중 작업 전체 삭제" 버튼). `DELETE /api/jobs/{job_id}`와 동일하게 소프트 삭제라 "삭제된 작업 설정 불러오기"에서 개별적으로 되돌릴 수 있음. 응답 `{"cleared": N}` |
 | `GET` | `/api/jobs` | 삭제되지 않은 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수 조회 |
 | `GET` | `/api/jobs/deleted` | 소프트 삭제된(아래 `DELETE /api/jobs/{job_id}` 참고) 작업 목록을 최근 삭제순으로 반환. "삭제된 작업 설정 불러오기" 드롭다운을 채우는 용도. `{"jobs": [...], "retention": N}` — `retention`은 `NIGHTSHIFT_DELETED_JOBS_RETENTION`(기본 30) |
 | `GET` | `/api/jobs/{job_id}/log?tail=200` | 특정 작업의 로그 조회 (기본 마지막 200줄) |
