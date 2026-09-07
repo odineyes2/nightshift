@@ -1475,6 +1475,10 @@
     <div class="panel-header">
       <div class="section-label">Danbooru 프롬프트 조립</div>
       <div class="panel-header-actions">
+        <div class="enhance-mode" id="danbooru-nsfw-toggle">
+          <button class="enhance-mode-btn" type="button" data-mode="sfw" title="무작위 조합에서 NSFW 태그를 제외해요">🟢 SFW</button>
+          <button class="enhance-mode-btn active" type="button" data-mode="nsfw" title="무작위 조합에 NSFW 태그도 포함해요">🔞 NSFW</button>
+        </div>
         <button class="load-btn" id="danbooru-randomize-btn" type="button" title="무작위 조합">🎲 무작위</button>
       </div>
     </div>
@@ -3998,6 +4002,7 @@ const danbooruState = {
   selections: {},      // {categoryKey: string[]} — kind:"tags"만
   texts: {},           // {categoryKey: string}   — kind:"text"만
   locked: {},          // {categoryKey: boolean}  — 세션 상태, 저장 대상 아님(5장)
+  nsfwMode: 'nsfw',    // 'sfw' | 'nsfw' — 무작위 조합에서 nsfw 카테고리를 뽑을지. locked와 같은 세션 상태(저장 대상 아님)
   tagEdits: {},        // {categoryKey: {added:[], removed:[]}} — 서버에 영구 저장(6장)
   history: [],         // 서버에 영구 저장(8장)
   lastViolations: [],
@@ -4181,6 +4186,11 @@ function danbooruDrawLight(contextSet){
 }
 
 function danbooruDrawCategory(key, contextSet){
+  // SFW 모드에서는 nsfw 카테고리를 아예 뽑지 않는다 — 태그 풀에 뭐가 들어있든
+  // 무작위 조합(danbooruRandomizeAll/danbooruRerollCategory/danbooruGenerateSeedPrompts,
+  // 셋 다 이 함수를 거침)에서는 배제한다. 수동으로 칩을 클릭해 선택하는 건 이 함수를
+  // 안 거치므로 영향받지 않는다.
+  if(key === 'nsfw' && danbooruState.nsfwMode === 'sfw') return [];
   const cat = DANBOORU_CATEGORY_BY_KEY[key];
   const strategy = cat.randomStrategy;
   if(strategy.type === 'range') return danbooruDrawRange(danbooruEffectivePool(key), strategy.min, strategy.max, contextSet);
@@ -4602,6 +4612,12 @@ function danbooruBuildCategoriesDOM(){
   });
 }
 
+document.querySelectorAll('#danbooru-nsfw-toggle .enhance-mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    danbooruState.nsfwMode = btn.dataset.mode;
+    document.querySelectorAll('#danbooru-nsfw-toggle .enhance-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === danbooruState.nsfwMode));
+  });
+});
 document.getElementById('danbooru-randomize-btn').addEventListener('click', danbooruRandomizeAll);
 document.getElementById('danbooru-history-save-btn').addEventListener('click', danbooruSaveHistory);
 
