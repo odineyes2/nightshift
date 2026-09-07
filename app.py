@@ -1341,18 +1341,24 @@ def parse_image_names_body(data: dict) -> list[str]:
 
 
 def build_zip_from_paths(paths: list[Path]) -> Path:
-    # 파일명이 아니라 OUTPUT_DIR 기준 상대 경로를 압축 파일 내부 경로로 써서, 작업별
-    # 하위 폴더 구조가 zip 안에도 그대로 보존되게 한다(서로 다른 작업 폴더에 우연히
-    # 같은 이름의 파일이 있어도 안 겹침). OUTPUT_DIR 밖의 경로라면(원래 없어야 하지만)
-    # 안전하게 파일명만 쓴다.
-    base = Path(OUTPUT_DIR).resolve()
+    # 작업별 하위 폴더 구조 없이 파일명만으로 평평하게 담는다 — 압축을 풀었을 때
+    # 폴더 구조 없이 한 자리에 전부 모여있길 원해서다. 서로 다른 작업 폴더에서
+    # 온 파일이 우연히 같은 이름이면 zip 안에서 이름이 겹치므로, 그런 경우에만
+    # "이름 (1).ext"처럼 번호를 붙여 구분한다.
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
     tmp.close()
     tmp_path = Path(tmp.name)
+    used_names: set[str] = set()
     with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in paths:
-            resolved = f.resolve()
-            arcname = str(resolved.relative_to(base)) if resolved.is_relative_to(base) else f.name
+            arcname = f.name
+            if arcname in used_names:
+                stem, suffix = f.stem, f.suffix
+                n = 1
+                while f"{stem} ({n}){suffix}" in used_names:
+                    n += 1
+                arcname = f"{stem} ({n}){suffix}"
+            used_names.add(arcname)
             zf.write(f, arcname=arcname)
     return tmp_path
 
@@ -1452,16 +1458,23 @@ async def rotate_images():
     return result
 
 
-def rotate_one_image(path: Path) -> None:
+def rotate_one_image(path: Path) -> bool:
+    # 가로형(너비 > 높이)일 때만 시계 방향 90도로 돌려서 같은 파일에 덮어쓴다 —
+    # rotate-landscape처럼 hires-fix 비율(1536x704 등) 자동 판정까지는 안 하지만,
+    # 이미 세로형이거나 정사각형인 이미지를 눕혀버리는 건 막는다. 회전했으면
+    # True, 세로형/정사각형이라 건드리지 않았으면 False를 돌려준다.
     with Image.open(path) as img:
+        if img.width <= img.height:
+            return False
         img.transpose(Image.Transpose.ROTATE_270).save(path)
+    return True
 
 
 @app.post("/api/output-images/rotate-selected")
 async def rotate_selected_images(request: Request):
-    # 갤러리에서 고른 이미지를 (가로형 판정 없이) 무조건 시계 방향 90도로 돌려서
-    # 같은 파일에 덮어쓴다 — rotate-landscape처럼 hires-fix 비율 자동 판정을 거치지
-    # 않는다. 사용자가 직접 골라서 누르는 동작이라, 비율과 무관하게 그 판단을 따른다.
+    # 갤러리에서 고른 이미지 중 가로형만 시계 방향 90도로 돌려서 같은 파일에
+    # 덮어쓴다 — rotate-landscape처럼 hires-fix 비율 자동 판정까지는 하지 않지만,
+    # 세로형/정사각형 이미지는 그대로 둔다.
     body = await request.body()
     try:
         data = json.loads(body.decode("utf-8"))
@@ -1470,19 +1483,20 @@ async def rotate_selected_images(request: Request):
     names = parse_image_names_body(data)
 
     rotated = []
+    skipped = []
     for name in names:
         try:
             path = resolve_output_image(name)
         except HTTPException:
             continue
         try:
-            await asyncio.to_thread(rotate_one_image, path)
+            did_rotate = await asyncio.to_thread(rotate_one_image, path)
         except Exception as e:
             raise HTTPException(500, f"{name} 회전에 실패했어요: {e}")
-        rotated.append(name)
-    if not rotated:
+        (rotated if did_rotate else skipped).append(name)
+    if not rotated and not skipped:
         raise HTTPException(404, "선택한 이미지를 찾을 수 없어요.")
-    return {"rotated": rotated}
+    return {"rotated": rotated, "skipped": skipped}
 
 
 @app.get("/api/danbooru/tag-edits")

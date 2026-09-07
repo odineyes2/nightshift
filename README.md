@@ -414,16 +414,16 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `DELETE` | `/api/jobs/{job_id}` | `pending`이거나 완료/실패/중단된 작업을 소프트 삭제 (`queued`/`running`인 작업은 삭제 불가). 실제로 지우지 않고 `deleted`/`deleted_at`만 표시해서 `GET /api/jobs`에서 제외시킨다 — 워크플로우/CSV는 `GET /api/jobs/{job_id}/workflow`·`csv`로 계속 읽을 수 있다. 소프트 삭제된 작업 중 최근 `NIGHTSHIFT_DELETED_JOBS_RETENTION`개를 넘는 오래된 것은 이 호출 안에서 파일까지 완전히 정리된다(이미 삭제된 작업을 다시 삭제하면 404) |
 | `POST` | `/api/jobs/{job_id}/retry` | `interrupted`(서버 재시작으로 중단됨) 상태인 작업을 원래 워크플로우/CSV/옵션 그대로 다시 큐에 올림(`status`를 `queued`로, `queued_at`은 지금 시각으로, `started_at`/`finished_at`/`returncode`/`progress`는 초기화). 자동 실행 모드(`auto_run`)와 무관하게 항상 즉시 큐에 들어감. `interrupted`가 아닌 작업에 호출하면 400, 없거나 삭제된 작업이면 404 |
 | `POST` | `/api/send-email` | 출력 폴더의 이미지를 모아 이메일로 발송 (요청 본문: `{"smtp_user", "smtp_password", "to_email", "max_mb"(선택, 기본 20)}`). 세 필수 필드 중 하나라도 비어 있으면 400, 폴더가 없거나 이미지가 없으면 400, SMTP 로그인/발송 실패도 400과 함께 원인 메시지 반환. 성공하면 `{"total_files", "total_batches", "batches": [...]}` 반환 |
-| `GET` | `/api/download-images` | 출력 폴더의 이미지를 모두 zip으로 묶어 다운로드 응답으로 반환 (`Content-Disposition: attachment`). 폴더가 없거나 이미지가 없으면 404 |
+| `GET` | `/api/download-images` | 출력 폴더의 이미지를 모두 zip으로 묶어 다운로드 응답으로 반환 (`Content-Disposition: attachment`). 작업별 하위 폴더 구조 없이 파일명만으로 평평하게 담기며, 서로 다른 작업 폴더의 파일명이 우연히 겹치면 "이름 (1).ext"처럼 번호를 붙여 구분함. 폴더가 없거나 이미지가 없으면 404 |
 | `GET` | `/api/output-images` | 출력 폴더의 이미지 목록을 `{"images": [{"name", "job_id", "size", "mtime"}, ...]}`로 반환(수정 시각 내림차순, 최신이 먼저). `job_id`는 `name`(상대 경로)의 첫 폴더 이름이고, 하위 폴더 없이 바로 저장된 이미지는 `null`. 갤러리 탭(전체/작업별/날짜별 보기)을 채우는 용도. 폴더가 아직 없어도 에러가 아니라 빈 배열 |
 | `GET` | `/api/output-images/{filename}` | 그 이미지 원본을 그대로 반환(갤러리 라이트박스용). `filename`은 순수 파일명만 허용(경로 조작 방지), 없으면 404 |
 | `GET` | `/api/output-images/{filename}/thumbnail?size=320` | 그 이미지를 요청마다 즉석에서 축소해 JPEG로 반환(갤러리 격자용, 디스크에 캐시하지 않음). `size`는 긴 변 기준 픽셀(64~800 사이로 clamp, 기본 320). 파일의 수정 시각·용량·`size`로 만든 `ETag`와 `Cache-Control: private, max-age=86400`을 응답에 실어서, 브라우저가 같은 축소본을 재요청(`If-None-Match`)할 때는 `304 Not Modified`만 돌려주고 다시 인코딩하지 않습니다 — 원본 파일이 바뀌면(예: 가로형 자동 회전) 수정 시각이 달라지면서 자동으로 무효화됩니다 |
 | `DELETE` | `/api/output-images/{filename}` | 그 이미지 한 장만 삭제(갤러리 칸의 삭제 아이콘/라이트박스의 삭제 버튼용). 응답 `{"ok": true}`, 없으면 404 |
-| `POST` | `/api/output-images/download-selected` | 요청 본문 `{"names": [파일명...]}`에 담긴 이미지들만 zip으로 묶어 반환(갤러리에서 여러 장 선택 후 다운로드용). 잘못된 이름이나 그 사이 지워진 파일은 조용히 건너뛰고, 하나도 안 남으면 404, `names`가 비어있거나 없으면 400 |
+| `POST` | `/api/output-images/download-selected` | 요청 본문 `{"names": [파일명...]}`에 담긴 이미지들만 zip으로 묶어 반환(갤러리에서 여러 장 선택 후 다운로드용). `/api/download-images`와 마찬가지로 작업별 폴더 구조 없이 파일명만으로 평평하게 담김(이름이 겹치면 번호로 구분). 잘못된 이름이나 그 사이 지워진 파일은 조용히 건너뛰고, 하나도 안 남으면 404, `names`가 비어있거나 없으면 400 |
 | `DELETE` | `/api/output-images` | 출력 폴더의 이미지를 모두 삭제. 응답 `{"deleted": N}`. 폴더 자체가 없으면 404, 이미지가 0개면 `{"deleted": 0}` (에러 아님) |
 | `POST` | `/api/output-images/delete-selected` | 요청 본문 `{"names": [파일명...]}`에 담긴 이미지들만 삭제(갤러리에서 여러 장 선택 후 삭제용). 응답 `{"deleted": N}` — 잘못된 이름이나 이미 지워진 파일은 조용히 건너뜀, `names`가 비어있거나 없으면 400 |
 | `POST` | `/api/output-images/rotate-landscape` | 출력 폴더에서 가로형(1536×704와 같은 비율) 이미지를 찾아 시계 방향 90도로 회전해 같은 파일에 덮어씀. 응답 `{"total_checked", "rotated": [파일명...], "errors": [...]}`. 폴더 자체가 없으면 404 |
-| `POST` | `/api/output-images/rotate-selected` | 요청 본문 `{"names": [파일명...]}`에 담긴 이미지만 비율 판정 없이 무조건 시계 방향 90도로 회전해 같은 파일에 덮어씀(갤러리에서 선택한 이미지를 "회전 후 다운로드"할 때 씀). 응답 `{"rotated": [파일명...]}`, 잘못된 이름은 조용히 건너뛰고 하나도 안 남으면 404, `names`가 비어있거나 없으면 400 |
+| `POST` | `/api/output-images/rotate-selected` | 요청 본문 `{"names": [파일명...]}`에 담긴 이미지 중 가로형(너비 > 높이)만 시계 방향 90도로 회전해 같은 파일에 덮어씀(세로형/정사각형은 그대로 둠) — rotate-landscape처럼 1536×704 같은 특정 비율 판정까지는 하지 않음(갤러리에서 선택한 이미지를 "회전 후 다운로드"할 때 씀). 응답 `{"rotated": [파일명...], "skipped": [파일명...]}`, 잘못된 이름은 조용히 건너뛰고 유효한 이미지가 하나도 없으면 404, `names`가 비어있거나 없으면 400 |
 
 ### 결과 이미지 이메일 전송 (`email_sender.py`)
 
