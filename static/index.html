@@ -1267,8 +1267,8 @@
 <div class="tab-bar">
   <div class="tab-bar-inner">
     <button class="tab-btn active" data-tab="jobs" type="button">🗂 작업 관리</button>
-    <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트">🏷 Danbooru</button>
+    <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
   </div>
 </div>
 
@@ -1530,6 +1530,7 @@
     <div class="lightbox-info" id="gallery-lightbox-info"></div>
     <div class="lightbox-actions">
       <button class="modal-btn-secondary" id="gallery-lightbox-download-btn" type="button" title="다운로드">⬇ 다운로드</button>
+      <button class="modal-btn-secondary" id="gallery-lightbox-load-job-btn" type="button" title="이 이미지를 생성한 작업 설정 불러오기">📂 작업 불러오기</button>
       <button class="modal-btn-secondary" id="gallery-lightbox-send-to-pose-btn" type="button" title="참조 세트로 보내기">📌 세트 추가</button>
       <button class="danger-btn" id="gallery-lightbox-delete-btn" type="button" title="삭제">🗑 삭제</button>
     </div>
@@ -3387,10 +3388,10 @@ async function downloadGalleryImages(names){
   }
 }
 
-// 작업별 보기의 그룹 소제목에 쓸 job_id -> 라벨 맵. 못 가져와도 갤러리 자체는
-// 보여줘야 하니 실패하면 빈 맵을 돌려주고(호출부가 job_id를 그대로 보여줌).
-async function fetchGalleryJobLabels(){
-  const labels = {};
+// 활성 작업 + 삭제된 작업(보관 기간 안이면) 전체를 합쳐 돌려준다 — 갤러리가 job_id로
+// 그 작업의 라벨/설정을 찾아야 할 때(작업별 보기 소제목, 라이트박스의 "작업 불러오기")
+// 공용으로 쓴다. 실패하면 조용히 빈 배열(호출부가 각자 사정에 맞게 처리).
+async function fetchAllJobsIncludingDeleted(){
   try{
     const [activeRes, deletedRes] = await Promise.all([
       fetch('/api/jobs'),
@@ -3398,12 +3399,18 @@ async function fetchGalleryJobLabels(){
     ]);
     const activeData = await activeRes.json().catch(() => ({ jobs: [] }));
     const deletedData = await deletedRes.json().catch(() => ({ jobs: [] }));
-    for(const j of [...(activeData.jobs || []), ...(deletedData.jobs || [])]){
-      const templateText = j.template_label || j.template_id;
-      labels[j.id] = `${templateText} · ${fmtOptions(j.options)}`;
-    }
+    return [...(activeData.jobs || []), ...(deletedData.jobs || [])];
   }catch(e){
-    // 무시 — 라벨 없이 job_id만 보여준다.
+    return [];
+  }
+}
+
+// 작업별 보기의 그룹 소제목에 쓸 job_id -> 라벨 맵.
+async function fetchGalleryJobLabels(){
+  const labels = {};
+  for(const j of await fetchAllJobsIncludingDeleted()){
+    const templateText = j.template_label || j.template_id;
+    labels[j.id] = `${templateText} · ${fmtOptions(j.options)}`;
   }
   return labels;
 }
@@ -3802,11 +3809,41 @@ document.getElementById('gallery-lightbox-send-to-pose-btn').addEventListener('c
   const img = displayedGalleryImages[lightboxIndex];
   if(img) openPoseImportModal([img.name]);
 });
+document.getElementById('gallery-lightbox-load-job-btn').addEventListener('click', async () => {
+  const img = displayedGalleryImages[lightboxIndex];
+  if(!img) return;
+  const errorEl = document.getElementById('gallery-lightbox-error');
+  errorEl.textContent = '';
+  if(!img.job_id){
+    errorEl.textContent = '이 이미지는 작업 정보가 없어요 (작업 하위 폴더 없이 저장됨).';
+    return;
+  }
+  const job = (await fetchAllJobsIncludingDeleted()).find(j => j.id === img.job_id);
+  if(!job){
+    errorEl.textContent = `이 작업(${img.job_id})은 더 이상 남아있지 않아요 (삭제 보관 기간이 지났을 수 있어요).`;
+    return;
+  }
+  closeLightbox();
+  document.querySelector('.tab-btn[data-tab="jobs"]').click();
+  await loadJobSettings(job);
+  document.getElementById('new-job-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 async function deleteCurrentLightboxImage(){
   const img = displayedGalleryImages[lightboxIndex];
   if(!img) return;
+  const indexBeforeDelete = lightboxIndex;
   const ok = await deleteGalleryImages([img.name]);
-  if(ok) closeLightbox();
+  if(!ok) return;
+  // deleteGalleryImages()가 이미 목록을 다시 받아와 그려뒀다(fetchGalleryImages
+  // → renderGalleryGrid) — 지운 이미지 뒤에 있던 게 같은 자리로 당겨오므로, 인덱스를
+  // 그대로 두면 자연스럽게 "다음 이미지"가 보인다. 지운 게 마지막 장이었으면
+  // 하나 앞(남은 것 중 마지막)으로, 아예 하나도 안 남았으면 라이트박스를 닫는다.
+  if(displayedGalleryImages.length === 0){
+    closeLightbox();
+    return;
+  }
+  lightboxIndex = Math.min(indexBeforeDelete, displayedGalleryImages.length - 1);
+  renderLightbox();
 }
 document.getElementById('gallery-lightbox-delete-btn').addEventListener('click', deleteCurrentLightboxImage);
 galleryLightbox.addEventListener('click', (e) => {
