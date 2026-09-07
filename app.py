@@ -312,6 +312,62 @@ def resolve_comfy_url() -> tuple[str | None, bool]:
     return None, False
 
 
+# ---- ComfyUI 노드/모델 목록 조회 ----------------------------------------------
+# ComfyUI의 /object_info는 그 서버에 설치된 모든 노드 타입과, 파일을 고르는 입력
+# (체크포인트/LoRA/VAE 등)이 실제로 고를 수 있는 선택지까지 통째로 돌려준다.
+# 워크플로우 JSON은 결국 "노드 이름 + 입력값"일 뿐이라, 이 목록만 있으면 업로드된
+# 워크플로우가 이 서버에서 돌아갈 수 있는지 미리 검사할 수 있다.
+# 커스텀 노드가 많이 깔린 서버에서는 응답이 수 MB까지 커지고 모델 폴더를 훑느라
+# 느리기도 해서 짧게 캐싱한다 — 모델을 새로 설치하는 일은 드물고, 필요하면
+# refresh=true로 강제로 다시 받아온다.
+COMFY_OBJECT_INFO_TTL_SEC = 120
+_object_info_cache: dict = {"url": None, "data": None, "fetched_at": 0.0}
+
+# ComfyUI에 "설치된 모델 목록" 전용 API는 없어서, 각 종류를 대표하는 로더 노드의
+# 입력 선택지를 그대로 읽어 쓴다(그 노드가 없는 서버면 빈 목록).
+MODEL_LIST_SOURCES = {
+    "checkpoints": ("CheckpointLoaderSimple", "ckpt_name"),
+    "loras": ("LoraLoader", "lora_name"),
+    "vae": ("VAELoader", "vae_name"),
+    "controlnet": ("ControlNetLoader", "control_net_name"),
+    "upscale_models": ("UpscaleModelLoader", "model_name"),
+    "clip_vision": ("CLIPVisionLoader", "clip_name"),
+}
+
+
+def fetch_comfy_object_info(force: bool = False) -> tuple[str | None, dict | None]:
+    """(comfy_url, object_info) — ComfyUI가 안 떠 있으면 (url, None)."""
+    comfy_url, connected = resolve_comfy_url()
+    if not connected or not comfy_url:
+        return comfy_url, None
+    now = time.time()
+    if (
+        not force
+        and _object_info_cache["data"] is not None
+        and _object_info_cache["url"] == comfy_url
+        and now - _object_info_cache["fetched_at"] < COMFY_OBJECT_INFO_TTL_SEC
+    ):
+        return comfy_url, _object_info_cache["data"]
+    req = urllib.request.Request(f"{comfy_url.rstrip('/')}/object_info")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    _object_info_cache.update({"url": comfy_url, "data": data, "fetched_at": now})
+    return comfy_url, data
+
+
+def combo_choices(object_info: dict, class_type: str, field: str) -> list[str]:
+    """그 노드의 그 입력이 고를 수 있는 선택지 목록. ComfyUI는 목록에서 고르는
+    입력(COMBO)을 [["선택지1", "선택지2", ...], {옵션들}] 형태로 주고, 그냥 문자열/
+    숫자 입력은 ["STRING", {...}]처럼 타입 이름을 준다 — 첫 원소가 리스트인지로
+    둘을 구분한다. 목록형이 아니면 빈 리스트."""
+    spec = (object_info.get(class_type) or {}).get("input", {})
+    for section in ("required", "optional"):
+        entry = (spec.get(section) or {}).get(field)
+        if isinstance(entry, list) and entry and isinstance(entry[0], list):
+            return [str(v) for v in entry[0]]
+    return []
+
+
 # ---- 프롬프트 개선(Text Enhance) ----------------------------------------------
 # templates/*.py의 find_node()/primitive_value_field()와 같은 알고리즘의 사본이다
 # (그쪽은 배치 작업을 큐에 올려 python3 서브프로세스로 실행하는 것과 달리, 이건
@@ -526,6 +582,97 @@ def list_templates():
 async def comfy_status():
     url, connected = await asyncio.to_thread(resolve_comfy_url)
     return {"url": url, "connected": connected}
+
+
+@app.get("/api/comfy-object-info")
+async def comfy_object_info(refresh: bool = False):
+    # 지금 연결된 ComfyUI에 설치된 노드 타입 이름들과 종류별 모델 목록만 추려서
+    # 돌려준다(원본 /object_info는 입력 스펙까지 들어있어 수 MB가 되기도 해서
+    # 그대로 브라우저로 넘기지 않는다). ComfyUI가 안 떠 있어도 에러가 아니라
+    # connected=false + 빈 목록 — 화면에서 "연결 안 됨"으로 안내만 하면 되니까.
+    try:
+        comfy_url, object_info = await asyncio.to_thread(fetch_comfy_object_info, refresh)
+    except Exception as e:
+        raise HTTPException(502, f"ComfyUI 노드 목록을 가져오지 못했어요: {e}")
+    if object_info is None:
+        return {
+            "connected": False,
+            "url": comfy_url,
+            "node_types": [],
+            "models": {key: [] for key in MODEL_LIST_SOURCES},
+        }
+    return {
+        "connected": True,
+        "url": comfy_url,
+        "node_types": sorted(object_info.keys()),
+        "models": {
+            key: combo_choices(object_info, class_type, field)
+            for key, (class_type, field) in MODEL_LIST_SOURCES.items()
+        },
+    }
+
+
+@app.post("/api/validate-workflow")
+async def validate_workflow(request: Request):
+    # 업로드하려는 워크플로우가 이 서버에서 돌아갈 수 있는지 미리 확인한다 —
+    # 다른 ComfyUI 설치본에서 만든 워크플로우는 여기 없는 커스텀 노드를 쓰거나
+    # 없는 체크포인트/LoRA 파일을 가리키기 쉬운데, 지금은 그걸 배치가 한참
+    # 돌다가 실패해야 알 수 있다. 어디까지나 안내용이라 큐 등록 자체는 막지 않는다.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    workflow = data.get("workflow") if isinstance(data, dict) and "workflow" in data else data
+    if not isinstance(workflow, dict):
+        raise HTTPException(400, "워크플로우 JSON(노드 id → 노드) 형식이 아니에요.")
+
+    try:
+        comfy_url, object_info = await asyncio.to_thread(fetch_comfy_object_info, False)
+    except Exception as e:
+        raise HTTPException(502, f"ComfyUI 노드 목록을 가져오지 못했어요: {e}")
+    if object_info is None:
+        # 연결이 안 됐으면 "문제 없음"이 아니라 "확인 못 함"이다 — 화면에서 구분해서 안내한다.
+        return {
+            "connected": False, "url": comfy_url, "ok": True,
+            "missing_nodes": [], "missing_values": [], "checked_nodes": 0,
+        }
+
+    missing_nodes: list[str] = []
+    missing_values: list[dict] = []
+    checked = 0
+    for node_id, node in workflow.items():
+        if not isinstance(node, dict):
+            continue
+        class_type = node.get("class_type")
+        if not isinstance(class_type, str) or not class_type:
+            continue
+        checked += 1
+        if class_type not in object_info:
+            if class_type not in missing_nodes:
+                missing_nodes.append(class_type)
+            continue  # 노드 자체가 없으면 입력값은 검사할 기준도 없다
+        for field, value in (node.get("inputs") or {}).items():
+            # 링크([노드id, 출력번호])나 숫자 입력은 검사 대상이 아니고, 목록에서
+            # 고르는 입력(체크포인트/LoRA/샘플러 이름 등)만 실제 선택지와 대조한다.
+            if not isinstance(value, str):
+                continue
+            choices = combo_choices(object_info, class_type, field)
+            if choices and value not in choices:
+                missing_values.append({
+                    "node_id": str(node_id),
+                    "class_type": class_type,
+                    "field": field,
+                    "value": value,
+                })
+    return {
+        "connected": True,
+        "url": comfy_url,
+        "ok": not missing_nodes and not missing_values,
+        "missing_nodes": missing_nodes,
+        "missing_values": missing_values,
+        "checked_nodes": checked,
+    }
 
 
 @app.post("/api/enhance-prompt")

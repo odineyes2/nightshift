@@ -815,6 +815,55 @@
      삭제(빨강)/수정·불러오기(파랑)와 구분되게 한다. */
   .retry-btn:hover{ border-color:var(--done); color:var(--done); background:rgba(var(--done-rgb),0.06); }
   .load-notice{ font-size:12.5px; font-family:var(--mono); min-height:1em; white-space:pre-line; color:var(--text-dim); }
+  /* 업로드한 워크플로우가 지금 연결된 ComfyUI에서 돌아갈 수 있는지 검사한 결과 —
+     통과(초록)/문제 있음(주황)/확인 못 함(회색) 세 가지 톤을 쓴다. */
+  .workflow-check{
+    margin-top:8px;
+    padding:8px 10px;
+    border:1px solid var(--border);
+    border-left-width:3px;
+    border-radius:var(--radius-sm);
+    font-family:var(--mono);
+    font-size:11.5px;
+    line-height:1.6;
+    color:var(--text-dim);
+    white-space:pre-line;
+  }
+  .workflow-check.ok{ border-left-color:var(--done); color:var(--done); }
+  .workflow-check.warn{ border-left-color:var(--failed); color:var(--failed); }
+  .workflow-check.unknown{ border-left-color:var(--border); }
+  /* "설치된 모델" 모달 — 종류별 섹션 + 목록. 모델이 수백 개인 서버도 있어서
+     목록마다 따로 스크롤되게 하고, 위쪽 입력으로 이름을 걸러볼 수 있게 한다. */
+  .comfy-model-group{ margin-top:14px; }
+  /* 다른 라벨들과 달리 uppercase를 쓰지 않는다 — "LoRA"/"ControlNet"처럼 대소문자가
+     의미 있는 고유명사가 섞여 있어서 전부 대문자로 만들면 어색해진다. */
+  .comfy-model-group-title{
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:0.05em;
+    color:var(--text-dim);
+    margin-bottom:6px;
+  }
+  .comfy-model-items{
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+    max-height:180px;
+    overflow-y:auto;
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    padding:6px 8px;
+  }
+  .comfy-model-item{
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--text);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .comfy-model-empty{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
 
   .gallery-count{ font-family:var(--mono); font-size:12px; color:var(--text-dim); }
   .gallery-toolbar{
@@ -1284,6 +1333,7 @@
   <div class="header-right">
     <button class="theme-toggle-btn" id="theme-toggle-btn" type="button"></button>
     <div class="comfy-status" id="comfy-status"><span class="cdot"></span><span id="comfy-status-text">ComfyUI 확인 중…</span></div>
+    <button class="load-btn" id="comfy-models-btn" type="button" title="이 ComfyUI 서버에 설치된 체크포인트·LoRA 목록 보기">📋 모델</button>
     <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
   </div>
 </header>
@@ -1324,6 +1374,7 @@
           </div>
           <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
           <input type="file" class="slot-input" id="workflow-input" accept=".json">
+          <div class="workflow-check" id="workflow-check" hidden></div>
         </div>
 
         <div class="field" id="csv-field" style="display:none;">
@@ -1609,6 +1660,25 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="comfy-models-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">설치된 모델</div>
+      <button class="modal-close" id="comfy-models-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint">지금 연결된 ComfyUI 서버(<span id="comfy-models-url">확인 중…</span>)에 실제로 설치돼 있는 목록이에요. 워크플로우가 여기 없는 모델을 가리키면 그 작업은 실패해요.</div>
+      <input type="text" class="option-input" id="comfy-models-filter" placeholder="이름으로 거르기">
+      <div class="upload-error" id="comfy-models-error"></div>
+      <div id="comfy-models-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="load-btn" id="comfy-models-refresh-btn" type="button" title="서버에서 다시 받아오기">🔄 새로고침</button>
+      <button class="modal-btn-secondary" id="comfy-models-modal-cancel">✕ 닫기</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="recent-workflows-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
@@ -1869,7 +1939,10 @@ async function loadLog(id){
 let templatesById = {};
 let selectedFiles = { workflow: null, csv: null };
 
-function setupSlot(slotId, inputId, key, accept){
+// onFile: 파일이 바뀔 때마다(비우는 것 포함) 부르는 선택적 콜백 — 워크플로우
+// 슬롯이 이걸로 "이 서버에서 돌아갈 수 있는지" 검사를 건다. 최근 목록에서 고르거나
+// 작업 설정을 불러올 때도 결국 여기 setFile을 거치므로 모든 경로가 함께 검사된다.
+function setupSlot(slotId, inputId, key, accept, onFile){
   const slot = document.getElementById(slotId);
   const input = document.getElementById(inputId);
   const placeholder = slot.textContent;
@@ -1883,6 +1956,7 @@ function setupSlot(slotId, inputId, key, accept){
       slot.textContent = placeholder;
       slot.classList.remove('filled');
     }
+    if(onFile) onFile(file || null);
   }
 
   slot.addEventListener('click', () => input.click());
@@ -1901,7 +1975,7 @@ function setupSlot(slotId, inputId, key, accept){
   return setFile;
 }
 
-const setWorkflowFile = setupSlot('workflow-slot', 'workflow-input', 'workflow', '.json');
+const setWorkflowFile = setupSlot('workflow-slot', 'workflow-input', 'workflow', '.json', checkWorkflowCompatibility);
 const setCsvFile = setupSlot('csv-slot', 'csv-input', 'csv', '.csv');
 
 function resetForm(){
@@ -3076,6 +3150,163 @@ async function fetchComfyStatus(){
     el.classList.add('disconnected');
     text.textContent = data.url ? `ComfyUI 연결 안 됨 · ${data.url}` : 'ComfyUI 연결 안 됨';
   }
+}
+
+// ---- 설치된 모델/노드 목록 (ComfyUI의 /object_info를 서버가 추려서 넘겨줌) ----
+// 워크플로우 JSON은 "노드 이름 + 입력값"일 뿐이라, 이 목록이 있으면 "이 서버에서
+// 실제로 쓸 수 있는 게 뭔지"를 화면에서 그대로 다룰 수 있다. 지금은 (a) 헤더의
+// "📋 모델" 목록 보기와 (b) 업로드한 워크플로우 호환성 검사에 쓴다.
+let comfyObjectInfoCache = null;
+
+async function fetchComfyObjectInfo(force){
+  if(comfyObjectInfoCache && !force) return comfyObjectInfoCache;
+  const res = await fetch(`/api/comfy-object-info${force ? '?refresh=true' : ''}`);
+  if(!res.ok){
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || '모델 목록을 가져오지 못했어요.');
+  }
+  comfyObjectInfoCache = await res.json();
+  return comfyObjectInfoCache;
+}
+
+const COMFY_MODEL_GROUPS = [
+  { key: 'checkpoints', label: '체크포인트' },
+  { key: 'loras', label: 'LoRA' },
+  { key: 'vae', label: 'VAE' },
+  { key: 'controlnet', label: 'ControlNet' },
+  { key: 'upscale_models', label: '업스케일 모델' },
+  { key: 'clip_vision', label: 'CLIP Vision' },
+];
+
+const comfyModelsModal = document.getElementById('comfy-models-modal');
+
+function renderComfyModels(){
+  const listEl = document.getElementById('comfy-models-list');
+  const info = comfyObjectInfoCache;
+  if(!info) return;
+  document.getElementById('comfy-models-url').textContent = info.url || '연결 안 됨';
+  if(!info.connected){
+    listEl.innerHTML = '<div class="comfy-model-empty">ComfyUI에 연결되지 않아 목록을 가져오지 못했어요.</div>';
+    return;
+  }
+  const filter = document.getElementById('comfy-models-filter').value.trim().toLowerCase();
+  const sections = COMFY_MODEL_GROUPS.map(({ key, label }) => {
+    const all = info.models[key] || [];
+    const shown = filter ? all.filter(name => name.toLowerCase().includes(filter)) : all;
+    const countText = filter ? `${shown.length} / ${all.length}` : `${all.length}`;
+    const body = shown.length === 0
+      ? `<div class="comfy-model-empty">${filter && all.length > 0 ? '거른 결과가 없어요' : '설치된 게 없어요'}</div>`
+      : `<div class="comfy-model-items">${shown.map(name => `<div class="comfy-model-item" title="${escapeHtml(name)}">${escapeHtml(name)}</div>`).join('')}</div>`;
+    return `
+      <div class="comfy-model-group">
+        <div class="comfy-model-group-title">${escapeHtml(label)} (${countText})</div>
+        ${body}
+      </div>`;
+  }).join('');
+  listEl.innerHTML = `<div class="comfy-model-empty">설치된 노드 타입 ${info.node_types.length}개</div>${sections}`;
+}
+
+async function openComfyModelsModal(force){
+  const errorEl = document.getElementById('comfy-models-error');
+  const listEl = document.getElementById('comfy-models-list');
+  errorEl.textContent = '';
+  comfyModelsModal.style.display = 'flex';
+  listEl.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
+  try{
+    await fetchComfyObjectInfo(force);
+  }catch(e){
+    listEl.innerHTML = '';
+    errorEl.textContent = e.message || '모델 목록을 가져오지 못했어요.';
+    return;
+  }
+  renderComfyModels();
+}
+
+document.getElementById('comfy-models-btn').addEventListener('click', () => openComfyModelsModal(false));
+document.getElementById('comfy-models-refresh-btn').addEventListener('click', () => openComfyModelsModal(true));
+document.getElementById('comfy-models-filter').addEventListener('input', renderComfyModels);
+function closeComfyModelsModal(){ comfyModelsModal.style.display = 'none'; }
+document.getElementById('comfy-models-modal-close').addEventListener('click', closeComfyModelsModal);
+document.getElementById('comfy-models-modal-cancel').addEventListener('click', closeComfyModelsModal);
+comfyModelsModal.addEventListener('click', (e) => { if(e.target === comfyModelsModal) closeComfyModelsModal(); });
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape' && comfyModelsModal.style.display !== 'none') closeComfyModelsModal();
+});
+
+// ---- 업로드한 워크플로우가 이 서버에서 돌아갈 수 있는지 검사 ----
+// 다른 ComfyUI 설치본에서 만든 워크플로우는 여기 없는 커스텀 노드를 쓰거나 없는
+// 체크포인트/LoRA를 가리키기 쉬운데, 지금은 배치가 한참 돌다 실패해야 알 수 있다.
+// 파일을 고르는 즉시 서버에 물어보고 결과만 보여준다(등록을 막지는 않음 — 검사가
+// 틀릴 수도 있고, ComfyUI가 잠깐 꺼져 있을 수도 있으니 판단은 사용자 몫).
+let workflowCheckToken = 0;
+
+function renderWorkflowCheck(tone, text){
+  const el = document.getElementById('workflow-check');
+  el.hidden = false;
+  el.className = `workflow-check ${tone}`;
+  el.textContent = text;
+}
+
+function summarizeList(items, limit = 5){
+  const shown = items.slice(0, limit);
+  const rest = items.length - shown.length;
+  return shown.join(', ') + (rest > 0 ? ` 외 ${rest}개` : '');
+}
+
+async function checkWorkflowCompatibility(file){
+  const el = document.getElementById('workflow-check');
+  const token = ++workflowCheckToken;
+  if(!file){
+    el.hidden = true;
+    el.textContent = '';
+    return;
+  }
+  renderWorkflowCheck('unknown', '이 서버와 맞는지 확인하는 중…');
+  let text;
+  try{
+    text = await file.text();
+  }catch(e){
+    if(token === workflowCheckToken) renderWorkflowCheck('warn', '파일을 읽지 못했어요.');
+    return;
+  }
+  try{
+    JSON.parse(text);
+  }catch(e){
+    if(token === workflowCheckToken) renderWorkflowCheck('warn', '⚠ JSON 형식이 아니에요 — ComfyUI에서 "API 형식으로 저장"한 파일인지 확인해 주세요.');
+    return;
+  }
+  let data;
+  try{
+    const res = await fetch('/api/validate-workflow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: text,
+    });
+    data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '확인하지 못했어요.');
+  }catch(e){
+    if(token === workflowCheckToken) renderWorkflowCheck('unknown', `이 서버와 맞는지 확인하지 못했어요 — ${e.message}`);
+    return;
+  }
+  if(token !== workflowCheckToken) return; // 그 사이 다른 파일을 골랐으면 버린다
+  if(!data.connected){
+    renderWorkflowCheck('unknown', 'ComfyUI에 연결되지 않아 이 워크플로우가 돌아갈지 확인하지 못했어요.');
+    return;
+  }
+  if(data.ok){
+    renderWorkflowCheck('ok', `✅ 이 서버에서 돌아갈 수 있어요 (노드 ${data.checked_nodes}개 확인)`);
+    return;
+  }
+  const lines = [];
+  if(data.missing_nodes.length > 0){
+    lines.push(`⚠ 이 서버에 없는 노드: ${summarizeList(data.missing_nodes)}`);
+  }
+  if(data.missing_values.length > 0){
+    const labels = data.missing_values.map(v => `${v.field}="${v.value}"`);
+    lines.push(`⚠ 이 서버에 없는 모델/설정값: ${summarizeList(labels)}`);
+  }
+  lines.push('그대로 큐에 넣을 수는 있지만 실행 중 실패할 가능성이 높아요.');
+  renderWorkflowCheck('warn', lines.join('\n'));
 }
 
 const EDITOR_KIND_LABEL = { workflow: '워크플로우', csv: 'CSV' };
