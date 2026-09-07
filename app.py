@@ -803,6 +803,32 @@ def coerce_option(option: dict, raw: str | None, options_so_far: dict):
             raise HTTPException(400, f"'{option['label']}' 값은 {choices} 중 하나여야 해요.")
         return raw
 
+    if opt_type == "comfy_model":
+        # ComfyUI에 실제로 설치된 목록(MODEL_LIST_SOURCES의 종류)에서 고르는 드롭다운.
+        # 비워두면 "워크플로우에 이미 들어있는 값을 그대로 쓴다"는 뜻이라 그냥 통과.
+        value = "" if raw is None else str(raw).strip()
+        if not value:
+            return ""
+        source = MODEL_LIST_SOURCES.get(option.get("model_kind"))
+        if source is None:
+            raise HTTPException(400, f"'{option['label']}' 옵션의 model_kind 설정이 올바르지 않아요.")
+        try:
+            _, object_info = fetch_comfy_object_info(False)
+        except Exception:
+            object_info = None
+        # ComfyUI가 꺼져 있으면 검증할 기준 자체가 없다. 이 앱은 ComfyUI가 안 떠 있는
+        # 동안에도 큐에 미리 쌓아두는 걸 정상 동작으로 보므로(워커가 실행 직전에 다시
+        # 확인함), 확인할 수 없을 때는 막지 않고 그대로 통과시킨다.
+        if object_info is None:
+            return value
+        installed = combo_choices(object_info, *source)
+        if installed and value not in installed:
+            raise HTTPException(
+                400,
+                f"'{option['label']}' 값 '{value}'은(는) 지금 연결된 ComfyUI에 설치돼 있지 않아요.",
+            )
+        return value
+
     if opt_type == "char_no":
         # "인물 수" 드롭다운 — 실제 존재하는 <kind> 종류 하위 숫자 폴더 중 하나여야
         # 함. kind는 옵션이 정적으로 선언(주 참조, 예: "kind": "pose")하거나,
@@ -1068,6 +1094,16 @@ async def upload(request: Request):
             needs_ref_node = csv_bytes is not None and csv_has_ref_value(csv_bytes, primary_csv_column)
         if needs_ref_node:
             validate_workflow_has_ref_node(workflow_bytes, primary_kind)
+
+    # comfy_model 옵션(체크포인트/LoRA 드롭다운)을 쓰는 템플릿이면 설치 목록으로
+    # 값을 검증해야 한다. coerce_option은 동기 함수라, 여기서 미리 스레드로 받아
+    # 캐시를 채워둔다 — 안 그러면 그 안의 ComfyUI 조회가 이벤트 루프를 막는다.
+    # 못 받아오면(꺼져 있음 등) coerce_option이 검증을 건너뛴다.
+    if any(o.get("type") == "comfy_model" for o in template.get("options", [])):
+        try:
+            await asyncio.to_thread(fetch_comfy_object_info, False)
+        except Exception:
+            pass
 
     options = {}
     for option in template.get("options", []):
