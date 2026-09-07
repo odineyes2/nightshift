@@ -1683,11 +1683,9 @@ async function fetchJobs(){
   render(data.jobs, data.pending_count, data.running);
 }
 
-let lastJobsList = []; // "완료 삭제" 확인창에 몇 개를 지우는지 보여주려고 최근 render() 결과를 기억해둔다.
 let queueRunning = false; // 서버의 자동 실행 모드(auto_run)를 그대로 반영 — "▶ 시작"/"⏸ 정지" 토글에 쓴다.
 
 function render(jobs, pendingCount, running){
-  lastJobsList = jobs;
   queueRunning = !!running;
   document.getElementById('pending-count').textContent = pendingCount;
   const tbody = document.getElementById('job-rows');
@@ -2759,8 +2757,7 @@ document.getElementById('start-queue-btn').addEventListener('click', async () =>
 });
 
 document.getElementById('clear-completed-btn').addEventListener('click', async () => {
-  const count = lastJobsList.filter(j => j.status === 'done' || j.status === 'failed' || j.status === 'interrupted').length;
-  if(!confirm(`완료/실패/중단된 작업 ${count}개를 모두 삭제할까요? (개별 삭제와 마찬가지로 "삭제된 작업 설정 불러오기"에서 되돌릴 수 있어요)`)) return;
+  // 소프트 삭제라 "삭제된 작업 설정 불러오기"에서 되돌릴 수 있으므로 확인창 없이 바로 지운다.
   await fetch('/api/jobs/clear-completed', { method: 'POST' });
   fetchJobs();
   fetchDeletedJobs();
