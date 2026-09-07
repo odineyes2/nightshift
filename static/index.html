@@ -864,6 +864,29 @@
     white-space:nowrap;
   }
   .comfy-model-empty{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
+  /* 워크플로우 빌더 — 짧은 숫자/드롭다운 입력을 한 줄에 여러 개 늘어놓는 격자.
+     좁아지면 자동으로 줄바꿈된다. */
+  .builder-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));
+    gap:var(--gap-md);
+  }
+  .builder-lora-row{
+    display:flex;
+    align-items:center;
+    gap:var(--gap-md);
+    margin-bottom:6px;
+  }
+  .builder-lora-row select{ flex:1 1 220px; min-width:140px; max-width:none; }
+  .builder-lora-row input[type="number"]{ width:90px; flex-shrink:0; }
+  .builder-lora-strength-label{
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--text-dim);
+    white-space:nowrap;
+    flex-shrink:0;
+  }
+  .builder-lora-empty{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
 
   .gallery-count{ font-family:var(--mono); font-size:12px; color:var(--text-dim); }
   .gallery-toolbar{
@@ -1343,6 +1366,7 @@
     <button class="tab-btn active" data-tab="jobs" type="button">🗂 작업 관리</button>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트">🏷 Danbooru</button>
     <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
+    <button class="tab-btn" data-tab="builder" type="button" title="업로드 없이 워크플로우 만들기">🧩 워크플로우</button>
   </div>
 </div>
 
@@ -1587,6 +1611,126 @@
       <div style="height:12px;"></div>
       <div id="danbooru-history-list"></div>
       <div class="empty" id="danbooru-history-empty" style="display:none;">저장된 기록이 없어요</div>
+    </div>
+  </div>
+</main>
+
+<main id="tab-builder" style="display:none;">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label">워크플로우 만들기</div>
+      <div class="panel-header-actions">
+        <button class="load-btn" id="builder-refresh-models-btn" type="button" title="설치 목록 새로고침">🔄 목록</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="email-hint">ComfyUI에서 워크플로우를 만들어 export하지 않아도, 설치된 모델로 표준 파이프라인(체크포인트 → LoRA → 프롬프트 → KSampler → 저장)을 여기서 바로 조립할 수 있어요. 만든 워크플로우는 업로드한 파일과 똑같이 "작업 관리" 탭에서 큐에 넣습니다.</div>
+      <div class="upload-form">
+        <div class="field">
+          <label class="field-label" for="builder-checkpoint">체크포인트 <span class="opt">— 필수</span></label>
+          <select id="builder-checkpoint" class="option-input"></select>
+        </div>
+
+        <div class="field">
+          <div class="field-label-row">
+            <label class="field-label">LoRA <span class="opt">— 없어도 됨. 위에서부터 순서대로 체인으로 걸려요</span></label>
+            <button class="load-btn" id="builder-add-lora-btn" type="button" title="LoRA 추가">➕ 추가</button>
+          </div>
+          <div id="builder-lora-list"></div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="builder-positive">긍정 프롬프트 <span class="opt">— 필수</span></label>
+          <textarea id="builder-positive" class="option-input" rows="3" placeholder="1girl, solo, ..."></textarea>
+        </div>
+        <div class="field">
+          <label class="field-label" for="builder-negative">부정 프롬프트</label>
+          <!-- workflow_builder.py의 DEFAULT_NEGATIVE와 같은 값을 미리 채워둔다 — 빈 칸으로
+               두면 "비우면 뭐가 들어가지?"가 안 보이니, 처음부터 값을 보여주고 지우거나
+               고칠 수 있게 한다(그래서 서버 쪽 기본값은 API로 직접 부를 때만 쓰인다). -->
+          <textarea id="builder-negative" class="option-input" rows="2">worst quality, low quality, bad anatomy, bad hands, text, watermark, signature</textarea>
+        </div>
+
+        <div class="builder-grid">
+          <div class="field">
+            <label class="field-label" for="builder-width">너비</label>
+            <input type="number" id="builder-width" class="option-input" value="1024">
+          </div>
+          <div class="field">
+            <label class="field-label" for="builder-height">높이</label>
+            <input type="number" id="builder-height" class="option-input" value="1024">
+          </div>
+          <div class="field">
+            <label class="field-label" for="builder-batch">배치 크기</label>
+            <input type="number" id="builder-batch" class="option-input" value="1">
+          </div>
+        </div>
+
+        <div class="builder-grid">
+          <div class="field">
+            <label class="field-label" for="builder-steps">스텝</label>
+            <input type="number" id="builder-steps" class="option-input" value="28">
+          </div>
+          <div class="field">
+            <label class="field-label" for="builder-cfg">CFG</label>
+            <input type="number" id="builder-cfg" class="option-input" value="6" step="0.5">
+          </div>
+          <div class="field">
+            <label class="field-label" for="builder-sampler">샘플러</label>
+            <select id="builder-sampler" class="option-input"></select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="builder-scheduler">스케줄러</label>
+            <select id="builder-scheduler" class="option-input"></select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="danbooru-per-seed-row" title="1차 생성 뒤 latent를 확대해 한 번 더 샘플링해요(고해상도 보정).">
+            <input type="checkbox" id="builder-hires">
+            <span>hires-fix 2차 패스 사용</span>
+          </label>
+          <div class="builder-grid" id="builder-hires-fields" hidden>
+            <div class="field">
+              <label class="field-label" for="builder-hires-scale">배율</label>
+              <input type="number" id="builder-hires-scale" class="option-input" value="1.5" step="0.1">
+            </div>
+            <div class="field">
+              <label class="field-label" for="builder-hires-denoise">denoise</label>
+              <input type="number" id="builder-hires-denoise" class="option-input" value="0.5" step="0.05">
+            </div>
+            <div class="field">
+              <label class="field-label" for="builder-hires-steps">스텝 <span class="opt">— 비우면 위와 동일</span></label>
+              <input type="number" id="builder-hires-steps" class="option-input" placeholder="위 스텝과 동일">
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="new-job-actions">
+            <button class="submit-btn" id="builder-send-btn" type="button" title="작업 관리 탭의 워크플로우 슬롯에 채우기">📤 작업 관리로 보내기</button>
+            <button class="load-btn" id="builder-preview-btn" type="button" title="만들어질 JSON 미리보기">👁 미리보기</button>
+            <button class="load-btn" id="builder-download-btn" type="button" title="JSON 파일로 저장">⬇ 다운로드</button>
+          </div>
+          <div class="upload-error" id="builder-error"></div>
+          <div class="load-notice" id="builder-notice"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel collapsed" id="builder-preview-panel">
+    <div class="panel-header">
+      <div class="panel-header-title">
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
+        <div class="section-label">만들어진 워크플로우 JSON</div>
+      </div>
+      <div class="panel-header-actions">
+        <span id="builder-preview-copy-slot"></span>
+      </div>
+    </div>
+    <div class="panel-body">
+      <textarea class="workflow-textarea" id="builder-preview" spellcheck="false" readonly></textarea>
     </div>
   </div>
 </main>
@@ -3640,6 +3784,7 @@ const TAB_MAINS = {
   jobs: document.getElementById('tab-jobs'),
   gallery: document.getElementById('tab-gallery'),
   danbooru: document.getElementById('tab-danbooru'),
+  builder: document.getElementById('tab-builder'),
 };
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -3651,6 +3796,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       el.style.display = (name === tab) ? '' : 'none';
     }
     if(tab === 'gallery') fetchGalleryImages();
+    if(tab === 'builder') initBuilderTab();
   });
 });
 
@@ -5118,6 +5264,216 @@ async function initDanbooru(){
   danbooruUpdateAll();
   await danbooruLoadHistory();
 }
+
+// ============================================================
+// ---- 워크플로우 빌더 탭 ----
+// 업로드 없이 스펙만으로 워크플로우 JSON을 만든다. 실제 조립은 서버
+// (workflow_builder.py)가 하고 여기서는 폼 값을 모아 보내고 결과를 다루기만 한다.
+// 만들어진 JSON은 "작업 관리" 탭의 워크플로우 슬롯에 파일처럼 채워 넣는다 —
+// 그 뒤로는 업로드한 파일과 완전히 같은 경로(호환성 검사 → 큐 등록 → 실행)를
+// 타므로, 기존 동작에는 아무 영향이 없다.
+// ============================================================
+let builderInitialized = false;
+
+function builderSelectOptions(select, values, emptyLabel, keepValue){
+  const previous = keepValue ? select.value : '';
+  select.innerHTML = '';
+  if(values.length === 0){
+    const o = document.createElement('option');
+    o.value = '';
+    o.textContent = emptyLabel;
+    select.appendChild(o);
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  for(const v of values){
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = v;
+    select.appendChild(o);
+  }
+  if(previous && values.includes(previous)) select.value = previous;
+}
+
+function builderModels(){
+  const info = comfyObjectInfoCache;
+  if(!info || !info.connected) return { checkpoints: [], loras: [], samplers: [], schedulers: [] };
+  return {
+    checkpoints: info.models.checkpoints || [],
+    loras: info.models.loras || [],
+    samplers: info.samplers || [],
+    schedulers: info.schedulers || [],
+  };
+}
+
+function builderAddLoraRow(){
+  const list = document.getElementById('builder-lora-list');
+  const empty = list.querySelector('.builder-lora-empty');
+  if(empty) empty.remove();
+
+  const row = document.createElement('div');
+  row.className = 'builder-lora-row';
+  const select = document.createElement('select');
+  select.className = 'option-input builder-lora-name';
+  builderSelectOptions(select, builderModels().loras, '(설치된 LoRA 없음)', false);
+  const label = document.createElement('span');
+  label.className = 'builder-lora-strength-label';
+  label.textContent = '강도';
+  const strength = document.createElement('input');
+  strength.type = 'number';
+  strength.className = 'option-input builder-lora-strength';
+  strength.value = '1';
+  strength.step = '0.05';
+  strength.title = 'strength_model / strength_clip에 같이 들어가요';
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'del-btn';
+  remove.textContent = '✕';
+  remove.title = '이 LoRA 빼기';
+  remove.addEventListener('click', () => {
+    row.remove();
+    if(list.children.length === 0) builderRenderEmptyLoras();
+  });
+  row.append(select, label, strength, remove);
+  list.appendChild(row);
+}
+
+function builderRenderEmptyLoras(){
+  const list = document.getElementById('builder-lora-list');
+  list.innerHTML = '<div class="builder-lora-empty">추가한 LoRA가 없어요 (없어도 됩니다)</div>';
+}
+
+async function initBuilderTab(force){
+  const errorEl = document.getElementById('builder-error');
+  errorEl.textContent = '';
+  try{
+    await fetchComfyObjectInfo(force);
+  }catch(e){
+    errorEl.textContent = e.message || '설치된 모델 목록을 가져오지 못했어요.';
+  }
+  const models = builderModels();
+  builderSelectOptions(document.getElementById('builder-checkpoint'), models.checkpoints, '(ComfyUI 연결 안 됨 — 설치 목록 없음)', builderInitialized);
+  builderSelectOptions(document.getElementById('builder-sampler'), models.samplers, '(목록 없음)', builderInitialized);
+  builderSelectOptions(document.getElementById('builder-scheduler'), models.schedulers, '(목록 없음)', builderInitialized);
+  // 이미 추가해둔 LoRA 줄들의 선택지도 새 목록으로 갱신한다(고른 값은 유지).
+  document.querySelectorAll('.builder-lora-name').forEach(select => {
+    builderSelectOptions(select, models.loras, '(설치된 LoRA 없음)', true);
+  });
+  if(!builderInitialized){
+    builderRenderEmptyLoras();
+    if(models.samplers.includes('dpmpp_2m')) document.getElementById('builder-sampler').value = 'dpmpp_2m';
+    if(models.schedulers.includes('karras')) document.getElementById('builder-scheduler').value = 'karras';
+    builderInitialized = true;
+  }
+}
+
+function collectBuilderSpec(){
+  const loras = [];
+  document.querySelectorAll('#builder-lora-list .builder-lora-row').forEach(row => {
+    const name = row.querySelector('.builder-lora-name').value;
+    if(!name) return;
+    const strength = parseFloat(row.querySelector('.builder-lora-strength').value);
+    const value = Number.isFinite(strength) ? strength : 1;
+    loras.push({ name, strength_model: value, strength_clip: value });
+  });
+  const spec = {
+    checkpoint: document.getElementById('builder-checkpoint').value,
+    loras,
+    positive: document.getElementById('builder-positive').value,
+    negative: document.getElementById('builder-negative').value,
+    width: document.getElementById('builder-width').value,
+    height: document.getElementById('builder-height').value,
+    batch_size: document.getElementById('builder-batch').value,
+    steps: document.getElementById('builder-steps').value,
+    cfg: document.getElementById('builder-cfg').value,
+    sampler_name: document.getElementById('builder-sampler').value,
+    scheduler: document.getElementById('builder-scheduler').value,
+  };
+  if(document.getElementById('builder-hires').checked){
+    spec.hires = {
+      enabled: true,
+      scale_by: document.getElementById('builder-hires-scale').value,
+      denoise: document.getElementById('builder-hires-denoise').value,
+      steps: document.getElementById('builder-hires-steps').value || undefined,
+    };
+  }
+  return spec;
+}
+
+// 서버에 조립을 맡기고 워크플로우 JSON을 받아온다. 실패하면 에러만 보여주고 null.
+async function requestBuiltWorkflow(){
+  const errorEl = document.getElementById('builder-error');
+  const noticeEl = document.getElementById('builder-notice');
+  errorEl.textContent = '';
+  noticeEl.textContent = '';
+  try{
+    const res = await fetch('/api/build-workflow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectBuilderSpec()),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok){
+      errorEl.textContent = data.detail || '워크플로우를 만들지 못했어요.';
+      return null;
+    }
+    return data.workflow;
+  }catch(e){
+    errorEl.textContent = '워크플로우를 만들지 못했어요.';
+    return null;
+  }
+}
+
+function showBuiltWorkflow(workflow){
+  const panel = document.getElementById('builder-preview-panel');
+  document.getElementById('builder-preview').value = JSON.stringify(workflow, null, 2);
+  panel.classList.remove('collapsed');
+  panel.querySelector('.collapse-btn').setAttribute('aria-expanded', 'true');
+}
+
+function builtWorkflowFilename(){
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+  return `built_workflow_${stamp}.json`;
+}
+
+document.getElementById('builder-preview-copy-slot')
+  .appendChild(createCopyButton(() => document.getElementById('builder-preview').value.trim()));
+document.getElementById('builder-refresh-models-btn').addEventListener('click', () => initBuilderTab(true));
+document.getElementById('builder-add-lora-btn').addEventListener('click', builderAddLoraRow);
+document.getElementById('builder-hires').addEventListener('change', (e) => {
+  document.getElementById('builder-hires-fields').hidden = !e.target.checked;
+});
+
+document.getElementById('builder-preview-btn').addEventListener('click', async () => {
+  const workflow = await requestBuiltWorkflow();
+  if(!workflow) return;
+  showBuiltWorkflow(workflow);
+  document.getElementById('builder-notice').textContent = `노드 ${Object.keys(workflow).length}개짜리 워크플로우를 만들었어요.`;
+});
+
+document.getElementById('builder-download-btn').addEventListener('click', async () => {
+  const workflow = await requestBuiltWorkflow();
+  if(!workflow) return;
+  showBuiltWorkflow(workflow);
+  const blob = new Blob([JSON.stringify(workflow, null, 2)], { type: 'application/json' });
+  triggerBlobDownload(blob, builtWorkflowFilename());
+});
+
+// 만든 워크플로우를 "작업 관리" 탭의 워크플로우 슬롯에 파일처럼 채워 넣는다 —
+// setWorkflowFile을 그대로 쓰므로 호환성 검사(checkWorkflowCompatibility)도 함께 걸린다.
+document.getElementById('builder-send-btn').addEventListener('click', async () => {
+  const workflow = await requestBuiltWorkflow();
+  if(!workflow) return;
+  showBuiltWorkflow(workflow);
+  const text = JSON.stringify(workflow, null, 2);
+  const filename = builtWorkflowFilename();
+  setWorkflowFile(new File([text], filename, { type: 'application/json' }));
+  document.querySelector('.tab-btn[data-tab="jobs"]').click();
+  document.getElementById('load-notice').textContent = `만든 워크플로우(${filename})를 채웠어요 — 템플릿/옵션을 확인하고 "추가"를 누르세요.`;
+  document.getElementById('workflow-slot').scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
 
 fetchTemplates();
 fetchJobs();

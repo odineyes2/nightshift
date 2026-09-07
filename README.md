@@ -236,6 +236,28 @@ ComfyUI의 `GET /object_info`는 그 서버에 설치된 **모든 노드 타입*
 캐싱합니다(`?refresh=true`로 강제 갱신). ComfyUI가 꺼져 있으면 설치 목록을 알 수 없으므로 검사·검증을 건너뛰고
 그대로 통과시킵니다 — 이 앱은 ComfyUI가 안 떠 있는 동안에도 큐에 미리 쌓아두는 걸 정상 동작으로 봅니다.
 
+### 워크플로우 빌더 탭 (`workflow_builder.py`)
+
+워크플로우 JSON은 결국 "노드 id → `{class_type, inputs}`" 맵일 뿐이라, 꼭 ComfyUI에서 직접 만들어 export한 파일이어야 할
+이유가 없습니다. **"🧩 워크플로우"** 탭에서는 설치된 모델 목록으로 표준 t2i 파이프라인을 폼으로 조립합니다.
+
+```
+CheckpointLoaderSimple → LoraLoader 체인(0개 이상) → CLIPTextEncode 긍정/부정
+  → EmptyLatentImage → KSampler → (선택) LatentUpscaleBy → KSampler 2차 패스(hires-fix)
+  → VAEDecode → SaveImage
+```
+
+- 고르는 값: 체크포인트, LoRA(여러 개 + 강도), 긍정/부정 프롬프트, 너비·높이·배치, 스텝·CFG·샘플러·스케줄러,
+  hires-fix(배율/denoise/스텝). 체크포인트·LoRA·샘플러·스케줄러 드롭다운은 모두 연결된 ComfyUI의 실제 목록에서 옵니다.
+- **"📤 작업 관리로 보내기"** 를 누르면 만들어진 JSON이 "작업 관리" 탭의 워크플로우 슬롯에 파일처럼 채워집니다. 그 뒤는
+  **업로드한 파일과 완전히 같은 경로**(호환성 검사 → `POST /api/upload` → 큐 → 템플릿 스크립트 실행)를 탑니다 — 빌더는
+  큐에 직접 넣지 않으므로 기존 동작에 영향이 없고, 업로드 방식도 그대로 남아 있습니다. "👁 미리보기"로 JSON을 확인하거나
+  "⬇ 다운로드"로 파일로 받아 ComfyUI에서 직접 열어볼 수도 있습니다.
+- 노드 제목(`_meta.title`)은 템플릿 스크립트의 주입 규칙에 맞춰 붙입니다(`main_prompt`/`KSampler`/`Empty Latent Image`/
+  `Save Image`) — 그래서 만든 워크플로우에도 시드·프롬프트·해상도·체크포인트·LoRA 주입이 그대로 걸립니다. hires-fix의
+  업스케일 노드 제목에는 일부러 "latent"를 넣지 않습니다(해상도 주입이 `EmptyLatentImage` 대신 그 노드를 집으면 안 되니까).
+- ComfyUI가 꺼져 있으면 드롭다운이 비어 "연결 안 됨"으로 표시되고, 만들기를 시도하면 체크포인트가 없다는 안내가 나옵니다.
+
 ### 스크립트 템플릿 등록하기 (`templates/`)
 
 반복해서 쓰는 실행 로직은 `templates/` 아래에 스크립트 파일로 두고 `templates/manifest.json`에 등록하면
@@ -431,6 +453,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
 | `GET` | `/api/comfy-status` | 감지된 ComfyUI 주소(`url`)와 연결 가능 여부(`connected`)를 조회. 매 호출마다 실시간으로 재확인함 |
 | `GET` | `/api/comfy-object-info?refresh=false` | 지금 연결된 ComfyUI에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
+| `POST` | `/api/build-workflow` | 요청 본문의 스펙(`checkpoint`, `loras: [{name, strength_model, strength_clip}]`, `positive`, `negative`, `width`, `height`, `batch_size`, `seed`, `steps`, `cfg`, `sampler_name`, `scheduler`, `vae`, `hires: {enabled, scale_by, denoise, steps}`)으로 ComfyUI API 형식 워크플로우를 조립해 `{"workflow": {...}}`로 반환(`workflow_builder.py`). ComfyUI가 떠 있으면 고른 모델/샘플러가 실제로 설치·지원되는지 먼저 검증하고 아니면 400, 꺼져 있으면 검증을 건너뜀. 체크포인트나 긍정 프롬프트가 비어 있으면 400. 큐에 넣지는 않음 — 만들어진 JSON을 화면이 워크플로우 슬롯에 채워 기존 업로드 경로를 타게 함 |
 | `POST` | `/api/validate-workflow` | 요청 본문에 워크플로우 JSON(또는 `{"workflow": {...}}`)을 담아 보내면 지금 연결된 ComfyUI 기준으로 검사해서 `{"connected", "ok", "missing_nodes": [노드 타입...], "missing_values": [{"node_id", "class_type", "field", "value"}...], "checked_nodes"}` 반환. 이 서버에 없는 노드와, 목록에서 고르는 입력(`ckpt_name`/`lora_name`/`sampler_name` 등)에 없는 값을 짚어줌. ComfyUI가 안 떠 있으면 `connected: false`(= "문제 없음"이 아니라 "확인 못 함"). JSON이 아니거나 노드 맵 형식이 아니면 400 |
 | `GET` | `/api/assets?kind=pose` | `kind`(`pose`/`depth`/`lineart`, 기본 `pose`)가 가리키는 종류의 루트 아래 char_no별 참조 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"char_nos": [{"name": char_no, "pose_sets": [{"name", "count"}, ...]}, ...]}`로 반환(응답 키는 하위호환으로 `kind`와 무관하게 항상 `"pose_sets"`). 업로드 폼의 "인물 수"/"참조 세트" 캐스케이딩 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함. 알 수 없는 `kind`는 400 |
 | `POST` | `/api/assets/import-from-output` | 출력 폴더의 결과 이미지를 참조 세트에 사본으로 추가(원본은 그대로 둠) — 갤러리의 "참조 세트로 보내기". 요청 본문 `{"names": [파일명...], "kind": "pose", "char_no": "1", "set_name": "새_세트"}` (`kind`는 `pose`/`depth`/`lineart`, 없으면 `"pose"`). 존재하지 않는 char_no/세트 이름은 그 자리에서 새로 만듦. 응답 `{"added": N, "skipped": [{"name", "reason"}, ...]}` — 그 사이 지워진 이미지 등은 건너뛰고 이유를 담아 반환 |
