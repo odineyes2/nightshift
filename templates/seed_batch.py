@@ -24,6 +24,16 @@ CSV 입력과 프롬프트 주입 없이 시드만 바꾸는 가장 단순한 �
     곳에서 참조) 링크는 그대로 두고 연결된 노드의 값을 갱신한다(set_linked_value
     참고) — 같은 노드를 참조하는 다른 곳에도 일관되게 반영되게 하기 위함이다.
 
+EmptyLatentImage 노드가 여러 개인 워크플로우:
+    해상도 프리셋을 바꿔가며 테스트하다 보면 EmptyLatentImage 노드가 여러 개
+    남아있고 그 중 하나만 실제로 KSampler에 배선돼 있는 경우가 있다(예: 다른
+    비율을 테스트하려고 만든 노드가 배선만 안 된 채 남음). 이런 경우
+    LATENT_NODE_TITLE로 제목 매칭이 안 되면, 아무 EmptyLatentImage나 고르지
+    않고 실제로 다른 노드의 입력에 연결된(=워크플로우 실행에 쓰이는) 노드를
+    우선으로 고른다(find_node의 prefer_connected, batch_size 기본값 계산에도
+    똑같이 적용됨) — 안 그러면 연결 안 된 노드에 값을 써봤자 실제 생성 결과에는
+    반영되지 않는다.
+
 환경변수:
     WORKFLOW_PATH   (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
     SEED_COUNT      (필수) 반복할 시드 개수 (nightshift가 템플릿 옵션 "seed_count"로 주입)
@@ -91,9 +101,27 @@ def load_workflow(path):
         return json.load(f)
 
 
-def find_node(workflow, title_substring=None, class_types=()):
+def connected_node_ids(workflow):
+    """다른 노드의 입력 링크로 실제 연결되어 있는(=출력이 쓰이고 있는) 노드 id 집합.
+    워크플로우를 손으로 편집하다 보면 같은 class_type의 노드가 여럿 남아있는데
+    그 중 하나만 실제로 연결돼 있는 경우가 흔해서(예: 해상도 프리셋을 바꿔보려고
+    EmptyLatentImage를 여러 개 만들어두고 하나만 배선), class_type만으로 노드를
+    고를 때 이 정보로 진짜 쓰이는 노드를 가려낸다."""
+    ids = set()
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        for value in node.get("inputs", {}).values():
+            if isinstance(value, list) and len(value) == 2:
+                ids.add(str(value[0]))
+    return ids
+
+
+def find_node(workflow, title_substring=None, class_types=(), prefer_connected=False):
     title_substring = (title_substring or "").lower()
+    connected = connected_node_ids(workflow) if (class_types and prefer_connected) else None
     fallback = None
+    fallback_connected = None
     for node_id, node in workflow.items():
         if not isinstance(node, dict):
             continue
@@ -101,8 +129,14 @@ def find_node(workflow, title_substring=None, class_types=()):
         class_type = node.get("class_type", "")
         if title_substring and title_substring in meta_title:
             return node_id, node
-        if class_types and class_type in class_types and fallback is None:
-            fallback = (node_id, node)
+        if class_types and class_type in class_types:
+            if connected is not None and node_id in connected:
+                if fallback_connected is None:
+                    fallback_connected = (node_id, node)
+            elif fallback is None:
+                fallback = (node_id, node)
+    if fallback_connected is not None:
+        return fallback_connected
     return fallback if fallback else (None, None)
 
 
@@ -205,6 +239,7 @@ def apply_resolution(workflow, width, height):
         workflow,
         title_substring=env("LATENT_NODE_TITLE", "latent"),
         class_types=("EmptyLatentImage",),
+        prefer_connected=True,
     )
     if node is None:
         print("[seed_batch] 경고: 해상도를 넣을 노드를 찾지 못했습니다 (EmptyLatentImage 없음)", file=sys.stderr)
@@ -214,7 +249,7 @@ def apply_resolution(workflow, width, height):
 
 
 def get_default_batch_size(workflow):
-    node_id, node = find_node(workflow, class_types=("EmptyLatentImage",))
+    node_id, node = find_node(workflow, class_types=("EmptyLatentImage",), prefer_connected=True)
     if node is None:
         return 1
     try:
