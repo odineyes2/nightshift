@@ -242,6 +242,14 @@ job_queue: "queue.Queue[str]" = queue.Queue()
 jobs: dict[str, dict] = {}
 lock = threading.Lock()
 
+# 자동 실행 모드 — 켜져 있는 동안에는 POST /api/upload로 새로 추가되는 작업도
+# pending에 머무르지 않고 바로 큐에 들어간다("▶ 시작"/"⏸ 정지" 토글). 이미
+# 큐에 들어갔거나 실행 중인 작업은 정지해도 그대로 끝까지 진행된다 — 정지는
+# "새 작업을 더 안 받는다"는 뜻이지, 진행 중인 걸 멈추는 게 아니다. 서버가
+# 재시작되면 큐에 남아있던 작업이 interrupted로 표시되는 것과 같은 이유로
+# 이 값도 초기화된다(재시작 후 자동으로 다시 돌기 시작하면 안 되므로).
+auto_run = False
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -953,13 +961,26 @@ async def upload(request: Request):
             "deleted": False,
             "deleted_at": None,
         }
+        # 자동 실행 모드("▶ 시작"이 켜져 있는 동안)면 대기 목록에 머무르지 않고
+        # 바로 실행 큐에 넣는다 — 그래야 켜놓은 동안 새로 추가하는 작업이 계속
+        # 이어서 처리된다.
+        auto_queued = auto_run
+        if auto_queued:
+            jobs[job_id]["status"] = "queued"
     save_state()
+    if auto_queued:
+        job_queue.put(job_id)
     return jobs[job_id]
 
 
 @app.post("/api/queue/start")
 def start_queue():
+    # 자동 실행 모드를 켠다 — 지금 대기 중인 작업을 전부 큐에 넣는 것은 물론,
+    # 켜져 있는 동안 POST /api/upload로 새로 추가되는 작업도 (auto_run 체크를
+    # 통해) 계속 이어서 큐에 들어간다. "⏸ 정지"를 누르기 전까지는 계속 켜져 있다.
+    global auto_run
     with lock:
+        auto_run = True
         # deleted도 함께 확인해야 한다 — delete_job()은 소프트 삭제라 status를
         # "pending"으로 그대로 둔 채 deleted=True만 표시하므로, 이 필터가 없으면
         # 삭제된(그래서 화면에는 안 보이는) 작업이 여기서 다시 주워져 실행 큐에
@@ -973,7 +994,18 @@ def start_queue():
     save_state()
     for job in pending:
         job_queue.put(job["id"])
-    return {"started": len(pending)}
+    return {"running": True, "started": len(pending)}
+
+
+@app.post("/api/queue/stop")
+def stop_queue():
+    # 자동 실행 모드를 끈다 — 이미 큐에 들어갔거나 실행 중인 작업은 그대로 끝까지
+    # 진행된다(중간에 멈추지 않음). 이후 POST /api/upload로 추가되는 작업은 다시
+    # "▶ 시작"을 누르기 전까지 pending 상태로 대기 목록에만 쌓인다.
+    global auto_run
+    with lock:
+        auto_run = False
+    return {"running": False}
 
 
 @app.post("/api/jobs/clear-completed")
@@ -1001,8 +1033,9 @@ def list_jobs():
             key=lambda j: j["queued_at"],
             reverse=True,
         )
+        running = auto_run
     pending_ids = list(job_queue.queue)
-    return {"jobs": ordered, "pending_count": len(pending_ids)}
+    return {"jobs": ordered, "pending_count": len(pending_ids), "running": running}
 
 
 @app.get("/api/jobs/deleted")
