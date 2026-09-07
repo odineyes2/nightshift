@@ -238,7 +238,9 @@
     overflow:hidden;
     text-overflow:ellipsis;
     white-space:nowrap;
+    cursor:pointer;
   }
+  .recent-workflow-name:hover{ color:var(--queued); text-decoration:underline; }
   .recent-workflow-time{
     font-family:var(--mono);
     font-size:11px;
@@ -2772,15 +2774,17 @@ function setupRecentFilePicker({
       const whenText = `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
       return `
         <div class="recent-workflow-item">
-          <span class="recent-workflow-name" title="${escapeHtml(w.filename)}">${escapeHtml(w.filename)}</span>
+          <span class="recent-workflow-name" data-recent-id="${w.id}" title="${escapeHtml(w.filename)} (눌러서 선택)">${escapeHtml(w.filename)}</span>
           <span class="recent-workflow-time">${whenText}</span>
           <button class="load-btn" data-recent-id="${w.id}" type="button">선택</button>
           <button class="icon-btn" data-recent-remove-id="${w.id}" type="button" aria-label="목록에서 삭제" title="목록에서 삭제">${TRASH_ICON_SVG}</button>
         </div>`;
     }).join('');
 
-    list.querySelectorAll('[data-recent-id]').forEach(btn => {
-      btn.addEventListener('click', () => select(btn.dataset.recentId));
+    // 파일명(span)과 "선택" 버튼 둘 다 같은 data-recent-id를 갖고 있어서, 둘
+    // 중 어느 걸 눌러도 select()가 불리게 한다(파일명이 넓은 클릭 영역 역할).
+    list.querySelectorAll('[data-recent-id]').forEach(el => {
+      el.addEventListener('click', () => select(el.dataset.recentId));
     });
     list.querySelectorAll('[data-recent-remove-id]').forEach(btn => {
       btn.addEventListener('click', () => remove(btn.dataset.recentRemoveId));
