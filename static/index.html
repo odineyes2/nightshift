@@ -1012,6 +1012,89 @@
   .gallery-item-delete:hover{ background:rgba(var(--failed-rgb),0.85); transform:scale(1.08); }
   .gallery-item.selected{ outline:2px solid var(--queued); outline-offset:-2px; }
 
+  /* "📋 자세히" 보기 — 탐색기 자세히 보기처럼 썸네일은 작게, 파일명/작업/해상도/
+     용량/수정 시각을 열로 나란히 보여준다. 헤더 행과 각 데이터 행이 같은
+     grid-template-columns(.gallery-details-columns)를 써서 열이 맞춰진다.
+     격자 모드의 .gallery-grid/.gallery-group-grid(display:grid, 카드 auto-fill)를
+     세로 목록으로, .gallery-item(정사각형 카드)을 한 줄짜리 행으로 바꿔치기한다 —
+     선택 체크박스/삭제 버튼/전체 클릭 대상 등 나머지 로직(wireGalleryItems 등)은
+     .gallery-item 클래스를 그대로 쓰므로 손댈 필요가 없다. */
+  .gallery-grid.details-mode,
+  .gallery-group-grid.details-mode{
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+  }
+  .gallery-details-columns{
+    display:grid;
+    grid-template-columns: 22px 44px minmax(140px,2.2fr) minmax(110px,1.4fr) 84px 64px 108px 22px;
+    align-items:center;
+    gap:10px;
+  }
+  .gallery-details-header{
+    padding:6px 8px;
+    font-family:var(--mono);
+    font-size:10px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    color:var(--text-dim);
+    border-bottom:1px solid var(--border);
+    margin-bottom:2px;
+  }
+  .gallery-item.details{
+    position:static;
+    aspect-ratio:auto;
+    border-radius:6px;
+    padding:4px 8px;
+    background:transparent;
+    border:1px solid transparent;
+  }
+  .gallery-item.details:hover{ background:rgba(var(--queued-rgb),0.05); }
+  .gallery-item.details.selected{ outline:none; background:rgba(var(--queued-rgb),0.1); border-color:rgba(var(--queued-rgb),0.3); }
+  .gallery-item.details .gallery-item-select{
+    position:static;
+    width:18px; height:18px;
+    background:none;
+  }
+  .gallery-item.details .gallery-item-thumb{
+    width:44px; height:44px;
+    border-radius:5px;
+    overflow:hidden;
+    background:var(--bg);
+    flex-shrink:0;
+  }
+  .gallery-item.details img{
+    width:100%; height:100%;
+    object-fit:cover;
+    display:block;
+  }
+  .gallery-item.details:hover img{ transform:none; }
+  .gallery-details-col{
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--text);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .gallery-details-col.dim,
+  .gallery-details-col.size,
+  .gallery-details-col.mtime{ color:var(--text-dim); }
+  .gallery-item.details .gallery-item-delete{
+    position:static;
+    opacity:0.5;
+    background:none;
+    color:var(--text-dim);
+    width:20px; height:20px;
+  }
+  .gallery-item.details:hover .gallery-item-delete{ opacity:1; color:var(--failed); }
+  .gallery-item.details .gallery-item-delete:hover{ background:rgba(var(--failed-rgb),0.12); transform:none; }
+  @media (max-width:760px){
+    .gallery-details-columns{ grid-template-columns: 22px 40px minmax(100px,2fr) 22px; }
+    .gallery-details-col.job, .gallery-details-col.dim, .gallery-details-col.size, .gallery-details-col.mtime{ display:none; }
+  }
+
   /* ---- Danbooru 프롬프트 조립 탭 ---- */
   .danbooru-prompt-box{
     background:rgba(var(--queued-rgb),0.04);
@@ -1538,6 +1621,10 @@
           <button class="enhance-mode-btn" type="button" data-view="byjob" title="작업별 보기">🗂 작업별</button>
           <button class="enhance-mode-btn" type="button" data-view="bydate" title="날짜별 보기">📅 날짜별</button>
         </div>
+        <div class="enhance-mode" id="gallery-display-toggle">
+          <button class="enhance-mode-btn active" type="button" data-display="grid" title="썸네일 격자로 보기">🖼 격자</button>
+          <button class="enhance-mode-btn" type="button" data-display="details" title="탐색기처럼 파일명·해상도·용량 등 정보 위주로 한 줄씩 보기">📋 자세히</button>
+        </div>
         <button class="load-btn" id="gallery-select-all-btn" type="button" disabled title="전체 선택">☑ 전체선택</button>
         <button class="load-btn" id="gallery-refresh-btn" type="button" title="새로고침">🔄</button>
       </div>
@@ -1904,6 +1991,13 @@ function fmtDateLabel(dateKey){
   const [y, m, d] = dateKey.split('-').map(Number);
   const weekday = WEEKDAY_KO[new Date(y, m - 1, d).getDay()];
   return `${y}.${pad2(m)}.${pad2(d)} (${weekday})`;
+}
+
+// 갤러리 라이트박스/"자세히 보기" 둘 다 쓰는 짧은 날짜+시간 표기("MM/DD HH:MM").
+function fmtGalleryDateTime(iso){
+  if(!iso) return '-';
+  const d = new Date(iso);
+  return `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 function fmtDuration(ms){
@@ -3805,6 +3899,7 @@ let galleryImages = [];
 let lightboxIndex = -1;
 let selectedGalleryNames = new Set();
 let galleryViewMode = 'all'; // 'all' | 'byjob' | 'bydate'
+let galleryDisplayMode = 'grid'; // 'grid' | 'details' — 그룹 방식(galleryViewMode)과는 별개로, 카드/한 줄 목록 중 어떻게 그릴지
 let galleryJobLabels = {}; // job_id -> 사람이 읽을 수 있는 라벨(템플릿명 · 옵션)
 // 현재 화면에 실제로 그려진 순서 — 전체 보기는 galleryImages와 같고, 작업별 보기는
 // 그룹별로 재배열된 순서다. 라이트박스의 이전/다음 탐색은 항상 이 배열을 따른다.
@@ -3980,11 +4075,49 @@ async function fetchGalleryJobLabels(){
   return labels;
 }
 
-function galleryItemHtml(img, index){
+// "📋 자세히" 보기 한 줄의 헤더/행 — 둘 다 같은 grid-template-columns
+// (.gallery-details-columns, CSS)를 써서 열이 맞춰진다.
+function galleryDetailsHeaderHtml(){
   return `
-    <div class="gallery-item${selectedGalleryNames.has(img.name) ? ' selected' : ''}" data-index="${index}">
+    <div class="gallery-details-columns gallery-details-header">
+      <span></span><span></span>
+      <span>파일명</span><span>작업</span><span>해상도</span><span>용량</span><span>수정 시각</span>
+      <span></span>
+    </div>
+  `;
+}
+
+function galleryDetailsJobLabel(img){
+  if(!img.job_id) return '-';
+  return galleryJobLabels[img.job_id] || `알 수 없는 작업 (${img.job_id})`;
+}
+
+function galleryItemHtml(img, index){
+  const selected = selectedGalleryNames.has(img.name);
+  if(galleryDisplayMode === 'details'){
+    const dims = (img.width && img.height) ? `${img.width}×${img.height}` : '-';
+    const jobLabel = galleryDetailsJobLabel(img);
+    return `
+      <div class="gallery-item details gallery-details-columns${selected ? ' selected' : ''}" data-index="${index}">
+        <label class="gallery-item-select" title="선택">
+          <input type="checkbox" ${selected ? 'checked' : ''}>
+        </label>
+        <div class="gallery-item-thumb">
+          <img src="/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=80" alt="${escapeHtml(img.name)}" loading="lazy">
+        </div>
+        <div class="gallery-details-col name" title="${escapeHtml(img.name)}">${escapeHtml(img.name)}</div>
+        <div class="gallery-details-col job" title="${escapeHtml(jobLabel)}">${escapeHtml(jobLabel)}</div>
+        <div class="gallery-details-col dim">${dims}</div>
+        <div class="gallery-details-col size">${fmtBytes(img.size)}</div>
+        <div class="gallery-details-col mtime">${fmtGalleryDateTime(img.mtime)}</div>
+        <button class="gallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="gallery-item${selected ? ' selected' : ''}" data-index="${index}">
       <label class="gallery-item-select" title="선택">
-        <input type="checkbox" ${selectedGalleryNames.has(img.name) ? 'checked' : ''}>
+        <input type="checkbox" ${selected ? 'checked' : ''}>
       </label>
       <button class="gallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
       <img src="/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=300" alt="${escapeHtml(img.name)}" loading="lazy">
@@ -3998,7 +4131,10 @@ function wireGalleryItems(){
     const index = Number(el.dataset.index);
     const name = displayedGalleryImages[index].name;
 
-    el.querySelector('img').addEventListener('click', () => openLightbox(index));
+    // 격자 모드는 썸네일 이미지만 눌러야 열리고(체크박스/삭제 버튼과 겹치지 않게),
+    // 자세히 보기는 탐색기 행처럼 줄 전체 아무 데나 눌러도 열린다.
+    const openTarget = el.classList.contains('details') ? el : el.querySelector('img');
+    openTarget.addEventListener('click', () => openLightbox(index));
 
     const checkbox = el.querySelector('.gallery-item-select input');
     checkbox.addEventListener('click', (e) => e.stopPropagation());
@@ -4082,6 +4218,13 @@ function galleryGroupLabelFor(key){
 function renderGalleryGrid(){
   const grid = document.getElementById('gallery-grid');
   displayedGalleryImages = [];
+  const isDetails = galleryDisplayMode === 'details';
+  grid.classList.toggle('details-mode', isDetails);
+  // 자세히 보기일 때만 맨 위에 열 제목 행을 한 번 붙인다 — 격자/작업별/날짜별
+  // 그룹 어느 조합이든 그룹들보다 위, #gallery-grid 바로 아래 한 곳에만 둔다
+  // (그룹마다 반복 안 함). .gallery-item 클래스가 없어서 선택/삭제 로직은
+  // 이 행을 그냥 지나친다.
+  const headerHtml = isDetails ? galleryDetailsHeaderHtml() : '';
 
   if(galleryViewMode === 'byjob' || galleryViewMode === 'bydate'){
     const groups = new Map();
@@ -4090,7 +4233,7 @@ function renderGalleryGrid(){
       if(!groups.has(key)) groups.set(key, []);
       groups.get(key).push(img);
     }
-    let html = '';
+    let html = headerHtml;
     for(const [key, groupImages] of groups){
       const label = galleryGroupLabelFor(key);
       const itemsHtml = groupImages.map(img => {
@@ -4106,14 +4249,14 @@ function renderGalleryGrid(){
               ${escapeHtml(label)} · ${groupImages.length}장
             </label>
           </div>
-          <div class="gallery-group-grid">${itemsHtml}</div>
+          <div class="gallery-group-grid${isDetails ? ' details-mode' : ''}">${itemsHtml}</div>
         </div>
       `;
     }
     grid.innerHTML = html;
   }else{
     displayedGalleryImages = galleryImages;
-    grid.innerHTML = galleryImages.map((img, i) => galleryItemHtml(img, i)).join('');
+    grid.innerHTML = headerHtml + galleryImages.map((img, i) => galleryItemHtml(img, i)).join('');
   }
 
   wireGalleryItems();
@@ -4125,6 +4268,14 @@ document.querySelectorAll('#gallery-view-toggle .enhance-mode-btn').forEach(btn 
     if(btn.dataset.view === galleryViewMode) return;
     galleryViewMode = btn.dataset.view;
     document.querySelectorAll('#gallery-view-toggle .enhance-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.view === galleryViewMode));
+    if(galleryImages.length > 0) renderGalleryGrid();
+  });
+});
+document.querySelectorAll('#gallery-display-toggle .enhance-mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if(btn.dataset.display === galleryDisplayMode) return;
+    galleryDisplayMode = btn.dataset.display;
+    document.querySelectorAll('#gallery-display-toggle .enhance-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.display === galleryDisplayMode));
     if(galleryImages.length > 0) renderGalleryGrid();
   });
 });
@@ -4339,10 +4490,8 @@ function renderLightbox(){
   const imgEl = document.getElementById('gallery-lightbox-img');
   imgEl.src = `/api/output-images/${encodeURIComponent(img.name)}`;
   imgEl.alt = img.name;
-  const when = new Date(img.mtime);
-  const whenText = `${pad2(when.getMonth() + 1)}/${pad2(when.getDate())} ${pad2(when.getHours())}:${pad2(when.getMinutes())}`;
   document.getElementById('gallery-lightbox-info').textContent =
-    `${img.name} · ${fmtBytes(img.size)} · ${whenText} (${lightboxIndex + 1}/${displayedGalleryImages.length})`;
+    `${img.name} · ${fmtBytes(img.size)} · ${fmtGalleryDateTime(img.mtime)} (${lightboxIndex + 1}/${displayedGalleryImages.length})`;
   document.getElementById('gallery-prev').disabled = lightboxIndex <= 0;
   document.getElementById('gallery-next').disabled = lightboxIndex >= displayedGalleryImages.length - 1;
 }
