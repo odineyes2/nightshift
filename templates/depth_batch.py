@@ -92,6 +92,16 @@ ComfyUI로의 이미지 주입 방식:
                        (보조 참조로 lineart를 쓸 때만 의미가 있음)
     NIGHTSHIFT_OUTPUT_DIR  ComfyUI가 이미지를 저장하는 폴더 (기본 /workspace/output).
                        재현성 기록용 jsonl(depth_batch_manifest.jsonl)을 여기 같이 남긴다
+    CHECKPOINT         체크포인트 파일명 (nightshift가 템플릿 옵션 "checkpoint"로 주입, 기본 빈 값 —
+                       비워두면 워크플로우에 들어있는 체크포인트를 그대로 씀). 화면의 드롭다운은
+                       ComfyUI에 실제로 설치된 목록에서만 고르게 돼 있다.
+    LORA_NAME          LoRA 파일명 (템플릿 옵션 "lora_name", 기본 빈 값 — 비워두면 그대로 씀).
+                       LoRA 로더가 여러 개면 그중 하나에만 적용된다(apply_lora 참고).
+    LORA_STRENGTH      LoRA 강도 strength_model (템플릿 옵션 "lora_strength", 기본 빈 값 —
+                       비워두면 그대로 씀). strength_clip은 건드리지 않는다.
+    CHECKPOINT_NODE_TITLE  체크포인트를 주입할 노드의 _meta.title 부분일치
+                       (기본 없음 — 실제로 배선된 로더 노드를 자동으로 고름)
+    LORA_NODE_TITLE    LoRA를 주입할 노드의 _meta.title 부분일치 (기본 없음)
     COMFY_URL          ComfyUI 서버 주소 (기본 http://127.0.0.1:8188)
     JOB_ID             nightshift가 주입하는 이 작업의 id (진행 상황 보고용, 없으면 보고 생략)
     NIGHTSHIFT_URL     nightshift 자신의 주소 (진행 상황 보고용, 기본 http://127.0.0.1:8000)
@@ -433,6 +443,89 @@ def apply_main_prompt(workflow, main_prompt):
     node.setdefault("inputs", {})[field] = main_prompt
 
 
+def find_loader_node(workflow, title_substring, class_types):
+    """모델 로더 노드 찾기 — class_types에 속한 노드만 후보로 보고, 그중에서
+    (1) 제목이 맞는 노드 → (2) 실제로 배선된 노드 → (3) 남은 아무 노드 순으로 고른다.
+
+    find_node와 달리 제목이 맞아도 종류가 다르면 후보로 치지 않는다. find_node는
+    제목만 맞으면 class_type과 무관하게 그 노드를 돌려주는데, 그러면 예를 들어
+    LORA_NODE_TITLE="quality"가 "quality_prompt"라는 텍스트 노드에 걸려서 그 노드에
+    lora_name을 써넣는 사고가 난다(모델 이름 주입은 엉뚱한 노드에 쓰면 워크플로우가
+    조용히 망가지므로 제목보다 종류를 우선한다)."""
+    title_substring = (title_substring or "").lower()
+    connected = connected_node_ids(workflow)
+    titled = None
+    first_connected = None
+    first_any = None
+    for node_id, node in workflow.items():
+        if not isinstance(node, dict) or node.get("class_type") not in class_types:
+            continue
+        meta_title = str(node.get("_meta", {}).get("title", "")).lower()
+        if title_substring and title_substring in meta_title and titled is None:
+            titled = (node_id, node)
+        if node_id in connected:
+            if first_connected is None:
+                first_connected = (node_id, node)
+        elif first_any is None:
+            first_any = (node_id, node)
+    return titled or first_connected or first_any or (None, None)
+
+
+CHECKPOINT_CLASS_TYPES = ("CheckpointLoaderSimple", "CheckpointLoader", "unCLIPCheckpointLoader")
+LORA_CLASS_TYPES = ("LoraLoader", "LoraLoaderModelOnly")
+
+
+def apply_checkpoint(workflow):
+    """CHECKPOINT가 비어 있으면(기본) 워크플로우에 이미 들어있는 체크포인트를 그대로
+    쓰고, 값이 있으면 체크포인트 로더의 ckpt_name을 덮어쓴다. 화면의 드롭다운이
+    ComfyUI에 정말 설치돼 있는 목록에서만 고르게 해주므로(app.py의 comfy_model 옵션),
+    여기서는 이름을 다시 검증하지 않는다."""
+    ckpt = (env("CHECKPOINT", "") or "").strip()
+    if not ckpt:
+        return
+    node_id, node = find_loader_node(workflow, env("CHECKPOINT_NODE_TITLE", ""), CHECKPOINT_CLASS_TYPES)
+    if node is None:
+        print("[depth_batch] 경고: 체크포인트를 넣을 노드를 찾지 못했습니다 (CheckpointLoader 없음)", file=sys.stderr)
+        return
+    set_linked_value(workflow, node, "ckpt_name", ckpt)
+
+
+def apply_lora(workflow):
+    """LORA_NAME/LORA_STRENGTH를 LoRA 로더 노드에 주입한다(둘 다 비어 있으면 아무것도
+    안 함). LoRA 로더가 여러 개 체인으로 걸려 있으면 그중 하나만 고를 수밖에 없어서,
+    제목이 맞는 노드(LORA_NODE_TITLE)를 우선 쓰고 없으면 실제로 배선된 것 중 파일에
+    먼저 나오는 노드를 쓴다 — 어느 노드를 바꿨는지 로그로 알려주므로, 다른 노드를
+    바꾸고 싶으면 LORA_NODE_TITLE로 지정하면 된다. strength_clip은 건드리지 않는다
+    (모델 강도와 클립 강도를 다르게 쓰는 워크플로우가 흔하다)."""
+    lora = (env("LORA_NAME", "") or "").strip()
+    strength = (env("LORA_STRENGTH", "") or "").strip()
+    if not lora and not strength:
+        return
+    node_id, node = find_loader_node(workflow, env("LORA_NODE_TITLE", ""), LORA_CLASS_TYPES)
+    if node is None:
+        print("[depth_batch] 경고: LoRA를 넣을 노드를 찾지 못했습니다 (LoraLoader 없음)", file=sys.stderr)
+        return
+    total = sum(
+        1 for n in workflow.values()
+        if isinstance(n, dict) and n.get("class_type") in LORA_CLASS_TYPES
+    )
+    if total > 1:
+        print(
+            f"[depth_batch] 안내: LoRA 로더가 {total}개라 그중 노드 {node_id}에만 적용했습니다 "
+            "(다른 노드에 넣으려면 LORA_NODE_TITLE로 지정하세요).",
+            file=sys.stderr,
+        )
+    if lora:
+        set_linked_value(workflow, node, "lora_name", lora)
+    if strength:
+        try:
+            strength_value = float(strength)
+        except ValueError:
+            print(f"[depth_batch] 경고: LORA_STRENGTH 값 '{strength}'을 숫자로 변환하지 못했습니다.", file=sys.stderr)
+        else:
+            set_linked_value(workflow, node, "strength_model", strength_value)
+
+
 def apply_resolution(workflow, width, height):
     width = (width or "").strip()
     height = (height or "").strip()
@@ -548,6 +641,8 @@ def run_once(base_workflow, comfy_url, seed, char_no, depth_path, index, job_id,
              secondary_kind=None, secondary_path=None):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
+    apply_checkpoint(workflow)
+    apply_lora(workflow)
     apply_main_prompt(workflow, main_prompt)
     apply_resolution(workflow, width, height)
     apply_depth_image(workflow, comfy_url, depth_path)

@@ -10,7 +10,10 @@
       { "name": "main_prompt", "label": "메인 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 업로드한 워크플로우의 프롬프트를 그대로 사용해요" },
       { "name": "danbooru_seed_prompts", "label": "시드별 Danbooru 프롬프트 (내부용)", "type": "textarea", "default": "" },
       { "name": "width", "label": "너비(width)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
-      { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
+      { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
+      { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
     ]
   },
   {
@@ -19,7 +22,10 @@
     "script_filename": "csv_batch.py",
     "requires_csv": true,
     "options": [
-      { "name": "seeds_per_case", "label": "케이스당 시드 개수", "type": "number", "default": 1 }
+      { "name": "seeds_per_case", "label": "케이스당 시드 개수", "type": "number", "default": 1 },
+      { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
     ]
   },
   {
@@ -37,7 +43,10 @@
       { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
       { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "depth", "lineart"], "default": "none" },
       { "name": "secondary_char_no", "label": "보조 참조 인물 수", "type": "char_no", "kind_from": "secondary_kind", "default": "1" },
-      { "name": "secondary_set", "label": "보조 참조 세트", "type": "asset_folder", "kind_from": "secondary_kind", "char_no_option": "secondary_char_no", "default": "" }
+      { "name": "secondary_set", "label": "보조 참조 세트", "type": "asset_folder", "kind_from": "secondary_kind", "char_no_option": "secondary_char_no", "default": "" },
+      { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
     ]
   },
   {
@@ -55,7 +64,10 @@
       { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
       { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "lineart"], "default": "none" },
       { "name": "secondary_char_no", "label": "보조 참조 인물 수", "type": "char_no", "kind_from": "secondary_kind", "default": "1" },
-      { "name": "secondary_set", "label": "보조 참조 세트", "type": "asset_folder", "kind_from": "secondary_kind", "char_no_option": "secondary_char_no", "default": "" }
+      { "name": "secondary_set", "label": "보조 참조 세트", "type": "asset_folder", "kind_from": "secondary_kind", "char_no_option": "secondary_char_no", "default": "" },
+      { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
     ]
   },
   {
@@ -73,7 +85,10 @@
       { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
       { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "depth"], "default": "none" },
       { "name": "secondary_char_no", "label": "보조 참조 인물 수", "type": "char_no", "kind_from": "secondary_kind", "default": "1" },
-      { "name": "secondary_set", "label": "보조 참조 세트", "type": "asset_folder", "kind_from": "secondary_kind", "char_no_option": "secondary_char_no", "default": "" }
+      { "name": "secondary_set", "label": "보조 참조 세트", "type": "asset_folder", "kind_from": "secondary_kind", "char_no_option": "secondary_char_no", "default": "" },
+      { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
     ]
   },
   {
@@ -83,7 +98,10 @@
     "requires_csv": true,
     "options": [
       { "name": "pose_mode", "label": "세트 선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
-      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "depth", "lineart"], "default": "none" }
+      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "depth", "lineart"], "default": "none" },
+      { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
     ]
   },
   {
@@ -93,7 +111,10 @@
     "requires_csv": true,
     "options": [
       { "name": "depth_mode", "label": "세트 선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
-      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "lineart"], "default": "none" }
+      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "lineart"], "default": "none" },
+      { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
     ]
   },
   {
@@ -103,7 +124,10 @@
     "requires_csv": true,
     "options": [
       { "name": "lineart_mode", "label": "세트 선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
-      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "depth"], "default": "none" }
+      { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "depth"], "default": "none" },
+      { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
     ]
   }
 ]

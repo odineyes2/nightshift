@@ -2580,9 +2580,37 @@ function buildResolutionControl(widthOpt, heightOpt){
   return wrap;
 }
 
+// ComfyUI에 실제로 설치된 모델 중에서 고르는 드롭다운(체크포인트/LoRA 등).
+// 선택지는 manifest가 아니라 서버가 ComfyUI에서 받아온 목록(comfyObjectInfoCache)에서
+// 온다 — renderOptionFields가 이 타입의 옵션이 있으면 그리기 전에 미리 받아두므로
+// 여기서는 캐시를 그대로 읽어 쓴다. 첫 항목은 항상 "그대로" — 비워두면 워크플로우에
+// 이미 들어있는 모델을 안 건드린다는 뜻이라, 지금까지처럼 업로드한 워크플로우만으로
+// 돌리는 방식이 기본값 그대로 유지된다.
+function buildComfyModelControl(opt){
+  const select = document.createElement('select');
+  select.className = 'option-input';
+  select.dataset.name = opt.name;
+
+  const info = comfyObjectInfoCache;
+  const installed = (info && info.connected && (info.models[opt.model_kind] || [])) || [];
+  const choices = [{ value: '', label: '워크플로우 값 그대로', disabled: false }];
+  for(const name of installed){
+    choices.push({ value: name, label: name, disabled: false });
+  }
+  populateSelectOptions(select, choices, '(선택지 없음)');
+  if(!info || !info.connected){
+    select.title = 'ComfyUI에 연결되지 않아 설치된 목록을 가져오지 못했어요 — 워크플로우의 값이 그대로 쓰여요.';
+  }
+  if(opt.default) select.value = opt.default;
+  return select;
+}
+
 function buildOptionControl(opt){
   if(opt.name === 'main_prompt' && opt.type === 'textarea'){
     return buildPromptEnhanceControl(opt);
+  }
+  if(opt.type === 'comfy_model'){
+    return buildComfyModelControl(opt);
   }
   if(opt.type === 'select' || opt.type === 'asset_folder' || opt.type === 'char_no'){
     return buildSelectControl(opt);
@@ -2687,6 +2715,13 @@ async function onTemplateChange(){
   // 서버에 새로 올려둔 포즈 세트도 페이지를 새로고침하지 않고 바로 반영되게 한다.
   const needsAssets = template && (template.options || []).some(o => o.type === 'asset_folder' || o.type === 'char_no');
   if(needsAssets) await fetchAssets();
+  // comfy_model 옵션(체크포인트/LoRA)이 있으면 설치 목록을 먼저 받아둔다 — 그려진
+  // 다음에 비동기로 채우면 "설정 불러오기"가 값을 넣는 시점과 엇갈릴 수 있어서,
+  // 아예 그리기 전에 확보한다. 못 받아와도(ComfyUI 꺼짐 등) 폼은 그대로 그린다.
+  const needsComfyModels = template && (template.options || []).some(o => o.type === 'comfy_model');
+  if(needsComfyModels){
+    try{ await fetchComfyObjectInfo(false); }catch(e){ /* 목록 없이 "그대로"만 고를 수 있게 둔다 */ }
+  }
   renderOptionFields(template);
   uploadError.textContent = '';
 }
