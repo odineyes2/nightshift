@@ -1491,11 +1491,23 @@ def list_output_images_meta() -> list[dict]:
         # "작업별 보기"가 이 값으로 묶는다. 하위 폴더 없이 바로 밑에 있는(예전 방식
         # 또는 JOB_ID 없이 실행된) 이미지는 job_id가 없다.
         job_id = rel.parts[0] if len(rel.parts) > 1 else None
+        # 갤러리 "자세히 보기"에 해상도를 보여주려고 읽는다 — PIL은 헤더만 읽고
+        # 픽셀 데이터는 지연 로드하므로(.load()를 안 부르면) 전체 디코드보다 훨씬
+        # 가볍다. 손상된 파일이어도 목록 자체는 계속 보여야 하니 실패하면 조용히
+        # None으로 둔다.
+        width = height = None
+        try:
+            with Image.open(f) as img:
+                width, height = img.size
+        except Exception:
+            pass
         items.append({
             "name": rel.as_posix(),
             "job_id": job_id,
             "size": stat.st_size,
             "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            "width": width,
+            "height": height,
         })
     items.sort(key=lambda item: item["mtime"], reverse=True)
     return items
