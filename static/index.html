@@ -464,6 +464,21 @@
     flex-shrink:0;
   }
   @keyframes enhance-spin{ to{ transform:rotate(360deg); } }
+  /* .enhance-spinner는 어두운 배경(.enhance-btn) 전용으로 흰색 고정이라, .load-btn
+     같은 밝은 배경 버튼에 쓰면 안 보인다 — currentColor를 써서 버튼 글자색을
+     그대로 따라가는 범용 스피너. 회전+다운로드처럼 여러 장을 처리하느라 시간이
+     걸리는 버튼에 "지금 처리 중"임을 보여주는 용도로 쓴다. */
+  .btn-spinner{
+    display:inline-block;
+    width:11px; height:11px;
+    border:2px solid currentColor;
+    border-top-color:transparent;
+    border-radius:50%;
+    opacity:0.7;
+    animation: enhance-spin .7s linear infinite;
+    flex-shrink:0;
+    vertical-align:-2px;
+  }
   .enhance-status{
     font-family:var(--mono);
     font-size:10.5px;
@@ -3485,10 +3500,20 @@ async function downloadGalleryImages(names){
 // 판정 없이 무조건) 다운로드한다. 회전은 원본 파일에 영구히 적용되므로(디스크
 // 상의 실제 파일을 덮어씀), 다운로드가 끝난 뒤 갤러리도 다시 받아와서 회전된
 // 썸네일/원본이 바로 반영되게 한다.
+// 여러 장을 고르면 회전(서버가 한 장씩 순차 처리)도 다운로드 준비(zip 압축)도
+// 시간이 걸릴 수 있어서, 버튼을 눌러 회전이 시작된 시점부터 다운로드가 실제로
+// 시작되는 시점까지 버튼 자체에 스피너+안내 문구를 보여준다(회전 중/다운로드
+// 준비 중 두 단계로 문구만 바뀜) — 그동안 버튼은 비활성화해 중복 클릭을 막는다.
 async function rotateThenDownloadGalleryImages(names){
   if(names.length === 0) return;
   const errorEl = document.getElementById('gallery-error');
   errorEl.textContent = '';
+  const btn = document.getElementById('gallery-rotate-download-selected-btn');
+  const originalLabel = btn.innerHTML;
+  const setBusy = (text) => { btn.disabled = true; btn.innerHTML = `<span class="btn-spinner"></span> ${text}`; };
+  const setIdle = () => { btn.disabled = false; btn.innerHTML = originalLabel; };
+
+  setBusy('회전 중…');
   try{
     const res = await fetch('/api/output-images/rotate-selected', {
       method: 'POST',
@@ -3503,9 +3528,17 @@ async function rotateThenDownloadGalleryImages(names){
   }catch(e){
     errorEl.textContent = '회전에 실패했어요.';
     return;
+  }finally{
+    setIdle();
   }
-  await downloadGalleryImages(names);
-  await fetchGalleryImages();
+
+  setBusy('다운로드 준비 중…');
+  try{
+    await downloadGalleryImages(names);
+    await fetchGalleryImages();
+  }finally{
+    setIdle();
+  }
 }
 
 // 활성 작업 + 삭제된 작업(보관 기간 안이면) 전체를 합쳐 돌려준다 — 갤러리가 job_id로
