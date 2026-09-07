@@ -1162,6 +1162,30 @@ async def update_job_csv(job_id: str, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/jobs/{job_id}/retry")
+def retry_job(job_id: str):
+    # 서버가 재시작되면서 queued/running이던 작업이 interrupted로 남았을 때, 처음부터
+    # 새로 등록할 필요 없이 그 자리에서 다시 큐에 올린다. 워크플로우/CSV/옵션은 이미
+    # JOBS_DIR에 남아있는 원래 값을 그대로 재사용한다. auto_run(▶ 시작/⏸ 정지) 상태와
+    # 무관하게 이 버튼은 항상 즉시 큐에 넣는다 — 사용자가 특정 작업을 콕 집어 "지금
+    # 다시 시도"하는 명시적 동작이기 때문이다.
+    with lock:
+        job = jobs.get(job_id)
+        if not job or job.get("deleted"):
+            raise HTTPException(404, "없는 작업이에요.")
+        if job["status"] != "interrupted":
+            raise HTTPException(400, "서버 재시작으로 중단된 작업만 재시작할 수 있어요.")
+        job["status"] = "queued"
+        job["queued_at"] = now_iso()
+        job["started_at"] = None
+        job["finished_at"] = None
+        job["returncode"] = None
+        job["progress"] = None
+    save_state()
+    job_queue.put(job_id)
+    return jobs[job_id]
+
+
 @app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: str):
     with lock:

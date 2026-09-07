@@ -769,7 +769,8 @@
      같은 padding/font-size/radius를 공유한다. */
   .del-btn,
   .edit-btn,
-  .load-btn{
+  .load-btn,
+  .retry-btn{
     background:var(--panel);
     border:1px solid var(--border);
     color:var(--text-dim);
@@ -786,6 +787,9 @@
   .row-actions{ display:flex; gap:var(--gap-xs); flex-wrap:nowrap; }
   .edit-btn:hover,
   .load-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
+  /* interrupted 작업을 다시 큐에 올리는 "재시작" 버튼 — done(초록) 계열로,
+     삭제(빨강)/수정·불러오기(파랑)와 구분되게 한다. */
+  .retry-btn:hover{ border-color:var(--done); color:var(--done); background:rgba(var(--done-rgb),0.06); }
   .load-notice{ font-size:12.5px; font-family:var(--mono); min-height:1em; white-space:pre-line; color:var(--text-dim); }
 
   .gallery-count{ font-family:var(--mono); font-size:12px; color:var(--text-dim); }
@@ -1750,6 +1754,7 @@ function render(jobs, pendingCount, running){
             <button class="load-btn" data-loadid="${j.id}" title="설정 불러오기">📂 불러오기</button>
             ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}" title="워크플로우 수정">✎ 워크플로우</button>` : ''}
             ${j.status === 'pending' && j.csv_filename ? `<button class="edit-btn" data-editkind="csv" data-editid="${j.id}" title="CSV 수정">✎ CSV</button>` : ''}
+            ${j.status === 'interrupted' ? `<button class="retry-btn" data-retry="${j.id}" title="서버 재시작으로 중단된 작업을 다시 큐에 올려요">🔁 재시작</button>` : ''}
             ${j.status !== 'running' && j.status !== 'queued' ? `<button class="del-btn" data-del="${j.id}" title="삭제">🗑 삭제</button>` : ''}
           </div>
         </td>
@@ -1776,6 +1781,14 @@ function render(jobs, pendingCount, running){
       await fetch('/api/jobs/' + btn.dataset.del, { method: 'DELETE' });
       fetchJobs();
       fetchDeletedJobs();
+    });
+  });
+
+  tbody.querySelectorAll('.retry-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await fetch(`/api/jobs/${btn.dataset.retry}/retry`, { method: 'POST' });
+      fetchJobs();
     });
   });
 
