@@ -17,6 +17,7 @@ RunPod Job Queue — 등록된 스크립트 템플릿을 큐에 쌓아두면 워
 import asyncio
 import csv
 import hashlib
+import hmac
 import io
 import json
 import logging
@@ -36,7 +37,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
@@ -572,6 +573,41 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="RunPod Job Queue", lifespan=lifespan)
+
+# 이 앱은 원래 인증이 전혀 없었다(README "주의사항" 참고) — RunPod에 노출된 포트를
+# 사람이 직접 브라우저로 조작하는 걸 전제로 했기 때문. 이제 사람 대신(또는 사람과
+# 함께) LLM이 API를 호출해 잡 큐를 조작할 수 있게 하려는데, 그러려면 최소한
+# "누구나 이 포트에 닿으면 잡을 큐잉/삭제할 수 있는" 상태는 막아야 한다.
+#
+# NIGHTSHIFT_API_KEY를 설정하면 모든 /api/* 요청에 X-API-Key(또는
+# Authorization: Bearer) 헤더로 같은 값을 요구한다. 정적 파일(/)은 그대로 열어둔다
+# — index.html 자체에는 민감한 정보가 없고, 막아봤자 브라우저에서 볼 수 있는
+# 소스만 가리는 것이라 의미가 없다. 값이 비어 있으면(기존 동작 그대로) 인증 없이
+# 실행되며, 시작 시 경고를 한 번 남긴다.
+API_KEY = os.environ.get("NIGHTSHIFT_API_KEY", "").strip()
+if not API_KEY:
+    logging.getLogger("uvicorn.error").warning(
+        "NIGHTSHIFT_API_KEY가 설정되지 않아 인증 없이 실행됩니다. "
+        "외부에 노출하거나 LLM이 이 API를 직접 호출하게 할 계획이라면 "
+        ".env에 NIGHTSHIFT_API_KEY를 설정하세요 (.env.example 참고)."
+    )
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    if not API_KEY or not request.url.path.startswith("/api/"):
+        return await call_next(request)
+
+    provided = request.headers.get("x-api-key")
+    if not provided:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            provided = auth_header[len("bearer "):]
+
+    if not provided or not hmac.compare_digest(provided, API_KEY):
+        return JSONResponse({"detail": "API 키가 없거나 올바르지 않아요."}, status_code=401)
+
+    return await call_next(request)
 
 
 @app.get("/api/templates")

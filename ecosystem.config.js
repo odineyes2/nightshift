@@ -10,6 +10,34 @@
 // (죽으면 자동 재시작, 상태/로그 조회를 깔끔하게 제공).
 
 const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+
+// notify_ntfy.sh는 `source .env`로 .env를 읽어들이는데, pm2가 앱을 스폰할 때는
+// 그 셸을 거치지 않아서 같은 방식이 통하지 않는다. .env 포맷이 단순한 KEY=VALUE
+// 라인뿐이라 dotenv 패키지를 새로 추가하는 대신 여기서 직접 파싱해 env에 얹는다.
+// (예: NIGHTSHIFT_API_KEY — 없으면 그냥 건너뛰고 기존처럼 인증 없이 뜬다.)
+function loadDotEnv() {
+  const envPath = path.join(__dirname, ".env");
+  const result = {};
+  if (!fs.existsSync(envPath)) return result;
+  for (const line of fs.readFileSync(envPath, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    result[key] = value;
+  }
+  return result;
+}
 
 // RunPod 등에서는 conda/venv가 ~/.bashrc 안에서만 활성화되는 경우가 흔한데, pm2가
 // 자식 프로세스를 스폰할 때는 로그인 셸이 아니라서 그 활성화가 적용되지 않는다.
@@ -38,6 +66,7 @@ module.exports = {
       cwd: __dirname,
       env: {
         PYTHONUNBUFFERED: "1", // print() 출력이 버퍼링 없이 바로 pm2 로그에 찍히게 함
+        ...loadDotEnv(), // .env의 NIGHTSHIFT_API_KEY 등을 app.py 프로세스로 전달
       },
       autorestart: true,
       max_restarts: 10,
