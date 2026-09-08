@@ -2,3 +2,7 @@ fastapi
 uvicorn[standard]
 python-multipart
 Pillow
+
+# mcp_server.py (nightshift 잡 큐를 MCP 도구로 감싸는 별도 프로세스)가 쓴다.
+fastmcp
+httpx

@@ -504,6 +504,32 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 
 포즈/depth/lineart 참조 배치 기능(`ref_assets.py`, `templates/pose_batch.py` 등)은 위 "포즈/depth/lineart 참조 배치" 절 참고.
 
+## MCP 서버 (`mcp_server.py`)
+
+`app.py`의 REST API를 [MCP](https://modelcontextprotocol.io)(Model Context Protocol) 도구로 감싸는 별도 프로세스입니다. Claude 같은 MCP 클라이언트가 curl 대신 표준화된 도구 목록으로 잡 큐를 조작할 수 있게 해주는 얇은 레이어일 뿐 — `app.py` 자체는 건드리지 않고, 기존 웹 UI와 REST API도 그대로 유지됩니다. [`fastmcp`](https://gofastmcp.com)로 만들어졌고, `streamable-http` transport로 떠서(원격에서 커넥터로 등록할 수 있도록) 별도 포트(기본 8001)에서 `app.py`(기본 8000)에 HTTP로 붙습니다.
+
+**실행**: `npm start`(pm2)로 `app.py`와 함께 자동으로 뜹니다 (`ecosystem.config.js`의 `nightshift-mcp` 앱). 따로 실행하려면 `python3 mcp_server.py`.
+
+**환경변수** (`.env.example` 참고): `JOB_QUEUE_BASE_URL`(기본 `http://127.0.0.1:8000` — 같은 머신이면 RunPod 프록시 URL 대신 내부 주소를 쓰는 게 빠르고 안정적), `JOB_QUEUE_API_KEY`(`NIGHTSHIFT_API_KEY`를 설정했다면 같은 값을 `X-API-Key` 헤더로 실어 보냄), `MCP_SERVER_PORT`(기본 8001).
+
+| 도구 | 내부 호출 | 설명 |
+|---|---|---|
+| `comfy_status` | `GET /api/comfy-status` | ComfyUI 백엔드 연결 상태 |
+| `list_templates` | `GET /api/templates` | 템플릿 + 옵션 스키마 원본 그대로 (하드코딩 안 함 — 매번 조회) |
+| `list_models` | `GET /api/comfy-object-info` | 설치된 모델/샘플러/스케줄러만 추려서 반환 (`node_types` 제외) |
+| `build_workflow` | `POST /api/build-workflow` | 체크포인트/LoRA/프롬프트/샘플링 파라미터로 워크플로우 JSON 조립 |
+| `submit_job` | `POST /api/upload` | 워크플로우(JSON 객체)와 옵션으로 잡 등록 — 내부적으로 임시 파일을 만들어 멀티파트로 올린 뒤 바로 정리함. `requires_csv` 템플릿에 `csv` 없이 부르면 업로드 전에 걸러서 에러 반환 |
+| `list_jobs` | `GET /api/jobs` (+`/deleted`) | 활성 잡 목록. `include_deleted=true`면 삭제된 잡도 합쳐서 반환 |
+| `get_job` | `list_jobs` 재사용 | 잡 하나 조회, 없으면 404 스타일 에러 |
+| `wait_for_job` | `get_job` 폴링 | `done`/`failed`/`interrupted`까지 대기, timeout 넘으면 예외 대신 마지막 상태와 함께 에러 반환 |
+| `start_queue` / `stop_queue` | `POST /api/queue/start` / `stop` | 큐 자동 실행 on/off |
+| `list_output_images` | `GET /api/output-images` | 결과 이미지 목록, `job_id`로 필터 가능 |
+| `get_output_image` | `GET /api/output-images/{name}` (+`/thumbnail`) | 이미지를 base64 콘텐츠로 반환(MCP 클라이언트가 바로 렌더링). 원본이 5MB 넘으면 자동으로 축소본(`thumbnail=true`와 동일) 사용 |
+| `clear_completed_jobs` | `POST /api/jobs/clear-completed` | 완료/실패/중단 잡 소프트 삭제 |
+| `list_recent_workflows` | `GET /api/recent-workflows` | 최근 워크플로우 30개 — 매번 새로 안 만들고 재사용하고 싶을 때 |
+
+**에러 형식**: 내부 API가 4xx/5xx를 반환하거나(`app.py`가 없어서) 연결 자체가 안 되면, 도구는 예외를 던지는 대신 `{"error": true, "status_code": N|null, "detail": "..."}`를 반환합니다 — 호출한 모델이 그대로 읽고 사용자에게 설명할 수 있게 하기 위함입니다.
+
 ## 동작 방식 / 디렉터리 구조
 
 ```
