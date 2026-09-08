@@ -132,7 +132,7 @@
   },
   {
     "id": "input_image_batch",
-    "label": "입력 이미지 배치 (img2img/USDU)",
+    "label": "입력 이미지 배치 (img2img)",
     "script_filename": "input_image_batch.py",
     "requires_csv": false,
     "options": [
@@ -146,8 +146,33 @@
   },
   {
     "id": "input_image_csv_batch",
-    "label": "CSV + 입력 이미지 배치 (img2img/USDU)",
+    "label": "CSV + 입력 이미지 배치 (img2img)",
     "script_filename": "input_image_csv_batch.py",
+    "requires_csv": true,
+    "options": [
+      { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
+    ]
+  },
+  {
+    "id": "ipadapter_batch",
+    "label": "IPAdapter 배치",
+    "script_filename": "ipadapter_batch.py",
+    "requires_csv": false,
+    "options": [
+      { "name": "image_count", "label": "생성 개수", "type": "number", "default": 5 },
+      { "name": "ipadapter_ref", "label": "IPAdapter 참조 이미지", "type": "input_image", "default": "" },
+      { "name": "main_prompt", "label": "메인 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 업로드한 워크플로우의 프롬프트를 그대로 사용해요" },
+      { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
+    ]
+  },
+  {
+    "id": "ipadapter_csv_batch",
+    "label": "CSV + IPAdapter 배치",
+    "script_filename": "ipadapter_csv_batch.py",
     "requires_csv": true,
     "options": [
       { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
