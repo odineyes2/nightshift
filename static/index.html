@@ -1019,7 +1019,17 @@
   .wizard-bar-actions{ display:flex; align-items:center; gap:var(--gap-md); }
 
   /* 마법사 모달 안의 선택 목록 — "설치된 모델" 모달과 비슷한 어휘를 쓰되 클릭 가능한 줄. */
-  .wizard-pick-list{ display:flex; flex-direction:column; gap:6px; max-height:420px; overflow-y:auto; }
+  .wizard-pick-section-title{
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    color:var(--text-dim);
+    margin:14px 0 6px;
+  }
+  .wizard-pick-section-title:first-child{ margin-top:0; }
+  .wizard-pick-list{ display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; }
   .wizard-pick-row{
     display:flex;
     align-items:center;
@@ -2295,7 +2305,8 @@
     </div>
     <div class="modal-body" id="wizard-type-modal-body"></div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="wizard-type-modal-cancel">✕ 닫기</button>
+      <button class="modal-btn-secondary" id="wizard-type-modal-cancel">✕ 취소</button>
+      <button class="submit-btn" id="wizard-type-modal-done" type="button">✓ 완료</button>
     </div>
   </div>
 </div>
@@ -4275,10 +4286,49 @@ document.getElementById('preset-tab-table').addEventListener('click', async (e) 
 // 순서대로 고르면 "적용"이 아래 템플릿 선택/옵션 폼/워크플로우 슬롯을 자동으로 채운다.
 // 마법사 자신은 큐에 아무것도 등록하지 않는다 — 채워진 뒤에는 항상 하던 대로 "➕ 추가"를
 // 눌러야 실제로 큐에 들어간다(검증/제출 경로를 그대로 재사용하기 위한 설계). ====
-let wizard = { familyId: null, checkpoint: null, typeId: null, loras: [], batchMode: null };
+// 워크플로우 유형은 세 그룹으로 나뉜다(app.py의 WORKFLOW_TYPES와 정확히 대응):
+//   base   — 첫 샘플링을 어디서 시작할지, 반드시 하나만 고른다(txt2img/img2img
+//            중 배타적 — 둘 다 "첫 latent를 어디서 만드는지"를 정하는 서로 다른
+//            방식이라 동시에 쓸 수 없다).
+//   post   — base 뒤에 이어 붙이는 후처리, 0개 이상 동시에 고를 수 있다(체이닝
+//            가능 — 예: txt2img+hires_fix+usdu). {hires_fix, usdu} 불리언 두 개.
+//   preset — ControlNet/IPAdapter처럼 체크포인트마다 배선이 달라 이 서버가 자동
+//            조립하지 못하는, family별 완성된 워크플로우. base/post와 동시에
+//            쓸 수 없다(하나를 고르면 다른 그룹은 자동으로 비워짐).
+let wizard = {
+  familyId: null, checkpoint: null,
+  base: null, post: { hires_fix: false, usdu: false }, preset: null,
+  loras: [], batchMode: null,
+};
 
-function wizardTypeMeta(typeId){
-  return (workflowTypesCache || []).find(t => t.id === typeId);
+function wizardBaseMeta(baseId){
+  return ((workflowTypesCache || {}).base || []).find(t => t.id === baseId);
+}
+function wizardPresetMeta(presetId){
+  return ((workflowTypesCache || {}).preset || []).find(t => t.id === presetId);
+}
+function wizardPostMeta(postId){
+  return ((workflowTypesCache || {}).post || []).find(t => t.id === postId);
+}
+// 지금 고른 조합의 template_ids — preset이면 그 preset 항목의 것, 아니면 base
+// 항목의 것을 쓴다(post는 워크플로우 안에서 완결되므로 템플릿 선택에 영향 없음).
+function wizardTemplateIds(){
+  if(wizard.preset) return (wizardPresetMeta(wizard.preset) || {}).template_ids;
+  if(wizard.base) return (wizardBaseMeta(wizard.base) || {}).template_ids;
+  return null;
+}
+function wizardIsPreset(){ return !!wizard.preset; }
+function wizardTypeChosen(){ return !!wizard.preset || !!wizard.base; }
+function wizardTypeSummary(){
+  if(wizard.preset){
+    const meta = wizardPresetMeta(wizard.preset);
+    return meta ? meta.label : wizard.preset;
+  }
+  if(!wizard.base) return '선택 안 함';
+  const parts = [(wizardBaseMeta(wizard.base) || {}).label || wizard.base];
+  if(wizard.post.hires_fix) parts.push('Hires Fix');
+  if(wizard.post.usdu) parts.push('USDU');
+  return parts.join(' + ');
 }
 
 function openWizardModal(id){ document.getElementById(id).style.display = 'flex'; }
@@ -4292,6 +4342,7 @@ document.getElementById('wizard-family-modal-close').addEventListener('click', (
 document.getElementById('wizard-family-modal-cancel').addEventListener('click', () => closeWizardModal('wizard-family-modal'));
 document.getElementById('wizard-type-modal-close').addEventListener('click', () => closeWizardModal('wizard-type-modal'));
 document.getElementById('wizard-type-modal-cancel').addEventListener('click', () => closeWizardModal('wizard-type-modal'));
+document.getElementById('wizard-type-modal-done').addEventListener('click', () => { wizardUpdateStepButtons(); closeWizardModal('wizard-type-modal'); });
 document.getElementById('wizard-lora-modal-close').addEventListener('click', () => closeWizardModal('wizard-lora-modal'));
 document.getElementById('wizard-lora-modal-cancel').addEventListener('click', () => closeWizardModal('wizard-lora-modal'));
 document.getElementById('wizard-lora-modal-done').addEventListener('click', () => { wizardUpdateStepButtons(); closeWizardModal('wizard-lora-modal'); });
@@ -4316,24 +4367,27 @@ function wizardUpdateStepButtons(){
   familyBtn.classList.toggle('done', !!(wizard.familyId && wizard.checkpoint));
 
   typeBtn.disabled = !wizard.familyId;
-  const typeMeta = wizardTypeMeta(wizard.typeId);
-  document.getElementById('wizard-step-type-value').textContent = typeMeta ? typeMeta.label : '선택 안 함';
-  typeBtn.classList.toggle('done', !!wizard.typeId);
+  document.getElementById('wizard-step-type-value').textContent = wizardTypeSummary();
+  typeBtn.classList.toggle('done', wizardTypeChosen());
 
-  loraBtn.disabled = !wizard.typeId;
+  loraBtn.disabled = !wizardTypeChosen();
   document.getElementById('wizard-step-lora-value').textContent = wizard.loras.length === 0 ? '사용 안 함' : wizard.loras.map(l => l.name).join(', ');
   loraBtn.classList.toggle('done', wizard.loras.length > 0);
 
-  batchBtn.disabled = !wizard.typeId;
+  batchBtn.disabled = !wizardTypeChosen();
   document.getElementById('wizard-step-batchmode-value').textContent =
     wizard.batchMode === 'seed' ? '시드 반복' : wizard.batchMode === 'csv' ? 'CSV 순회' : '선택 안 함';
   batchBtn.classList.toggle('done', !!wizard.batchMode);
 
-  document.getElementById('wizard-apply-btn').disabled = !(wizard.familyId && wizard.checkpoint && wizard.typeId && wizard.batchMode);
+  document.getElementById('wizard-apply-btn').disabled = !(wizard.familyId && wizard.checkpoint && wizardTypeChosen() && wizard.batchMode);
 }
 
 function wizardReset(){
-  wizard = { familyId: null, checkpoint: null, typeId: null, loras: [], batchMode: null };
+  wizard = {
+    familyId: null, checkpoint: null,
+    base: null, post: { hires_fix: false, usdu: false }, preset: null,
+    loras: [], batchMode: null,
+  };
   document.getElementById('wizard-error').textContent = '';
   document.getElementById('load-notice').textContent = '';
   wizardUpdateStepButtons();
@@ -4390,7 +4444,9 @@ document.getElementById('wizard-family-modal-body').addEventListener('click', (e
   if(wizard.familyId !== familyId){
     // family가 바뀌면 이전 단계에서 고른 워크플로우 유형/LoRA는 더 이상 호환을
     // 보장할 수 없으니 함께 초기화한다.
-    wizard.typeId = null;
+    wizard.base = null;
+    wizard.post = { hires_fix: false, usdu: false };
+    wizard.preset = null;
     wizard.loras = [];
     wizard.batchMode = null;
   }
@@ -4402,7 +4458,7 @@ document.getElementById('wizard-family-modal-body').addEventListener('click', (e
 
 document.getElementById('wizard-step-family').addEventListener('click', openWizardFamilyModal);
 
-// ---- 2단계: 워크플로우 유형 ----
+// ---- 2단계: 워크플로우 유형 — 베이스(택1) + 후처리(다중) + 프리셋(택1, 나머지와 배타적) ----
 async function openWizardTypeModal(){
   if(!wizard.familyId) return;
   const body = document.getElementById('wizard-type-modal-body');
@@ -4416,50 +4472,85 @@ async function openWizardTypeModal(){
 
 function renderWizardTypeModal(){
   const body = document.getElementById('wizard-type-modal-body');
-  // preset 워크플로우 유형(ControlNet 계열)은 이 family용 프리셋이 없으면 골라봤자
-  // 실행할 워크플로우가 없으므로 아예 목록에서 숨긴다(LoRA 호환성 필터링과 같은 원칙).
-  const types = (workflowTypesCache || []).filter(t => t.mode === 'builder' || presetExists(wizard.familyId, t.id));
-  if(types.length === 0){
-    body.innerHTML = '<div class="comfy-model-empty">이 베이스 모델로 쓸 수 있는 워크플로우 유형이 없어요.</div>';
-    return;
-  }
+  const catalog = workflowTypesCache || {};
+  const bases = catalog.base || [];
+  const posts = catalog.post || [];
+  // preset 유형(ControlNet/IPAdapter)은 이 family용 프리셋이 없으면 골라봤자 실행할
+  // 워크플로우가 없으므로 아예 목록에서 숨긴다(LoRA 호환성 필터링과 같은 원칙).
+  const presets = (catalog.preset || []).filter(t => presetExists(wizard.familyId, t.id));
   const nodeTypes = (comfyObjectInfoCache && comfyObjectInfoCache.connected) ? comfyObjectInfoCache.node_types : null;
-  body.innerHTML = `<div class="wizard-pick-list">${types.map(t => {
-    const selected = wizard.typeId === t.id;
+
+  const baseRows = bases.map(t => `
+    <div class="wizard-pick-row${wizard.base === t.id ? ' selected' : ''}" data-group="base" data-type-id="${escapeHtml(t.id)}">
+      <div class="wizard-pick-row-label">${escapeHtml(t.label)}</div>
+    </div>`).join('');
+
+  const postRows = posts.map(t => {
+    const checked = !!wizard.post[t.id];
     const missingNode = t.requires_node && nodeTypes && !nodeTypes.includes(t.requires_node);
     const badge = missingNode ? `<span class="wizard-pick-row-badge">⚠ 설치 필요 (${escapeHtml(t.requires_node)})</span>` : '';
-    const hint = t.mode === 'preset' ? '<span class="wizard-pick-row-hint">ControlNet 프리셋 워크플로우 사용</span>' : '';
     return `
-      <div class="wizard-pick-row${selected ? ' selected' : ''}" data-type-id="${escapeHtml(t.id)}">
-        <div class="wizard-pick-row-label">${escapeHtml(t.label)}${hint}</div>
+      <div class="wizard-pick-row${checked ? ' selected' : ''}${wizard.base ? '' : ' disabled'}" data-group="post" data-type-id="${escapeHtml(t.id)}">
+        <div class="wizard-pick-row-label">${escapeHtml(t.label)}</div>
         ${badge}
       </div>`;
-  }).join('')}</div>`;
+  }).join('');
+
+  const presetSection = presets.length === 0 ? '' : `
+    <div class="wizard-pick-section-title">ControlNet / IPAdapter <span class="wizard-pick-row-hint">— 베이스/후처리와 동시에 쓸 수 없어요(family별로 미리 만들어둔 워크플로우를 그대로 씀)</span></div>
+    <div class="wizard-pick-list">${presets.map(t => `
+      <div class="wizard-pick-row${wizard.preset === t.id ? ' selected' : ''}" data-group="preset" data-type-id="${escapeHtml(t.id)}">
+        <div class="wizard-pick-row-label">${escapeHtml(t.label)}</div>
+      </div>`).join('')}</div>`;
+
+  body.innerHTML = `
+    <div class="wizard-pick-section-title">베이스 (하나 선택)</div>
+    <div class="wizard-pick-list">${baseRows}</div>
+    <div class="wizard-pick-section-title">후처리 <span class="wizard-pick-row-hint">— 여러 개 함께 켤 수 있어요(베이스를 먼저 고르세요)</span></div>
+    <div class="wizard-pick-list">${postRows}</div>
+    ${presetSection}
+  `;
 }
 
 document.getElementById('wizard-type-modal-body').addEventListener('click', (e) => {
   const row = e.target.closest('.wizard-pick-row');
-  if(!row) return;
+  if(!row || row.classList.contains('disabled')) return;
+  const group = row.dataset.group;
   const typeId = row.dataset.typeId;
-  if(wizard.typeId !== typeId){
-    wizard.loras = [];
-    wizard.batchMode = null;
+
+  if(group === 'base'){
+    if(wizard.base !== typeId){
+      wizard.loras = [];
+      wizard.batchMode = null;
+    }
+    wizard.base = typeId;
+    wizard.preset = null; // 베이스를 고르면 프리셋(배타적 그룹)은 해제
+  }else if(group === 'post'){
+    if(!wizard.base) return; // 베이스가 없으면 후처리도 의미 없음
+    wizard.post[typeId] = !wizard.post[typeId];
+  }else if(group === 'preset'){
+    if(wizard.preset !== typeId){
+      wizard.loras = [];
+      wizard.batchMode = null;
+    }
+    wizard.preset = typeId;
+    wizard.base = null; // 프리셋을 고르면 베이스/후처리(배타적 그룹)는 해제
+    wizard.post = { hires_fix: false, usdu: false };
   }
-  wizard.typeId = typeId;
   wizardUpdateStepButtons();
-  closeWizardModal('wizard-type-modal');
+  renderWizardTypeModal();
 });
 
 document.getElementById('wizard-step-type').addEventListener('click', openWizardTypeModal);
 
 // ---- 3단계: LoRA ----
-// builder 모드(txt2img/img2img/t2i_hiresfix/usdu) 워크플로우 유형은 workflow_builder.py가
-// 고른 LoRA를 전부 체인으로 구워 넣을 수 있어서 여러 개를 골라도 된다. preset 모드
-// (ControlNet 계열)는 관리자가 미리 만들어둔 워크플로우 구조를 그대로 쓰고, 거기 있는
-// LoRA 로더 하나에만 런타임으로 덮어쓸 수 있으므로(app.py의 apply_lora와 같은 제약)
-// 한 개만 고를 수 있다.
+// 베이스(txt2img/img2img) 조합은 workflow_builder.py가 고른 LoRA를 전부 체인으로
+// 구워 넣을 수 있어서 여러 개를 골라도 된다. preset(ControlNet/IPAdapter)은
+// 관리자가 미리 만들어둔 워크플로우 구조를 그대로 쓰고, 거기 있는 LoRA 로더
+// 하나에만 런타임으로 덮어쓸 수 있으므로(app.py의 apply_lora와 같은 제약) 한
+// 개만 고를 수 있다.
 async function openWizardLoraModal(){
-  if(!wizard.typeId) return;
+  if(!wizardTypeChosen()) return;
   const body = document.getElementById('wizard-lora-modal-body');
   body.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
   openWizardModal('wizard-lora-modal');
@@ -4473,8 +4564,7 @@ function renderWizardLoraModal(){
     body.innerHTML = '<div class="comfy-model-empty">ComfyUI에 연결되지 않아 목록을 가져오지 못했어요.</div>';
     return;
   }
-  const typeMeta = wizardTypeMeta(wizard.typeId);
-  const isPreset = !!(typeMeta && typeMeta.mode === 'preset');
+  const isPreset = wizardIsPreset();
   const all = comfyObjectInfoCache.models.loras || [];
   // 호환 family를 하나도 안 고른 LoRA는 모든 베이스 모델과 호환되는 것으로 취급한다
   // (lora_triggers.json 마이그레이션 정책과 동일) — 나머지는 지금 고른 family가
@@ -4505,8 +4595,7 @@ document.getElementById('wizard-lora-modal-body').addEventListener('click', (e) 
   const row = e.target.closest('.wizard-pick-row');
   if(!row) return;
   const name = row.dataset.loraName;
-  const typeMeta = wizardTypeMeta(wizard.typeId);
-  const isPreset = !!(typeMeta && typeMeta.mode === 'preset');
+  const isPreset = wizardIsPreset();
   const existingIndex = wizard.loras.findIndex(l => l.name === name);
   if(existingIndex >= 0){
     wizard.loras.splice(existingIndex, 1);
@@ -4529,7 +4618,7 @@ document.getElementById('wizard-step-lora').addEventListener('click', openWizard
 
 // ---- 4단계: 실행 방식(시드 반복 / CSV 순회) ----
 function openWizardBatchModeModal(){
-  if(!wizard.typeId) return;
+  if(!wizardTypeChosen()) return;
   const body = document.getElementById('wizard-batchmode-modal-body');
   body.innerHTML = `<div class="wizard-pick-list">
     <div class="wizard-pick-row${wizard.batchMode === 'seed' ? ' selected' : ''}" data-mode="seed">
@@ -4556,29 +4645,33 @@ document.getElementById('wizard-step-batchmode').addEventListener('click', openW
 document.getElementById('wizard-apply-btn').addEventListener('click', async () => {
   const errorEl = document.getElementById('wizard-error');
   errorEl.textContent = '';
-  const typeMeta = wizardTypeMeta(wizard.typeId);
-  if(!typeMeta || !wizard.familyId || !wizard.checkpoint || !wizard.batchMode){
+  if(!wizard.familyId || !wizard.checkpoint || !wizardTypeChosen() || !wizard.batchMode){
     errorEl.textContent = '1~4단계를 모두 고른 뒤 적용하세요.';
     return;
   }
+  const templateIds = wizardTemplateIds();
+  if(!templateIds){
+    errorEl.textContent = '이 조합에 쓸 템플릿 정보를 찾지 못했어요.';
+    return;
+  }
   if(Object.keys(templatesById).length === 0) await fetchTemplates();
-  const templateId = typeMeta.template_ids[wizard.batchMode];
+  const templateId = templateIds[wizard.batchMode];
   const template = templatesById[templateId];
   if(!template){
     errorEl.textContent = `템플릿 '${templateId}'이(가) 서버에 등록돼 있지 않아요.`;
     return;
   }
 
+  const isPreset = wizardIsPreset();
   let workflow;
   try{
-    if(typeMeta.mode === 'preset'){
-      const res = await fetch(`/api/workflow-presets/${encodeURIComponent(wizard.familyId)}/${encodeURIComponent(typeMeta.id)}`);
+    if(isPreset){
+      const res = await fetch(`/api/workflow-presets/${encodeURIComponent(wizard.familyId)}/${encodeURIComponent(wizard.preset)}`);
       if(!res.ok) throw new Error('이 조합의 프리셋 워크플로우를 찾을 수 없어요 — "🎛 모델" 탭에서 먼저 올려주세요.');
       workflow = await res.json();
     }else{
-      const buildModeById = { txt2img: 'txt2img', t2i_hiresfix: 'txt2img', img2img: 'img2img', usdu: 'usdu' };
       const spec = {
-        mode: buildModeById[typeMeta.id] || 'txt2img',
+        base: wizard.base,
         checkpoint: wizard.checkpoint,
         // 진짜 프롬프트는 적용 뒤 아래 옵션 폼(시드 반복이면 main_prompt 필드, CSV
         // 순회면 CSV 파일)에서 입력한다 — 여기는 build_workflow()가 요구하는
@@ -4587,8 +4680,8 @@ document.getElementById('wizard-apply-btn').addEventListener('click', async () =
         positive: '(prompt)',
         loras: wizard.loras.map(l => ({ name: l.name, strength_model: l.strength, strength_clip: l.strength })),
       };
-      if(typeMeta.id === 't2i_hiresfix') spec.hires = { enabled: true };
-      if(typeMeta.id === 'usdu') spec.upscale_by = 2.0;
+      if(wizard.post.hires_fix) spec.hires_fix = { enabled: true };
+      if(wizard.post.usdu) spec.usdu = { enabled: true, upscale_by: 2.0 };
       const res = await fetch('/api/build-workflow', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec),
       });
@@ -4605,12 +4698,13 @@ document.getElementById('wizard-apply-btn').addEventListener('click', async () =
   templateSelect.value = templateId;
   await onTemplateChange();
 
-  // builder 모드는 체크포인트/LoRA를 이미 워크플로우에 구워 넣었으므로 런타임
-  // override 옵션(checkpoint/lora_name)은 비워둔다(중복 적용 방지, "비워두면
-  // 워크플로우 값 그대로" 규칙과 일치). preset 모드는 프리셋 워크플로우를 그대로
-  // 쓰되, 같은 family의 다른 체크포인트로 바꾸거나(호환 아키텍처이므로 안전) LoRA
-  // 하나를 얹고 싶을 때가 있어 그 두 옵션만 채워준다.
-  if(typeMeta.mode === 'preset'){
+  // builder 조합(txt2img/img2img + 후처리)은 체크포인트/LoRA를 이미 워크플로우에
+  // 구워 넣었으므로 런타임 override 옵션(checkpoint/lora_name)은 비워둔다(중복
+  // 적용 방지, "비워두면 워크플로우 값 그대로" 규칙과 일치). preset(ControlNet/
+  // IPAdapter)은 프리셋 워크플로우를 그대로 쓰되, 같은 family의 다른 체크포인트로
+  // 바꾸거나(호환 아키텍처이므로 안전) LoRA 하나를 얹고 싶을 때가 있어 그 두
+  // 옵션만 채워준다.
+  if(isPreset){
     const ckptEl = optionsFields.querySelector('[data-name="checkpoint"]');
     if(ckptEl) ckptEl.value = wizard.checkpoint;
     if(wizard.loras.length > 0){
@@ -4621,7 +4715,8 @@ document.getElementById('wizard-apply-btn').addEventListener('click', async () =
     }
   }
 
-  setWorkflowFile(new File([JSON.stringify(workflow)], `wizard_${typeMeta.id}_workflow.json`, { type: 'application/json' }));
+  const typeSlug = isPreset ? wizard.preset : [wizard.base, wizard.post.hires_fix && 'hires', wizard.post.usdu && 'usdu'].filter(Boolean).join('_');
+  setWorkflowFile(new File([JSON.stringify(workflow)], `wizard_${typeSlug}_workflow.json`, { type: 'application/json' }));
 
   document.getElementById('load-notice').textContent =
     '마법사 설정을 적용했어요 — 아래에서 프롬프트/세부 옵션을 확인하고(CSV 순회라면 CSV 파일도 첨부), 준비되면 "➕ 추가"를 눌러 큐에 등록하세요.';

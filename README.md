@@ -271,7 +271,7 @@ CheckpointLoaderSimple → LoraLoader 체인(0개 이상) → CLIPTextEncode 긍
   `Save Image`) — 그래서 만든 워크플로우에도 시드·프롬프트·해상도·체크포인트·LoRA 주입이 그대로 걸립니다. hires-fix의
   업스케일 노드 제목에는 일부러 "latent"를 넣지 않습니다(해상도 주입이 `EmptyLatentImage` 대신 그 노드를 집으면 안 되니까).
 - ComfyUI가 꺼져 있으면 드롭다운이 비어 "연결 안 됨"으로 표시되고, 만들기를 시도하면 체크포인트가 없다는 안내가 나옵니다.
-- `workflow_builder.py`(및 `POST /api/build-workflow`)는 이 폼이 쓰는 `txt2img` 모드 외에 `img2img`/`usdu` 모드도 지원합니다 — 이 탭 자체에는 아직 노출돼 있지 않고, "새 작업 추가" 마법사가 그 모드들을 내부적으로 씁니다(아래 "새 작업 추가 마법사" 절 참고).
+- `workflow_builder.py`(및 `POST /api/build-workflow`)는 이 폼이 쓰는 `base="txt2img"` 외에 `base="img2img"`와 `hires_fix`/`usdu` 후처리 조합도 지원합니다 — 이 탭 자체에는 아직 노출돼 있지 않고, "새 작업 추가" 마법사가 그 조합을 내부적으로 씁니다(아래 "워크플로우 유형의 조합 규칙" 절 참고).
 
 ### 스크립트 템플릿 등록하기 (`templates/`)
 
@@ -427,32 +427,44 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 **보조 참조**: 위 "포즈/depth/lineart 참조 배치" 절의 "보조 참조" 소절과 같은 개념이지만, CSV 버전에서는 종류 선택(`secondary_kind`)만 업로드 폼의 job 옵션이고 실제 값은 CSV의 `secondary_ref`/`secondary_char_no` 컬럼으로 행마다 지정합니다(같은 job 안에서는 종류 하나만 고를 수 있음 — 행마다 다른 종류를 섞어 쓸 수는 없습니다). `secondary_kind`가 `"none"`이면 두 컬럼은 아예 읽지 않습니다.
 
-### 입력 이미지 배치 — img2img/USDU (`input_image_batch`/`input_image_csv_batch`, `input_assets.py`)
+### 워크플로우 유형의 조합 규칙 — 베이스 + 후처리 + 프리셋
 
-img2img(원본 이미지를 변형)/USDU(Ultimate SD Upscale, 업스케일+디테일 보강) 워크플로우 유형에 쓰는 두 템플릿입니다. `pose_batch` 등과 달리 참조 이미지 저장소가 **세트/char_no 계층 없는 평평한(flat) 파일 목록**입니다(`ref_assets.py`가 아니라 별도의 `input_assets.py`) — img2img/USDU는 보통 "이 그림 한 장을 원본으로" 쓰는 용도라 세트 개념이 필요 없기 때문입니다.
+"새 작업 추가" 마법사의 "워크플로우 유형" 단계(및 `GET /api/workflow-types`, `workflow_builder.py`)는 세 그룹으로 나뉘고, 그룹마다 고르는 방식이 다릅니다.
 
-**입력 이미지 폴더**: `NIGHTSHIFT_INPUT_IMAGES_DIR`(기본 `NIGHTSHIFT_ASSETS_DIR/input`, 그 기본값은 `/workspace/dataset/assets/input`) 바로 아래에 png/jpg/jpeg/webp 파일을 평평하게 올려두면, `GET /api/input-images`가 목록으로 나열합니다. 세트를 옮기는 별도 업로드 API는 없습니다(다른 참조 이미지 폴더들과 마찬가지로 서버 밖에서 파일을 직접 옮겨두는 걸 전제로 함) — 웹 UI의 "새 작업 추가" 마법사와 개별 옵션 폼의 "입력 이미지" 드롭다운이 이 목록에서 고릅니다.
+- **베이스**(`txt2img`/`img2img`, 하나만 고름): 첫 샘플링을 어디서 시작할지 — `txt2img`는 빈 latent(`EmptyLatentImage`)에서, `img2img`는 입력 이미지를 인코드해서 시작합니다. 서로 배타적입니다(동시에 쓸 수 없음 — "첫 latent를 어디서 만드는지"를 정하는 두 가지 다른 방법이라).
+- **후처리**(`hires_fix`/`usdu`, 0개 이상 동시에 고를 수 있음): 베이스가 만든 결과 뒤에 이어 붙입니다. `hires_fix`는 latent를 업스케일해 2차 KSampler 패스를 한 번 더 돌리고(마법사에서 이전에 "t2i_hiresfix"라는 별도 유형이었던 것이 이제 이 토글로 통합됐습니다), `usdu`(Ultimate SD Upscale)는 디코드된 이미지를 타일 단위로 다시 샘플링해 업스케일+디테일을 보강합니다. 둘 다 켜면 `hires_fix` 다음에 `usdu`가 실행됩니다 — 예를 들어 `txt2img`+`hires_fix`, `txt2img`+`usdu`, `txt2img`+`hires_fix`+`usdu`, `img2img`+`usdu` 모두 가능한 조합입니다. **USDU는 이제 베이스가 `txt2img`여도 입력 이미지 없이 바로 쓸 수 있습니다** — 방금 생성한 이미지를 그 자리에서 업스케일하기 때문입니다(예전에는 USDU가 항상 외부 이미지를 요구하는 별도 유형이었지만, 그 경우는 이제 `img2img`(원하는 만큼 낮은 denoise로 원본을 거의 그대로 유지) + `usdu`로 표현합니다).
+- **프리셋**(ControlNet 3종 + IPAdapter, 하나만 고름): 체크포인트마다 로더/가중치 배선이 달라 이 서버가 자동으로 조립하지 못하는 유형 — family별로 관리자가 미리 만들어둔 워크플로우를 그대로 씁니다. **베이스/후처리와 동시에 쓸 수 없습니다**(마법사에서 하나를 고르면 다른 그룹은 자동으로 해제됨) — 완성된 그래프를 그대로 쓰는 것이라 이 서버가 그 안에 후처리를 추가로 끼워 넣을 수 없기 때문입니다.
+
+### 입력 이미지 배치 — img2img (`input_image_batch`/`input_image_csv_batch`, `input_assets.py`)
+
+베이스가 `img2img`인 워크플로우 유형(후처리로 `hires_fix`/`usdu`를 얹었는지와 무관)에 쓰는 두 템플릿입니다. `pose_batch` 등과 달리 참조 이미지 저장소가 **세트/char_no 계층 없는 평평한(flat) 파일 목록**입니다(`ref_assets.py`가 아니라 별도의 `input_assets.py`) — img2img는 보통 "이 그림 한 장을 원본으로" 쓰는 용도라 세트 개념이 필요 없기 때문입니다. 베이스가 `txt2img`인 워크플로우에 `usdu` 후처리만 얹은 경우는 입력 이미지가 필요 없으므로 `seed_batch`/`csv_batch`를 그대로 씁니다.
+
+**입력 이미지 폴더**: `NIGHTSHIFT_INPUT_IMAGES_DIR`(기본 `NIGHTSHIFT_ASSETS_DIR/input`, 그 기본값은 `/workspace/dataset/assets/input`) 바로 아래에 png/jpg/jpeg/webp 파일을 평평하게 올려두면, `GET /api/input-images`가 목록으로 나열합니다. 세트를 옮기는 별도 업로드 API는 없습니다(다른 참조 이미지 폴더들과 마찬가지로 서버 밖에서 파일을 직접 옮겨두는 걸 전제로 함) — 웹 UI의 "새 작업 추가" 마법사와 개별 옵션 폼의 "입력 이미지" 드롭다운이 이 목록에서 고릅니다. 같은 폴더를 아래 IPAdapter 템플릿의 참조 이미지와도 공유합니다.
 
 - `input_image_batch` — 입력 이미지 하나(`input_image` 옵션)를 골라, `image_count`개의 시드로 반복 생성합니다(예: 그림 한 장으로 여러 스타일 변형을 뽑을 때). `seed_batch`/`pose_batch`와 같은 방식(워크플로우 노드 찾기/제출/폴링/진행률 보고)이며, 매 반복 시드와 함께 같은 입력 이미지를 ComfyUI의 `POST /upload/image`로 매번 업로드해 LoadImage 노드에 주입합니다.
-- `input_image_csv_batch` — CSV 행마다 `input_image`(필수, 다른 참조 템플릿과 달리 비워둘 수 없음 — img2img/USDU는 입력 이미지 없이는 성립하지 않으므로) 컬럼으로 서로 다른 입력 이미지를 지정합니다. 나머지 컬럼(`title`/`trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`/`prompt`/`seed`)은 `csv_batch`와 같습니다. `width`/`height`/`resolution` 컬럼은 없습니다(아래 참고).
+- `input_image_csv_batch` — CSV 행마다 `input_image`(필수, 다른 참조 템플릿과 달리 비워둘 수 없음 — img2img는 입력 이미지 없이는 성립하지 않으므로) 컬럼으로 서로 다른 입력 이미지를 지정합니다. 나머지 컬럼(`title`/`trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`/`prompt`/`seed`)은 `csv_batch`와 같습니다. `width`/`height`/`resolution` 컬럼은 없습니다(아래 참고).
 
-두 템플릿 모두 `width`/`height` 옵션이 없습니다 — `workflow_builder.py`가 img2img/usdu 모드로 만드는 워크플로우에는 애초에 `EmptyLatentImage` 노드가 없어서(이미지 크기가 입력 이미지 자체를 따름) 해상도를 주입할 대상이 없기 때문입니다. 워크플로우에서 입력 이미지를 주입할 `LoadImage` 노드는 제목이 `"input_image"`인 노드를 찾습니다(`INPUT_IMAGE_NODE_TITLE` 환경변수로 조정 가능, 기본값 그대로면 `workflow_builder.py`가 만든 워크플로우와 정확히 맞음). `POST /api/upload`/`POST /api/jobs`로 이 두 템플릿에 워크플로우를 올릴 때, 그 노드가 없으면(제목이 다르거나 LoadImage가 아예 없으면) 업로드 자체를 400으로 거부합니다 — 다른 참조 배치 템플릿의 "업로드 시점 LoadImage 노드 검증"과 같은 안전장치입니다.
+두 템플릿 모두 `width`/`height` 옵션이 없습니다 — `workflow_builder.py`가 `base="img2img"`로 만드는 워크플로우에는 애초에 `EmptyLatentImage` 노드가 없어서(이미지 크기가 입력 이미지 자체를 따름) 해상도를 주입할 대상이 없기 때문입니다. 워크플로우에서 입력 이미지를 주입할 `LoadImage` 노드는 제목이 `"input_image"`인 노드를 찾습니다(`INPUT_IMAGE_NODE_TITLE` 환경변수로 조정 가능, 기본값 그대로면 `workflow_builder.py`가 만든 워크플로우와 정확히 맞음). `POST /api/upload`/`POST /api/jobs`로 이 두 템플릿에 워크플로우를 올릴 때, 그 노드가 없으면(제목이 다르거나 LoadImage가 아예 없으면) 업로드 자체를 400으로 거부합니다 — 다른 참조 배치 템플릿의 "업로드 시점 LoadImage 노드 검증"과 같은 안전장치입니다.
 
-### 베이스 모델(family) / LoRA 호환성 / ControlNet 프리셋 관리 (`🎛 모델` 탭)
+### IPAdapter 배치 (`ipadapter_batch`/`ipadapter_csv_batch`)
 
-체크포인트를 `wai-illustrious`, `krea.2`처럼 서로 호환되는 계열(family)로 묶어두면, "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/ControlNet 프리셋을 걸러서 보여줍니다. 관리는 전부 "🎛 모델" 탭에서 합니다(구 "🎛 LoRA" 탭을 확장한 것).
+"IPAdapter" 워크플로우 유형(프리셋)에 쓰는 두 템플릿으로, `input_image_batch`/`input_image_csv_batch`와 거의 같은 구조입니다 — 다른 점은 참조 이미지를 주입할 옵션/컬럼 이름이 `ipadapter_ref`이고, 주입 대상 LoadImage 노드의 기본 제목이 `"input_image"` 대신 `"ipadapter_ref"`라는 것뿐입니다(제목을 분리해둔 덕분에, 관리자가 만든 프리셋 워크플로우 안에 img2img 입력 이미지와 IPAdapter 참조 이미지가 동시에 있어도 서로 다른 노드에 독립적으로 주입됩니다). 참조 이미지 저장소는 img2img와 완전히 같은 `input_assets.py`/`NIGHTSHIFT_INPUT_IMAGES_DIR`를 공유합니다. `IPADAPTER_NODE_TITLE` 환경변수로 노드 제목을 조정할 수 있습니다.
+
+### 베이스 모델(family) / LoRA 호환성 / ControlNet·IPAdapter 프리셋 관리 (`🎛 모델` 탭)
+
+체크포인트를 `wai-illustrious`, `krea.2`처럼 서로 호환되는 계열(family)로 묶어두면, "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/프리셋을 걸러서 보여줍니다. 관리는 전부 "🎛 모델" 탭에서 합니다(구 "🎛 LoRA" 탭을 확장한 것).
 
 - **베이스 모델(family)**: `base_model_families.json`에 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}` 형태로 저장됩니다. family 하나에 체크포인트를 여러 개(같은 계열의 다른 파인튜닝 등) 묶을 수 있고, 지정된 체크포인트가 하나뿐이면 마법사에서 family를 고르는 즉시 그 체크포인트로 확정되며, 여러 개면 그중 하나를 추가로 골라야 합니다.
 - **LoRA 호환 family**: `lora_triggers.json`이 `{lora_filename: {trigger, families: [family_id, ...]}}` 형태로 트리거 워드와 함께 저장합니다. `families`가 빈 배열이면 모든 베이스 모델과 호환되는 것으로 취급되어 마법사에 항상 보이고, 채워두면 그 family를 골랐을 때만 보입니다(호환되지 않는 LoRA는 회색 처리가 아니라 목록에서 아예 숨겨집니다). 예전 스키마(`{lora_filename: "트리거 문자열"}`)로 저장돼 있던 파일은 서버가 시작할 때 `families: []`로 자동 이관됩니다.
-- **ControlNet 프리셋 워크플로우**: OpenPose/Depth/Lineart ControlNet 워크플로우 유형은 체크포인트마다 ControlNet 로더/가중치 배선이 달라 자동으로 조립할 수 없으므로, family별로 미리 만들어둔 워크플로우 JSON을 `workflow_presets/<family_id>__<type_id>.json`에 업로드해두고 그대로 재사용합니다. family에 프리셋이 없는 유형은 마법사의 "워크플로우 유형" 목록에서 아예 숨겨집니다(LoRA 호환성 필터링과 같은 원칙 — 골라봤자 실행할 워크플로우가 없으므로).
+- **ControlNet/IPAdapter 프리셋 워크플로우**: 위 "워크플로우 유형의 조합 규칙" 절에서 설명한 프리셋 그룹(`openpose_cn`/`depth_cn`/`lineart_cn`/`ipadapter`) — family별로 미리 만들어둔 워크플로우 JSON을 `workflow_presets/<family_id>__<type_id>.json`에 업로드해두고 그대로 재사용합니다. family에 프리셋이 없는 유형은 마법사의 "워크플로우 유형" 목록에서 아예 숨겨집니다(LoRA 호환성 필터링과 같은 원칙 — 골라봤자 실행할 워크플로우가 없으므로).
 
 ### "새 작업 추가" 마법사
 
 템플릿을 먼저 고르고 옵션을 채우던 기존 흐름 위에, (1)베이스 모델 → (2)워크플로우 유형 → (3)LoRA → (4)실행 방식(시드 반복/CSV 순회) 순서로 고르면 아래 템플릿 선택/옵션 폼/워크플로우 슬롯을 자동으로 채워주는 마법사입니다. 마법사 자신은 검증이나 큐 등록을 하지 않습니다 — "적용"을 누르면 기존 폼이 채워질 뿐이고, 실제 등록은 항상 하던 대로 "➕ 추가" 버튼을 눌러야 합니다(기존 검증/제출 경로를 그대로 재사용하기 위한 설계 — 마법사 없이 직접 템플릿을 골라 쓰는 것도 여전히 가능합니다).
 
-- **워크플로우 유형**은 `GET /api/workflow-types`의 카탈로그(`txt2img`/`t2i_hiresfix`/`img2img`/`usdu`/`openpose_cn`/`depth_cn`/`lineart_cn`)를 따르며, `mode: "builder"`인 유형은 `POST /api/build-workflow`로 체크포인트+LoRA 체인을 구워 워크플로우를 즉석 조립하고, `mode: "preset"`인 유형(ControlNet 3종)은 그 family에 업로드된 프리셋을 그대로 씁니다. USDU는 커스텀 노드(`UltimateSDUpscaleNoUpscale`)가 설치돼 있지 않아도 목록에서 숨기지 않고 "⚠ 설치 필요" 배지로만 안내합니다(선택 자체는 막지 않음 — 확인은 `GET /api/comfy-object-info`의 `node_types` 기준).
-- **LoRA**는 builder 유형이면 여러 개를 고를 수 있습니다(전부 `workflow_builder.py`의 `loras` 스펙으로 체인에 구워짐). preset 유형(ControlNet)은 관리자가 미리 만든 워크플로우의 LoRA 로더 노드 하나에만 실행 시점에 덮어쓸 수 있다는 제약(`templates/*.py`의 `apply_lora`) 때문에 한 개만 고를 수 있습니다.
-- **적용** 시 builder 유형은 체크포인트/LoRA가 이미 워크플로우에 구워져 있으므로 옵션 폼의 `checkpoint`/`lora_name` 런타임 override 필드는 비워둡니다. preset 유형은 프리셋을 그대로 쓰되, 그 family 안의 다른 체크포인트로 바꾸거나(같은 아키텍처라 안전) LoRA 하나를 얹고 싶을 때를 위해 그 두 필드를 채워줍니다.
+- **워크플로우 유형** 단계는 위 "워크플로우 유형의 조합 규칙"을 그대로 UI로 옮긴 것입니다 — 베이스(택1) + 후처리(다중, "완료" 버튼으로 확정) + 프리셋(택1, 나머지와 배타적)을 한 모달에서 고릅니다. USDU 후처리는 커스텀 노드(`UltimateSDUpscaleNoUpscale`)가 설치돼 있지 않아도 목록에서 숨기지 않고 "⚠ 설치 필요" 배지로만 안내합니다(선택 자체는 막지 않음 — 확인은 `GET /api/comfy-object-info`의 `node_types` 기준).
+- **LoRA**는 베이스+후처리 조합이면 여러 개를 고를 수 있습니다(전부 `workflow_builder.py`의 `loras` 스펙으로 체인에 구워짐). 프리셋(ControlNet/IPAdapter)은 관리자가 미리 만든 워크플로우의 LoRA 로더 노드 하나에만 실행 시점에 덮어쓸 수 있다는 제약(`templates/*.py`의 `apply_lora`) 때문에 한 개만 고를 수 있습니다.
+- **적용** 시 베이스+후처리 조합은 체크포인트/LoRA가 이미 워크플로우에 구워져 있으므로 옵션 폼의 `checkpoint`/`lora_name` 런타임 override 필드는 비워둡니다. 프리셋은 그대로 쓰되, 그 family 안의 다른 체크포인트로 바꾸거나(같은 아키텍처라 안전) LoRA 하나를 얹고 싶을 때를 위해 그 두 필드를 채워줍니다.
 
 ### 워크플로우 JSON / CSV / 옵션과 스크립트 연동
 
@@ -499,13 +511,13 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `PUT` | `/api/lora-triggers` | 매핑 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "🎛 모델" 탭이 입력/체크할 때마다 부름. `trigger`가 빈 문자열이고 `families`도 빈 배열이면 그 키를 저장하지 않음(지움). 객체가 아니거나 각 값이 `{trigger: string, families: string[]}` 형태가 아니면 400. 예전 스키마(`{lora_filename: "트리거 문자열"}`)로 저장돼 있던 파일은 서버가 시작할 때 자동으로 이 형태로 이관함(`families: []`) |
 | `GET` | `/api/base-model-families` | 베이스 모델 family 정의를 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}`로 반환 — "새 작업 추가" 마법사 1단계와 LoRA/프리셋 호환성 필터링의 기준이 됨 |
 | `PUT` | `/api/base-model-families` | family 정의 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "🎛 모델" 탭이 family를 추가/편집할 때마다 부름. `label`이 비어있거나 `checkpoints`가 문자열 배열이 아니면 400 |
-| `GET` | `/api/input-images` | img2img/USDU 입력 이미지 목록(세트/char_no 구분 없는 평평한 목록, `input_assets.py`)을 `{"images": [{"name", "size"}, ...]}`로 반환. `NIGHTSHIFT_INPUT_IMAGES_DIR`(기본 `NIGHTSHIFT_ASSETS_DIR/input`)에 미리 파일을 옮겨둬야 함 — 별도 업로드 API는 없음 |
-| `GET` | `/api/workflow-types` | "새 작업 추가" 마법사 2단계(워크플로우 유형) 카탈로그를 정적으로 반환 — `txt2img`/`t2i_hiresfix`/`img2img`/`usdu`(`mode: "builder"`, `workflow_builder.py`가 즉석 조립)와 `openpose_cn`/`depth_cn`/`lineart_cn`(`mode: "preset"`, family별 업로드된 워크플로우 그대로 사용) 7개. 각 항목의 `template_ids: {seed, csv}`는 그 유형을 "시드 반복"/"CSV 순회" 중 어느 실행 방식으로 큐에 올릴지에 따른 실제 템플릿 id, `requires_node`(있으면)는 그 클래스가 `/api/comfy-object-info`의 `node_types`에 없을 때 화면에서 "설치 필요"로 안내하는 데 씀(선택 자체를 막지는 않음) |
-| `GET` | `/api/workflow-presets` | 저장된 `{family_id, type_id}` 조합 전체를 `{"presets": [...]}`로 반환 — 마법사가 이 family에 어떤 ControlNet 프리셋이 있는지 한 번에 확인하는 용도 |
+| `GET` | `/api/input-images` | img2img/IPAdapter 입력 이미지 목록(세트/char_no 구분 없는 평평한 목록, `input_assets.py`)을 `{"images": [{"name", "size"}, ...]}`로 반환. `NIGHTSHIFT_INPUT_IMAGES_DIR`(기본 `NIGHTSHIFT_ASSETS_DIR/input`)에 미리 파일을 옮겨둬야 함 — 별도 업로드 API는 없음 |
+| `GET` | `/api/workflow-types` | "새 작업 추가" 마법사 2단계(워크플로우 유형) 카탈로그를 `{"base": [...], "post": [...], "preset": [...]}` 세 그룹으로 반환(위 "워크플로우 유형의 조합 규칙" 참고) — `base`(`txt2img`/`img2img`, 하나만 고름), `post`(`hires_fix`/`usdu`, 0개 이상 동시 선택), `preset`(`openpose_cn`/`depth_cn`/`lineart_cn`/`ipadapter`, 하나만 고르고 base/post와 배타적). `base`/`preset` 항목의 `template_ids: {seed, csv}`는 그 조합을 "시드 반복"/"CSV 순회" 중 어느 실행 방식으로 큐에 올릴지에 따른 실제 템플릿 id(`post`는 base가 고른 템플릿을 그대로 씀 — 워크플로우 안에서 완결되므로), `requires_node`(있으면)는 그 클래스가 `/api/comfy-object-info`의 `node_types`에 없을 때 화면에서 "설치 필요"로 안내하는 데 씀(선택 자체를 막지는 않음) |
+| `GET` | `/api/workflow-presets` | 저장된 `{family_id, type_id}` 조합 전체를 `{"presets": [...]}`로 반환 — 마법사가 이 family에 어떤 프리셋이 있는지 한 번에 확인하는 용도 |
 | `GET` | `/api/workflow-presets/{family_id}/{type_id}` | 그 조합의 프리셋 워크플로우 JSON을 그대로 반환. 없으면 404 |
 | `PUT` | `/api/workflow-presets/{family_id}/{type_id}` | 워크플로우 JSON을 통째로 올려 그 조합에 저장(요청 본문 = 워크플로우 JSON 또는 `{"workflow": {...}}`) — "🎛 모델" 탭의 ControlNet 프리셋 업로드가 부름. 검증 없이 그대로 저장되므로, 실제로 돌아가는지는 `POST /api/validate-workflow`로 따로 확인할 것 |
 | `DELETE` | `/api/workflow-presets/{family_id}/{type_id}` | 그 조합의 프리셋을 삭제. 없으면 404 |
-| `POST` | `/api/build-workflow` | 요청 본문의 스펙(`mode`: `"txt2img"`(기본)/`"img2img"`/`"usdu"`, `checkpoint`, `loras: [{name, strength_model, strength_clip}]`, `positive`, `negative`, `width`, `height`, `batch_size`, `seed`, `steps`, `cfg`, `sampler_name`, `scheduler`, `vae`, `hires: {enabled, scale_by, denoise, steps}`(`txt2img` 전용), `denoise`(`img2img`/`usdu`), `upscale_by`/`upscale_method`(`usdu`))으로 ComfyUI API 형식 워크플로우를 조립해 `{"workflow": {...}}`로 반환(`workflow_builder.py`). `img2img`/`usdu`는 제목이 `"input_image"`인 `LoadImage` 노드가 포함되며 실제 파일명은 실행 시점에 템플릿이 덮어씀. ComfyUI가 떠 있으면 고른 모델/샘플러가 실제로 설치·지원되는지 먼저 검증하고 아니면 400, 꺼져 있으면 검증을 건너뜀. 체크포인트나 긍정 프롬프트가 비어 있거나 `mode` 값이 셋 중 하나가 아니면 400. 큐에 넣지는 않음 — 만들어진 JSON을 화면이 워크플로우 슬롯에 채워 기존 업로드 경로를 타게 함 |
+| `POST` | `/api/build-workflow` | 요청 본문의 스펙(`base`: `"txt2img"`(기본)/`"img2img"`, `checkpoint`, `loras: [{name, strength_model, strength_clip}]`, `positive`, `negative`, `seed`, `steps`, `cfg`, `sampler_name`, `scheduler`, `vae`, `width`/`height`/`batch_size`(`base="txt2img"` 전용), `denoise`(`base="img2img"` 전용), `hires_fix: {enabled, scale_by, denoise, steps}`(선택, 베이스 뒤에 이어 붙임), `usdu: {enabled, upscale_by, upscale_method, denoise}`(선택, `hires_fix`보다 뒤·VAEDecode 다음에 이어 붙임 — 커스텀 노드 `UltimateSDUpscaleNoUpscale` 필요))으로 ComfyUI API 형식 워크플로우를 조립해 `{"workflow": {...}}`로 반환(`workflow_builder.py`). `hires_fix`/`usdu`는 몇 개를 켜도(둘 다 켜도) 되고, 켜진 순서와 무관하게 항상 `hires_fix` → `usdu` 순으로 체이닝됨(위 "워크플로우 유형의 조합 규칙" 참고). `base="img2img"`는 제목이 `"input_image"`인 `LoadImage` 노드가 포함되며 실제 파일명은 실행 시점에 템플릿이 덮어씀. ComfyUI가 떠 있으면 고른 모델/샘플러가 실제로 설치·지원되는지 먼저 검증하고 아니면 400, 꺼져 있으면 검증을 건너뜀. 체크포인트나 긍정 프롬프트가 비어 있거나 `base` 값이 둘 중 하나가 아니면 400. 큐에 넣지는 않음 — 만들어진 JSON을 화면이 워크플로우 슬롯에 채워 기존 업로드 경로를 타게 함 |
 | `POST` | `/api/validate-workflow` | 요청 본문에 워크플로우 JSON(또는 `{"workflow": {...}}`)을 담아 보내면 지금 연결된 ComfyUI 기준으로 검사해서 `{"connected", "ok", "missing_nodes": [노드 타입...], "missing_values": [{"node_id", "class_type", "field", "value"}...], "checked_nodes"}` 반환. 이 서버에 없는 노드와, 목록에서 고르는 입력(`ckpt_name`/`lora_name`/`sampler_name` 등)에 없는 값을 짚어줌. ComfyUI가 안 떠 있으면 `connected: false`(= "문제 없음"이 아니라 "확인 못 함"). JSON이 아니거나 노드 맵 형식이 아니면 400 |
 | `GET` | `/api/assets?kind=pose` | `kind`(`pose`/`depth`/`lineart`, 기본 `pose`)가 가리키는 종류의 루트 아래 char_no별 참조 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"char_nos": [{"name": char_no, "pose_sets": [{"name", "count"}, ...]}, ...]}`로 반환(응답 키는 하위호환으로 `kind`와 무관하게 항상 `"pose_sets"`). 업로드 폼의 "인물 수"/"참조 세트" 캐스케이딩 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함. 알 수 없는 `kind`는 400 |
 | `POST` | `/api/assets/import-from-output` | 출력 폴더의 결과 이미지를 참조 세트에 사본으로 추가(원본은 그대로 둠) — 갤러리의 "참조 세트로 보내기". 요청 본문 `{"names": [파일명...], "kind": "pose", "char_no": "1", "set_name": "새_세트"}` (`kind`는 `pose`/`depth`/`lineart`, 없으면 `"pose"`). 존재하지 않는 char_no/세트 이름은 그 자리에서 새로 만듦. 응답 `{"added": N, "skipped": [{"name", "reason"}, ...]}` — 그 사이 지워진 이미지 등은 건너뛰고 이유를 담아 반환 |
@@ -610,8 +622,10 @@ nightshift/
 │   ├── depth_csv_batch.py    # 템플릿 스크립트 (pose_csv_batch와 동일 구조, 주 참조만 depth)
 │   ├── lineart_batch.py      # 템플릿 스크립트 (pose_batch와 동일 구조, 주 참조만 lineart)
 │   ├── lineart_csv_batch.py  # 템플릿 스크립트 (pose_csv_batch와 동일 구조, 주 참조만 lineart)
-│   ├── input_image_batch.py     # 템플릿 스크립트 (img2img/USDU — 입력 이미지 1장 + 시드 반복)
-│   └── input_image_csv_batch.py # 템플릿 스크립트 (img2img/USDU — CSV 행마다 다른 입력 이미지)
+│   ├── input_image_batch.py     # 템플릿 스크립트 (img2img — 입력 이미지 1장 + 시드 반복)
+│   ├── input_image_csv_batch.py # 템플릿 스크립트 (img2img — CSV 행마다 다른 입력 이미지)
+│   ├── ipadapter_batch.py       # 템플릿 스크립트 (IPAdapter 프리셋 — 참조 이미지 1장 + 시드 반복)
+│   └── ipadapter_csv_batch.py   # 템플릿 스크립트 (IPAdapter 프리셋 — CSV 행마다 다른 참조 이미지)
 ├── jobs/                      # 업로드된 워크플로우/CSV가 저장되는 곳 (자동 생성)
 ├── logs/                      # 작업별 실행 로그 (자동 생성)
 ├── workflow_presets/           # family별 ControlNet 프리셋 워크플로우 (자동 생성, git 제외)

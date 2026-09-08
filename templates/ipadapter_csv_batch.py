@@ -1,9 +1,9 @@
 """
-CSV + 입력 이미지 배치 템플릿 — csv_batch.py의 CSV 기반 배치 제출(프롬프트 여러 개,
-시드)에 input_image_batch.py의 입력 이미지 주입을 결합한다. 워크플로우 유형 중
-"베이스"가 img2img일 때 쓴다(app.py의 WORKFLOW_TYPES["base"] 참고). CSV 행마다
-input_image 컬럼으로 입력 이미지를 지정한다(세트 구분 없는 평평한 목록 —
-input_image_batch.py 모듈 설명 참고).
+CSV + IPAdapter 배치 템플릿 — csv_batch.py의 CSV 기반 배치 제출(프롬프트 여러 개,
+시드)에 ipadapter_batch.py의 참조 이미지 주입을 결합한다. "IPAdapter" 워크플로우
+유형(프리셋 기반 — app.py의 workflow_presets, "🎛 모델" 탭 참고)에 쓴다. CSV 행마다
+ipadapter_ref 컬럼으로 참조 이미지를 지정한다(세트 구분 없는 평평한 목록 —
+ipadapter_batch.py 모듈 설명 참고).
 
 주의: csv_batch.py, pose_csv_batch.py와 마찬가지로 이 저장소의 템플릿은 서로
 임포트하지 않고 필요한 로직을 그대로 복사해서 자기 완결적으로 작성하는 게
@@ -17,21 +17,17 @@ CSV 컬럼:
     negative_prompt  네거티브 프롬프트 (선택)
     prompt           main_prompt가 없을 때 쓰이는 대체 컬럼 (하위 호환용, 선택)
     seed             지정하면 그 값을 시드로 사용, 비어 있으면 랜덤 시드 1개
-    input_image      (필수, 모든 행) 이 행에 쓸 입력 이미지 파일명 —
+    ipadapter_ref    (필수, 모든 행) 이 행에 쓸 IPAdapter 참조 이미지 파일명 —
                      NIGHTSHIFT_INPUT_IMAGES_DIR(기본 NIGHTSHIFT_ASSETS_DIR/input)
                      바로 아래에 있는 파일이어야 한다. pose 컬럼과 달리 비워두는
-                     것을 허용하지 않는다 — img2img는 입력 이미지 없이는 애초에
+                     것을 허용하지 않는다 — IPAdapter는 참조 이미지 없이는 애초에
                      성립하지 않는 워크플로우이기 때문이다.
-
-해상도(WIDTH/HEIGHT)를 다루지 않는 이유:
-    workflow_builder.py가 base="img2img"로 만드는 워크플로우에는 EmptyLatentImage
-    노드가 없다(크기는 입력 이미지를 따름) — csv_batch.py에 있는 width/height/
-    resolution 컬럼을 이 템플릿에는 일부러 두지 않았다.
 
 환경변수:
     WORKFLOW_PATH      (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입)
     CSV_PATH           (필수) 위 컬럼을 가진 csv 경로 (nightshift가 주입)
-    CHECKPOINT         체크포인트 파일명 (nightshift가 템플릿 옵션 "checkpoint"로 주입, 기본 빈 값)
+    CHECKPOINT         체크포인트 파일명 (nightshift가 템플릿 옵션 "checkpoint"로 주입, 기본 빈 값 —
+                       같은 family 안의 다른 체크포인트로 바꿀 때만 씀)
     LORA_NAME          LoRA 파일명 (템플릿 옵션 "lora_name", 기본 빈 값)
     LORA_STRENGTH      LoRA 강도 strength_model (템플릿 옵션 "lora_strength", 기본 빈 값)
     CHECKPOINT_NODE_TITLE  체크포인트를 주입할 노드의 _meta.title 부분일치 (기본 없음)
@@ -40,10 +36,10 @@ CSV 컬럼:
     JOB_ID             nightshift가 주입하는 이 작업의 id (진행 상황 보고용, 없으면 보고 생략)
     NIGHTSHIFT_URL     nightshift 자신의 주소 (진행 상황 보고용, 기본 http://127.0.0.1:8000)
     SEED_NODE_TITLE    시드를 주입할 노드의 _meta.title 부분일치 (기본 "KSampler")
-    INPUT_IMAGE_NODE_TITLE  입력 이미지를 주입할 LoadImage 노드의 _meta.title 부분일치
-                       (기본 "input_image")
+    IPADAPTER_NODE_TITLE  참조 이미지를 주입할 LoadImage 노드의 _meta.title 부분일치
+                       (기본 "ipadapter_ref")
     SAVE_NODE_TITLE    파일명 접두사를 주입할 노드의 _meta.title 부분일치 (기본 "Save")
-    NIGHTSHIFT_INPUT_IMAGES_DIR  입력 이미지들이 있는 폴더 (기본 NIGHTSHIFT_ASSETS_DIR/input)
+    NIGHTSHIFT_INPUT_IMAGES_DIR  참조 이미지들이 있는 폴더 (기본 NIGHTSHIFT_ASSETS_DIR/input)
     NIGHTSHIFT_ASSETS_DIR  위 override가 없을 때 쓰는 상위 디렉토리 (기본 /workspace/dataset/assets)
     POLL_INTERVAL_SEC  히스토리 폴링 간격 초 (기본 2)
     POLL_TIMEOUT_SEC   개별 작업 완료 대기 제한 초 (기본 600)
@@ -54,7 +50,7 @@ CSV 컬럼:
 
 결과물 파일명 규칙:
     csv_batch.py와 같다 — "<JOB_ID>/<title(안전한 문자로 치환, 없으면
-    input_image_<순번>)>_seed<시드값>" 형식.
+    ipadapter_<순번>)>_seed<시드값>" 형식.
 """
 
 import copy
@@ -71,7 +67,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-INPUT_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+IPADAPTER_REF_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 PROMPT_FIELD_TITLES = {
     "trigger_prompt": "trigger_prompt",
@@ -104,12 +100,12 @@ def input_images_dir():
     return Path(assets_dir) / "input"
 
 
-def resolve_input_image(name):
+def resolve_ipadapter_ref(name):
     if not name or "/" in name or "\\" in name or name in (".", ".."):
-        raise ValueError(f"올바르지 않은 입력 이미지 이름이에요: '{name}'")
+        raise ValueError(f"올바르지 않은 참조 이미지 이름이에요: '{name}'")
     path = input_images_dir() / name
-    if not path.is_file() or path.suffix.lower() not in INPUT_IMAGE_EXTENSIONS:
-        raise ValueError(f"입력 이미지 '{name}'를 찾을 수 없어요.")
+    if not path.is_file() or path.suffix.lower() not in IPADAPTER_REF_EXTENSIONS:
+        raise ValueError(f"참조 이미지 '{name}'를 찾을 수 없어요.")
     return path
 
 
@@ -197,7 +193,7 @@ def apply_prompts(workflow, row):
         input_field = primitive_value_field(node) if node is not None else None
         if input_field is None:
             print(
-                f"[input_image_csv_batch] 경고: '{field}' 값을 넣을 노드를 찾지 못했습니다 "
+                f"[ipadapter_csv_batch] 경고: '{field}' 값을 넣을 노드를 찾지 못했습니다 "
                 f"(제목에 '{title_substring}'가 포함된 CLIPTextEncode/Primitive 텍스트 노드 없음)",
                 file=sys.stderr,
             )
@@ -205,25 +201,22 @@ def apply_prompts(workflow, row):
         node.setdefault("inputs", {})[input_field] = value
         applied = True
     if not applied:
-        print("[input_image_csv_batch] 경고: 이 행에 프롬프트 컬럼 값이 하나도 없습니다.", file=sys.stderr)
+        print("[ipadapter_csv_batch] 경고: 이 행에 프롬프트 컬럼 값이 하나도 없습니다.", file=sys.stderr)
 
 
 def apply_seed(workflow, seed):
-    # USDU 모드(workflow_builder.py)는 시드가 KSampler가 아니라
-    # UltimateSDUpscaleNoUpscale 노드의 "seed" 입력에 있으므로 후보에 포함한다
-    # (그 노드가 없는 일반 img2img 워크플로우면 그냥 무시됨).
     node_id, node = find_node(
         workflow,
         title_substring=env("SEED_NODE_TITLE", "KSampler"),
-        class_types=("KSampler", "KSamplerAdvanced", "UltimateSDUpscaleNoUpscale", "UltimateSDUpscale"),
+        class_types=("KSampler", "KSamplerAdvanced"),
     )
     if node is None:
-        print("[input_image_csv_batch] 경고: 시드를 넣을 노드를 찾지 못했습니다 (KSampler/UltimateSDUpscale 없음)", file=sys.stderr)
+        print("[ipadapter_csv_batch] 경고: 시드를 넣을 노드를 찾지 못했습니다 (KSampler 없음)", file=sys.stderr)
         return
     try:
         node.setdefault("inputs", {})["seed"] = int(seed)
     except (TypeError, ValueError):
-        print(f"[input_image_csv_batch] 경고: seed 값 '{seed}'을 정수로 변환하지 못했습니다", file=sys.stderr)
+        print(f"[ipadapter_csv_batch] 경고: seed 값 '{seed}'을 정수로 변환하지 못했습니다", file=sys.stderr)
 
 
 def find_loader_node(workflow, title_substring, class_types):
@@ -256,7 +249,7 @@ def apply_checkpoint(workflow):
         return
     node_id, node = find_loader_node(workflow, env("CHECKPOINT_NODE_TITLE", ""), CHECKPOINT_CLASS_TYPES)
     if node is None:
-        print("[input_image_csv_batch] 경고: 체크포인트를 넣을 노드를 찾지 못했습니다 (CheckpointLoader 없음)", file=sys.stderr)
+        print("[ipadapter_csv_batch] 경고: 체크포인트를 넣을 노드를 찾지 못했습니다 (CheckpointLoader 없음)", file=sys.stderr)
         return
     set_linked_value(workflow, node, "ckpt_name", ckpt)
 
@@ -268,7 +261,7 @@ def apply_lora(workflow):
         return
     node_id, node = find_loader_node(workflow, env("LORA_NODE_TITLE", ""), LORA_CLASS_TYPES)
     if node is None:
-        print("[input_image_csv_batch] 경고: LoRA를 넣을 노드를 찾지 못했습니다 (LoraLoader 없음)", file=sys.stderr)
+        print("[ipadapter_csv_batch] 경고: LoRA를 넣을 노드를 찾지 못했습니다 (LoraLoader 없음)", file=sys.stderr)
         return
     total = sum(
         1 for n in workflow.values()
@@ -276,7 +269,7 @@ def apply_lora(workflow):
     )
     if total > 1:
         print(
-            f"[input_image_csv_batch] 안내: LoRA 로더가 {total}개라 그중 노드 {node_id}에만 적용했습니다 "
+            f"[ipadapter_csv_batch] 안내: LoRA 로더가 {total}개라 그중 노드 {node_id}에만 적용했습니다 "
             "(다른 노드에 넣으려면 LORA_NODE_TITLE로 지정하세요).",
             file=sys.stderr,
         )
@@ -286,20 +279,20 @@ def apply_lora(workflow):
         try:
             strength_value = float(strength)
         except ValueError:
-            print(f"[input_image_csv_batch] 경고: LORA_STRENGTH 값 '{strength}'을 숫자로 변환하지 못했습니다.", file=sys.stderr)
+            print(f"[ipadapter_csv_batch] 경고: LORA_STRENGTH 값 '{strength}'을 숫자로 변환하지 못했습니다.", file=sys.stderr)
         else:
             set_linked_value(workflow, node, "strength_model", strength_value)
 
 
-def apply_input_image(workflow, comfy_url, image_path):
+def apply_ipadapter_ref(workflow, comfy_url, image_path):
     node_id, node = find_node(
         workflow,
-        title_substring=env("INPUT_IMAGE_NODE_TITLE", "input_image"),
+        title_substring=env("IPADAPTER_NODE_TITLE", "ipadapter_ref"),
         class_types=("LoadImage",),
         prefer_connected=True,
     )
     if node is None:
-        print("[input_image_csv_batch] 경고: 입력 이미지를 넣을 노드를 찾지 못했습니다 (LoadImage 없음)", file=sys.stderr)
+        print("[ipadapter_csv_batch] 경고: 참조 이미지를 넣을 노드를 찾지 못했습니다 (LoadImage 없음)", file=sys.stderr)
         return
     uploaded_name = upload_image_to_comfy(comfy_url, image_path)
     node.setdefault("inputs", {})["image"] = uploaded_name
@@ -344,7 +337,7 @@ def apply_filename_prefix(workflow, title, index, seed):
     )
     if node is None:
         return
-    prefix = sanitize_prefix(title, f"input_image_{index}")
+    prefix = sanitize_prefix(title, f"ipadapter_{index}")
     prefix = f"{prefix}_seed{seed}"
     job_id = env("JOB_ID")
     if job_id:
@@ -365,7 +358,7 @@ def report_progress(job_id, nightshift_url, total, done):
         )
         urllib.request.urlopen(req, timeout=10).read()
     except Exception as e:
-        print(f"[input_image_csv_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
+        print(f"[ipadapter_csv_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
 
 
 def queue_prompt(comfy_url, workflow):
@@ -406,33 +399,33 @@ def run_once(base_workflow, comfy_url, row, title, seed, index, image_path):
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
     apply_lora(workflow)
-    apply_input_image(workflow, comfy_url, image_path)
+    apply_ipadapter_ref(workflow, comfy_url, image_path)
     apply_filename_prefix(workflow, title, index, seed)
 
     prompt_id = queue_prompt(comfy_url, workflow)
-    print(f"[input_image_csv_batch] [{index}] title={title!r} seed={seed} input_image={image_path.name} 큐 등록 (prompt_id={prompt_id})")
+    print(f"[ipadapter_csv_batch] [{index}] title={title!r} seed={seed} ipadapter_ref={image_path.name} 큐 등록 (prompt_id={prompt_id})")
     wait_for_completion(comfy_url, prompt_id)
-    print(f"[input_image_csv_batch] [{index}] 완료")
+    print(f"[ipadapter_csv_batch] [{index}] 완료")
 
 
 def main():
     workflow_path = env("WORKFLOW_PATH")
     csv_path = env("CSV_PATH")
     if not workflow_path or not csv_path:
-        print("[input_image_csv_batch] WORKFLOW_PATH와 CSV_PATH 환경변수가 모두 필요합니다.", file=sys.stderr)
+        print("[ipadapter_csv_batch] WORKFLOW_PATH와 CSV_PATH 환경변수가 모두 필요합니다.", file=sys.stderr)
         sys.exit(1)
 
     base_workflow = load_workflow(workflow_path)
     rows = load_rows(csv_path)
     if not rows:
-        print("[input_image_csv_batch] CSV에 처리할 행이 없습니다.")
+        print("[ipadapter_csv_batch] CSV에 처리할 행이 없습니다.")
         return
 
     comfy_url = env("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
     job_id = env("JOB_ID")
     nightshift_url = env("NIGHTSHIFT_URL", "http://127.0.0.1:8000")
 
-    # 실행 전에 CSV 전체를 미리 훑어 input_image 값이 실제 파일로 해석되는지
+    # 실행 전에 CSV 전체를 미리 훑어 ipadapter_ref 값이 실제 파일로 해석되는지
     # 확인한다 — nightshift가 업로드 시점에 이미 확인했어야 하지만, 그 사이
     # 파일이 지워졌을 수도 있으니 일부만 제출된 채 실패하는 일이 없도록
     # 시작하기 전에 전부 다시 검증한다(pose_csv_batch.py와 같은 정책).
@@ -440,17 +433,17 @@ def main():
     for line_no, row in enumerate(rows, start=2):
         main_prompt = (row.get("main_prompt") or row.get("prompt") or "").strip()
         if not main_prompt:
-            print(f"[input_image_csv_batch] 건너뜀 (main_prompt/prompt 없음, {line_no}번째 줄): {row}")
+            print(f"[ipadapter_csv_batch] 건너뜀 (main_prompt/prompt 없음, {line_no}번째 줄): {row}")
             continue
 
-        image_name = (row.get("input_image") or "").strip()
-        if not image_name:
-            print(f"[input_image_csv_batch] input_image 컬럼이 비어 있습니다 ({line_no}번째 줄).", file=sys.stderr)
+        ref_name = (row.get("ipadapter_ref") or "").strip()
+        if not ref_name:
+            print(f"[ipadapter_csv_batch] ipadapter_ref 컬럼이 비어 있습니다 ({line_no}번째 줄).", file=sys.stderr)
             sys.exit(1)
         try:
-            image_path = resolve_input_image(image_name)
+            image_path = resolve_ipadapter_ref(ref_name)
         except ValueError as e:
-            print(f"[input_image_csv_batch] {line_no}번째 줄: {e}", file=sys.stderr)
+            print(f"[ipadapter_csv_batch] {line_no}번째 줄: {e}", file=sys.stderr)
             sys.exit(1)
 
         title = (row.get("title") or row.get("name") or "").strip()
@@ -458,7 +451,7 @@ def main():
         seed = int(row_seed) if row_seed else random.randint(0, 2**31 - 1)
         plan.append((row, title, seed, image_path))
 
-    print(f"[input_image_csv_batch] 총 {len(plan)}건 제출 예정")
+    print(f"[ipadapter_csv_batch] 총 {len(plan)}건 제출 예정")
     report_progress(job_id, nightshift_url, len(plan), 0)
 
     done = 0
@@ -467,7 +460,7 @@ def main():
         done += 1
         report_progress(job_id, nightshift_url, len(plan), done)
 
-    print(f"[input_image_csv_batch] 총 {len(plan)}건 완료")
+    print(f"[ipadapter_csv_batch] 총 {len(plan)}건 완료")
 
 
 if __name__ == "__main__":
