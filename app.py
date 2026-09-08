@@ -253,12 +253,17 @@ jobs: dict[str, dict] = {}
 lock = threading.Lock()
 
 # 자동 실행 모드 — 켜져 있는 동안에는 POST /api/upload로 새로 추가되는 작업도
-# pending에 머무르지 않고 바로 큐에 들어간다("▶ 시작"/"⏸ 정지" 토글). 이미
-# 큐에 들어갔거나 실행 중인 작업은 정지해도 그대로 끝까지 진행된다 — 정지는
-# "새 작업을 더 안 받는다"는 뜻이지, 진행 중인 걸 멈추는 게 아니다. 서버가
-# 재시작되면 큐에 남아있던 작업이 interrupted로 표시되는 것과 같은 이유로
-# 이 값도 초기화된다(재시작 후 자동으로 다시 돌기 시작하면 안 되므로).
+# pending에 머무르지 않고 바로 큐에 들어간다("▶ 시작"/"⏸ 정지" 토글). "⏸ 정지"는
+# 새 작업을 더 안 받는 것과 동시에, 지금 실행 중인 작업의 서브프로세스도 즉시
+# 종료 요청한다(아래 stop_current_job 참고). 서버가 재시작되면 큐에 남아있던
+# 작업이 interrupted로 표시되는 것과 같은 이유로 이 값도 초기화된다(재시작
+# 후 자동으로 다시 돌기 시작하면 안 되므로).
 auto_run = False
+
+# worker_loop가 지금 돌리고 있는 서브프로세스 — "⏸ 정지"가 이걸 종료시킬 수
+# 있게 lock으로 보호된 상태로 들고 있는다. 실행 중인 작업이 없으면 둘 다 None.
+current_job_id: str | None = None
+current_process: subprocess.Popen | None = None
 
 
 def now_iso() -> str:
@@ -510,7 +515,31 @@ def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
     raise HTTPException(504, f"프롬프트 개선이 {int(ENHANCE_TIMEOUT_SEC)}초 안에 끝나지 않았어요.")
 
 
+def stop_current_job() -> str | None:
+    """지금 worker_loop가 돌리고 있는 서브프로세스에 종료를 요청한다("⏸ 정지").
+    실행 중인 작업이 있었으면 그 job_id를, 없었으면 None을 반환한다. SIGTERM을
+    무시하고 계속 살아있는 경우를 대비해 잠시 후에도 안 죽어있으면 강제 종료
+    (kill)하는 감시 스레드를 하나 띄운다."""
+    with lock:
+        if current_process is None or current_job_id is None:
+            return None
+        job_id = current_job_id
+        jobs[job_id]["_stop_requested"] = True
+        proc = current_process
+
+    proc.terminate()
+
+    def _kill_if_still_alive():
+        time.sleep(5)
+        if proc.poll() is None:
+            proc.kill()
+
+    threading.Thread(target=_kill_if_still_alive, daemon=True).start()
+    return job_id
+
+
 def worker_loop():
+    global current_job_id, current_process
     while True:
         job_id = job_queue.get()
         with lock:
@@ -545,19 +574,27 @@ def worker_loop():
 
         with open(log_path, "w") as logf:
             try:
-                proc = subprocess.run(
+                proc = subprocess.Popen(
                     ["python3", "-u", str(script_path)],
                     stdout=logf,
                     stderr=subprocess.STDOUT,
                     env=env,
                 )
-                returncode = proc.returncode
+                with lock:
+                    current_job_id = job_id
+                    current_process = proc
+                returncode = proc.wait()
             except Exception as e:
                 logf.write(f"\n[runner error] {e}\n")
                 returncode = -1
+            finally:
+                with lock:
+                    stopped = current_job_id == job_id and job.pop("_stop_requested", False)
+                    current_job_id = None
+                    current_process = None
 
         with lock:
-            job["status"] = "done" if returncode == 0 else "failed"
+            job["status"] = "interrupted" if stopped else ("done" if returncode == 0 else "failed")
             job["returncode"] = returncode
             job["finished_at"] = now_iso()
         save_state()
@@ -1373,13 +1410,18 @@ def start_queue():
 
 @app.post("/api/queue/stop")
 def stop_queue():
-    # 자동 실행 모드를 끈다 — 이미 큐에 들어갔거나 실행 중인 작업은 그대로 끝까지
-    # 진행된다(중간에 멈추지 않음). 이후 POST /api/upload로 추가되는 작업은 다시
-    # "▶ 시작"을 누르기 전까지 pending 상태로 대기 목록에만 쌓인다.
+    # 자동 실행 모드를 끈다 — 이후 POST /api/upload로 추가되는 작업은 다시
+    # "▶ 시작"을 누르기 전까지 pending 상태로 대기 목록에만 쌓인다. 이미 큐에
+    # 들어가 있지만 아직 안 돈 작업(queued)은 그대로 대기 상태로 남고(다음
+    # "▶ 시작" 때 이어서 돎), 지금 실행 중인(running) 작업 하나는
+    # stop_current_job()으로 즉시 종료 요청한다 — 완전히 죽을 때까지 몇 초
+    # 걸릴 수 있으니 job 상태가 "interrupted"로 바뀌는 건 GET /api/jobs로
+    # 잠시 후 확인해야 한다.
     global auto_run
     with lock:
         auto_run = False
-    return {"running": False}
+    stopped_job_id = stop_current_job()
+    return {"running": False, "stopped_job_id": stopped_job_id}
 
 
 @app.post("/api/jobs/clear-completed")
