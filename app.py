@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import queue
+import re
 import subprocess
 import tempfile
 import threading
@@ -67,6 +68,7 @@ from ref_assets import (
     validate_new_folder_name,
     validate_ref_set,
 )
+from input_assets import InputAssetError, list_input_images, resolve_input_image
 
 # 프론트엔드(static/index.html)가 작업 목록/ComfyUI 연결 상태를 실시간처럼 보여주려고
 # 브라우저 탭마다 GET /api/jobs를 2초, GET /api/comfy-status를 5초 간격으로 계속
@@ -90,8 +92,16 @@ LOGS_DIR = BASE_DIR / "logs"
 TEMPLATES_DIR = BASE_DIR / "templates"
 MANIFEST_PATH = TEMPLATES_DIR / "manifest.json"
 STATE_FILE = BASE_DIR / "jobs_state.json"
+# "새 작업 추가" 마법사의 ControlNet 계열 워크플로우 유형(openpose_cn/depth_cn/
+# lineart_cn)이 쓰는, family(베이스 모델)별로 미리 만들어 올려둔 워크플로우 JSON
+# 저장소. 이 세 유형은 체크포인트마다 ControlNet 로더/가중치 배선이 달라 워크플로우
+# 빌더가 안전하게 자동 조립할 수 없어서(잘못 배선하면 조용히 ControlNet 없이
+# 돌아가는 사고가 남), 관리자가 한 번 만들어둔 워크플로우를 family+유형 조합별로
+# 저장해뒀다가 그대로 재사용한다. 파일명 규칙은 preset_filename() 참고.
+WORKFLOW_PRESETS_DIR = BASE_DIR / "workflow_presets"
 JOBS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
+WORKFLOW_PRESETS_DIR.mkdir(exist_ok=True)
 
 class RecentFileStore:
     """업로드된 파일 사본을 "최근 N개, 내용 중복 제거" 정책으로 관리한다. 워크플로우
@@ -211,25 +221,69 @@ def save_danbooru_history():
             json.dump(danbooru_history, f, indent=2, ensure_ascii=False)
 
 
-# LoRA 파일 이름 -> 트리거 워드(프롬프트에 자동으로 덧붙일 문자열) 매핑. ComfyUI는
-# LoRA가 설치돼 있다는 것만 알지 트리거 워드가 뭔지는 모르므로(그 LoRA를 만든
-# 사람이 문서/civitai 페이지 등에 적어둔 값이라 사용자가 직접 입력해야 함), 여기
-# 저장해두고 "워크플로우" 탭에서 그 LoRA를 고르면 자동으로 긍정 프롬프트에
-# 덧붙인다("설치된 모델" 모달에서 LoRA 목록 옆에 입력해서 편집함).
+# LoRA 파일 이름 -> {trigger, families} 매핑. ComfyUI는 LoRA가 설치돼 있다는 것만
+# 알지 트리거 워드가 뭔지는 모르므로(그 LoRA를 만든 사람이 문서/civitai 페이지 등에
+# 적어둔 값이라 사용자가 직접 입력해야 함), 여기 저장해두고 "워크플로우" 탭에서 그
+# LoRA를 고르면 자동으로 긍정 프롬프트에 덧붙인다("🎛 LoRA" 탭에서 편집함).
+# families(베이스 모델 family id 목록)는 "새 작업 추가" 마법사가 지금 고른 베이스
+# 모델과 호환되는 LoRA만 보여주는 데 쓴다 — 빈 목록이면 "모든 베이스 모델과 호환"
+# 취급(과거 데이터를 자동 이관한 항목이 전부 이 상태다. 아래 load_lora_triggers 참고).
+#
+# 예전 스키마는 {lora_filename: "trigger_word"}(문자열)였다. load_lora_triggers()가
+# 시작할 때 문자열 값을 {trigger: 그 값, families: []}로 자동 이관하고 즉시 새
+# 형식으로 다시 저장해, 그 뒤로는 항상 새 형식만 디스크에 남는다.
 LORA_TRIGGERS_FILE = BASE_DIR / "lora_triggers.json"
-lora_triggers: dict[str, str] = {}  # {lora_filename: trigger_word}
+lora_triggers: dict[str, dict] = {}  # {lora_filename: {"trigger": str, "families": [family_id, ...]}}
+
+
+def normalize_lora_trigger_entry(value) -> dict:
+    if isinstance(value, str):
+        return {"trigger": value, "families": []}
+    if isinstance(value, dict):
+        trigger = value.get("trigger")
+        families = value.get("families")
+        return {
+            "trigger": trigger if isinstance(trigger, str) else "",
+            "families": [f for f in families if isinstance(f, str)] if isinstance(families, list) else [],
+        }
+    return {"trigger": "", "families": []}
 
 
 def load_lora_triggers():
-    if LORA_TRIGGERS_FILE.exists():
-        with open(LORA_TRIGGERS_FILE) as f:
-            lora_triggers.update(json.load(f))
+    if not LORA_TRIGGERS_FILE.exists():
+        return
+    with open(LORA_TRIGGERS_FILE) as f:
+        raw = json.load(f)
+    migrated = any(not isinstance(v, dict) for v in raw.values())
+    lora_triggers.update({k: normalize_lora_trigger_entry(v) for k, v in raw.items()})
+    if migrated:
+        save_lora_triggers()
 
 
 def save_lora_triggers():
     with lock:
         with open(LORA_TRIGGERS_FILE, "w") as f:
             json.dump(lora_triggers, f, indent=2, ensure_ascii=False)
+
+
+# 베이스 모델 family(예: "wai-illustrious", "krea.2") 정의 — "새 작업 추가" 마법사의
+# 1단계(베이스 모델 선택)가 이 목록에서 고른다. family 하나는 서로 호환되는(같은
+# 아키텍처 계열) 체크포인트 파일 여러 개를 묶을 수 있다. LoRA/워크플로우 프리셋의
+# "호환 family" 목록이 여기 family_id를 참조한다("🎛 LoRA" 탭, workflow_presets).
+BASE_MODEL_FAMILIES_FILE = BASE_DIR / "base_model_families.json"
+base_model_families: dict[str, dict] = {}  # {family_id: {"label": str, "checkpoints": [ckpt_filename, ...]}}
+
+
+def load_base_model_families():
+    if BASE_MODEL_FAMILIES_FILE.exists():
+        with open(BASE_MODEL_FAMILIES_FILE) as f:
+            base_model_families.update(json.load(f))
+
+
+def save_base_model_families():
+    with lock:
+        with open(BASE_MODEL_FAMILIES_FILE, "w") as f:
+            json.dump(base_model_families, f, indent=2, ensure_ascii=False)
 
 
 # ComfyUI는 같은 파드 안에서 돌아가지만 설치 방식에 따라 포트가 다를 수 있어, 이 후보들을
@@ -630,6 +684,7 @@ async def lifespan(app: FastAPI):
     recent_csvs_store.load()
     load_danbooru_state()
     load_lora_triggers()
+    load_base_model_families()
     # 재시작 전에 running/queued 상태로 남아있던 기록은 재실행되지 않으므로 상태만 정리
     with lock:
         for job in jobs.values():
@@ -728,21 +783,179 @@ def get_lora_triggers():
 
 @app.put("/api/lora-triggers")
 async def put_lora_triggers(request: Request):
-    # "설치된 모델" 모달의 LoRA 목록 옆 입력칸이 편집할 때마다 전체 매핑을
-    # 통째로 보내서 그대로 덮어쓴다 — danbooru tag-edits와 같은 이유로(개수가
-    # 많지 않고 편집도 잦지 않아 부분 patch를 둘 이유가 없음).
+    # "🎛 LoRA" 탭이 편집할 때마다 전체 매핑을 통째로 보내서 그대로 덮어쓴다 —
+    # danbooru tag-edits와 같은 이유로(개수가 많지 않고 편집도 잦지 않아 부분
+    # patch를 둘 이유가 없음). 각 값은 {trigger: str, families: [family_id, ...]}
+    # 형태여야 한다(families가 빈 목록이면 모든 베이스 모델과 호환 취급).
     body = await request.body()
     try:
         data = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
-    if not isinstance(data, dict) or not all(isinstance(v, str) for v in data.values()):
-        raise HTTPException(400, "{LoRA 파일명: 트리거 워드} 형태의 객체여야 해요.")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "{LoRA 파일명: {trigger, families}} 형태의 객체여야 해요.")
+
+    cleaned: dict[str, dict] = {}
+    for name, value in data.items():
+        if not isinstance(value, dict):
+            raise HTTPException(400, f"'{name}' 값은 {{trigger, families}} 형태의 객체여야 해요.")
+        trigger = value.get("trigger", "")
+        families = value.get("families", [])
+        if not isinstance(trigger, str):
+            raise HTTPException(400, f"'{name}'의 trigger는 문자열이어야 해요.")
+        if not isinstance(families, list) or not all(isinstance(f, str) for f in families):
+            raise HTTPException(400, f"'{name}'의 families는 문자열 목록이어야 해요.")
+        if trigger.strip() or families:
+            cleaned[name] = {"trigger": trigger, "families": families}
 
     lora_triggers.clear()
-    lora_triggers.update({k: v for k, v in data.items() if v.strip()})
+    lora_triggers.update(cleaned)
     save_lora_triggers()
     return lora_triggers
+
+
+@app.get("/api/input-images")
+def get_input_images():
+    # img2img/USDU 워크플로우 유형이 "입력 이미지" 선택 드롭다운을 채우는 데 쓴다.
+    # ref_assets의 pose/depth/lineart와 달리 세트/char_no 구분이 없는 평평한 목록
+    # (input_assets.py 모듈 설명 참고) — 업로드 API는 없고 조회만 한다.
+    return {"images": list_input_images()}
+
+
+@app.get("/api/base-model-families")
+def get_base_model_families():
+    return base_model_families
+
+
+@app.put("/api/base-model-families")
+async def put_base_model_families(request: Request):
+    # "🎛 LoRA" 탭(베이스 모델 관리 부분)이 전체 family 목록을 통째로 보내서
+    # 덮어쓴다 — lora-triggers와 같은 whole-blob 패턴.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "{family_id: {label, checkpoints}} 형태의 객체여야 해요.")
+
+    cleaned: dict[str, dict] = {}
+    for family_id, value in data.items():
+        if not isinstance(value, dict):
+            raise HTTPException(400, f"'{family_id}' 값은 {{label, checkpoints}} 형태의 객체여야 해요.")
+        label = value.get("label", "")
+        checkpoints = value.get("checkpoints", [])
+        if not isinstance(label, str) or not label.strip():
+            raise HTTPException(400, f"'{family_id}'의 label은 비어있지 않은 문자열이어야 해요.")
+        if not isinstance(checkpoints, list) or not all(isinstance(c, str) for c in checkpoints):
+            raise HTTPException(400, f"'{family_id}'의 checkpoints는 문자열 목록이어야 해요.")
+        cleaned[family_id] = {"label": label, "checkpoints": checkpoints}
+
+    base_model_families.clear()
+    base_model_families.update(cleaned)
+    save_base_model_families()
+    return base_model_families
+
+
+# "새 작업 추가" 마법사 2단계(워크플로우 유형)의 정적 카탈로그. mode="builder"는
+# POST /api/build-workflow(workflow_builder.py)가 즉석에서 조립하고, mode="preset"은
+# family별로 미리 올려둔 워크플로우(GET /api/workflow-presets/{family}/{type})를
+# 그대로 쓴다. template_ids는 이 유형을 "시드 반복"/"CSV 순회" 중 어느 실행 방식으로
+# 돌릴지에 따라 실제로 큐에 올릴 템플릿 id를 알려준다(기존 8개 템플릿 + 새로 추가한
+# input_image_batch/input_image_csv_batch). requires_node가 있으면 그 클래스가
+# GET /api/comfy-object-info의 node_types에 없을 때 "설치 필요" 안내만 하고 선택
+# 자체는 막지 않는다(화면에서 처리).
+WORKFLOW_TYPES = [
+    {
+        "id": "txt2img", "label": "Text to Image", "mode": "builder",
+        "template_ids": {"seed": "seed_batch", "csv": "csv_batch"},
+    },
+    {
+        "id": "t2i_hiresfix", "label": "Text to Image (Hires Fix)", "mode": "builder",
+        "template_ids": {"seed": "seed_batch", "csv": "csv_batch"},
+    },
+    {
+        "id": "img2img", "label": "Image to Image", "mode": "builder", "requires_input_image": True,
+        "template_ids": {"seed": "input_image_batch", "csv": "input_image_csv_batch"},
+    },
+    {
+        "id": "usdu", "label": "Ultimate SD Upscale", "mode": "builder", "requires_input_image": True,
+        "requires_node": "UltimateSDUpscaleNoUpscale",
+        "template_ids": {"seed": "input_image_batch", "csv": "input_image_csv_batch"},
+    },
+    {
+        "id": "openpose_cn", "label": "OpenPose ControlNet", "mode": "preset", "ref_kind": "pose",
+        "template_ids": {"seed": "pose_batch", "csv": "pose_csv_batch"},
+    },
+    {
+        "id": "depth_cn", "label": "Depth ControlNet", "mode": "preset", "ref_kind": "depth",
+        "template_ids": {"seed": "depth_batch", "csv": "depth_csv_batch"},
+    },
+    {
+        "id": "lineart_cn", "label": "Lineart ControlNet", "mode": "preset", "ref_kind": "lineart",
+        "template_ids": {"seed": "lineart_batch", "csv": "lineart_csv_batch"},
+    },
+]
+
+
+@app.get("/api/workflow-types")
+def get_workflow_types():
+    return WORKFLOW_TYPES
+
+
+def preset_filename(family_id: str, type_id: str) -> str:
+    for value, label in ((family_id, "family_id"), (type_id, "type_id")):
+        if not value or not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+            raise HTTPException(400, f"{label} 값이 올바르지 않아요 (영문/숫자/-/_/.만 가능).")
+    return f"{family_id}__{type_id}.json"
+
+
+@app.get("/api/workflow-presets")
+def list_workflow_presets():
+    # 마법사가 "이 family + 이 워크플로우 유형" 조합에 프리셋이 이미 있는지 한 번에
+    # 확인할 수 있게, 저장된 모든 조합을 나열해서 돌려준다.
+    presets = []
+    for path in sorted(WORKFLOW_PRESETS_DIR.glob("*__*.json")):
+        family_id, _, rest = path.stem.partition("__")
+        if family_id and rest:
+            presets.append({"family_id": family_id, "type_id": rest})
+    return {"presets": presets}
+
+
+@app.get("/api/workflow-presets/{family_id}/{type_id}")
+def get_workflow_preset(family_id: str, type_id: str):
+    path = WORKFLOW_PRESETS_DIR / preset_filename(family_id, type_id)
+    if not path.exists():
+        raise HTTPException(404, "해당 조합의 프리셋 워크플로우가 없어요.")
+    return Response(content=path.read_text(encoding="utf-8"), media_type="application/json")
+
+
+@app.put("/api/workflow-presets/{family_id}/{type_id}")
+async def put_workflow_preset(family_id: str, type_id: str, request: Request):
+    # "🎛 LoRA" 탭(워크플로우 프리셋 관리 부분)이 워크플로우 JSON을 통째로 올려서
+    # family+유형 조합 하나에 저장한다 — 업로드한 파일을 그대로 검증 없이 저장한다
+    # (실제로 돌아가는지는 POST /api/validate-workflow를 별도로 안내하면 됨).
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    workflow = data.get("workflow") if isinstance(data, dict) and "workflow" in data else data
+    if not isinstance(workflow, dict):
+        raise HTTPException(400, "워크플로우 JSON(노드 id → 노드) 형식이 아니에요.")
+
+    path = WORKFLOW_PRESETS_DIR / preset_filename(family_id, type_id)
+    path.write_text(json.dumps(workflow, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "family_id": family_id, "type_id": type_id}
+
+
+@app.delete("/api/workflow-presets/{family_id}/{type_id}")
+def delete_workflow_preset(family_id: str, type_id: str):
+    path = WORKFLOW_PRESETS_DIR / preset_filename(family_id, type_id)
+    if not path.exists():
+        raise HTTPException(404, "해당 조합의 프리셋 워크플로우가 없어요.")
+    path.unlink()
+    return {"ok": True}
 
 
 @app.post("/api/build-workflow")
@@ -1026,6 +1239,18 @@ def coerce_option(option: dict, raw: str | None, options_so_far: dict):
             raise HTTPException(400, f"'{option['label']}' 값이 올바르지 않아요.")
         return value
 
+    if opt_type == "input_image":
+        # img2img/USDU 워크플로우 유형이 쓰는, 세트 구분 없는 평평한 입력 이미지
+        # 목록(input_assets.py)에서 파일 하나를 고르는 드롭다운.
+        value = "" if raw is None else str(raw).strip()
+        if not value:
+            raise HTTPException(400, f"'{option['label']}' 값을 선택해야 해요.")
+        try:
+            resolve_input_image(value)
+        except InputAssetError as e:
+            raise HTTPException(400, str(e))
+        return value
+
     if opt_type == "asset_folder":
         # 잡을 큐에 올리는 시점(업로드 시)에 참조 세트 폴더가 실제로 있고 이미지가
         # 있는지 미리 확인해서, 큐 시작 이후에야 실패하는 일이 없게 한다. char_no는
@@ -1183,6 +1408,59 @@ def validate_workflow_has_ref_node(workflow_bytes: bytes, kind: str):
         )
 
 
+# input_image_batch/input_image_csv_batch(img2img/USDU) 전용 — pose/depth/lineart
+# 처럼 ref_assets.py의 kind 계층을 쓰지 않으므로 TEMPLATE_PRIMARY_KIND와는 별개로
+# 다룬다. 워크플로우에 "input_image" 제목의 LoadImage 노드가 있는지만 확인한다
+# (workflow_builder.py가 img2img/usdu 모드로 만든 워크플로우는 항상 이 제목을 씀).
+INPUT_IMAGE_TEMPLATES = {"input_image_batch", "input_image_csv_batch"}
+INPUT_IMAGE_NODE_TITLE_ENV = "INPUT_IMAGE_NODE_TITLE"
+
+
+def validate_workflow_has_input_image_node(workflow_bytes: bytes):
+    try:
+        workflow = json.loads(workflow_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise HTTPException(400, f"워크플로우가 올바른 JSON이 아니에요: {e}")
+    if not isinstance(workflow, dict):
+        raise HTTPException(400, "워크플로우가 올바른 ComfyUI API 형식(JSON 객체)이 아니에요.")
+
+    title_substring = os.environ.get(INPUT_IMAGE_NODE_TITLE_ENV, "input_image")
+    node = find_ref_load_image_node(workflow, title_substring)
+    if node is None or node.get("class_type") != "LoadImage":
+        raise HTTPException(
+            400,
+            "이 워크플로우에는 입력 이미지를 넣을 LoadImage 노드가 없어요. "
+            f"(제목에 '{title_substring}'가 포함된 노드가 있다면 LoadImage가 아니고, "
+            "그런 노드가 아예 없다면 다른 LoadImage 노드도 찾지 못했어요.) 입력 이미지 "
+            "없이 실행되는 사고를 막기 위해 업로드를 거부했어요 — 워크플로우 빌더의 "
+            "img2img/usdu 모드로 만들거나, 직접 만든 워크플로우라면 LoadImage 노드의 "
+            "제목을 'input_image'로 맞춰서 다시 업로드하세요.",
+        )
+
+
+def validate_input_image_csv_rows(csv_bytes: bytes, column: str = "input_image"):
+    # *_csv_batch 공용 검증과 같은 패턴(validate_ref_csv_rows) — CSV 전체를 미리
+    # 훑어 input_image 컬럼 값이 실제로 존재하는 파일인지 확인한다.
+    try:
+        text = csv_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "CSV가 유효한 UTF-8 텍스트가 아니에요.")
+
+    rows = list(csv.DictReader(io.StringIO(text)))
+    errors = []
+    for line_no, row in enumerate(rows, start=2):  # 헤더가 1번 줄
+        value = (row.get(column) or "").strip()
+        if not value:
+            continue
+        try:
+            resolve_input_image(value)
+        except InputAssetError as e:
+            errors.append(f"{line_no}번째 줄({column}='{value}'): {e}")
+
+    if errors:
+        raise HTTPException(400, f"CSV의 {column} 컬럼을 확인하세요.\n" + "\n".join(errors))
+
+
 @app.get("/api/recent-workflows")
 def list_recent_workflows():
     # "새 작업 추가"의 워크플로우 슬롯 옆 "최근 워크플로우" 버튼이 호출한다.
@@ -1289,6 +1567,11 @@ async def create_job(
             needs_ref_node = csv_bytes is not None and csv_has_ref_value(csv_bytes, primary_csv_column)
         if needs_ref_node:
             validate_workflow_has_ref_node(workflow_bytes, primary_kind)
+
+    if template_id in INPUT_IMAGE_TEMPLATES:
+        if template_id == "input_image_csv_batch" and csv_bytes is not None:
+            validate_input_image_csv_rows(csv_bytes)
+        validate_workflow_has_input_image_node(workflow_bytes)
 
     # comfy_model 옵션(체크포인트/LoRA 드롭다운)을 쓰는 템플릿이면 설치 목록으로
     # 값을 검증해야 한다. coerce_option은 동기 함수라, 여기서 미리 스레드로 받아
