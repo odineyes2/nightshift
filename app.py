@@ -857,45 +857,61 @@ async def put_base_model_families(request: Request):
     return base_model_families
 
 
-# "새 작업 추가" 마법사 2단계(워크플로우 유형)의 정적 카탈로그. mode="builder"는
-# POST /api/build-workflow(workflow_builder.py)가 즉석에서 조립하고, mode="preset"은
-# family별로 미리 올려둔 워크플로우(GET /api/workflow-presets/{family}/{type})를
-# 그대로 쓴다. template_ids는 이 유형을 "시드 반복"/"CSV 순회" 중 어느 실행 방식으로
-# 돌릴지에 따라 실제로 큐에 올릴 템플릿 id를 알려준다(기존 8개 템플릿 + 새로 추가한
-# input_image_batch/input_image_csv_batch). requires_node가 있으면 그 클래스가
-# GET /api/comfy-object-info의 node_types에 없을 때 "설치 필요" 안내만 하고 선택
-# 자체는 막지 않는다(화면에서 처리).
-WORKFLOW_TYPES = [
-    {
-        "id": "txt2img", "label": "Text to Image", "mode": "builder",
-        "template_ids": {"seed": "seed_batch", "csv": "csv_batch"},
-    },
-    {
-        "id": "t2i_hiresfix", "label": "Text to Image (Hires Fix)", "mode": "builder",
-        "template_ids": {"seed": "seed_batch", "csv": "csv_batch"},
-    },
-    {
-        "id": "img2img", "label": "Image to Image", "mode": "builder", "requires_input_image": True,
-        "template_ids": {"seed": "input_image_batch", "csv": "input_image_csv_batch"},
-    },
-    {
-        "id": "usdu", "label": "Ultimate SD Upscale", "mode": "builder", "requires_input_image": True,
-        "requires_node": "UltimateSDUpscaleNoUpscale",
-        "template_ids": {"seed": "input_image_batch", "csv": "input_image_csv_batch"},
-    },
-    {
-        "id": "openpose_cn", "label": "OpenPose ControlNet", "mode": "preset", "ref_kind": "pose",
-        "template_ids": {"seed": "pose_batch", "csv": "pose_csv_batch"},
-    },
-    {
-        "id": "depth_cn", "label": "Depth ControlNet", "mode": "preset", "ref_kind": "depth",
-        "template_ids": {"seed": "depth_batch", "csv": "depth_csv_batch"},
-    },
-    {
-        "id": "lineart_cn", "label": "Lineart ControlNet", "mode": "preset", "ref_kind": "lineart",
-        "template_ids": {"seed": "lineart_batch", "csv": "lineart_csv_batch"},
-    },
-]
+# "새 작업 추가" 마법사 2단계(워크플로우 유형)의 정적 카탈로그 — 세 그룹으로
+# 나뉜다(workflow_builder.py의 조합 규칙과 정확히 대응):
+#
+#   base   — 첫 샘플링을 어디서 시작할지, 반드시 하나만 고른다(서로 배타적).
+#            POST /api/build-workflow(workflow_builder.py)가 spec["base"]로 받는다.
+#   post   — base 뒤에 이어 붙이는 후처리, 0개 이상 동시에 고를 수 있다(체이닝
+#            가능 — 예: hires_fix+usdu를 같이 켜면 hires-fix 다음에 usdu가 실행됨).
+#            spec["hires_fix"]/spec["usdu"]로 받는다.
+#   preset — ControlNet/IPAdapter처럼 체크포인트마다 배선이 달라 이 서버가 자동
+#            조립하지 못하는 유형. family별로 미리 올려둔 워크플로우(GET
+#            /api/workflow-presets/{family}/{type})를 그대로 쓰므로, base/post와
+#            동시에 쓸 수 없다(마법사가 이 배타 관계를 강제한다).
+#
+# template_ids는 이 유형(들)을 "시드 반복"/"CSV 순회" 중 어느 실행 방식으로 돌릴지에
+# 따라 실제로 큐에 올릴 템플릿 id를 알려준다 — base 쪽만 갖고 있다(post는 base가
+# 고른 템플릿을 그대로 쓴다: img2img가 필요로 하는 입력 이미지 주입은 base가
+# img2img일 때만 필요하고, hires_fix/usdu는 워크플로우 안에서 완결되므로 별도
+# 템플릿이 필요 없다 — 예전엔 usdu가 항상 외부 이미지를 요구하는 별도 유형이었지만,
+# 이제는 base=txt2img+usdu처럼 입력 이미지 없이도 조합할 수 있다). requires_node가
+# 있으면 그 클래스가 GET /api/comfy-object-info의 node_types에 없을 때 "설치 필요"
+# 안내만 하고 선택 자체는 막지 않는다(화면에서 처리).
+WORKFLOW_TYPES = {
+    "base": [
+        {
+            "id": "txt2img", "label": "Text to Image",
+            "template_ids": {"seed": "seed_batch", "csv": "csv_batch"},
+        },
+        {
+            "id": "img2img", "label": "Image to Image", "requires_input_image": True,
+            "template_ids": {"seed": "input_image_batch", "csv": "input_image_csv_batch"},
+        },
+    ],
+    "post": [
+        {"id": "hires_fix", "label": "Hires Fix"},
+        {"id": "usdu", "label": "Ultimate SD Upscale", "requires_node": "UltimateSDUpscaleNoUpscale"},
+    ],
+    "preset": [
+        {
+            "id": "openpose_cn", "label": "OpenPose ControlNet", "ref_kind": "pose",
+            "template_ids": {"seed": "pose_batch", "csv": "pose_csv_batch"},
+        },
+        {
+            "id": "depth_cn", "label": "Depth ControlNet", "ref_kind": "depth",
+            "template_ids": {"seed": "depth_batch", "csv": "depth_csv_batch"},
+        },
+        {
+            "id": "lineart_cn", "label": "Lineart ControlNet", "ref_kind": "lineart",
+            "template_ids": {"seed": "lineart_batch", "csv": "lineart_csv_batch"},
+        },
+        {
+            "id": "ipadapter", "label": "IPAdapter",
+            "template_ids": {"seed": "ipadapter_batch", "csv": "ipadapter_csv_batch"},
+        },
+    ],
+}
 
 
 @app.get("/api/workflow-types")
@@ -1408,15 +1424,21 @@ def validate_workflow_has_ref_node(workflow_bytes: bytes, kind: str):
         )
 
 
-# input_image_batch/input_image_csv_batch(img2img/USDU) 전용 — pose/depth/lineart
-# 처럼 ref_assets.py의 kind 계층을 쓰지 않으므로 TEMPLATE_PRIMARY_KIND와는 별개로
-# 다룬다. 워크플로우에 "input_image" 제목의 LoadImage 노드가 있는지만 확인한다
-# (workflow_builder.py가 img2img/usdu 모드로 만든 워크플로우는 항상 이 제목을 씀).
-INPUT_IMAGE_TEMPLATES = {"input_image_batch", "input_image_csv_batch"}
-INPUT_IMAGE_NODE_TITLE_ENV = "INPUT_IMAGE_NODE_TITLE"
+# input_image_batch/input_image_csv_batch(img2img)와 ipadapter_batch/
+# ipadapter_csv_batch(IPAdapter 프리셋) 전용 — pose/depth/lineart처럼
+# ref_assets.py의 kind 계층을 쓰지 않으므로(input_assets.py의 평평한 목록)
+# TEMPLATE_PRIMARY_KIND와는 별개로 다룬다. 템플릿 id별로 "어떤 제목의 LoadImage
+# 노드에 주입하는지"/"CSV의 어느 컬럼을 읽는지"만 다르고 검증 로직은 완전히
+# 같아서 하나의 함수 쌍을 재사용한다.
+FLAT_IMAGE_TEMPLATES = {
+    "input_image_batch": {"node_title_env": "INPUT_IMAGE_NODE_TITLE", "default_title": "input_image", "column": "input_image", "label": "입력 이미지"},
+    "input_image_csv_batch": {"node_title_env": "INPUT_IMAGE_NODE_TITLE", "default_title": "input_image", "column": "input_image", "label": "입력 이미지"},
+    "ipadapter_batch": {"node_title_env": "IPADAPTER_NODE_TITLE", "default_title": "ipadapter_ref", "column": "ipadapter_ref", "label": "IPAdapter 참조 이미지"},
+    "ipadapter_csv_batch": {"node_title_env": "IPADAPTER_NODE_TITLE", "default_title": "ipadapter_ref", "column": "ipadapter_ref", "label": "IPAdapter 참조 이미지"},
+}
 
 
-def validate_workflow_has_input_image_node(workflow_bytes: bytes):
+def validate_workflow_has_flat_image_node(workflow_bytes: bytes, node_title_env: str, default_title: str, label: str):
     try:
         workflow = json.loads(workflow_bytes)
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
@@ -1424,23 +1446,23 @@ def validate_workflow_has_input_image_node(workflow_bytes: bytes):
     if not isinstance(workflow, dict):
         raise HTTPException(400, "워크플로우가 올바른 ComfyUI API 형식(JSON 객체)이 아니에요.")
 
-    title_substring = os.environ.get(INPUT_IMAGE_NODE_TITLE_ENV, "input_image")
+    title_substring = os.environ.get(node_title_env, default_title)
     node = find_ref_load_image_node(workflow, title_substring)
     if node is None or node.get("class_type") != "LoadImage":
         raise HTTPException(
             400,
-            "이 워크플로우에는 입력 이미지를 넣을 LoadImage 노드가 없어요. "
+            f"이 워크플로우에는 {label}를 넣을 LoadImage 노드가 없어요. "
             f"(제목에 '{title_substring}'가 포함된 노드가 있다면 LoadImage가 아니고, "
-            "그런 노드가 아예 없다면 다른 LoadImage 노드도 찾지 못했어요.) 입력 이미지 "
-            "없이 실행되는 사고를 막기 위해 업로드를 거부했어요 — 워크플로우 빌더의 "
-            "img2img/usdu 모드로 만들거나, 직접 만든 워크플로우라면 LoadImage 노드의 "
-            "제목을 'input_image'로 맞춰서 다시 업로드하세요.",
+            "그런 노드가 아예 없다면 다른 LoadImage 노드도 찾지 못했어요.) 이미지 없이 "
+            f"실행되는 사고를 막기 위해 업로드를 거부했어요 — 워크플로우 빌더로 만들거나, "
+            f"직접 만든 워크플로우라면 LoadImage 노드의 제목을 '{title_substring}'로 맞춰서 "
+            "다시 업로드하세요.",
         )
 
 
-def validate_input_image_csv_rows(csv_bytes: bytes, column: str = "input_image"):
+def validate_flat_image_csv_rows(csv_bytes: bytes, column: str):
     # *_csv_batch 공용 검증과 같은 패턴(validate_ref_csv_rows) — CSV 전체를 미리
-    # 훑어 input_image 컬럼 값이 실제로 존재하는 파일인지 확인한다.
+    # 훑어 그 컬럼 값이 실제로 존재하는 파일인지 확인한다.
     try:
         text = csv_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -1568,10 +1590,13 @@ async def create_job(
         if needs_ref_node:
             validate_workflow_has_ref_node(workflow_bytes, primary_kind)
 
-    if template_id in INPUT_IMAGE_TEMPLATES:
-        if template_id == "input_image_csv_batch" and csv_bytes is not None:
-            validate_input_image_csv_rows(csv_bytes)
-        validate_workflow_has_input_image_node(workflow_bytes)
+    flat_image_spec = FLAT_IMAGE_TEMPLATES.get(template_id)
+    if flat_image_spec:
+        if csv_bytes is not None:
+            validate_flat_image_csv_rows(csv_bytes, flat_image_spec["column"])
+        validate_workflow_has_flat_image_node(
+            workflow_bytes, flat_image_spec["node_title_env"], flat_image_spec["default_title"], flat_image_spec["label"],
+        )
 
     # comfy_model 옵션(체크포인트/LoRA 드롭다운)을 쓰는 템플릿이면 설치 목록으로
     # 값을 검증해야 한다. coerce_option은 동기 함수라, 여기서 미리 스레드로 받아
