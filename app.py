@@ -29,6 +29,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 import zipfile
@@ -286,11 +287,51 @@ def save_base_model_families():
             json.dump(base_model_families, f, indent=2, ensure_ascii=False)
 
 
-# ComfyUI는 같은 파드 안에서 돌아가지만 설치 방식에 따라 포트가 다를 수 있어, 이 후보들을
-# 순서대로 짧은 타임아웃으로 찔러보고 처음 응답하는 곳을 채택한다. COMFY_URL 환경변수가
-# 명시적으로 설정돼 있으면 이 감지 과정을 건너뛰고 그 값을 그대로 쓴다.
+# ComfyUI 접속 주소는 세 곳에서 올 수 있고, 아래 순서로 먼저 정해지는 것을 쓴다
+# (configured_comfy_url/resolve_comfy_url 참고):
+#
+#   1. comfy_endpoint.json에 저장된 값 — 화면(헤더의 연결 상태 배지 클릭)에서
+#      언제든 바꿀 수 있고 서버 재시작이 필요 없다. nightshift를 홈서버에 상시
+#      띄워두고 ComfyUI만 원격 pod에서 도는 구성에서는 pod를 새로 만들 때마다
+#      주소가 바뀌므로, "런타임에 바꿀 수 있는 설정"이 기본 경로다.
+#   2. COMFY_URL 환경변수 — 배포 시점에 고정해두는 기본값(위 설정이 비어 있을 때만).
+#   3. 자동 탐지 — 같은 머신에서 도는 경우를 위한 폴백. 후보들을 순서대로 짧은
+#      타임아웃으로 찔러보고 처음 응답하는 곳을 채택한다.
+COMFY_ENDPOINT_FILE = BASE_DIR / "comfy_endpoint.json"
 COMFY_CANDIDATE_URLS = ["http://127.0.0.1:8188", "http://127.0.0.1:8000"]
 COMFY_CHECK_TIMEOUT = 2
+# 사용자가 "연결 테스트"/"저장"으로 명시적으로 확인할 때는 폴링(2초)보다 넉넉하게
+# 기다린다 — 원격 pod는 첫 연결에 TLS 핸드셰이크까지 붙어 2초를 넘기기 쉽다.
+COMFY_CHECK_TIMEOUT_INTERACTIVE = 8
+
+comfy_endpoint: dict = {"url": "", "updated_at": None}
+
+
+def load_comfy_endpoint():
+    if COMFY_ENDPOINT_FILE.exists():
+        with open(COMFY_ENDPOINT_FILE) as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            comfy_endpoint["url"] = str(data.get("url") or "")
+            comfy_endpoint["updated_at"] = data.get("updated_at")
+
+
+def save_comfy_endpoint():
+    with lock:
+        with open(COMFY_ENDPOINT_FILE, "w") as f:
+            json.dump(comfy_endpoint, f, indent=2, ensure_ascii=False)
+
+
+def normalize_comfy_url(raw: str) -> str:
+    """입력받은 주소를 저장 형태로 다듬는다(뒤 슬래시 제거). 빈 값은 "자동 탐지로
+    되돌리기"를 뜻하므로 그대로 통과시키고, 형식이 틀리면 ValueError."""
+    url = (raw or "").strip().rstrip("/")
+    if not url:
+        return ""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("http:// 또는 https:// 로 시작하는 주소여야 해요.")
+    return url
 
 # 템플릿 스크립트가 자기 자신의 진행 상황(PUT /api/jobs/{job_id}/progress)을
 # 보고할 때 사용하는, nightshift 자신의 주소. 서버가 항상 이 포트로 뜨므로 고정값.
@@ -384,19 +425,32 @@ def load_templates_map() -> dict[str, dict]:
     return {t["id"]: t for t in load_templates_list()}
 
 
-def check_comfy_url(url: str) -> bool:
+def check_comfy_url(url: str, timeout: float = COMFY_CHECK_TIMEOUT) -> bool:
     try:
         req = urllib.request.Request(f"{url.rstrip('/')}/system_stats")
-        with urllib.request.urlopen(req, timeout=COMFY_CHECK_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status == 200
     except Exception:
         return False
 
 
+def configured_comfy_url() -> tuple[str | None, str]:
+    """명시적으로 지정된 ComfyUI 주소와 그 출처("setting"/"env"). 어느 쪽에도
+    지정돼 있지 않으면 (None, "auto") — 이때만 자동 탐지로 넘어간다."""
+    saved = (comfy_endpoint.get("url") or "").strip()
+    if saved:
+        return saved, "setting"
+    env_url = (os.environ.get("COMFY_URL") or "").strip()
+    if env_url:
+        return env_url, "env"
+    return None, "auto"
+
+
 def resolve_comfy_url() -> tuple[str | None, bool]:
-    override = os.environ.get("COMFY_URL")
-    if override:
-        return override, check_comfy_url(override)
+    """(지금 쓸 ComfyUI 주소, 연결 가능 여부). 우선순위는 COMFY_ENDPOINT_FILE 설명 참고."""
+    url, _source = configured_comfy_url()
+    if url:
+        return url, check_comfy_url(url)
     for candidate in COMFY_CANDIDATE_URLS:
         if check_comfy_url(candidate):
             return candidate, True
@@ -685,6 +739,7 @@ async def lifespan(app: FastAPI):
     load_danbooru_state()
     load_lora_triggers()
     load_base_model_families()
+    load_comfy_endpoint()
     # 재시작 전에 running/queued 상태로 남아있던 기록은 재실행되지 않으므로 상태만 정리
     with lock:
         for job in jobs.values():
@@ -741,6 +796,86 @@ def list_templates():
 @app.get("/api/comfy-status")
 async def comfy_status():
     url, connected = await asyncio.to_thread(resolve_comfy_url)
+    _, source = configured_comfy_url()
+    return {"url": url, "connected": connected, "source": source}
+
+
+def comfy_endpoint_payload() -> dict:
+    """설정 화면이 쓰는 현재 상태 — 저장된 값, 실제로 쓰이는 값과 그 출처."""
+    effective_url, source = configured_comfy_url()
+    return {
+        "url": comfy_endpoint.get("url") or "",          # 저장된 설정값(비어 있으면 미설정)
+        "effective_url": effective_url,                   # 설정/환경변수로 정해진 주소(자동 탐지면 null)
+        "source": source,                                 # "setting" | "env" | "auto"
+        "env_url": (os.environ.get("COMFY_URL") or ""),   # 참고용 — 설정을 비웠을 때 쓰일 값
+        "candidates": COMFY_CANDIDATE_URLS,               # 자동 탐지가 훑는 후보들
+        "updated_at": comfy_endpoint.get("updated_at"),
+    }
+
+
+@app.get("/api/comfy-endpoint")
+def get_comfy_endpoint():
+    return comfy_endpoint_payload()
+
+
+@app.put("/api/comfy-endpoint")
+async def put_comfy_endpoint(request: Request):
+    # ComfyUI 주소를 런타임에 바꾼다 — nightshift를 홈서버에 상시 띄워두고 ComfyUI만
+    # 원격 pod에서 돌리는 구성에서는 pod를 새로 만들 때마다 주소가 바뀌므로, 서버를
+    # 재시작하지 않고 화면에서 갈아끼울 수 있어야 한다. 빈 문자열을 보내면 설정을
+    # 지우고 환경변수/자동 탐지로 되돌린다.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    if not isinstance(data, dict):
+        raise HTTPException(400, '{"url": "..."} 형태의 객체여야 해요.')
+    try:
+        url = normalize_comfy_url(data.get("url", ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    comfy_endpoint["url"] = url
+    comfy_endpoint["updated_at"] = now_iso()
+    save_comfy_endpoint()
+    # 주소가 바뀌면 이전 서버에서 받아둔 모델/노드 목록은 더 이상 그 서버의 것이
+    # 아니다. 캐시 키에 url이 들어 있어 자연히 미스가 나지만, 명시적으로 비워서
+    # "바꾼 직후 잠깐 옛 목록이 보이는" 창을 없앤다.
+    _object_info_cache.update({"url": None, "data": None, "fetched_at": 0.0})
+
+    payload = comfy_endpoint_payload()
+    effective_url = payload["effective_url"]
+    if effective_url:
+        payload["connected"] = await asyncio.to_thread(
+            check_comfy_url, effective_url, COMFY_CHECK_TIMEOUT_INTERACTIVE
+        )
+    else:
+        _, payload["connected"] = await asyncio.to_thread(resolve_comfy_url)
+    return payload
+
+
+@app.post("/api/comfy-endpoint/test")
+async def test_comfy_endpoint(request: Request):
+    # 저장하기 전에 "이 주소가 실제로 응답하는지"만 확인한다(설정은 건드리지 않음).
+    # url을 비워서 보내면 지금 적용 중인 주소를 그대로 확인한다.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8")) if body else {}
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    if not isinstance(data, dict):
+        raise HTTPException(400, '{"url": "..."} 형태의 객체여야 해요.')
+    try:
+        url = normalize_comfy_url(data.get("url", ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    if not url:
+        url, _ = await asyncio.to_thread(resolve_comfy_url)
+        if not url:
+            return {"url": None, "connected": False, "detail": "확인할 주소가 없어요(자동 탐지도 실패)."}
+    connected = await asyncio.to_thread(check_comfy_url, url, COMFY_CHECK_TIMEOUT_INTERACTIVE)
     return {"url": url, "connected": connected}
 
 

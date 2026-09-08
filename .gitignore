@@ -6,6 +6,9 @@ recent_workflows/*
 recent_csvs/*
 workflow_presets/*
 
+# 배포 환경마다 다른 런타임 설정 — 화면에서 저장하면 생긴다(pod 주소 등이 들어가므로 커밋하지 않는다)
+comfy_endpoint.json
+
 # 파이썬 캐시
 __pycache__/
 *.pyc
