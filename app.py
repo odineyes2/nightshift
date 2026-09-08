@@ -304,6 +304,15 @@ COMFY_CHECK_TIMEOUT = 2
 # 기다린다 — 원격 pod는 첫 연결에 TLS 핸드셰이크까지 붙어 2초를 넘기기 쉽다.
 COMFY_CHECK_TIMEOUT_INTERACTIVE = 8
 
+# ComfyUI가 안 떠 있을 때, 큐에서 꺼낸 작업을 실패시키지 않고 붙잡아 두는 재확인
+# 간격(초). nightshift를 홈서버에 상시 띄워두고 ComfyUI만 원격 GPU pod에서 돌리는
+# 구성에서는 "pod가 아직 안 떠 있는" 시간이 비정상이 아니라 기본 상태다 — 그때
+# 밤사이 쌓아둔 작업이 몇 초 만에 전부 failed로 떨어지면 큐를 쌓아두는 의미가
+# 없어지므로, 연결될 때까지 이 간격으로 다시 확인하며 기다린다(waiting_for_comfy).
+COMFY_WAIT_RETRY_SEC = float(os.environ.get("NIGHTSHIFT_COMFY_WAIT_RETRY_SEC", "15"))
+# 기다리는 동안에도 "⏸ 정지"에는 빨리 반응해야 하니 위 간격을 이 단위로 쪼개 잔다.
+COMFY_WAIT_TICK_SEC = 1.0
+
 comfy_endpoint: dict = {"url": "", "updated_at": None}
 
 
@@ -668,12 +677,109 @@ def stop_current_job() -> str | None:
     return job_id
 
 
+def set_comfy_wait_flag(job: dict, waiting: bool) -> bool:
+    """job의 "ComfyUI 연결 대기 중" 표시를 갱신하고, 값이 실제로 바뀌었는지 돌려준다
+    (바뀔 때만 save_state()를 부르면 되므로 — 15초마다 상태 파일을 새로 쓸 이유가 없다).
+    lock을 쥔 채 호출해야 한다."""
+    if waiting:
+        if job.get("waiting_for_comfy"):
+            return False
+        job["waiting_for_comfy"] = True
+        job["waiting_since"] = now_iso()
+        return True
+    if not job.get("waiting_for_comfy"):
+        return False
+    job.pop("waiting_for_comfy", None)
+    job.pop("waiting_since", None)
+    return True
+
+
+def wait_for_comfy(job_id: str) -> str | None:
+    """ComfyUI에 연결될 때까지 붙잡고 있다가, 연결되면 그때 쓸 주소를 돌려준다.
+
+    예전에는 큐에서 꺼낸 작업을 곧바로 실행 상태로 바꾼 뒤 연결을 확인하고, 안 되면
+    그 자리에서 failed 처리했다. ComfyUI가 같은 머신에서 항상 같이 떠 있던 시절에는
+    그게 맞았지만, GPU pod가 따로 있는 구성에서는 pod가 잠깐 꺼져 있는 동안 대기 중인
+    작업이 순식간에 전멸한다 — 큐가 한 번에 한 개씩 돌기 때문에 수십 개가 몇 초 만에
+    차례로 실패한다. 그래서 이제는 실패시키지 않고 "queued"인 채로 기다린다.
+
+    기다리기를 그만둬야 하는 경우에는 None을 돌려준다:
+      - 그 사이 작업이 삭제됐다 → 그냥 건너뛴다.
+      - "⏸ 정지"로 auto_run이 꺼졌다 → 작업을 "pending"으로 되돌린다. 다음 "▶ 시작"
+        때 이어서 돌고, 무한정 기다리는 상태에서 빠져나오는 탈출구이기도 하다
+        (대기 중인 작업은 status가 "queued"라 그대로는 삭제할 수 없다).
+    """
+    waited = False
+    while True:
+        comfy_url, connected = resolve_comfy_url()
+
+        with lock:
+            job = jobs.get(job_id)
+            gone = job is None or job.get("deleted")
+            if job is not None:
+                if connected or gone:
+                    set_comfy_wait_flag(job, False)
+        if gone:
+            if waited:
+                save_state()
+            return None
+        if connected:
+            if waited:
+                save_state()
+            return comfy_url
+
+        with lock:
+            keep_waiting = auto_run
+            if keep_waiting:
+                changed = set_comfy_wait_flag(job, True)
+            else:
+                set_comfy_wait_flag(job, False)
+                job["status"] = "pending"
+                job["started_at"] = None
+                changed = True
+        if changed:
+            save_state()
+        if not keep_waiting:
+            # 아무 설명 없이 대기 목록으로 되돌아가면 사용자가 이유를 알 길이 없으므로
+            # 로그에 한 줄 남긴다(작업 행을 펼치면 그대로 보인다).
+            where = comfy_url or "자동 탐지 실패"
+            (LOGS_DIR / f"{job_id}.log").write_text(
+                f"ComfyUI(GPU) 서버에 연결할 수 없어 대기 목록으로 되돌렸어요 ({where}).\n"
+                "서버가 켜진 걸 확인한 뒤 ▶ 시작을 누르면 이어서 실행됩니다.\n",
+                encoding="utf-8",
+            )
+            return None
+        waited = True
+
+        # COMFY_WAIT_RETRY_SEC를 통째로 자면 그동안 "⏸ 정지"에 반응하지 못하므로
+        # 잘게 쪼개 자면서 중간에 빠져나올 조건을 확인한다.
+        slept = 0.0
+        while slept < COMFY_WAIT_RETRY_SEC:
+            time.sleep(COMFY_WAIT_TICK_SEC)
+            slept += COMFY_WAIT_TICK_SEC
+            with lock:
+                job = jobs.get(job_id)
+                if not auto_run or job is None or job.get("deleted"):
+                    break
+
+
 def worker_loop():
     global current_job_id, current_process
     while True:
         job_id = job_queue.get()
+
+        # ComfyUI(GPU)가 아직 안 떠 있으면 여기서 붙잡아 둔다 — 작업은 "queued"인 채
+        # waiting_for_comfy 표시만 붙고, 연결되는 순간 이어서 실행된다.
+        comfy_url = wait_for_comfy(job_id)
+        if comfy_url is None:
+            job_queue.task_done()
+            continue
+
         with lock:
-            job = jobs[job_id]
+            job = jobs.get(job_id)
+            if job is None or job.get("deleted"):
+                job_queue.task_done()
+                continue
             job["status"] = "running"
             job["started_at"] = now_iso()
             job["progress"] = None
@@ -681,17 +787,6 @@ def worker_loop():
 
         log_path = LOGS_DIR / f"{job_id}.log"
         script_path = TEMPLATES_DIR / job["script_filename"]
-
-        comfy_url, comfy_connected = resolve_comfy_url()
-        if not comfy_connected:
-            log_path.write_text("ComfyUI 서버에 연결할 수 없습니다\n")
-            with lock:
-                job["status"] = "failed"
-                job["returncode"] = -1
-                job["finished_at"] = now_iso()
-            save_state()
-            job_queue.task_done()
-            continue
 
         extra_env = {"COMFY_URL": comfy_url, "JOB_ID": job_id, "NIGHTSHIFT_URL": SELF_URL}
         if job.get("workflow_filename"):
@@ -740,11 +835,14 @@ async def lifespan(app: FastAPI):
     load_lora_triggers()
     load_base_model_families()
     load_comfy_endpoint()
-    # 재시작 전에 running/queued 상태로 남아있던 기록은 재실행되지 않으므로 상태만 정리
+    # 재시작 전에 running/queued 상태로 남아있던 기록은 재실행되지 않으므로 상태만 정리.
+    # ComfyUI 연결을 기다리던 중이었다는 표시(waiting_for_comfy)도 함께 지운다 — 그
+    # 대기는 worker_loop 안에서만 살아 있는 상태라 재시작하면 남아 있을 이유가 없다.
     with lock:
         for job in jobs.values():
             if job["status"] in ("queued", "running"):
                 job["status"] = "interrupted"
+            set_comfy_wait_flag(job, False)
     save_state()
     threading.Thread(target=worker_loop, daemon=True).start()
     yield

@@ -26,7 +26,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 - ComfyUI 서버 주소 자동 감지 — 후보 포트를 순서대로 찔러보고 응답하는 첫 주소를 채택, 상단 인디케이터로 연결 상태 표시
 - 아직 시작하지 않은(대기중) 작업의 워크플로우 JSON과 CSV를 웹 UI에서 바로 열어 편집/저장 (시작 이후에는 수정 불가)
 - 실행 큐에 들어간 순서대로 워커 스레드가 하나씩 `python3`로 실행 (동시 실행 없음)
-- 작업 상태 추적: `pending`(대기중, 시작 전) → `queued`(배치 시작됨, 워커 차례 대기) → `running` → `done` / `failed` (서버 재시작 시 `queued`/`running`이었던 작업은 `interrupted`)
+- 작업 상태 추적: `pending`(대기중, 시작 전) → `queued`(배치 시작됨, 워커 차례 대기) → `running` → `done` / `failed` (서버 재시작 시 `queued`/`running`이었던 작업은 `interrupted`). ComfyUI가 꺼져 있으면 `queued`인 채로 붙잡아 두고 연결되면 이어서 실행합니다(`waiting_for_comfy`, 화면에는 `GPU 대기`)
 - 작업별 실행 로그(stdout/stderr)를 실시간에 가깝게 조회 (2초 폴링)
 - `seed_batch`/`csv_batch` 템플릿은 실행 전에 예상 총 이미지 수(시드/행 수 × batch_size)를 계산해 두고, 이미지가 하나
   완료될 때마다 진행 상황을 서버에 보고 — 작업 목록에서 상태 배지 아래 진행률 바(`done/total`)로 실시간 확인 가능
@@ -209,8 +209,25 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 화면 상단의 인디케이터가 5초마다 `/api/comfy-status`를 폴링해 연결 상태(연결됨/연결 안 됨)와 감지된 주소를 보여줍니다.
 작업은 워커가 실제로 실행하기 직전에도 다시 한번 이 감지를 수행합니다 — 업로드 시점은 물론 "▶ 시작"으로
 배치를 시작한 시점(또는 자동 실행 모드가 켜진 상태에서 새 작업이 큐에 들어간 시점)에도 ComfyUI가 떠 있지 않아도
-정상 진행되지만, 워커가 각 작업을 실제로 실행하려는 순간 연결이 안 되면 스크립트를 실행하지 않고 해당 작업을
-곧바로 `failed` 처리하며 로그에 "ComfyUI 서버에 연결할 수 없습니다"를 남깁니다.
+정상 진행됩니다.
+
+#### ComfyUI가 꺼져 있을 때: 실패시키지 않고 붙잡아 둔다
+
+워커가 작업을 실행하려는 순간 ComfyUI에 연결되지 않으면, 그 작업을 실패시키지 않고 **`queued` 상태 그대로
+붙잡아 둡니다**(작업 목록에는 보라색 `GPU 대기` 배지로 표시). 15초(`NIGHTSHIFT_COMFY_WAIT_RETRY_SEC`)마다 다시
+확인하다가 연결되는 순간 그 자리에서 이어서 실행합니다 — 밤사이 큐에 쌓아둔 작업이 그대로 살아 있다가
+GPU pod를 켜면 알아서 돌기 시작합니다.
+
+nightshift를 홈서버에 상시 띄워두고 ComfyUI만 원격 GPU pod에서 돌리는 구성에서는 "pod가 아직 안 떠 있는"
+시간이 비정상이 아니라 기본 상태입니다. 예전에는 이때 큐에서 꺼낸 작업을 곧바로 `failed` 처리했는데, 큐가 한 번에
+하나씩 도는 구조라 대기 중이던 수십 개가 몇 초 만에 차례로 전멸했습니다.
+
+- **기다리는 것을 그만두려면** "⏸ 정지"를 누르세요. 붙잡혀 있던 작업은 `pending`(대기중)으로 되돌아가고,
+  로그에 되돌린 이유가 한 줄 남습니다. `pending`이 된 뒤에는 다시 수정하거나 삭제할 수 있고, 나중에 "▶ 시작"을
+  누르면 이어서 실행됩니다(`queued`인 동안에는 삭제할 수 없으므로, 이것이 무한 대기에서 빠져나오는 탈출구입니다).
+- 붙잡혀 있는 동안 서버가 재시작되면 다른 `queued` 작업과 똑같이 `interrupted`가 되고, "🔁 재시작"으로 다시 올릴 수 있습니다.
+- 작업이 **실행되기 시작한 뒤** 연결이 끊기는 경우는 여기 해당하지 않습니다 — 그때는 템플릿 스크립트가 실패하면서
+  평소처럼 `failed`가 됩니다.
 
 ### 설치된 모델 조회와 워크플로우 호환성 검사
 
@@ -534,9 +551,9 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/upload` | 작업을 `pending`(대기중) 상태로 등록만 함 — 아직 실행 큐에 들어가지 않음 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨). `template_id`가 `pose_csv_batch`/`depth_csv_batch`/`lineart_csv_batch`면 CSV의 주 참조 컬럼(`pose`/`depth`/`lineart`) 값을 전부 미리 해석해보고, 실패하는 행이 있으면 400으로 거부함(`secondary_kind` 필드가 `"none"`이 아니면 CSV의 `secondary_ref`/`secondary_char_no` 컬럼도 같이 검증함) |
 | `POST` | `/api/jobs` | `/api/upload`와 완전히 같은 파이프라인(검증/큐 등록)을 파일 첨부 없이 JSON 바디로 쓸 수 있게 한 것 — curl이나 LLM처럼 프로그램으로 호출하는 쪽엔 multipart/form-data보다 다루기 쉽다. 요청 본문: `{"template_id", "workflow": {...}(JSON 객체, 필수), "workflow_filename"(선택, 기본 "workflow.json"), "csv"(CSV 원문 문자열, requires_csv 템플릿이면 필수), "csv_filename"(선택, 기본 "data.csv"), "options": {name: 값, ...}}`. 워크플로우는 `POST /api/build-workflow`로 만든 걸 그대로 넣어도 되고, 미리 점검하려면 `POST /api/validate-workflow`를 먼저 불러볼 것. 나머지 검증/에러 규칙과 응답 형식은 `/api/upload`와 동일 |
 | `POST` | `/api/queue/start` | 자동 실행 모드를 켬 — 그 시점에 `pending`인 작업 **전체**를 대기 등록 순서대로 실행 큐에 넣고(상태를 `queued`로 일괄 전환), 이후 자동 실행 모드가 꺼지기 전까지는 `POST /api/upload`로 새로 추가되는 작업도 `pending`을 거치지 않고 바로 `queued`로 등록됨. 응답 `{"running": true, "started": N}`(`N`은 이번 호출로 큐에 들어간 기존 대기 작업 수) |
-| `POST` | `/api/queue/stop` | 자동 실행 모드를 끔 — 이후 새로 추가되는 작업은 다시 `pending`으로 쌓이고, 이미 큐에 들어갔지만 아직 안 돈 작업(`queued`)은 그대로 대기하다 다음 `queue/start` 때 이어서 돎. **지금 실행 중인(`running`) 작업이 있으면 그 서브프로세스를 즉시 종료 요청**해서 상태를 `interrupted`로 만듦(완전히 죽기까지 몇 초 걸릴 수 있음 — `GET /api/jobs`로 확인). `interrupted` 작업은 `POST /api/jobs/{job_id}/retry`로 다시 큐에 올릴 수 있음. 응답 `{"running": false, "stopped_job_id": string|null}`(중단시킨 작업이 없었으면 `null`) |
+| `POST` | `/api/queue/stop` | 자동 실행 모드를 끔 — 이후 새로 추가되는 작업은 다시 `pending`으로 쌓이고, 이미 큐에 들어갔지만 아직 안 돈 작업(`queued`)은 그대로 대기하다 다음 `queue/start` 때 이어서 돎. ComfyUI 연결을 기다리며 붙잡혀 있던 작업(`waiting_for_comfy`)은 이때 `pending`으로 풀려남(로그에 되돌린 이유가 남음). **지금 실행 중인(`running`) 작업이 있으면 그 서브프로세스를 즉시 종료 요청**해서 상태를 `interrupted`로 만듦(완전히 죽기까지 몇 초 걸릴 수 있음 — `GET /api/jobs`로 확인). `interrupted` 작업은 `POST /api/jobs/{job_id}/retry`로 다시 큐에 올릴 수 있음. 응답 `{"running": false, "stopped_job_id": string|null}`(중단시킨 작업이 없었으면 `null`) |
 | `POST` | `/api/jobs/clear-completed` | 그 시점에 `done`/`failed`/`interrupted`인 작업 **전체**를 한꺼번에 소프트 삭제("작업 목록" 패널의 "🗑 완료 삭제" 버튼). `pending`/`queued`/`running`은 건드리지 않음. `DELETE /api/jobs/{job_id}`와 동일하게 소프트 삭제라 "삭제된 작업 설정 불러오기"에서 개별적으로 되돌릴 수 있음. 응답 `{"cleared": N}` |
-| `GET` | `/api/jobs` | 삭제되지 않은 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수, 자동 실행 모드 상태(`running`)를 조회. 응답 `{"jobs": [...], "pending_count": N, "running": bool}` |
+| `GET` | `/api/jobs` | 삭제되지 않은 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수, 자동 실행 모드 상태(`running`)를 조회. 응답 `{"jobs": [...], "pending_count": N, "running": bool}`. 워커가 ComfyUI 연결을 기다리며 붙잡고 있는 작업은 `status`가 `queued`인 채 `waiting_for_comfy: true`와 `waiting_since`가 붙음(화면에는 `GPU 대기` 배지) |
 | `GET` | `/api/jobs/deleted` | 소프트 삭제된(아래 `DELETE /api/jobs/{job_id}` 참고) 작업 목록을 최근 삭제순으로 반환. "삭제된 작업 설정 불러오기" 드롭다운을 채우는 용도. `{"jobs": [...], "retention": N}` — `retention`은 `NIGHTSHIFT_DELETED_JOBS_RETENTION`(기본 30) |
 | `GET` | `/api/jobs/{job_id}/log?tail=200` | 특정 작업의 로그 조회 (기본 마지막 200줄) |
 | `PUT` | `/api/jobs/{job_id}/progress` | 실행 중인 템플릿 스크립트가 자기 진행 상황을 스스로 보고하는 용도 (요청 본문: `{"total": N, "done": M}`, 둘 다 0 이상의 정수). 매 이미지마다 호출될 수 있어 디스크에는 쓰지 않고 메모리만 갱신함. 없는 작업 id면 404, total/done이 정수가 아니거나 음수면 400 |
