@@ -900,6 +900,153 @@
     min-width:0;
     max-width:none;
   }
+  /* LoRA 행의 호환 family 체크박스들 — 트리거 입력칸 오른쪽에 칩 형태로 늘어놓는다. */
+  .lora-tab-families{
+    flex:0 0 auto;
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    max-width:38%;
+  }
+  .lora-tab-family-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--text-dim);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:2px 8px;
+    cursor:pointer;
+    user-select:none;
+  }
+  .lora-tab-family-chip input{ margin:0; }
+  .lora-tab-family-chip.checked{ color:var(--text); border-color:var(--queued); }
+  /* "🎛 모델" 탭의 베이스 모델(family) 목록 줄 — 이름/체크포인트 다중선택/삭제. */
+  .family-row{
+    display:flex;
+    align-items:flex-start;
+    gap:16px;
+    padding:10px 12px;
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    margin-bottom:8px;
+  }
+  .family-row-label{
+    flex:0 0 auto;
+    min-width:160px;
+    max-width:32%;
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--text);
+  }
+  .family-row-label .family-id{ display:block; font-size:11px; color:var(--text-dim); }
+  .family-row select[multiple]{
+    flex:1 1 auto;
+    min-height:64px;
+    max-width:none;
+  }
+  /* ControlNet 프리셋 관리 표 — family x 유형 조합마다 상태 + 업로드/삭제. */
+  .preset-table{ display:flex; flex-direction:column; gap:8px; }
+  .preset-table-row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:8px 12px;
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    flex-wrap:wrap;
+  }
+  .preset-table-family{ font-family:var(--mono); font-size:12.5px; color:var(--text); min-width:140px; }
+  .preset-table-type{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); min-width:110px; }
+  .preset-table-status{ font-family:var(--mono); font-size:11.5px; }
+  .preset-table-status.ok{ color:var(--queued); }
+  .preset-table-status.missing{ color:var(--text-dim); }
+
+  /* "새 작업 추가" 마법사 바 — 4단계 버튼 + 적용/초기화. */
+  .wizard-bar{
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    padding:14px 16px;
+    margin-bottom:16px;
+    background:var(--panel-alt, var(--panel));
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+  .wizard-bar-title{
+    font-family:var(--mono);
+    font-size:12.5px;
+    font-weight:600;
+    color:var(--text);
+  }
+  .wizard-bar-title .opt{ display:block; font-weight:400; text-transform:none; letter-spacing:0; color:var(--text-dim); margin-top:4px; }
+  .wizard-steps{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));
+    gap:10px;
+  }
+  .wizard-step-btn{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    padding:10px 12px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--text-dim);
+    text-align:left;
+    cursor:pointer;
+    line-height:1.6;
+    transition: border-color .15s ease;
+  }
+  .wizard-step-btn:hover:not(:disabled){ border-color:var(--queued); }
+  .wizard-step-btn:disabled{ opacity:0.5; cursor:not-allowed; }
+  .wizard-step-btn.done{ border-color:var(--queued); }
+  .wizard-step-num{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:16px; height:16px;
+    border-radius:50%;
+    background:var(--border);
+    color:var(--text);
+    font-size:10px;
+    margin-right:4px;
+  }
+  .wizard-step-btn.done .wizard-step-num{ background:var(--queued); color:#fff; }
+  .wizard-step-value{ display:block; font-size:12.5px; color:var(--text); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wizard-bar-actions{ display:flex; align-items:center; gap:var(--gap-md); }
+
+  /* 마법사 모달 안의 선택 목록 — "설치된 모델" 모달과 비슷한 어휘를 쓰되 클릭 가능한 줄. */
+  .wizard-pick-list{ display:flex; flex-direction:column; gap:6px; max-height:420px; overflow-y:auto; }
+  .wizard-pick-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding:10px 12px;
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    cursor:pointer;
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:var(--text);
+  }
+  .wizard-pick-row:hover:not(.disabled){ border-color:var(--queued); }
+  .wizard-pick-row.selected{ border-color:var(--queued); background:rgba(var(--queued-rgb),0.08); }
+  .wizard-pick-row.disabled{ opacity:0.5; cursor:not-allowed; }
+  .wizard-pick-row-label{ display:flex; flex-direction:column; gap:2px; }
+  .wizard-pick-row-hint{ font-size:11px; color:var(--text-dim); font-weight:400; }
+  .wizard-pick-row-badge{
+    font-size:10.5px;
+    color:var(--failed);
+    border:1px solid var(--failed);
+    border-radius:999px;
+    padding:1px 8px;
+    flex-shrink:0;
+  }
+  .wizard-pick-row-strength{ width:70px; flex-shrink:0; }
   /* 워크플로우 빌더 — 짧은 숫자/드롭다운 입력을 한 줄에 여러 개 늘어놓는 격자.
      좁아지면 자동으로 줄바꿈된다. */
   .builder-grid{
@@ -1530,7 +1677,7 @@
     <button class="tab-btn active" data-tab="jobs" type="button">🗂 작업 관리</button>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트">🏷 Danbooru</button>
     <button class="tab-btn" data-tab="builder" type="button" title="업로드 없이 워크플로우 만들기">🧩 워크플로우</button>
-    <button class="tab-btn" data-tab="lora" type="button" title="LoRA별 트리거 워드 관리">🎛 LoRA</button>
+    <button class="tab-btn" data-tab="lora" type="button" title="베이스 모델/LoRA/ControlNet 프리셋 관리">🎛 모델</button>
     <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
   </div>
 </div>
@@ -1545,6 +1692,31 @@
       </div>
     </div>
     <div class="panel-body">
+      <div class="wizard-bar" id="wizard-bar">
+        <div class="wizard-bar-title">🧙 새 작업 마법사
+          <span class="opt">순서대로 고르고 "적용"을 누르면 아래 템플릿/옵션/워크플로우가 자동으로 채워져요 — 마법사 없이 직접 템플릿을 골라도 돼요.</span>
+        </div>
+        <div class="wizard-steps">
+          <button type="button" class="wizard-step-btn" id="wizard-step-family">
+            <span class="wizard-step-num">1</span> 베이스 모델<br><span class="wizard-step-value" id="wizard-step-family-value">선택 안 함</span>
+          </button>
+          <button type="button" class="wizard-step-btn" id="wizard-step-type" disabled>
+            <span class="wizard-step-num">2</span> 워크플로우 유형<br><span class="wizard-step-value" id="wizard-step-type-value">선택 안 함</span>
+          </button>
+          <button type="button" class="wizard-step-btn" id="wizard-step-lora" disabled>
+            <span class="wizard-step-num">3</span> LoRA<br><span class="wizard-step-value" id="wizard-step-lora-value">선택 안 함</span>
+          </button>
+          <button type="button" class="wizard-step-btn" id="wizard-step-batchmode" disabled>
+            <span class="wizard-step-num">4</span> 실행 방식<br><span class="wizard-step-value" id="wizard-step-batchmode-value">선택 안 함</span>
+          </button>
+        </div>
+        <div class="wizard-bar-actions">
+          <button type="button" class="submit-btn" id="wizard-apply-btn" disabled>✅ 아래 폼에 적용</button>
+          <button type="button" class="modal-btn-secondary" id="wizard-reset-btn">↺ 마법사 초기화</button>
+        </div>
+        <div class="upload-error" id="wizard-error"></div>
+      </div>
+
       <div class="upload-form">
         <div class="field">
           <label class="field-label" for="template-select">템플릿</label>
@@ -1907,18 +2079,50 @@
 <main id="tab-lora" style="display:none;">
   <div class="panel">
     <div class="panel-header">
-      <div class="section-label">LoRA 트리거 워드</div>
+      <div class="section-label">베이스 모델 (Family)</div>
+    </div>
+    <div class="panel-body">
+      <div class="email-hint">체크포인트를 "wai-illustrious", "krea.2"처럼 서로 호환되는 계열(family)로 묶어두면,
+        "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/ControlNet 프리셋을 걸러서 보여줘요.
+        family 하나에 체크포인트를 여러 개(같은 계열의 다른 파인튜닝 등) 넣을 수 있어요.</div>
+      <div class="upload-error" id="family-tab-error"></div>
+      <div id="family-tab-list"></div>
+      <div class="lora-tab-row" style="margin-top:8px;">
+        <input type="text" class="option-input" id="family-new-id" placeholder="family id (영문/숫자/-/_, 예: wai-illustrious)" style="max-width:220px;">
+        <input type="text" class="option-input" id="family-new-label" placeholder="표시 이름 (예: WAI-Illustrious)" style="max-width:220px;">
+        <button class="load-btn" id="family-new-add-btn" type="button">➕ 추가</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label">LoRA 트리거 워드 / 호환 베이스 모델</div>
       <div class="panel-header-actions">
         <button class="load-btn" id="lora-tab-refresh-btn" type="button" title="설치 목록 새로고침">🔄 새로고침</button>
       </div>
     </div>
     <div class="panel-body">
       <div class="email-hint">ComfyUI에 설치된 LoRA마다 트리거 워드(그 LoRA를 쓰려면 프롬프트에 넣어야 하는 단어/문구 — civitai 등
-        배포처에 적혀 있는 값)를 입력해두면, "🧩 워크플로우" 탭에서 그 LoRA를 고를 때 긍정 프롬프트에 자동으로 덧붙어요.
-        입력하면 바로 저장돼요(별도 저장 버튼 없음).</div>
+        배포처에 적혀 있는 값)를 입력해두면, "🧩 워크플로우" 탭과 "새 작업 추가" 마법사에서 그 LoRA를 고를 때 긍정
+        프롬프트에 자동으로 덧붙어요. 호환 베이스 모델을 하나도 안 고르면 모든 베이스 모델과 호환되는 것으로 취급돼요
+        (마법사에서 항상 보임) — 특정 family에서만 써야 하는 LoRA라면 체크해두세요. 입력/체크하면 바로 저장돼요.</div>
       <input type="text" class="option-input" id="lora-tab-filter" placeholder="이름으로 거르기" style="max-width:320px;">
       <div class="upload-error" id="lora-tab-error"></div>
       <div id="lora-tab-list"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label">ControlNet 프리셋 워크플로우</div>
+    </div>
+    <div class="panel-body">
+      <div class="email-hint">OpenPose/Depth/Lineart ControlNet 워크플로우 유형은 체크포인트마다 ControlNet 로더/가중치 배선이
+        달라서 자동으로 조립할 수 없어요 — family별로 미리 만들어둔 워크플로우 JSON을 여기 올려두면, "새 작업 추가"
+        마법사가 그 family를 고를 때 그대로 재사용해요(family에 프리셋이 없는 유형은 마법사에서 안 보여요).</div>
+      <div class="upload-error" id="preset-tab-error"></div>
+      <div id="preset-tab-table"></div>
     </div>
   </div>
 </main>
@@ -2066,6 +2270,59 @@
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="api-key-modal-clear">🗑 지우기</button>
       <button class="submit-btn" id="api-key-modal-save" type="button">💾 저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="wizard-family-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">1. 베이스 모델 선택</div>
+      <button class="modal-close" id="wizard-family-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body" id="wizard-family-modal-body"></div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="wizard-family-modal-cancel">✕ 닫기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="wizard-type-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">2. 워크플로우 유형 선택</div>
+      <button class="modal-close" id="wizard-type-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body" id="wizard-type-modal-body"></div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="wizard-type-modal-cancel">✕ 닫기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="wizard-lora-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">3. LoRA 선택</div>
+      <button class="modal-close" id="wizard-lora-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body" id="wizard-lora-modal-body"></div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="wizard-lora-modal-cancel">✕ 취소</button>
+      <button class="submit-btn" id="wizard-lora-modal-done" type="button">✓ 완료</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="wizard-batchmode-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">4. 실행 방식 선택</div>
+      <button class="modal-close" id="wizard-batchmode-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body" id="wizard-batchmode-modal-body"></div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="wizard-batchmode-modal-cancel">✕ 닫기</button>
     </div>
   </div>
 </div>
@@ -2974,12 +3231,26 @@ function buildComfyModelControl(opt){
   return select;
 }
 
+function buildInputImageControl(opt){
+  const select = document.createElement('select');
+  select.className = 'option-input';
+  select.dataset.name = opt.name;
+  const images = inputImagesCache || [];
+  const choices = images.map(img => ({ value: img.name, label: img.name, disabled: false }));
+  populateSelectOptions(select, choices, '(입력 이미지 없음 — NIGHTSHIFT_INPUT_IMAGES_DIR에 올려두세요)');
+  if(!select.disabled && opt.default) select.value = opt.default;
+  return select;
+}
+
 function buildOptionControl(opt){
   if(opt.name === 'main_prompt' && opt.type === 'textarea'){
     return buildPromptEnhanceControl(opt);
   }
   if(opt.type === 'comfy_model'){
     return buildComfyModelControl(opt);
+  }
+  if(opt.type === 'input_image'){
+    return buildInputImageControl(opt);
   }
   if(opt.type === 'select' || opt.type === 'asset_folder' || opt.type === 'char_no'){
     return buildSelectControl(opt);
@@ -3091,6 +3362,8 @@ async function onTemplateChange(){
   if(needsComfyModels){
     try{ await fetchComfyObjectInfo(false); }catch(e){ /* 목록 없이 "그대로"만 고를 수 있게 둔다 */ }
   }
+  const needsInputImages = template && (template.options || []).some(o => o.type === 'input_image');
+  if(needsInputImages) await fetchInputImages(false);
   renderOptionFields(template);
   uploadError.textContent = '';
 }
@@ -3618,6 +3891,85 @@ function scheduleSaveLoraTriggers(){
   }, 600);
 }
 
+// {trigger, families} 형태를 항상 돌려준다 — 서버가 이미 이관해서 주지만, 아직
+// fetch가 안 됐거나 그 이름이 목록에 없을 때를 위한 기본값.
+function getLoraEntry(name){
+  const entry = loraTriggers[name];
+  if(entry && typeof entry === 'object') return { trigger: entry.trigger || '', families: entry.families || [] };
+  return { trigger: '', families: [] };
+}
+
+// ---- 베이스 모델 family (예: wai-illustrious, krea.2) ----
+// "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/ControlNet
+// 프리셋을 걸러서 보여준다. GET은 페이지를 열 때 한 번, PUT은 "🎛 모델" 탭에서
+// family를 추가/편집할 때마다(디바운스) — lora-triggers와 같은 whole-blob 패턴.
+let baseModelFamilies = {};
+
+async function fetchBaseModelFamilies(){
+  try{
+    const res = await fetch('/api/base-model-families');
+    if(!res.ok) return;
+    baseModelFamilies = await res.json();
+  }catch(e){
+    // 못 받아와도 마법사의 "베이스 모델" 단계가 비어있을 뿐 나머지 기능엔 영향 없음
+  }
+}
+
+let saveFamiliesTimer = null;
+function scheduleSaveBaseModelFamilies(){
+  clearTimeout(saveFamiliesTimer);
+  saveFamiliesTimer = setTimeout(async () => {
+    try{
+      await fetch('/api/base-model-families', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(baseModelFamilies),
+      });
+    }catch(e){
+      // 다음 편집이나 새로고침 때 다시 시도됨
+    }
+  }, 600);
+}
+
+// ---- "새 작업 추가" 마법사 2단계(워크플로우 유형) 카탈로그 — 정적이라 세션당 한 번만 받는다 ----
+let workflowTypesCache = null;
+
+async function fetchWorkflowTypes(){
+  if(workflowTypesCache) return workflowTypesCache;
+  try{
+    const res = await fetch('/api/workflow-types');
+    if(res.ok) workflowTypesCache = await res.json();
+  }catch(e){ /* 마법사 2단계가 비어있을 뿐 나머지 기능엔 영향 없음 */ }
+  return workflowTypesCache || [];
+}
+
+// ---- family+유형 조합별 ControlNet 프리셋 워크플로우 존재 여부 ----
+let workflowPresetsList = [];
+
+async function fetchWorkflowPresetsList(){
+  try{
+    const res = await fetch('/api/workflow-presets');
+    if(res.ok) workflowPresetsList = (await res.json()).presets || [];
+  }catch(e){ workflowPresetsList = []; }
+  return workflowPresetsList;
+}
+
+function presetExists(familyId, typeId){
+  return workflowPresetsList.some(p => p.family_id === familyId && p.type_id === typeId);
+}
+
+// ---- img2img/USDU 입력 이미지 목록(세트 구분 없는 평평한 목록, input_assets.py) ----
+let inputImagesCache = null;
+
+async function fetchInputImages(force){
+  if(inputImagesCache && !force) return inputImagesCache;
+  try{
+    const res = await fetch('/api/input-images');
+    inputImagesCache = res.ok ? (await res.json()).images || [] : [];
+  }catch(e){ inputImagesCache = []; }
+  return inputImagesCache;
+}
+
 function renderComfyModels(){
   const listEl = document.getElementById('comfy-models-list');
   const info = comfyObjectInfoCache;
@@ -3638,7 +3990,7 @@ function renderComfyModels(){
     // LoRA는 트리거 워드까지 같이 관리하는 전용 탭이 따로 있다(이 모달 목록 칸은
     // 좁아서 이름+입력칸을 같이 넣으면 둘 다 안 보일 정도로 cramped 했다).
     const hint = key === 'loras'
-      ? '<div class="comfy-model-empty" style="margin-bottom:6px;">트리거 워드는 상단 "🎛 LoRA" 탭에서 관리해요.</div>'
+      ? '<div class="comfy-model-empty" style="margin-bottom:6px;">트리거 워드/호환 베이스 모델은 상단 "🎛 모델" 탭에서 관리해요.</div>'
       : '';
     return `
       <div class="comfy-model-group">
@@ -3677,14 +4029,29 @@ document.addEventListener('keydown', (e) => {
   if(e.key === 'Escape' && comfyModelsModal.style.display !== 'none') closeComfyModelsModal();
 });
 
-// ---- "LoRA" 탭 — 설치된 LoRA마다 트리거 워드를 넉넉한 공간에서 관리 ----
+// ---- "🎛 모델" 탭 — LoRA 트리거 워드 + 호환 family ----
 document.getElementById('lora-tab-list').addEventListener('input', (e) => {
   const input = e.target;
   if(!input.classList.contains('lora-tab-trigger-input')) return;
   const name = input.dataset.loraName;
   const value = input.value.trim();
-  if(value) loraTriggers[name] = value;
-  else delete loraTriggers[name];
+  const entry = getLoraEntry(name);
+  loraTriggers[name] = { trigger: value, families: entry.families };
+  scheduleSaveLoraTriggers();
+});
+
+document.getElementById('lora-tab-list').addEventListener('click', (e) => {
+  const chip = e.target.closest('.lora-tab-family-chip');
+  if(!chip) return;
+  const checkbox = chip.querySelector('input[type="checkbox"]');
+  if(e.target !== checkbox) return; // 체크박스 자체 클릭만 처리(라벨 텍스트는 checkbox가 알아서 토글)
+  const name = chip.dataset.loraName;
+  const familyId = chip.dataset.familyId;
+  const entry = getLoraEntry(name);
+  const families = new Set(entry.families);
+  if(checkbox.checked) families.add(familyId); else families.delete(familyId);
+  loraTriggers[name] = { trigger: entry.trigger, families: Array.from(families) };
+  chip.classList.toggle('checked', checkbox.checked);
   scheduleSaveLoraTriggers();
 });
 
@@ -3701,12 +4068,22 @@ function renderLoraTab(){
     listEl.innerHTML = `<div class="comfy-model-empty">${filter && all.length > 0 ? '거른 결과가 없어요' : '설치된 LoRA가 없어요'}</div>`;
     return;
   }
-  listEl.innerHTML = `<div class="lora-tab-list">${shown.map(name => `
+  const familyEntries = Object.entries(baseModelFamilies);
+  listEl.innerHTML = `<div class="lora-tab-list">${shown.map(name => {
+    const entry = getLoraEntry(name);
+    const chips = familyEntries.map(([familyId, family]) => {
+      const checked = entry.families.includes(familyId);
+      return `<label class="lora-tab-family-chip${checked ? ' checked' : ''}" data-lora-name="${escapeHtml(name)}" data-family-id="${escapeHtml(familyId)}">
+        <input type="checkbox" ${checked ? 'checked' : ''}>${escapeHtml(family.label || familyId)}</label>`;
+    }).join('');
+    return `
     <div class="lora-tab-row">
       <div class="lora-tab-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
       <input type="text" class="option-input lora-tab-trigger-input" data-lora-name="${escapeHtml(name)}"
-             placeholder="트리거 워드 (없으면 비워둠)" value="${escapeHtml(loraTriggers[name] || '')}">
-    </div>`).join('')}</div>`;
+             placeholder="트리거 워드 (없으면 비워둠)" value="${escapeHtml(entry.trigger)}">
+      <div class="lora-tab-families">${chips || '<span class="comfy-model-empty">(등록된 베이스 모델 없음)</span>'}</div>
+    </div>`;
+  }).join('')}</div>`;
 }
 
 async function initLoraTab(force){
@@ -3717,11 +4094,541 @@ async function initLoraTab(force){
   }catch(e){
     errorEl.textContent = e.message || 'LoRA 목록을 가져오지 못했어요.';
   }
+  await fetchBaseModelFamilies();
   renderLoraTab();
+  initFamilyTab();
+  initPresetTab();
 }
 
 document.getElementById('lora-tab-refresh-btn').addEventListener('click', () => initLoraTab(true));
 document.getElementById('lora-tab-filter').addEventListener('input', renderLoraTab);
+
+// ---- "🎛 모델" 탭 — 베이스 모델(family) 관리 ----
+function renderFamilyTab(){
+  const listEl = document.getElementById('family-tab-list');
+  const entries = Object.entries(baseModelFamilies);
+  if(entries.length === 0){
+    listEl.innerHTML = '<div class="comfy-model-empty">등록된 베이스 모델이 없어요 — 아래에서 추가하세요.</div>';
+    return;
+  }
+  const installed = (comfyObjectInfoCache && comfyObjectInfoCache.connected) ? (comfyObjectInfoCache.models.checkpoints || []) : [];
+  listEl.innerHTML = entries.map(([familyId, family]) => {
+    // 이 family에 저장돼 있지만 지금 ComfyUI에는 없는 체크포인트도 선택지에서
+    // 빠지면 안 되므로(연결이 잠깐 끊겼거나 다른 파드일 수 있음) 합쳐서 보여준다.
+    const options = Array.from(new Set([...(family.checkpoints || []), ...installed]));
+    const optionsHtml = options.map(name =>
+      `<option value="${escapeHtml(name)}" ${(family.checkpoints || []).includes(name) ? 'selected' : ''}>${escapeHtml(name)}</option>`
+    ).join('');
+    return `
+    <div class="family-row" data-family-id="${escapeHtml(familyId)}">
+      <div class="family-row-label">
+        <input type="text" class="option-input family-label-input" data-family-id="${escapeHtml(familyId)}"
+               value="${escapeHtml(family.label || '')}" style="max-width:none; margin-bottom:6px;">
+        <span class="family-id">${escapeHtml(familyId)}</span>
+      </div>
+      <select multiple class="option-input family-checkpoints-select" data-family-id="${escapeHtml(familyId)}"
+              title="Ctrl/Cmd+클릭으로 여러 개 선택">
+        ${optionsHtml || '<option value="" disabled>설치된 체크포인트 없음</option>'}
+      </select>
+      <button class="del-btn family-delete-btn" type="button" data-family-id="${escapeHtml(familyId)}" title="이 베이스 모델 삭제">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function initFamilyTab(){
+  document.getElementById('family-tab-error').textContent = '';
+  renderFamilyTab();
+}
+
+document.getElementById('family-tab-list').addEventListener('input', (e) => {
+  if(!e.target.classList.contains('family-label-input')) return;
+  const familyId = e.target.dataset.familyId;
+  if(!baseModelFamilies[familyId]) return;
+  baseModelFamilies[familyId].label = e.target.value;
+  scheduleSaveBaseModelFamilies();
+});
+
+document.getElementById('family-tab-list').addEventListener('change', (e) => {
+  if(!e.target.classList.contains('family-checkpoints-select')) return;
+  const familyId = e.target.dataset.familyId;
+  if(!baseModelFamilies[familyId]) return;
+  baseModelFamilies[familyId].checkpoints = Array.from(e.target.selectedOptions).map(o => o.value).filter(Boolean);
+  scheduleSaveBaseModelFamilies();
+});
+
+document.getElementById('family-tab-list').addEventListener('click', (e) => {
+  const btn = e.target.closest('.family-delete-btn');
+  if(!btn) return;
+  const familyId = btn.dataset.familyId;
+  if(!confirm(`'${baseModelFamilies[familyId]?.label || familyId}' 베이스 모델을 삭제할까요? (LoRA/프리셋의 호환 설정에서도 사라져요)`)) return;
+  delete baseModelFamilies[familyId];
+  scheduleSaveBaseModelFamilies();
+  renderFamilyTab();
+  renderLoraTab();
+});
+
+document.getElementById('family-new-add-btn').addEventListener('click', () => {
+  const errorEl = document.getElementById('family-tab-error');
+  errorEl.textContent = '';
+  const idInput = document.getElementById('family-new-id');
+  const labelInput = document.getElementById('family-new-label');
+  const familyId = idInput.value.trim();
+  const label = labelInput.value.trim();
+  if(!/^[A-Za-z0-9_.-]+$/.test(familyId)){
+    errorEl.textContent = 'family id는 영문/숫자/-/_/.만 쓸 수 있어요.';
+    return;
+  }
+  if(!label){
+    errorEl.textContent = '표시 이름을 입력하세요.';
+    return;
+  }
+  if(baseModelFamilies[familyId]){
+    errorEl.textContent = '이미 있는 family id예요.';
+    return;
+  }
+  baseModelFamilies[familyId] = { label, checkpoints: [] };
+  scheduleSaveBaseModelFamilies();
+  idInput.value = '';
+  labelInput.value = '';
+  renderFamilyTab();
+  renderLoraTab();
+});
+
+// ---- "🎛 모델" 탭 — ControlNet 프리셋 워크플로우 관리 ----
+async function initPresetTab(){
+  document.getElementById('preset-tab-error').textContent = '';
+  await fetchWorkflowTypes();
+  await fetchWorkflowPresetsList();
+  renderPresetTab();
+}
+
+function renderPresetTab(){
+  const tableEl = document.getElementById('preset-tab-table');
+  const families = Object.entries(baseModelFamilies);
+  const presetTypes = (workflowTypesCache || []).filter(t => t.mode === 'preset');
+  if(families.length === 0 || presetTypes.length === 0){
+    tableEl.innerHTML = '<div class="comfy-model-empty">베이스 모델을 먼저 등록하세요.</div>';
+    return;
+  }
+  const rows = [];
+  for(const [familyId, family] of families){
+    for(const type of presetTypes){
+      const exists = presetExists(familyId, type.id);
+      rows.push(`
+      <div class="preset-table-row" data-family-id="${escapeHtml(familyId)}" data-type-id="${escapeHtml(type.id)}">
+        <div class="preset-table-family">${escapeHtml(family.label || familyId)}</div>
+        <div class="preset-table-type">${escapeHtml(type.label)}</div>
+        <div class="preset-table-status ${exists ? 'ok' : 'missing'}">${exists ? '✓ 있음' : '없음'}</div>
+        <input type="file" class="preset-upload-input" accept=".json" style="max-width:200px;">
+        ${exists ? '<button class="del-btn preset-delete-btn" type="button" title="프리셋 삭제">✕</button>' : ''}
+      </div>`);
+    }
+  }
+  tableEl.innerHTML = `<div class="preset-table">${rows.join('')}</div>`;
+}
+
+document.getElementById('preset-tab-table').addEventListener('change', async (e) => {
+  if(!e.target.classList.contains('preset-upload-input')) return;
+  const file = e.target.files[0];
+  if(!file) return;
+  const row = e.target.closest('.preset-table-row');
+  const familyId = row.dataset.familyId;
+  const typeId = row.dataset.typeId;
+  const errorEl = document.getElementById('preset-tab-error');
+  errorEl.textContent = '';
+  try{
+    const text = await file.text();
+    JSON.parse(text); // 최소한의 JSON 검증 — 실제 워크플로우로서 유효한지는 서버가 신경쓰지 않음
+    const res = await fetch(`/api/workflow-presets/${encodeURIComponent(familyId)}/${encodeURIComponent(typeId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: text,
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || '업로드에 실패했어요.');
+    }
+    await fetchWorkflowPresetsList();
+    renderPresetTab();
+  }catch(err){
+    errorEl.textContent = err.message || '올바른 JSON 파일이 아니에요.';
+  }
+});
+
+document.getElementById('preset-tab-table').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.preset-delete-btn');
+  if(!btn) return;
+  const row = btn.closest('.preset-table-row');
+  const familyId = row.dataset.familyId;
+  const typeId = row.dataset.typeId;
+  if(!confirm('이 프리셋 워크플로우를 삭제할까요?')) return;
+  try{
+    await fetch(`/api/workflow-presets/${encodeURIComponent(familyId)}/${encodeURIComponent(typeId)}`, { method: 'DELETE' });
+    await fetchWorkflowPresetsList();
+    renderPresetTab();
+  }catch(err){
+    document.getElementById('preset-tab-error').textContent = '삭제에 실패했어요.';
+  }
+});
+
+// ==== "새 작업 추가" 마법사 — (1)베이스 모델 (2)워크플로우 유형 (3)LoRA (4)실행 방식을
+// 순서대로 고르면 "적용"이 아래 템플릿 선택/옵션 폼/워크플로우 슬롯을 자동으로 채운다.
+// 마법사 자신은 큐에 아무것도 등록하지 않는다 — 채워진 뒤에는 항상 하던 대로 "➕ 추가"를
+// 눌러야 실제로 큐에 들어간다(검증/제출 경로를 그대로 재사용하기 위한 설계). ====
+let wizard = { familyId: null, checkpoint: null, typeId: null, loras: [], batchMode: null };
+
+function wizardTypeMeta(typeId){
+  return (workflowTypesCache || []).find(t => t.id === typeId);
+}
+
+function openWizardModal(id){ document.getElementById(id).style.display = 'flex'; }
+function closeWizardModal(id){ document.getElementById(id).style.display = 'none'; }
+
+for(const id of ['wizard-family-modal', 'wizard-type-modal', 'wizard-lora-modal', 'wizard-batchmode-modal']){
+  const overlay = document.getElementById(id);
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) closeWizardModal(id); });
+}
+document.getElementById('wizard-family-modal-close').addEventListener('click', () => closeWizardModal('wizard-family-modal'));
+document.getElementById('wizard-family-modal-cancel').addEventListener('click', () => closeWizardModal('wizard-family-modal'));
+document.getElementById('wizard-type-modal-close').addEventListener('click', () => closeWizardModal('wizard-type-modal'));
+document.getElementById('wizard-type-modal-cancel').addEventListener('click', () => closeWizardModal('wizard-type-modal'));
+document.getElementById('wizard-lora-modal-close').addEventListener('click', () => closeWizardModal('wizard-lora-modal'));
+document.getElementById('wizard-lora-modal-cancel').addEventListener('click', () => closeWizardModal('wizard-lora-modal'));
+document.getElementById('wizard-lora-modal-done').addEventListener('click', () => { wizardUpdateStepButtons(); closeWizardModal('wizard-lora-modal'); });
+document.getElementById('wizard-batchmode-modal-close').addEventListener('click', () => closeWizardModal('wizard-batchmode-modal'));
+document.getElementById('wizard-batchmode-modal-cancel').addEventListener('click', () => closeWizardModal('wizard-batchmode-modal'));
+document.addEventListener('keydown', (e) => {
+  if(e.key !== 'Escape') return;
+  for(const id of ['wizard-family-modal', 'wizard-type-modal', 'wizard-lora-modal', 'wizard-batchmode-modal']){
+    if(document.getElementById(id).style.display !== 'none') closeWizardModal(id);
+  }
+});
+
+function wizardUpdateStepButtons(){
+  const familyBtn = document.getElementById('wizard-step-family');
+  const typeBtn = document.getElementById('wizard-step-type');
+  const loraBtn = document.getElementById('wizard-step-lora');
+  const batchBtn = document.getElementById('wizard-step-batchmode');
+
+  const family = wizard.familyId ? baseModelFamilies[wizard.familyId] : null;
+  const familyLabel = family ? (family.label || wizard.familyId) : '선택 안 함';
+  document.getElementById('wizard-step-family-value').textContent = (wizard.familyId && wizard.checkpoint) ? `${familyLabel} · ${wizard.checkpoint}` : familyLabel;
+  familyBtn.classList.toggle('done', !!(wizard.familyId && wizard.checkpoint));
+
+  typeBtn.disabled = !wizard.familyId;
+  const typeMeta = wizardTypeMeta(wizard.typeId);
+  document.getElementById('wizard-step-type-value').textContent = typeMeta ? typeMeta.label : '선택 안 함';
+  typeBtn.classList.toggle('done', !!wizard.typeId);
+
+  loraBtn.disabled = !wizard.typeId;
+  document.getElementById('wizard-step-lora-value').textContent = wizard.loras.length === 0 ? '사용 안 함' : wizard.loras.map(l => l.name).join(', ');
+  loraBtn.classList.toggle('done', wizard.loras.length > 0);
+
+  batchBtn.disabled = !wizard.typeId;
+  document.getElementById('wizard-step-batchmode-value').textContent =
+    wizard.batchMode === 'seed' ? '시드 반복' : wizard.batchMode === 'csv' ? 'CSV 순회' : '선택 안 함';
+  batchBtn.classList.toggle('done', !!wizard.batchMode);
+
+  document.getElementById('wizard-apply-btn').disabled = !(wizard.familyId && wizard.checkpoint && wizard.typeId && wizard.batchMode);
+}
+
+function wizardReset(){
+  wizard = { familyId: null, checkpoint: null, typeId: null, loras: [], batchMode: null };
+  document.getElementById('wizard-error').textContent = '';
+  document.getElementById('load-notice').textContent = '';
+  wizardUpdateStepButtons();
+}
+document.getElementById('wizard-reset-btn').addEventListener('click', wizardReset);
+
+// ---- 1단계: 베이스 모델 ----
+async function openWizardFamilyModal(){
+  const body = document.getElementById('wizard-family-modal-body');
+  body.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
+  openWizardModal('wizard-family-modal');
+  await fetchBaseModelFamilies();
+  renderWizardFamilyModal();
+}
+
+function renderWizardFamilyModal(){
+  const body = document.getElementById('wizard-family-modal-body');
+  const entries = Object.entries(baseModelFamilies);
+  if(entries.length === 0){
+    body.innerHTML = '<div class="comfy-model-empty">등록된 베이스 모델이 없어요 — "🎛 모델" 탭에서 먼저 등록하세요.</div>';
+    return;
+  }
+  body.innerHTML = `<div class="wizard-pick-list">${entries.map(([familyId, family]) => {
+    const checkpoints = family.checkpoints || [];
+    const disabled = checkpoints.length === 0;
+    const headerSelected = wizard.familyId === familyId && checkpoints.length === 1;
+    const header = `
+      <div class="wizard-pick-row${disabled ? ' disabled' : ''}${headerSelected ? ' selected' : ''}" data-family-id="${escapeHtml(familyId)}">
+        <div class="wizard-pick-row-label">${escapeHtml(family.label || familyId)}
+          ${disabled ? '<span class="wizard-pick-row-hint">체크포인트가 지정되지 않았어요 — "🎛 모델" 탭에서 지정하세요</span>' : ''}
+        </div>
+      </div>`;
+    const rows = checkpoints.length > 1 ? checkpoints.map(ckpt => `
+      <div class="wizard-pick-row${(wizard.familyId === familyId && wizard.checkpoint === ckpt) ? ' selected' : ''}"
+           data-family-id="${escapeHtml(familyId)}" data-checkpoint="${escapeHtml(ckpt)}" style="margin-left:20px;">
+        <div class="wizard-pick-row-label">${escapeHtml(ckpt)}</div>
+      </div>`).join('') : '';
+    return header + rows;
+  }).join('')}</div>`;
+}
+
+document.getElementById('wizard-family-modal-body').addEventListener('click', (e) => {
+  const row = e.target.closest('.wizard-pick-row');
+  if(!row || row.classList.contains('disabled')) return;
+  const familyId = row.dataset.familyId;
+  const family = baseModelFamilies[familyId];
+  if(!family) return;
+  let checkpoint = row.dataset.checkpoint;
+  if(!checkpoint){
+    const checkpoints = family.checkpoints || [];
+    if(checkpoints.length === 1) checkpoint = checkpoints[0];
+    else return; // 체크포인트가 여러 개면 하위 줄에서 하나를 정확히 골라야 한다
+  }
+  if(wizard.familyId !== familyId){
+    // family가 바뀌면 이전 단계에서 고른 워크플로우 유형/LoRA는 더 이상 호환을
+    // 보장할 수 없으니 함께 초기화한다.
+    wizard.typeId = null;
+    wizard.loras = [];
+    wizard.batchMode = null;
+  }
+  wizard.familyId = familyId;
+  wizard.checkpoint = checkpoint;
+  wizardUpdateStepButtons();
+  closeWizardModal('wizard-family-modal');
+});
+
+document.getElementById('wizard-step-family').addEventListener('click', openWizardFamilyModal);
+
+// ---- 2단계: 워크플로우 유형 ----
+async function openWizardTypeModal(){
+  if(!wizard.familyId) return;
+  const body = document.getElementById('wizard-type-modal-body');
+  body.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
+  openWizardModal('wizard-type-modal');
+  await fetchWorkflowTypes();
+  await fetchWorkflowPresetsList();
+  try{ await fetchComfyObjectInfo(false); }catch(e){ /* node_types 없이도 목록은 보여준다 */ }
+  renderWizardTypeModal();
+}
+
+function renderWizardTypeModal(){
+  const body = document.getElementById('wizard-type-modal-body');
+  // preset 워크플로우 유형(ControlNet 계열)은 이 family용 프리셋이 없으면 골라봤자
+  // 실행할 워크플로우가 없으므로 아예 목록에서 숨긴다(LoRA 호환성 필터링과 같은 원칙).
+  const types = (workflowTypesCache || []).filter(t => t.mode === 'builder' || presetExists(wizard.familyId, t.id));
+  if(types.length === 0){
+    body.innerHTML = '<div class="comfy-model-empty">이 베이스 모델로 쓸 수 있는 워크플로우 유형이 없어요.</div>';
+    return;
+  }
+  const nodeTypes = (comfyObjectInfoCache && comfyObjectInfoCache.connected) ? comfyObjectInfoCache.node_types : null;
+  body.innerHTML = `<div class="wizard-pick-list">${types.map(t => {
+    const selected = wizard.typeId === t.id;
+    const missingNode = t.requires_node && nodeTypes && !nodeTypes.includes(t.requires_node);
+    const badge = missingNode ? `<span class="wizard-pick-row-badge">⚠ 설치 필요 (${escapeHtml(t.requires_node)})</span>` : '';
+    const hint = t.mode === 'preset' ? '<span class="wizard-pick-row-hint">ControlNet 프리셋 워크플로우 사용</span>' : '';
+    return `
+      <div class="wizard-pick-row${selected ? ' selected' : ''}" data-type-id="${escapeHtml(t.id)}">
+        <div class="wizard-pick-row-label">${escapeHtml(t.label)}${hint}</div>
+        ${badge}
+      </div>`;
+  }).join('')}</div>`;
+}
+
+document.getElementById('wizard-type-modal-body').addEventListener('click', (e) => {
+  const row = e.target.closest('.wizard-pick-row');
+  if(!row) return;
+  const typeId = row.dataset.typeId;
+  if(wizard.typeId !== typeId){
+    wizard.loras = [];
+    wizard.batchMode = null;
+  }
+  wizard.typeId = typeId;
+  wizardUpdateStepButtons();
+  closeWizardModal('wizard-type-modal');
+});
+
+document.getElementById('wizard-step-type').addEventListener('click', openWizardTypeModal);
+
+// ---- 3단계: LoRA ----
+// builder 모드(txt2img/img2img/t2i_hiresfix/usdu) 워크플로우 유형은 workflow_builder.py가
+// 고른 LoRA를 전부 체인으로 구워 넣을 수 있어서 여러 개를 골라도 된다. preset 모드
+// (ControlNet 계열)는 관리자가 미리 만들어둔 워크플로우 구조를 그대로 쓰고, 거기 있는
+// LoRA 로더 하나에만 런타임으로 덮어쓸 수 있으므로(app.py의 apply_lora와 같은 제약)
+// 한 개만 고를 수 있다.
+async function openWizardLoraModal(){
+  if(!wizard.typeId) return;
+  const body = document.getElementById('wizard-lora-modal-body');
+  body.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
+  openWizardModal('wizard-lora-modal');
+  try{ await fetchComfyObjectInfo(false); }catch(e){ /* 아래에서 연결 안 됨으로 안내 */ }
+  renderWizardLoraModal();
+}
+
+function renderWizardLoraModal(){
+  const body = document.getElementById('wizard-lora-modal-body');
+  if(!comfyObjectInfoCache || !comfyObjectInfoCache.connected){
+    body.innerHTML = '<div class="comfy-model-empty">ComfyUI에 연결되지 않아 목록을 가져오지 못했어요.</div>';
+    return;
+  }
+  const typeMeta = wizardTypeMeta(wizard.typeId);
+  const isPreset = !!(typeMeta && typeMeta.mode === 'preset');
+  const all = comfyObjectInfoCache.models.loras || [];
+  // 호환 family를 하나도 안 고른 LoRA는 모든 베이스 모델과 호환되는 것으로 취급한다
+  // (lora_triggers.json 마이그레이션 정책과 동일) — 나머지는 지금 고른 family가
+  // families 목록에 있을 때만 보여준다(비호환 LoRA는 아예 숨김).
+  const compatible = all.filter(name => {
+    const entry = getLoraEntry(name);
+    return entry.families.length === 0 || entry.families.includes(wizard.familyId);
+  });
+  const hint = isPreset
+    ? '<div class="email-hint">이 워크플로우 유형은 프리셋에 이미 배선된 LoRA 로더 하나에만 덮어쓸 수 있어서, 여기서는 하나만 고를 수 있어요.</div>'
+    : '<div class="email-hint">여러 개를 고를 수 있어요. 강도는 고른 줄에 나타나는 입력칸에서 바꾸세요(기본 1).</div>';
+  if(compatible.length === 0){
+    body.innerHTML = hint + '<div class="comfy-model-empty">이 베이스 모델과 호환되는 LoRA가 없어요("🎛 모델" 탭에서 호환 베이스 모델을 비워두면 항상 보여요).</div>';
+    return;
+  }
+  body.innerHTML = hint + `<div class="wizard-pick-list">${compatible.map(name => {
+    const picked = wizard.loras.find(l => l.name === name);
+    return `
+      <div class="wizard-pick-row${picked ? ' selected' : ''}" data-lora-name="${escapeHtml(name)}">
+        <div class="wizard-pick-row-label">${escapeHtml(name)}</div>
+        ${picked ? `<input type="number" class="option-input wizard-pick-row-strength wizard-lora-strength-input" data-lora-name="${escapeHtml(name)}" value="${picked.strength}" step="0.05">` : ''}
+      </div>`;
+  }).join('')}</div>`;
+}
+
+document.getElementById('wizard-lora-modal-body').addEventListener('click', (e) => {
+  if(e.target.classList.contains('wizard-lora-strength-input')) return; // 강도 입력칸 클릭은 선택 토글이 아님
+  const row = e.target.closest('.wizard-pick-row');
+  if(!row) return;
+  const name = row.dataset.loraName;
+  const typeMeta = wizardTypeMeta(wizard.typeId);
+  const isPreset = !!(typeMeta && typeMeta.mode === 'preset');
+  const existingIndex = wizard.loras.findIndex(l => l.name === name);
+  if(existingIndex >= 0){
+    wizard.loras.splice(existingIndex, 1);
+  }else if(isPreset){
+    wizard.loras = [{ name, strength: 1 }]; // preset 모드는 한 개만 — 새로 고르면 이전 선택을 대체
+  }else{
+    wizard.loras.push({ name, strength: 1 });
+  }
+  wizardUpdateStepButtons();
+  renderWizardLoraModal();
+});
+
+document.getElementById('wizard-lora-modal-body').addEventListener('input', (e) => {
+  if(!e.target.classList.contains('wizard-lora-strength-input')) return;
+  const entry = wizard.loras.find(l => l.name === e.target.dataset.loraName);
+  if(entry) entry.strength = parseFloat(e.target.value) || 1;
+});
+
+document.getElementById('wizard-step-lora').addEventListener('click', openWizardLoraModal);
+
+// ---- 4단계: 실행 방식(시드 반복 / CSV 순회) ----
+function openWizardBatchModeModal(){
+  if(!wizard.typeId) return;
+  const body = document.getElementById('wizard-batchmode-modal-body');
+  body.innerHTML = `<div class="wizard-pick-list">
+    <div class="wizard-pick-row${wizard.batchMode === 'seed' ? ' selected' : ''}" data-mode="seed">
+      <div class="wizard-pick-row-label">시드 반복<span class="wizard-pick-row-hint">프롬프트 하나로 시드만 바꿔가며 여러 장 생성</span></div>
+    </div>
+    <div class="wizard-pick-row${wizard.batchMode === 'csv' ? ' selected' : ''}" data-mode="csv">
+      <div class="wizard-pick-row-label">CSV 순회<span class="wizard-pick-row-hint">CSV 파일의 행마다 다른 프롬프트/설정으로 생성</span></div>
+    </div>
+  </div>`;
+  openWizardModal('wizard-batchmode-modal');
+}
+
+document.getElementById('wizard-batchmode-modal-body').addEventListener('click', (e) => {
+  const row = e.target.closest('.wizard-pick-row');
+  if(!row) return;
+  wizard.batchMode = row.dataset.mode;
+  wizardUpdateStepButtons();
+  closeWizardModal('wizard-batchmode-modal');
+});
+
+document.getElementById('wizard-step-batchmode').addEventListener('click', openWizardBatchModeModal);
+
+// ---- "적용" — 아래 템플릿 선택/옵션 폼/워크플로우 슬롯을 채운다 ----
+document.getElementById('wizard-apply-btn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('wizard-error');
+  errorEl.textContent = '';
+  const typeMeta = wizardTypeMeta(wizard.typeId);
+  if(!typeMeta || !wizard.familyId || !wizard.checkpoint || !wizard.batchMode){
+    errorEl.textContent = '1~4단계를 모두 고른 뒤 적용하세요.';
+    return;
+  }
+  if(Object.keys(templatesById).length === 0) await fetchTemplates();
+  const templateId = typeMeta.template_ids[wizard.batchMode];
+  const template = templatesById[templateId];
+  if(!template){
+    errorEl.textContent = `템플릿 '${templateId}'이(가) 서버에 등록돼 있지 않아요.`;
+    return;
+  }
+
+  let workflow;
+  try{
+    if(typeMeta.mode === 'preset'){
+      const res = await fetch(`/api/workflow-presets/${encodeURIComponent(wizard.familyId)}/${encodeURIComponent(typeMeta.id)}`);
+      if(!res.ok) throw new Error('이 조합의 프리셋 워크플로우를 찾을 수 없어요 — "🎛 모델" 탭에서 먼저 올려주세요.');
+      workflow = await res.json();
+    }else{
+      const buildModeById = { txt2img: 'txt2img', t2i_hiresfix: 'txt2img', img2img: 'img2img', usdu: 'usdu' };
+      const spec = {
+        mode: buildModeById[typeMeta.id] || 'txt2img',
+        checkpoint: wizard.checkpoint,
+        // 진짜 프롬프트는 적용 뒤 아래 옵션 폼(시드 반복이면 main_prompt 필드, CSV
+        // 순회면 CSV 파일)에서 입력한다 — 여기는 build_workflow()가 요구하는
+        // 자리표시자일 뿐, 실행 시점에 템플릿의 MAIN_PROMPT/CSV 프롬프트 컬럼이
+        // 덮어쓴다(비워두면 이 자리표시자 그대로 나갈 수 있으니 주의하라고 아래에서 안내).
+        positive: '(prompt)',
+        loras: wizard.loras.map(l => ({ name: l.name, strength_model: l.strength, strength_clip: l.strength })),
+      };
+      if(typeMeta.id === 't2i_hiresfix') spec.hires = { enabled: true };
+      if(typeMeta.id === 'usdu') spec.upscale_by = 2.0;
+      const res = await fetch('/api/build-workflow', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec),
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(data.detail || '워크플로우를 만들지 못했어요.');
+      workflow = data.workflow;
+    }
+  }catch(e){
+    errorEl.textContent = e.message || '워크플로우를 준비하지 못했어요.';
+    return;
+  }
+
+  resetForm();
+  templateSelect.value = templateId;
+  await onTemplateChange();
+
+  // builder 모드는 체크포인트/LoRA를 이미 워크플로우에 구워 넣었으므로 런타임
+  // override 옵션(checkpoint/lora_name)은 비워둔다(중복 적용 방지, "비워두면
+  // 워크플로우 값 그대로" 규칙과 일치). preset 모드는 프리셋 워크플로우를 그대로
+  // 쓰되, 같은 family의 다른 체크포인트로 바꾸거나(호환 아키텍처이므로 안전) LoRA
+  // 하나를 얹고 싶을 때가 있어 그 두 옵션만 채워준다.
+  if(typeMeta.mode === 'preset'){
+    const ckptEl = optionsFields.querySelector('[data-name="checkpoint"]');
+    if(ckptEl) ckptEl.value = wizard.checkpoint;
+    if(wizard.loras.length > 0){
+      const loraNameEl = optionsFields.querySelector('[data-name="lora_name"]');
+      const loraStrengthEl = optionsFields.querySelector('[data-name="lora_strength"]');
+      if(loraNameEl) loraNameEl.value = wizard.loras[0].name;
+      if(loraStrengthEl) loraStrengthEl.value = wizard.loras[0].strength;
+    }
+  }
+
+  setWorkflowFile(new File([JSON.stringify(workflow)], `wizard_${typeMeta.id}_workflow.json`, { type: 'application/json' }));
+
+  document.getElementById('load-notice').textContent =
+    '마법사 설정을 적용했어요 — 아래에서 프롬프트/세부 옵션을 확인하고(CSV 순회라면 CSV 파일도 첨부), 준비되면 "➕ 추가"를 눌러 큐에 등록하세요.';
+  optionsFields.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+wizardUpdateStepButtons();
 
 // ---- 업로드한 워크플로우가 이 서버에서 돌아갈 수 있는지 검사 ----
 // 다른 ComfyUI 설치본에서 만든 워크플로우는 여기 없는 커스텀 노드를 쓰거나 없는
@@ -5770,7 +6677,7 @@ function builderAddLoraRow(){
   builderSelectOptions(select, builderModels().loras, '(설치된 LoRA 없음)', false);
   select.addEventListener('change', () => {
     if(row.dataset.insertedTrigger) removeTriggerFromPrompt(row.dataset.insertedTrigger);
-    const trigger = loraTriggers[select.value] || '';
+    const trigger = getLoraEntry(select.value).trigger;
     if(trigger){
       appendTriggerToPrompt(trigger);
       row.dataset.insertedTrigger = trigger;
@@ -5942,6 +6849,7 @@ fetchJobs();
 fetchDeletedJobs();
 fetchComfyStatus();
 fetchLoraTriggers();
+fetchBaseModelFamilies();
 initDanbooru();
 setInterval(fetchJobs, 2000);
 setInterval(() => { if(expandedId) loadLog(expandedId); }, 2000);

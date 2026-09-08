@@ -880,7 +880,7 @@ WORKFLOW_TYPES = [
     },
     {
         "id": "usdu", "label": "Ultimate SD Upscale", "mode": "builder", "requires_input_image": True,
-        "requires_node": "UltimateSDUpscale",
+        "requires_node": "UltimateSDUpscaleNoUpscale",
         "template_ids": {"seed": "input_image_batch", "csv": "input_image_csv_batch"},
     },
     {
