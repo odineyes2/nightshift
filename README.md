@@ -189,15 +189,22 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 화면은 2초마다 자동으로 갱신되며, 로그를 펼쳐둔 상태에서도 2초마다 갱신됩니다.
 
-### ComfyUI 서버 자동 감지
+### ComfyUI 접속 주소 (설정 / 환경변수 / 자동 감지)
 
-nightshift와 ComfyUI가 같은 파드/가상환경 안에서 함께 돌아가는 구성을 전제로, 서버 시작 여부와 상관없이
-매번 다음 순서로 ComfyUI 주소를 판별합니다.
+서버 시작 여부와 상관없이 매번 다음 순서로 ComfyUI 주소를 판별합니다.
 
-1. **`COMFY_URL` 환경변수가 설정돼 있으면** 자동 감지를 건너뛰고 그 값을 그대로 사용합니다 (수동 오버라이드가 항상 최우선).
-2. 그렇지 않으면 후보 주소 `http://127.0.0.1:8188`, `http://127.0.0.1:8000`을 순서대로 `GET /system_stats`로
-   2초 타임아웃으로 찔러보고, 200을 응답하는 첫 번째 주소를 채택합니다.
-3. 둘 다 응답이 없으면 "감지되지 않음"으로 처리됩니다.
+1. **화면에서 저장한 설정값**(`comfy_endpoint.json`)이 있으면 그 값을 씁니다. 헤더의 연결 상태 배지를 클릭하면
+   주소를 입력·저장할 수 있고, **서버를 재시작하지 않아도 즉시 반영됩니다**. nightshift를 홈서버에 상시 띄워두고
+   ComfyUI만 원격 GPU pod에서 돌리는 구성처럼 **pod를 새로 만들 때마다 주소가 바뀌는 상황**을 위한 기본 경로입니다.
+   저장하기 전에 "🔌 연결 테스트"로 그 주소가 실제로 응답하는지 먼저 확인할 수 있고, "↺ 자동 탐지로"를 누르면
+   설정을 지우고 아래 2~3번으로 되돌립니다.
+2. 설정이 비어 있고 **`COMFY_URL` 환경변수가 설정돼 있으면** 그 값을 씁니다 (배포 시점에 고정해두는 기본값).
+3. 둘 다 없으면 후보 주소 `http://127.0.0.1:8188`, `http://127.0.0.1:8000`을 순서대로 `GET /system_stats`로
+   2초 타임아웃으로 찔러보고, 200을 응답하는 첫 번째 주소를 채택합니다 (같은 머신에서 함께 도는 구성용 폴백).
+4. 어디에도 없으면 "감지되지 않음"으로 처리됩니다.
+
+어떤 경로가 실제로 적용 중인지는 접속 주소 모달과 `GET /api/comfy-status`의 `source`(`setting`/`env`/`auto`)로
+확인할 수 있습니다. 주소를 저장하면 이전 서버에서 받아둔 모델/노드 목록 캐시는 즉시 비워집니다.
 
 화면 상단의 인디케이터가 5초마다 `/api/comfy-status`를 폴링해 연결 상태(연결됨/연결 안 됨)와 감지된 주소를 보여줍니다.
 작업은 워커가 실제로 실행하기 직전에도 다시 한번 이 감지를 수행합니다 — 업로드 시점은 물론 "▶ 시작"으로
@@ -505,7 +512,10 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | Method | Path | 설명 |
 |---|---|---|
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
-| `GET` | `/api/comfy-status` | 감지된 ComfyUI 주소(`url`)와 연결 가능 여부(`connected`)를 조회. 매 호출마다 실시간으로 재확인함 |
+| `GET` | `/api/comfy-status` | 지금 쓰이는 ComfyUI 주소(`url`), 연결 가능 여부(`connected`), 그 주소가 어디서 왔는지(`source`: `setting`/`env`/`auto`)를 조회. 매 호출마다 실시간으로 재확인함 |
+| `GET` | `/api/comfy-endpoint` | 접속 주소 설정 상태를 `{"url"(저장된 설정값, 없으면 ""), "effective_url"(설정/환경변수로 정해진 주소, 자동 탐지면 null), "source", "env_url", "candidates", "updated_at"}`로 반환 |
+| `PUT` | `/api/comfy-endpoint` | 접속 주소를 저장한다(요청 본문 `{"url": "..."}`). **서버 재시작 없이 즉시 반영되고**, 이전 서버의 모델/노드 목록 캐시를 비운다. 빈 문자열을 보내면 설정을 지우고 환경변수/자동 탐지로 되돌린다. `http://`/`https://`로 시작하지 않으면 400. 응답은 GET과 같은 형태 + 저장 직후 실측한 `connected` |
+| `POST` | `/api/comfy-endpoint/test` | 저장하지 않고 주소만 확인한다(요청 본문 `{"url": "..."}`, 비워 보내면 지금 적용 중인 주소를 확인). 응답 `{"url", "connected"}`. 폴링(2초)보다 넉넉한 타임아웃(8초)을 써서 원격 pod의 첫 TLS 핸드셰이크까지 기다린다 |
 | `GET` | `/api/comfy-object-info?refresh=false` | 지금 연결된 ComfyUI에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
 | `GET` | `/api/lora-triggers` | LoRA 파일명 → `{trigger, families}` 매핑을 반환(설정 안 한 LoRA는 키 자체가 없음). `families`는 이 LoRA가 호환되는 베이스 모델 family id 목록 — 빈 배열이면 모든 family와 호환되는 것으로 취급 |
 | `PUT` | `/api/lora-triggers` | 매핑 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "🎛 모델" 탭이 입력/체크할 때마다 부름. `trigger`가 빈 문자열이고 `families`도 빈 배열이면 그 키를 저장하지 않음(지움). 객체가 아니거나 각 값이 `{trigger: string, families: string[]}` 형태가 아니면 400. 예전 스키마(`{lora_filename: "트리거 문자열"}`)로 저장돼 있던 파일은 서버가 시작할 때 자동으로 이 형태로 이관함(`families: []`) |
@@ -631,7 +641,8 @@ nightshift/
 ├── workflow_presets/           # family별 ControlNet 프리셋 워크플로우 (자동 생성, git 제외)
 ├── jobs_state.json            # 작업 이력 저장 파일 (자동 생성)
 ├── lora_triggers.json          # LoRA 트리거 워드 + 호환 베이스 모델 (자동 생성)
-└── base_model_families.json    # 베이스 모델(family) 정의 (자동 생성)
+├── base_model_families.json    # 베이스 모델(family) 정의 (자동 생성)
+└── comfy_endpoint.json         # ComfyUI 접속 주소 설정 (자동 생성, 화면에서 저장할 때만 생김)
 ```
 
 - 모든 작업은 `templates/{script_filename}`을 직접 실행하고, 업로드된 워크플로우/CSV만 `jobs/{job_id}_{원본파일명}` 형태로 저장됩니다.
