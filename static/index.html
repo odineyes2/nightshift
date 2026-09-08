@@ -121,10 +121,26 @@
     border-radius:20px;
     border:1px solid var(--border);
     color:var(--text-dim);
+    /* 클릭하면 접속 주소 설정 모달이 열린다(버튼이지만 배지처럼 보이게 배경만 비운다). */
+    background:none;
+    cursor:pointer;
   }
-  .comfy-status .cdot{ width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .comfy-status:hover{ border-color:var(--text-dim); }
+  .comfy-status .cdot{ width:6px; height:6px; border-radius:50%; background:currentColor; flex-shrink:0; }
   .comfy-status.connected{ color:var(--done); border-color:currentColor; background:rgba(var(--done-rgb),0.08); }
   .comfy-status.disconnected{ color:var(--failed); border-color:currentColor; background:rgba(var(--failed-rgb),0.08); }
+  /* 접속 주소 모달에서 "지금 무엇이 적용 중인지"를 보여주는 요약 줄. */
+  .comfy-endpoint-current{
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--text-dim);
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    padding:8px 10px;
+    line-height:1.7;
+    word-break:break-all;
+  }
+  .comfy-endpoint-current b{ color:var(--text); font-weight:600; }
 
   /* 밤 모드/낮 모드 전환 버튼 — .comfy-status와 같은 필(pill) 형태로 헤더 톤을 맞춘다. */
   .theme-toggle-btn{
@@ -1676,7 +1692,7 @@
   <div class="header-right">
     <button class="theme-toggle-btn" id="theme-toggle-btn" type="button"></button>
     <button class="theme-toggle-btn api-key-btn" id="api-key-btn" type="button" title="서버 API 키 설정 (NIGHTSHIFT_API_KEY)">🔑 API 키</button>
-    <div class="comfy-status" id="comfy-status"><span class="cdot"></span><span id="comfy-status-text">ComfyUI 확인 중…</span></div>
+    <button class="comfy-status" id="comfy-status" type="button" title="ComfyUI 접속 주소 설정"><span class="cdot"></span><span id="comfy-status-text">ComfyUI 확인 중…</span></button>
     <button class="load-btn" id="comfy-models-btn" type="button" title="이 ComfyUI 서버에 설치된 체크포인트·LoRA 목록 보기">📋 모델</button>
     <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
   </div>
@@ -2280,6 +2296,33 @@
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="api-key-modal-clear">🗑 지우기</button>
       <button class="submit-btn" id="api-key-modal-save" type="button">💾 저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="comfy-endpoint-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">ComfyUI 접속 주소</div>
+      <button class="modal-close" id="comfy-endpoint-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint">nightshift가 작업을 보낼 ComfyUI 서버 주소예요. 같은 머신에서 돌고 있으면 비워둬도
+        자동으로 찾지만, ComfyUI만 다른 곳(예: 원격 GPU pod)에서 돌고 있다면 그 주소를 여기 넣으세요.
+        <b>저장하면 서버를 재시작하지 않아도 바로 반영됩니다</b> — pod를 새로 만들어 주소가 바뀌었을 때 여기만 갈아끼우면 돼요.</div>
+      <div class="comfy-endpoint-current" id="comfy-endpoint-current"></div>
+      <div class="field">
+        <label class="field-label" for="comfy-endpoint-input">주소</label>
+        <input type="text" class="option-input" id="comfy-endpoint-input"
+               placeholder="예: https://abc123-8188.proxy.runpod.net" autocomplete="off" spellcheck="false" style="max-width:100%;">
+      </div>
+      <div class="enhance-status" id="comfy-endpoint-status" style="text-align:left; max-width:none;"></div>
+      <div class="upload-error" id="comfy-endpoint-error"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="comfy-endpoint-auto-btn" type="button" title="설정을 지우고 환경변수/자동 탐지로 되돌려요">↺ 자동 탐지로</button>
+      <button class="modal-btn-secondary" id="comfy-endpoint-test-btn" type="button">🔌 연결 테스트</button>
+      <button class="submit-btn" id="comfy-endpoint-save-btn" type="button">💾 저장</button>
     </div>
   </div>
 </div>
@@ -3843,6 +3886,116 @@ async function fetchComfyStatus(){
   }
 }
 
+// ---- ComfyUI 접속 주소 설정 (헤더의 연결 상태 배지 클릭) ----
+// nightshift를 홈서버에 상시 띄워두고 ComfyUI만 원격 pod에서 돌리는 구성에서는
+// pod를 새로 만들 때마다 주소가 바뀐다. 서버 재시작 없이 여기서 갈아끼운다.
+const comfyEndpointModal = document.getElementById('comfy-endpoint-modal');
+const COMFY_ENDPOINT_SOURCE_LABEL = {
+  setting: '이 화면에서 저장한 설정',
+  env: 'COMFY_URL 환경변수',
+  auto: '자동 탐지',
+};
+
+function renderComfyEndpointCurrent(info, connected){
+  const el = document.getElementById('comfy-endpoint-current');
+  const source = COMFY_ENDPOINT_SOURCE_LABEL[info.source] || info.source;
+  const effective = info.effective_url || `(자동 탐지: ${(info.candidates || []).join(', ')})`;
+  const lines = [
+    `지금 적용 중: <b>${escapeHtml(effective)}</b>`,
+    `출처: <b>${escapeHtml(source)}</b>`,
+  ];
+  if(info.source === 'setting' && info.env_url){
+    lines.push(`설정을 지우면 환경변수 값(${escapeHtml(info.env_url)})으로 되돌아가요.`);
+  }
+  if(connected !== undefined && connected !== null){
+    lines.push(connected ? '연결 상태: <b>연결됨</b>' : '연결 상태: <b>응답 없음</b>');
+  }
+  el.innerHTML = lines.join('<br>');
+}
+
+async function openComfyEndpointModal(){
+  const errorEl = document.getElementById('comfy-endpoint-error');
+  const statusEl = document.getElementById('comfy-endpoint-status');
+  errorEl.textContent = '';
+  statusEl.textContent = '';
+  document.getElementById('comfy-endpoint-current').textContent = '불러오는 중…';
+  comfyEndpointModal.style.display = 'flex';
+  try{
+    const res = await fetch('/api/comfy-endpoint');
+    if(!res.ok) throw new Error('설정을 불러오지 못했어요.');
+    const info = await res.json();
+    document.getElementById('comfy-endpoint-input').value = info.url || '';
+    renderComfyEndpointCurrent(info);
+  }catch(e){
+    errorEl.textContent = e.message || '설정을 불러오지 못했어요.';
+    document.getElementById('comfy-endpoint-current').textContent = '';
+  }
+}
+
+function closeComfyEndpointModal(){ comfyEndpointModal.style.display = 'none'; }
+
+document.getElementById('comfy-status').addEventListener('click', openComfyEndpointModal);
+document.getElementById('comfy-endpoint-modal-close').addEventListener('click', closeComfyEndpointModal);
+comfyEndpointModal.addEventListener('click', (e) => { if(e.target === comfyEndpointModal) closeComfyEndpointModal(); });
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape' && comfyEndpointModal.style.display !== 'none') closeComfyEndpointModal();
+});
+
+document.getElementById('comfy-endpoint-test-btn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('comfy-endpoint-error');
+  const statusEl = document.getElementById('comfy-endpoint-status');
+  errorEl.textContent = '';
+  statusEl.textContent = '확인 중…';
+  try{
+    const res = await fetch('/api/comfy-endpoint/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: document.getElementById('comfy-endpoint-input').value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '확인하지 못했어요.');
+    statusEl.textContent = data.connected
+      ? `✅ 응답했어요 — ${data.url}`
+      : `⚠ 응답이 없어요 — ${data.url || '주소 없음'}${data.detail ? ` (${data.detail})` : ''}`;
+  }catch(e){
+    statusEl.textContent = '';
+    errorEl.textContent = e.message || '확인하지 못했어요.';
+  }
+});
+
+async function saveComfyEndpoint(url){
+  const errorEl = document.getElementById('comfy-endpoint-error');
+  const statusEl = document.getElementById('comfy-endpoint-status');
+  errorEl.textContent = '';
+  statusEl.textContent = '저장 중…';
+  try{
+    const res = await fetch('/api/comfy-endpoint', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    const info = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(info.detail || '저장하지 못했어요.');
+    document.getElementById('comfy-endpoint-input').value = info.url || '';
+    renderComfyEndpointCurrent(info, info.connected);
+    statusEl.textContent = info.connected ? '저장했어요 — 연결 확인됨.' : '저장했어요 — 다만 지금은 응답이 없어요.';
+    // 서버가 바뀌었으면 설치된 모델/노드 목록도 그 서버의 것으로 다시 받아야 한다.
+    comfyObjectInfoCache = null;
+    fetchComfyStatus();
+  }catch(e){
+    statusEl.textContent = '';
+    errorEl.textContent = e.message || '저장하지 못했어요.';
+  }
+}
+
+document.getElementById('comfy-endpoint-save-btn').addEventListener('click', () => {
+  saveComfyEndpoint(document.getElementById('comfy-endpoint-input').value);
+});
+document.getElementById('comfy-endpoint-auto-btn').addEventListener('click', () => {
+  document.getElementById('comfy-endpoint-input').value = '';
+  saveComfyEndpoint('');
+});
+
 // ---- 설치된 모델/노드 목록 (ComfyUI의 /object_info를 서버가 추려서 넘겨줌) ----
 // 워크플로우 JSON은 "노드 이름 + 입력값"일 뿐이라, 이 목록이 있으면 "이 서버에서
 // 실제로 쓸 수 있는 게 뭔지"를 화면에서 그대로 다룰 수 있다. 지금은 (a) 헤더의
@@ -3951,7 +4104,7 @@ async function fetchWorkflowTypes(){
     const res = await fetch('/api/workflow-types');
     if(res.ok) workflowTypesCache = await res.json();
   }catch(e){ /* 마법사 2단계가 비어있을 뿐 나머지 기능엔 영향 없음 */ }
-  return workflowTypesCache || [];
+  return workflowTypesCache || {};
 }
 
 // ---- family+유형 조합별 ControlNet 프리셋 워크플로우 존재 여부 ----
@@ -4216,7 +4369,7 @@ async function initPresetTab(){
 function renderPresetTab(){
   const tableEl = document.getElementById('preset-tab-table');
   const families = Object.entries(baseModelFamilies);
-  const presetTypes = (workflowTypesCache || []).filter(t => t.mode === 'preset');
+  const presetTypes = (workflowTypesCache || {}).preset || [];
   if(families.length === 0 || presetTypes.length === 0){
     tableEl.innerHTML = '<div class="comfy-model-empty">베이스 모델을 먼저 등록하세요.</div>';
     return;
