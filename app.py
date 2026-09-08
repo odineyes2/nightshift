@@ -240,6 +240,12 @@ ENHANCE_POLL_INTERVAL_SEC = float(os.environ.get("NIGHTSHIFT_ENHANCE_POLL_INTERV
 # 삭제된 작업은 워크플로우/CSV 파일까지 완전히 지운다.
 DELETED_JOBS_RETENTION = int(os.environ.get("NIGHTSHIFT_DELETED_JOBS_RETENTION", "30"))
 
+# worker_loop는 한 번에 하나씩만 순차 실행하므로, 대기/실행 중인 작업이 한없이
+# 쌓이는 걸 막을 안전장치가 없으면 (예: 반복 호출하는 스크립트나 LLM의 버그로)
+# 큐가 통제 불능으로 불어날 수 있다 — 각 작업이 실제 GPU 시간을 쓰므로 위험이
+# 크다. pending/queued/running 합계가 이 값 이상이면 새 작업 추가를 거부한다.
+MAX_ACTIVE_JOBS = int(os.environ.get("NIGHTSHIFT_MAX_ACTIVE_JOBS", "1000"))
+
 job_queue: "queue.Queue[str]" = queue.Queue()
 jobs: dict[str, dict] = {}
 lock = threading.Lock()
@@ -1141,6 +1147,18 @@ def delete_recent_csv(csv_id: str):
 
 @app.post("/api/upload")
 async def upload(request: Request):
+    with lock:
+        active_count = sum(
+            1 for j in jobs.values()
+            if j["status"] in ("pending", "queued", "running") and not j.get("deleted")
+        )
+    if active_count >= MAX_ACTIVE_JOBS:
+        raise HTTPException(
+            429,
+            f"대기/실행 중인 작업이 이미 {MAX_ACTIVE_JOBS}개예요 — 너무 많이 쌓였어요. "
+            "완료된 작업을 정리하거나 잠시 후 다시 시도하세요.",
+        )
+
     form = await request.form()
 
     template_id = form.get("template_id")
