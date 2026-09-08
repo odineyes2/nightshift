@@ -214,13 +214,15 @@ ComfyUI의 `GET /object_info`는 그 서버에 설치된 **모든 노드 타입*
 - **설치된 모델 보기**: 화면 상단(연결 상태 인디케이터 옆)의 **"📋 모델"** 버튼을 누르면 지금 연결된 ComfyUI에 설치된
   체크포인트/LoRA/VAE/ControlNet/업스케일 모델/CLIP Vision 목록을 종류별로 보여줍니다. 이름으로 거를 수 있고,
   모델을 새로 설치했다면 "🔄 새로고침"으로 다시 받아옵니다.
-- **LoRA 트리거 워드 매핑**: 상단 **"🎛 LoRA"** 탭에서 설치된 LoRA마다 트리거 워드(그 LoRA를 쓰려면 프롬프트에
-  넣어야 하는 단어/문구 — civitai 등 LoRA 배포처에 적혀 있는 값. ComfyUI는 LoRA가 설치돼 있다는 것만 알 뿐 이건
-  모름)를 입력해두면 계속 재사용됩니다. 입력하면 바로 저장되고(별도 저장 버튼 없음), "🧩 워크플로우" 탭에서 그
-  LoRA를 고를 때 자동으로 불러와 씁니다(아래 참고). 처음에는 "📋 모델" 모달의 LoRA 목록 옆에 바로 입력하게
-  했었는데, 그 모달 목록 칸이 여러 종류를 한 좁은 칸에 몰아 보여주게 설계돼 있어 이름도 입력칸도 잘 안 보이는
-  문제가 있어 별도 탭으로 옮겼습니다 — "📋 모델" 모달의 LoRA 섹션은 다른 종류들처럼 이름만 보여주는 목록으로
-  남아 있습니다.
+- **LoRA 트리거 워드 매핑 / 호환 베이스 모델**: 상단 **"🎛 모델"** 탭에서 설치된 LoRA마다 트리거 워드(그 LoRA를
+  쓰려면 프롬프트에 넣어야 하는 단어/문구 — civitai 등 LoRA 배포처에 적혀 있는 값. ComfyUI는 LoRA가 설치돼
+  있다는 것만 알 뿐 이건 모름)와 호환되는 베이스 모델(family)을 함께 관리합니다. 입력/체크하면 바로 저장되고
+  (별도 저장 버튼 없음), "🧩 워크플로우" 탭에서 그 LoRA를 고를 때 트리거 워드를 자동으로 불러와 씁니다(아래
+  참고). 처음에는 "📋 모델" 모달의 LoRA 목록 옆에 트리거 워드만 바로 입력하게 했었는데, 그 모달 목록 칸이 여러
+  종류를 한 좁은 칸에 몰아 보여주게 설계돼 있어 이름도 입력칸도 잘 안 보이는 문제가 있어 별도 탭으로 옮겼습니다
+  (이후 베이스 모델/ControlNet 프리셋 관리까지 이 탭으로 합쳐졌습니다 — 아래 "베이스 모델(family) / LoRA
+  호환성 / ControlNet 프리셋 관리" 절 참고). "📋 모델" 모달의 LoRA 섹션은 다른 종류들처럼 이름만 보여주는
+  목록으로 남아 있습니다.
 - **워크플로우 호환성 검사**: "새 작업 추가"에서 워크플로우 `.json`을 고르면(최근 목록에서 고르거나 작업 설정을
   불러오는 경우 포함) 곧바로 `POST /api/validate-workflow`로 검사해서 슬롯 아래에 결과를 보여줍니다 —
   이 서버에 없는 노드(다른 설치본에서 만든 워크플로우가 쓰는 커스텀 노드 등)나, 없는 모델 파일/설정값
@@ -257,7 +259,7 @@ CheckpointLoaderSimple → LoraLoader 체인(0개 이상) → CLIPTextEncode 긍
 
 - 고르는 값: 체크포인트, LoRA(여러 개 + 강도), 긍정/부정 프롬프트, 너비·높이·배치, 스텝·CFG·샘플러·스케줄러,
   hires-fix(배율/denoise/스텝). 체크포인트·LoRA·샘플러·스케줄러 드롭다운은 모두 연결된 ComfyUI의 실제 목록에서 옵니다.
-- **LoRA 선택 시 트리거 워드 자동 삽입**: LoRA 드롭다운에서 값을 고르면, "🎛 LoRA" 탭에서 그 LoRA에 입력해둔
+- **LoRA 선택 시 트리거 워드 자동 삽입**: LoRA 드롭다운에서 값을 고르면, "🎛 모델" 탭에서 그 LoRA에 입력해둔
   트리거 워드가 있을 경우 긍정 프롬프트 끝에 자동으로 덧붙습니다(이미 프롬프트에 있으면 중복 추가 안 함). 같은
   줄에서 다른 LoRA로 바꾸거나 그 줄을 통째로 빼면, 직접 쓴 다른 내용은 그대로 두고 자동으로 붙었던 트리거 워드만
   정확히 골라 지웁니다. 트리거 워드를 안 정해뒀으면 아무 일도 일어나지 않습니다(지금까지와 동일).
@@ -269,6 +271,7 @@ CheckpointLoaderSimple → LoraLoader 체인(0개 이상) → CLIPTextEncode 긍
   `Save Image`) — 그래서 만든 워크플로우에도 시드·프롬프트·해상도·체크포인트·LoRA 주입이 그대로 걸립니다. hires-fix의
   업스케일 노드 제목에는 일부러 "latent"를 넣지 않습니다(해상도 주입이 `EmptyLatentImage` 대신 그 노드를 집으면 안 되니까).
 - ComfyUI가 꺼져 있으면 드롭다운이 비어 "연결 안 됨"으로 표시되고, 만들기를 시도하면 체크포인트가 없다는 안내가 나옵니다.
+- `workflow_builder.py`(및 `POST /api/build-workflow`)는 이 폼이 쓰는 `txt2img` 모드 외에 `img2img`/`usdu` 모드도 지원합니다 — 이 탭 자체에는 아직 노출돼 있지 않고, "새 작업 추가" 마법사가 그 모드들을 내부적으로 씁니다(아래 "새 작업 추가 마법사" 절 참고).
 
 ### 스크립트 템플릿 등록하기 (`templates/`)
 
@@ -289,7 +292,7 @@ CheckpointLoaderSimple → LoraLoader 체인(0개 이상) → CLIPTextEncode 긍
 |---|---|
 | `name` | 옵션 이름. 폼 필드명이자, 대문자로 변환되어 스크립트에 환경변수로 전달됨 (예: `seed_count` → `SEED_COUNT`) |
 | `label` | 입력 필드 위에 표시될 사람이 읽는 이름 |
-| `type` | `"number"`/`"text"`(한 줄 직접 입력), `"textarea"`(여러 줄 직접 입력 — 프롬프트처럼 긴 텍스트용), `"select"`(고정 드롭다운, `choices` 필요), `"char_no"`("인물 수" 드롭다운 — 아래 참고), `"asset_folder"`(참조 세트 드롭다운, 선택된 char_no 값으로 스코프됨 — 아래 참고), `"comfy_model"`(ComfyUI에 설치된 모델 드롭다운, `model_kind` 필요 — 아래 참고) |
+| `type` | `"number"`/`"text"`(한 줄 직접 입력), `"textarea"`(여러 줄 직접 입력 — 프롬프트처럼 긴 텍스트용), `"select"`(고정 드롭다운, `choices` 필요), `"char_no"`("인물 수" 드롭다운 — 아래 참고), `"asset_folder"`(참조 세트 드롭다운, 선택된 char_no 값으로 스코프됨 — 아래 참고), `"comfy_model"`(ComfyUI에 설치된 모델 드롭다운, `model_kind` 필요 — 아래 참고), `"input_image"`(`GET /api/input-images`의 평평한 목록에서 고르는 드롭다운 — `input_image_batch` 템플릿 전용, 아래 "입력 이미지 배치" 절 참고) |
 | `kind` | `"char_no"`/`"asset_folder"` 타입에서만 사용 — 이 옵션이 다루는 참조 종류를 `"pose"`/`"depth"`/`"lineart"` 중 하나로 정적으로 고정. 생략하면(and `kind_from`도 없으면) 하위호환으로 `"pose"` |
 | `kind_from` | `"char_no"`/`"asset_folder"` 타입에서만 사용 — `kind`를 정적으로 고정하는 대신, 같은 폼의 다른 옵션(보통 `secondary_kind` 같은 select) 이름을 가리켜서 그 옵션의 "현재 선택값"을 종류로 그대로 따라감(동적). 그 값이 `"none"`이면 이 옵션은 비활성화됨(선택지 없음, 빈 문자열로 취급) |
 | `char_no_option` | `"asset_folder"` 타입에서만 사용 — 이 세트를 스코프할 char_no 값을 어느 형제 옵션에서 읽을지 지정 (기본 `"char_no"`). 보조 참조처럼 `"secondary_char_no"`라는 별도 이름의 char_no 옵션을 참조할 때 씀 |
@@ -424,6 +427,33 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 **보조 참조**: 위 "포즈/depth/lineart 참조 배치" 절의 "보조 참조" 소절과 같은 개념이지만, CSV 버전에서는 종류 선택(`secondary_kind`)만 업로드 폼의 job 옵션이고 실제 값은 CSV의 `secondary_ref`/`secondary_char_no` 컬럼으로 행마다 지정합니다(같은 job 안에서는 종류 하나만 고를 수 있음 — 행마다 다른 종류를 섞어 쓸 수는 없습니다). `secondary_kind`가 `"none"`이면 두 컬럼은 아예 읽지 않습니다.
 
+### 입력 이미지 배치 — img2img/USDU (`input_image_batch`/`input_image_csv_batch`, `input_assets.py`)
+
+img2img(원본 이미지를 변형)/USDU(Ultimate SD Upscale, 업스케일+디테일 보강) 워크플로우 유형에 쓰는 두 템플릿입니다. `pose_batch` 등과 달리 참조 이미지 저장소가 **세트/char_no 계층 없는 평평한(flat) 파일 목록**입니다(`ref_assets.py`가 아니라 별도의 `input_assets.py`) — img2img/USDU는 보통 "이 그림 한 장을 원본으로" 쓰는 용도라 세트 개념이 필요 없기 때문입니다.
+
+**입력 이미지 폴더**: `NIGHTSHIFT_INPUT_IMAGES_DIR`(기본 `NIGHTSHIFT_ASSETS_DIR/input`, 그 기본값은 `/workspace/dataset/assets/input`) 바로 아래에 png/jpg/jpeg/webp 파일을 평평하게 올려두면, `GET /api/input-images`가 목록으로 나열합니다. 세트를 옮기는 별도 업로드 API는 없습니다(다른 참조 이미지 폴더들과 마찬가지로 서버 밖에서 파일을 직접 옮겨두는 걸 전제로 함) — 웹 UI의 "새 작업 추가" 마법사와 개별 옵션 폼의 "입력 이미지" 드롭다운이 이 목록에서 고릅니다.
+
+- `input_image_batch` — 입력 이미지 하나(`input_image` 옵션)를 골라, `image_count`개의 시드로 반복 생성합니다(예: 그림 한 장으로 여러 스타일 변형을 뽑을 때). `seed_batch`/`pose_batch`와 같은 방식(워크플로우 노드 찾기/제출/폴링/진행률 보고)이며, 매 반복 시드와 함께 같은 입력 이미지를 ComfyUI의 `POST /upload/image`로 매번 업로드해 LoadImage 노드에 주입합니다.
+- `input_image_csv_batch` — CSV 행마다 `input_image`(필수, 다른 참조 템플릿과 달리 비워둘 수 없음 — img2img/USDU는 입력 이미지 없이는 성립하지 않으므로) 컬럼으로 서로 다른 입력 이미지를 지정합니다. 나머지 컬럼(`title`/`trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`/`prompt`/`seed`)은 `csv_batch`와 같습니다. `width`/`height`/`resolution` 컬럼은 없습니다(아래 참고).
+
+두 템플릿 모두 `width`/`height` 옵션이 없습니다 — `workflow_builder.py`가 img2img/usdu 모드로 만드는 워크플로우에는 애초에 `EmptyLatentImage` 노드가 없어서(이미지 크기가 입력 이미지 자체를 따름) 해상도를 주입할 대상이 없기 때문입니다. 워크플로우에서 입력 이미지를 주입할 `LoadImage` 노드는 제목이 `"input_image"`인 노드를 찾습니다(`INPUT_IMAGE_NODE_TITLE` 환경변수로 조정 가능, 기본값 그대로면 `workflow_builder.py`가 만든 워크플로우와 정확히 맞음). `POST /api/upload`/`POST /api/jobs`로 이 두 템플릿에 워크플로우를 올릴 때, 그 노드가 없으면(제목이 다르거나 LoadImage가 아예 없으면) 업로드 자체를 400으로 거부합니다 — 다른 참조 배치 템플릿의 "업로드 시점 LoadImage 노드 검증"과 같은 안전장치입니다.
+
+### 베이스 모델(family) / LoRA 호환성 / ControlNet 프리셋 관리 (`🎛 모델` 탭)
+
+체크포인트를 `wai-illustrious`, `krea.2`처럼 서로 호환되는 계열(family)로 묶어두면, "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/ControlNet 프리셋을 걸러서 보여줍니다. 관리는 전부 "🎛 모델" 탭에서 합니다(구 "🎛 LoRA" 탭을 확장한 것).
+
+- **베이스 모델(family)**: `base_model_families.json`에 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}` 형태로 저장됩니다. family 하나에 체크포인트를 여러 개(같은 계열의 다른 파인튜닝 등) 묶을 수 있고, 지정된 체크포인트가 하나뿐이면 마법사에서 family를 고르는 즉시 그 체크포인트로 확정되며, 여러 개면 그중 하나를 추가로 골라야 합니다.
+- **LoRA 호환 family**: `lora_triggers.json`이 `{lora_filename: {trigger, families: [family_id, ...]}}` 형태로 트리거 워드와 함께 저장합니다. `families`가 빈 배열이면 모든 베이스 모델과 호환되는 것으로 취급되어 마법사에 항상 보이고, 채워두면 그 family를 골랐을 때만 보입니다(호환되지 않는 LoRA는 회색 처리가 아니라 목록에서 아예 숨겨집니다). 예전 스키마(`{lora_filename: "트리거 문자열"}`)로 저장돼 있던 파일은 서버가 시작할 때 `families: []`로 자동 이관됩니다.
+- **ControlNet 프리셋 워크플로우**: OpenPose/Depth/Lineart ControlNet 워크플로우 유형은 체크포인트마다 ControlNet 로더/가중치 배선이 달라 자동으로 조립할 수 없으므로, family별로 미리 만들어둔 워크플로우 JSON을 `workflow_presets/<family_id>__<type_id>.json`에 업로드해두고 그대로 재사용합니다. family에 프리셋이 없는 유형은 마법사의 "워크플로우 유형" 목록에서 아예 숨겨집니다(LoRA 호환성 필터링과 같은 원칙 — 골라봤자 실행할 워크플로우가 없으므로).
+
+### "새 작업 추가" 마법사
+
+템플릿을 먼저 고르고 옵션을 채우던 기존 흐름 위에, (1)베이스 모델 → (2)워크플로우 유형 → (3)LoRA → (4)실행 방식(시드 반복/CSV 순회) 순서로 고르면 아래 템플릿 선택/옵션 폼/워크플로우 슬롯을 자동으로 채워주는 마법사입니다. 마법사 자신은 검증이나 큐 등록을 하지 않습니다 — "적용"을 누르면 기존 폼이 채워질 뿐이고, 실제 등록은 항상 하던 대로 "➕ 추가" 버튼을 눌러야 합니다(기존 검증/제출 경로를 그대로 재사용하기 위한 설계 — 마법사 없이 직접 템플릿을 골라 쓰는 것도 여전히 가능합니다).
+
+- **워크플로우 유형**은 `GET /api/workflow-types`의 카탈로그(`txt2img`/`t2i_hiresfix`/`img2img`/`usdu`/`openpose_cn`/`depth_cn`/`lineart_cn`)를 따르며, `mode: "builder"`인 유형은 `POST /api/build-workflow`로 체크포인트+LoRA 체인을 구워 워크플로우를 즉석 조립하고, `mode: "preset"`인 유형(ControlNet 3종)은 그 family에 업로드된 프리셋을 그대로 씁니다. USDU는 커스텀 노드(`UltimateSDUpscaleNoUpscale`)가 설치돼 있지 않아도 목록에서 숨기지 않고 "⚠ 설치 필요" 배지로만 안내합니다(선택 자체는 막지 않음 — 확인은 `GET /api/comfy-object-info`의 `node_types` 기준).
+- **LoRA**는 builder 유형이면 여러 개를 고를 수 있습니다(전부 `workflow_builder.py`의 `loras` 스펙으로 체인에 구워짐). preset 유형(ControlNet)은 관리자가 미리 만든 워크플로우의 LoRA 로더 노드 하나에만 실행 시점에 덮어쓸 수 있다는 제약(`templates/*.py`의 `apply_lora`) 때문에 한 개만 고를 수 있습니다.
+- **적용** 시 builder 유형은 체크포인트/LoRA가 이미 워크플로우에 구워져 있으므로 옵션 폼의 `checkpoint`/`lora_name` 런타임 override 필드는 비워둡니다. preset 유형은 프리셋을 그대로 쓰되, 그 family 안의 다른 체크포인트로 바꾸거나(같은 아키텍처라 안전) LoRA 하나를 얹고 싶을 때를 위해 그 두 필드를 채워줍니다.
+
 ### 워크플로우 JSON / CSV / 옵션과 스크립트 연동
 
 작업이 실행될 때, 서버는 다음을 환경변수로 담아 스크립트 프로세스에 전달합니다.
@@ -465,9 +495,17 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
 | `GET` | `/api/comfy-status` | 감지된 ComfyUI 주소(`url`)와 연결 가능 여부(`connected`)를 조회. 매 호출마다 실시간으로 재확인함 |
 | `GET` | `/api/comfy-object-info?refresh=false` | 지금 연결된 ComfyUI에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
-| `GET` | `/api/lora-triggers` | LoRA 파일명 → 트리거 워드 매핑을 `{lora_filename: trigger_word, ...}`로 반환(설정 안 한 LoRA는 키 자체가 없음) |
-| `PUT` | `/api/lora-triggers` | 매핑 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "📋 모델" 모달의 LoRA 트리거 워드 입력칸이 입력할 때마다 부름. 값이 빈 문자열이면 그 키를 저장하지 않음(지움). 객체가 아니거나 값이 문자열이 아니면 400 |
-| `POST` | `/api/build-workflow` | 요청 본문의 스펙(`checkpoint`, `loras: [{name, strength_model, strength_clip}]`, `positive`, `negative`, `width`, `height`, `batch_size`, `seed`, `steps`, `cfg`, `sampler_name`, `scheduler`, `vae`, `hires: {enabled, scale_by, denoise, steps}`)으로 ComfyUI API 형식 워크플로우를 조립해 `{"workflow": {...}}`로 반환(`workflow_builder.py`). ComfyUI가 떠 있으면 고른 모델/샘플러가 실제로 설치·지원되는지 먼저 검증하고 아니면 400, 꺼져 있으면 검증을 건너뜀. 체크포인트나 긍정 프롬프트가 비어 있으면 400. 큐에 넣지는 않음 — 만들어진 JSON을 화면이 워크플로우 슬롯에 채워 기존 업로드 경로를 타게 함 |
+| `GET` | `/api/lora-triggers` | LoRA 파일명 → `{trigger, families}` 매핑을 반환(설정 안 한 LoRA는 키 자체가 없음). `families`는 이 LoRA가 호환되는 베이스 모델 family id 목록 — 빈 배열이면 모든 family와 호환되는 것으로 취급 |
+| `PUT` | `/api/lora-triggers` | 매핑 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "🎛 모델" 탭이 입력/체크할 때마다 부름. `trigger`가 빈 문자열이고 `families`도 빈 배열이면 그 키를 저장하지 않음(지움). 객체가 아니거나 각 값이 `{trigger: string, families: string[]}` 형태가 아니면 400. 예전 스키마(`{lora_filename: "트리거 문자열"}`)로 저장돼 있던 파일은 서버가 시작할 때 자동으로 이 형태로 이관함(`families: []`) |
+| `GET` | `/api/base-model-families` | 베이스 모델 family 정의를 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}`로 반환 — "새 작업 추가" 마법사 1단계와 LoRA/프리셋 호환성 필터링의 기준이 됨 |
+| `PUT` | `/api/base-model-families` | family 정의 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "🎛 모델" 탭이 family를 추가/편집할 때마다 부름. `label`이 비어있거나 `checkpoints`가 문자열 배열이 아니면 400 |
+| `GET` | `/api/input-images` | img2img/USDU 입력 이미지 목록(세트/char_no 구분 없는 평평한 목록, `input_assets.py`)을 `{"images": [{"name", "size"}, ...]}`로 반환. `NIGHTSHIFT_INPUT_IMAGES_DIR`(기본 `NIGHTSHIFT_ASSETS_DIR/input`)에 미리 파일을 옮겨둬야 함 — 별도 업로드 API는 없음 |
+| `GET` | `/api/workflow-types` | "새 작업 추가" 마법사 2단계(워크플로우 유형) 카탈로그를 정적으로 반환 — `txt2img`/`t2i_hiresfix`/`img2img`/`usdu`(`mode: "builder"`, `workflow_builder.py`가 즉석 조립)와 `openpose_cn`/`depth_cn`/`lineart_cn`(`mode: "preset"`, family별 업로드된 워크플로우 그대로 사용) 7개. 각 항목의 `template_ids: {seed, csv}`는 그 유형을 "시드 반복"/"CSV 순회" 중 어느 실행 방식으로 큐에 올릴지에 따른 실제 템플릿 id, `requires_node`(있으면)는 그 클래스가 `/api/comfy-object-info`의 `node_types`에 없을 때 화면에서 "설치 필요"로 안내하는 데 씀(선택 자체를 막지는 않음) |
+| `GET` | `/api/workflow-presets` | 저장된 `{family_id, type_id}` 조합 전체를 `{"presets": [...]}`로 반환 — 마법사가 이 family에 어떤 ControlNet 프리셋이 있는지 한 번에 확인하는 용도 |
+| `GET` | `/api/workflow-presets/{family_id}/{type_id}` | 그 조합의 프리셋 워크플로우 JSON을 그대로 반환. 없으면 404 |
+| `PUT` | `/api/workflow-presets/{family_id}/{type_id}` | 워크플로우 JSON을 통째로 올려 그 조합에 저장(요청 본문 = 워크플로우 JSON 또는 `{"workflow": {...}}`) — "🎛 모델" 탭의 ControlNet 프리셋 업로드가 부름. 검증 없이 그대로 저장되므로, 실제로 돌아가는지는 `POST /api/validate-workflow`로 따로 확인할 것 |
+| `DELETE` | `/api/workflow-presets/{family_id}/{type_id}` | 그 조합의 프리셋을 삭제. 없으면 404 |
+| `POST` | `/api/build-workflow` | 요청 본문의 스펙(`mode`: `"txt2img"`(기본)/`"img2img"`/`"usdu"`, `checkpoint`, `loras: [{name, strength_model, strength_clip}]`, `positive`, `negative`, `width`, `height`, `batch_size`, `seed`, `steps`, `cfg`, `sampler_name`, `scheduler`, `vae`, `hires: {enabled, scale_by, denoise, steps}`(`txt2img` 전용), `denoise`(`img2img`/`usdu`), `upscale_by`/`upscale_method`(`usdu`))으로 ComfyUI API 형식 워크플로우를 조립해 `{"workflow": {...}}`로 반환(`workflow_builder.py`). `img2img`/`usdu`는 제목이 `"input_image"`인 `LoadImage` 노드가 포함되며 실제 파일명은 실행 시점에 템플릿이 덮어씀. ComfyUI가 떠 있으면 고른 모델/샘플러가 실제로 설치·지원되는지 먼저 검증하고 아니면 400, 꺼져 있으면 검증을 건너뜀. 체크포인트나 긍정 프롬프트가 비어 있거나 `mode` 값이 셋 중 하나가 아니면 400. 큐에 넣지는 않음 — 만들어진 JSON을 화면이 워크플로우 슬롯에 채워 기존 업로드 경로를 타게 함 |
 | `POST` | `/api/validate-workflow` | 요청 본문에 워크플로우 JSON(또는 `{"workflow": {...}}`)을 담아 보내면 지금 연결된 ComfyUI 기준으로 검사해서 `{"connected", "ok", "missing_nodes": [노드 타입...], "missing_values": [{"node_id", "class_type", "field", "value"}...], "checked_nodes"}` 반환. 이 서버에 없는 노드와, 목록에서 고르는 입력(`ckpt_name`/`lora_name`/`sampler_name` 등)에 없는 값을 짚어줌. ComfyUI가 안 떠 있으면 `connected: false`(= "문제 없음"이 아니라 "확인 못 함"). JSON이 아니거나 노드 맵 형식이 아니면 400 |
 | `GET` | `/api/assets?kind=pose` | `kind`(`pose`/`depth`/`lineart`, 기본 `pose`)가 가리키는 종류의 루트 아래 char_no별 참조 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"char_nos": [{"name": char_no, "pose_sets": [{"name", "count"}, ...]}, ...]}`로 반환(응답 키는 하위호환으로 `kind`와 무관하게 항상 `"pose_sets"`). 업로드 폼의 "인물 수"/"참조 세트" 캐스케이딩 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함. 알 수 없는 `kind`는 400 |
 | `POST` | `/api/assets/import-from-output` | 출력 폴더의 결과 이미지를 참조 세트에 사본으로 추가(원본은 그대로 둠) — 갤러리의 "참조 세트로 보내기". 요청 본문 `{"names": [파일명...], "kind": "pose", "char_no": "1", "set_name": "새_세트"}` (`kind`는 `pose`/`depth`/`lineart`, 없으면 `"pose"`). 존재하지 않는 char_no/세트 이름은 그 자리에서 새로 만듦. 응답 `{"added": N, "skipped": [{"name", "reason"}, ...]}` — 그 사이 지워진 이미지 등은 건너뛰고 이유를 담아 반환 |
@@ -551,6 +589,8 @@ nightshift/
 ├── email_sender.py           # 결과 이미지 이메일 발송 로직
 ├── output_images.py          # 출력 폴더 공용 로직 (목록 조회/삭제/가로형 이미지 회전)
 ├── ref_assets.py              # pose/depth/lineart 참조 세트 폴더 스캔/업로드 시점 검증 로직
+├── input_assets.py            # img2img/USDU 입력 이미지(세트 없는 평평한 목록) 스캔 로직
+├── workflow_builder.py        # 워크플로우 빌더 탭 + 마법사가 쓰는 워크플로우 JSON 조립 로직
 ├── requirements.txt
 ├── package.json               # pm2 실행용 npm 스크립트(`npm start` 등) — 서버 코드와 무관
 ├── ecosystem.config.js        # pm2 앱 설정 (uvicorn --reload를 이 설정으로 감독)
@@ -569,10 +609,15 @@ nightshift/
 │   ├── depth_batch.py        # 템플릿 스크립트 (pose_batch와 동일 구조, 주 참조만 depth)
 │   ├── depth_csv_batch.py    # 템플릿 스크립트 (pose_csv_batch와 동일 구조, 주 참조만 depth)
 │   ├── lineart_batch.py      # 템플릿 스크립트 (pose_batch와 동일 구조, 주 참조만 lineart)
-│   └── lineart_csv_batch.py  # 템플릿 스크립트 (pose_csv_batch와 동일 구조, 주 참조만 lineart)
+│   ├── lineart_csv_batch.py  # 템플릿 스크립트 (pose_csv_batch와 동일 구조, 주 참조만 lineart)
+│   ├── input_image_batch.py     # 템플릿 스크립트 (img2img/USDU — 입력 이미지 1장 + 시드 반복)
+│   └── input_image_csv_batch.py # 템플릿 스크립트 (img2img/USDU — CSV 행마다 다른 입력 이미지)
 ├── jobs/                      # 업로드된 워크플로우/CSV가 저장되는 곳 (자동 생성)
 ├── logs/                      # 작업별 실행 로그 (자동 생성)
-└── jobs_state.json            # 작업 이력 저장 파일 (자동 생성)
+├── workflow_presets/           # family별 ControlNet 프리셋 워크플로우 (자동 생성, git 제외)
+├── jobs_state.json            # 작업 이력 저장 파일 (자동 생성)
+├── lora_triggers.json          # LoRA 트리거 워드 + 호환 베이스 모델 (자동 생성)
+└── base_model_families.json    # 베이스 모델(family) 정의 (자동 생성)
 ```
 
 - 모든 작업은 `templates/{script_filename}`을 직접 실행하고, 업로드된 워크플로우/CSV만 `jobs/{job_id}_{원본파일명}` 형태로 저장됩니다.
