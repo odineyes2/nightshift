@@ -868,26 +868,37 @@
   }
   .comfy-model-empty{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
 
-  /* LoRA 목록 옆에 트리거 워드를 바로 입력하는 줄 — "워크플로우" 탭에서 이 LoRA를
-     고르면 여기 입력한 값이 긍정 프롬프트에 자동으로 덧붙는다(입력할 때마다
-     자동 저장됨, 별도 저장 버튼 없음). */
-  .lora-trigger-row{
+  /* "LoRA" 탭 — 설치된 LoRA마다 트리거 워드를 입력하는 줄. "📋 모델" 모달의
+     좁은 목록 칸(180px 높이, 11.5px 글자) 안에 넣었더니 이름도 입력칸도 제대로
+     안 보인다는 문제가 있어서, 탭 하나를 통째로 써서 넉넉하게 보여준다. */
+  .lora-tab-list{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .lora-tab-row{
     display:flex;
     align-items:center;
-    gap:8px;
-    padding:2px 0;
+    gap:16px;
+    padding:10px 12px;
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
   }
-  .lora-trigger-row .comfy-model-item{
+  .lora-tab-row .lora-tab-name{
     flex:0 0 auto;
-    max-width:45%;
+    min-width:160px;
+    max-width:42%;
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--text);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
   }
-  .lora-trigger-row .lora-trigger-input{
+  .lora-tab-row .lora-tab-trigger-input{
     flex:1 1 auto;
     min-width:0;
     max-width:none;
-    font-family:var(--mono);
-    font-size:11.5px;
-    padding:3px 6px;
   }
   /* 워크플로우 빌더 — 짧은 숫자/드롭다운 입력을 한 줄에 여러 개 늘어놓는 격자.
      좁아지면 자동으로 줄바꿈된다. */
@@ -1519,6 +1530,7 @@
     <button class="tab-btn active" data-tab="jobs" type="button">🗂 작업 관리</button>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트">🏷 Danbooru</button>
     <button class="tab-btn" data-tab="builder" type="button" title="업로드 없이 워크플로우 만들기">🧩 워크플로우</button>
+    <button class="tab-btn" data-tab="lora" type="button" title="LoRA별 트리거 워드 관리">🎛 LoRA</button>
     <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
   </div>
 </div>
@@ -1888,6 +1900,25 @@
     </div>
     <div class="panel-body">
       <textarea class="workflow-textarea" id="builder-preview" spellcheck="false" readonly></textarea>
+    </div>
+  </div>
+</main>
+
+<main id="tab-lora" style="display:none;">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label">LoRA 트리거 워드</div>
+      <div class="panel-header-actions">
+        <button class="load-btn" id="lora-tab-refresh-btn" type="button" title="설치 목록 새로고침">🔄 새로고침</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="email-hint">ComfyUI에 설치된 LoRA마다 트리거 워드(그 LoRA를 쓰려면 프롬프트에 넣어야 하는 단어/문구 — civitai 등
+        배포처에 적혀 있는 값)를 입력해두면, "🧩 워크플로우" 탭에서 그 LoRA를 고를 때 긍정 프롬프트에 자동으로 덧붙어요.
+        입력하면 바로 저장돼요(별도 저장 버튼 없음).</div>
+      <input type="text" class="option-input" id="lora-tab-filter" placeholder="이름으로 거르기" style="max-width:320px;">
+      <div class="upload-error" id="lora-tab-error"></div>
+      <div id="lora-tab-list"></div>
     </div>
   </div>
 </main>
@@ -3587,16 +3618,6 @@ function scheduleSaveLoraTriggers(){
   }, 600);
 }
 
-document.getElementById('comfy-models-list').addEventListener('input', (e) => {
-  const input = e.target;
-  if(!input.classList.contains('lora-trigger-input')) return;
-  const name = input.dataset.loraName;
-  const value = input.value.trim();
-  if(value) loraTriggers[name] = value;
-  else delete loraTriggers[name];
-  scheduleSaveLoraTriggers();
-});
-
 function renderComfyModels(){
   const listEl = document.getElementById('comfy-models-list');
   const info = comfyObjectInfoCache;
@@ -3611,18 +3632,13 @@ function renderComfyModels(){
     const all = info.models[key] || [];
     const shown = filter ? all.filter(name => name.toLowerCase().includes(filter)) : all;
     const countText = filter ? `${shown.length} / ${all.length}` : `${all.length}`;
-    const renderItem = key === 'loras'
-      ? name => `<div class="lora-trigger-row">
-          <div class="comfy-model-item" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
-          <input type="text" class="option-input lora-trigger-input" data-lora-name="${escapeHtml(name)}"
-                 placeholder="트리거 워드 (없으면 비워둠)" value="${escapeHtml(loraTriggers[name] || '')}">
-        </div>`
-      : name => `<div class="comfy-model-item" title="${escapeHtml(name)}">${escapeHtml(name)}</div>`;
     const body = shown.length === 0
       ? `<div class="comfy-model-empty">${filter && all.length > 0 ? '거른 결과가 없어요' : '설치된 게 없어요'}</div>`
-      : `<div class="comfy-model-items">${shown.map(renderItem).join('')}</div>`;
+      : `<div class="comfy-model-items">${shown.map(name => `<div class="comfy-model-item" title="${escapeHtml(name)}">${escapeHtml(name)}</div>`).join('')}</div>`;
+    // LoRA는 트리거 워드까지 같이 관리하는 전용 탭이 따로 있다(이 모달 목록 칸은
+    // 좁아서 이름+입력칸을 같이 넣으면 둘 다 안 보일 정도로 cramped 했다).
     const hint = key === 'loras'
-      ? '<div class="comfy-model-empty" style="margin-bottom:6px;">여기 입력한 트리거 워드는 "워크플로우" 탭에서 이 LoRA를 고르면 긍정 프롬프트에 자동으로 덧붙어요(입력하면 바로 저장됨).</div>'
+      ? '<div class="comfy-model-empty" style="margin-bottom:6px;">트리거 워드는 상단 "🎛 LoRA" 탭에서 관리해요.</div>'
       : '';
     return `
       <div class="comfy-model-group">
@@ -3660,6 +3676,52 @@ comfyModelsModal.addEventListener('click', (e) => { if(e.target === comfyModelsM
 document.addEventListener('keydown', (e) => {
   if(e.key === 'Escape' && comfyModelsModal.style.display !== 'none') closeComfyModelsModal();
 });
+
+// ---- "LoRA" 탭 — 설치된 LoRA마다 트리거 워드를 넉넉한 공간에서 관리 ----
+document.getElementById('lora-tab-list').addEventListener('input', (e) => {
+  const input = e.target;
+  if(!input.classList.contains('lora-tab-trigger-input')) return;
+  const name = input.dataset.loraName;
+  const value = input.value.trim();
+  if(value) loraTriggers[name] = value;
+  else delete loraTriggers[name];
+  scheduleSaveLoraTriggers();
+});
+
+function renderLoraTab(){
+  const listEl = document.getElementById('lora-tab-list');
+  const all = builderModels().loras;
+  if(!comfyObjectInfoCache || !comfyObjectInfoCache.connected){
+    listEl.innerHTML = '<div class="comfy-model-empty">ComfyUI에 연결되지 않아 목록을 가져오지 못했어요.</div>';
+    return;
+  }
+  const filter = document.getElementById('lora-tab-filter').value.trim().toLowerCase();
+  const shown = filter ? all.filter(name => name.toLowerCase().includes(filter)) : all;
+  if(shown.length === 0){
+    listEl.innerHTML = `<div class="comfy-model-empty">${filter && all.length > 0 ? '거른 결과가 없어요' : '설치된 LoRA가 없어요'}</div>`;
+    return;
+  }
+  listEl.innerHTML = `<div class="lora-tab-list">${shown.map(name => `
+    <div class="lora-tab-row">
+      <div class="lora-tab-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
+      <input type="text" class="option-input lora-tab-trigger-input" data-lora-name="${escapeHtml(name)}"
+             placeholder="트리거 워드 (없으면 비워둠)" value="${escapeHtml(loraTriggers[name] || '')}">
+    </div>`).join('')}</div>`;
+}
+
+async function initLoraTab(force){
+  const errorEl = document.getElementById('lora-tab-error');
+  errorEl.textContent = '';
+  try{
+    await fetchComfyObjectInfo(force);
+  }catch(e){
+    errorEl.textContent = e.message || 'LoRA 목록을 가져오지 못했어요.';
+  }
+  renderLoraTab();
+}
+
+document.getElementById('lora-tab-refresh-btn').addEventListener('click', () => initLoraTab(true));
+document.getElementById('lora-tab-filter').addEventListener('input', renderLoraTab);
 
 // ---- 업로드한 워크플로우가 이 서버에서 돌아갈 수 있는지 검사 ----
 // 다른 ComfyUI 설치본에서 만든 워크플로우는 여기 없는 커스텀 노드를 쓰거나 없는
@@ -4083,6 +4145,7 @@ const TAB_MAINS = {
   gallery: document.getElementById('tab-gallery'),
   danbooru: document.getElementById('tab-danbooru'),
   builder: document.getElementById('tab-builder'),
+  lora: document.getElementById('tab-lora'),
 };
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -4095,6 +4158,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     }
     if(tab === 'gallery') fetchGalleryImages();
     if(tab === 'builder') initBuilderTab();
+    if(tab === 'lora') initLoraTab();
   });
 });
 
