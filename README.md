@@ -214,6 +214,10 @@ ComfyUI의 `GET /object_info`는 그 서버에 설치된 **모든 노드 타입*
 - **설치된 모델 보기**: 화면 상단(연결 상태 인디케이터 옆)의 **"📋 모델"** 버튼을 누르면 지금 연결된 ComfyUI에 설치된
   체크포인트/LoRA/VAE/ControlNet/업스케일 모델/CLIP Vision 목록을 종류별로 보여줍니다. 이름으로 거를 수 있고,
   모델을 새로 설치했다면 "🔄 새로고침"으로 다시 받아옵니다.
+- **LoRA 트리거 워드 매핑**: 같은 모달의 LoRA 목록에는 이름 옆에 트리거 워드 입력칸이 함께 있습니다. ComfyUI는
+  LoRA가 설치돼 있다는 것만 알 뿐 트리거 워드(그 LoRA를 쓰려면 프롬프트에 넣어야 하는 단어/문구 — civitai 등
+  LoRA 배포처에 적혀 있는 값)는 모르므로, 여기서 한 번 입력해두면 계속 재사용됩니다. 입력하면 바로 저장되고
+  (별도 저장 버튼 없음), "🧩 워크플로우" 탭에서 그 LoRA를 고를 때 자동으로 불러와 씁니다(아래 참고).
 - **워크플로우 호환성 검사**: "새 작업 추가"에서 워크플로우 `.json`을 고르면(최근 목록에서 고르거나 작업 설정을
   불러오는 경우 포함) 곧바로 `POST /api/validate-workflow`로 검사해서 슬롯 아래에 결과를 보여줍니다 —
   이 서버에 없는 노드(다른 설치본에서 만든 워크플로우가 쓰는 커스텀 노드 등)나, 없는 모델 파일/설정값
@@ -250,6 +254,10 @@ CheckpointLoaderSimple → LoraLoader 체인(0개 이상) → CLIPTextEncode 긍
 
 - 고르는 값: 체크포인트, LoRA(여러 개 + 강도), 긍정/부정 프롬프트, 너비·높이·배치, 스텝·CFG·샘플러·스케줄러,
   hires-fix(배율/denoise/스텝). 체크포인트·LoRA·샘플러·스케줄러 드롭다운은 모두 연결된 ComfyUI의 실제 목록에서 옵니다.
+- **LoRA 선택 시 트리거 워드 자동 삽입**: LoRA 드롭다운에서 값을 고르면, "📋 모델" 모달에서 그 LoRA에 입력해둔
+  트리거 워드가 있을 경우 긍정 프롬프트 끝에 자동으로 덧붙습니다(이미 프롬프트에 있으면 중복 추가 안 함). 같은
+  줄에서 다른 LoRA로 바꾸거나 그 줄을 통째로 빼면, 직접 쓴 다른 내용은 그대로 두고 자동으로 붙었던 트리거 워드만
+  정확히 골라 지웁니다. 트리거 워드를 안 정해뒀으면 아무 일도 일어나지 않습니다(지금까지와 동일).
 - **"📤 작업 관리로 보내기"** 를 누르면 만들어진 JSON이 "작업 관리" 탭의 워크플로우 슬롯에 파일처럼 채워집니다. 그 뒤는
   **업로드한 파일과 완전히 같은 경로**(호환성 검사 → `POST /api/upload` → 큐 → 템플릿 스크립트 실행)를 탑니다 — 빌더는
   큐에 직접 넣지 않으므로 기존 동작에 영향이 없고, 업로드 방식도 그대로 남아 있습니다. "👁 미리보기"로 JSON을 확인하거나
@@ -454,6 +462,8 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
 | `GET` | `/api/comfy-status` | 감지된 ComfyUI 주소(`url`)와 연결 가능 여부(`connected`)를 조회. 매 호출마다 실시간으로 재확인함 |
 | `GET` | `/api/comfy-object-info?refresh=false` | 지금 연결된 ComfyUI에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
+| `GET` | `/api/lora-triggers` | LoRA 파일명 → 트리거 워드 매핑을 `{lora_filename: trigger_word, ...}`로 반환(설정 안 한 LoRA는 키 자체가 없음) |
+| `PUT` | `/api/lora-triggers` | 매핑 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "📋 모델" 모달의 LoRA 트리거 워드 입력칸이 입력할 때마다 부름. 값이 빈 문자열이면 그 키를 저장하지 않음(지움). 객체가 아니거나 값이 문자열이 아니면 400 |
 | `POST` | `/api/build-workflow` | 요청 본문의 스펙(`checkpoint`, `loras: [{name, strength_model, strength_clip}]`, `positive`, `negative`, `width`, `height`, `batch_size`, `seed`, `steps`, `cfg`, `sampler_name`, `scheduler`, `vae`, `hires: {enabled, scale_by, denoise, steps}`)으로 ComfyUI API 형식 워크플로우를 조립해 `{"workflow": {...}}`로 반환(`workflow_builder.py`). ComfyUI가 떠 있으면 고른 모델/샘플러가 실제로 설치·지원되는지 먼저 검증하고 아니면 400, 꺼져 있으면 검증을 건너뜀. 체크포인트나 긍정 프롬프트가 비어 있으면 400. 큐에 넣지는 않음 — 만들어진 JSON을 화면이 워크플로우 슬롯에 채워 기존 업로드 경로를 타게 함 |
 | `POST` | `/api/validate-workflow` | 요청 본문에 워크플로우 JSON(또는 `{"workflow": {...}}`)을 담아 보내면 지금 연결된 ComfyUI 기준으로 검사해서 `{"connected", "ok", "missing_nodes": [노드 타입...], "missing_values": [{"node_id", "class_type", "field", "value"}...], "checked_nodes"}` 반환. 이 서버에 없는 노드와, 목록에서 고르는 입력(`ckpt_name`/`lora_name`/`sampler_name` 등)에 없는 값을 짚어줌. ComfyUI가 안 떠 있으면 `connected: false`(= "문제 없음"이 아니라 "확인 못 함"). JSON이 아니거나 노드 맵 형식이 아니면 400 |
 | `GET` | `/api/assets?kind=pose` | `kind`(`pose`/`depth`/`lineart`, 기본 `pose`)가 가리키는 종류의 루트 아래 char_no별 참조 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"char_nos": [{"name": char_no, "pose_sets": [{"name", "count"}, ...]}, ...]}`로 반환(응답 키는 하위호환으로 `kind`와 무관하게 항상 `"pose_sets"`). 업로드 폼의 "인물 수"/"참조 세트" 캐스케이딩 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함. 알 수 없는 `kind`는 400 |

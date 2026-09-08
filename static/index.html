@@ -867,6 +867,28 @@
     white-space:nowrap;
   }
   .comfy-model-empty{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
+
+  /* LoRA 목록 옆에 트리거 워드를 바로 입력하는 줄 — "워크플로우" 탭에서 이 LoRA를
+     고르면 여기 입력한 값이 긍정 프롬프트에 자동으로 덧붙는다(입력할 때마다
+     자동 저장됨, 별도 저장 버튼 없음). */
+  .lora-trigger-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:2px 0;
+  }
+  .lora-trigger-row .comfy-model-item{
+    flex:0 0 auto;
+    max-width:45%;
+  }
+  .lora-trigger-row .lora-trigger-input{
+    flex:1 1 auto;
+    min-width:0;
+    max-width:none;
+    font-family:var(--mono);
+    font-size:11.5px;
+    padding:3px 6px;
+  }
   /* 워크플로우 빌더 — 짧은 숫자/드롭다운 입력을 한 줄에 여러 개 늘어놓는 격자.
      좁아지면 자동으로 줄바꿈된다. */
   .builder-grid{
@@ -1496,8 +1518,8 @@
   <div class="tab-bar-inner">
     <button class="tab-btn active" data-tab="jobs" type="button">🗂 작업 관리</button>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트">🏷 Danbooru</button>
-    <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
     <button class="tab-btn" data-tab="builder" type="button" title="업로드 없이 워크플로우 만들기">🧩 워크플로우</button>
+    <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
   </div>
 </div>
 
@@ -3534,6 +3556,47 @@ const COMFY_MODEL_GROUPS = [
 
 const comfyModelsModal = document.getElementById('comfy-models-modal');
 
+// LoRA 파일명 -> 트리거 워드. 서버에 저장돼 있는 걸 그대로 캐시해두고, "설치된
+// 모델" 모달에서 입력할 때마다 로컬 캐시를 즉시 갱신 + 서버에는 살짝 늦게(디바운스)
+// 저장한다 — "워크플로우" 탭에서 LoRA를 고를 때 바로 조회해서 쓴다.
+let loraTriggers = {};
+
+async function fetchLoraTriggers(){
+  try{
+    const res = await fetch('/api/lora-triggers');
+    if(!res.ok) return;
+    loraTriggers = await res.json();
+  }catch(e){
+    // 못 받아와도 트리거 워드 자동완성이 안 될 뿐 나머지 기능엔 영향 없음
+  }
+}
+
+let saveLoraTriggersTimer = null;
+function scheduleSaveLoraTriggers(){
+  clearTimeout(saveLoraTriggersTimer);
+  saveLoraTriggersTimer = setTimeout(async () => {
+    try{
+      await fetch('/api/lora-triggers', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loraTriggers),
+      });
+    }catch(e){
+      // 다음 입력이나 새로고침 때 다시 시도됨 — 여기서 사용자에게 굳이 알리지 않음
+    }
+  }, 600);
+}
+
+document.getElementById('comfy-models-list').addEventListener('input', (e) => {
+  const input = e.target;
+  if(!input.classList.contains('lora-trigger-input')) return;
+  const name = input.dataset.loraName;
+  const value = input.value.trim();
+  if(value) loraTriggers[name] = value;
+  else delete loraTriggers[name];
+  scheduleSaveLoraTriggers();
+});
+
 function renderComfyModels(){
   const listEl = document.getElementById('comfy-models-list');
   const info = comfyObjectInfoCache;
@@ -3548,12 +3611,23 @@ function renderComfyModels(){
     const all = info.models[key] || [];
     const shown = filter ? all.filter(name => name.toLowerCase().includes(filter)) : all;
     const countText = filter ? `${shown.length} / ${all.length}` : `${all.length}`;
+    const renderItem = key === 'loras'
+      ? name => `<div class="lora-trigger-row">
+          <div class="comfy-model-item" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
+          <input type="text" class="option-input lora-trigger-input" data-lora-name="${escapeHtml(name)}"
+                 placeholder="트리거 워드 (없으면 비워둠)" value="${escapeHtml(loraTriggers[name] || '')}">
+        </div>`
+      : name => `<div class="comfy-model-item" title="${escapeHtml(name)}">${escapeHtml(name)}</div>`;
     const body = shown.length === 0
       ? `<div class="comfy-model-empty">${filter && all.length > 0 ? '거른 결과가 없어요' : '설치된 게 없어요'}</div>`
-      : `<div class="comfy-model-items">${shown.map(name => `<div class="comfy-model-item" title="${escapeHtml(name)}">${escapeHtml(name)}</div>`).join('')}</div>`;
+      : `<div class="comfy-model-items">${shown.map(renderItem).join('')}</div>`;
+    const hint = key === 'loras'
+      ? '<div class="comfy-model-empty" style="margin-bottom:6px;">여기 입력한 트리거 워드는 "워크플로우" 탭에서 이 LoRA를 고르면 긍정 프롬프트에 자동으로 덧붙어요(입력하면 바로 저장됨).</div>'
+      : '';
     return `
       <div class="comfy-model-group">
         <div class="comfy-model-group-title">${escapeHtml(label)} (${countText})</div>
+        ${hint}
         ${body}
       </div>`;
   }).join('');
@@ -5586,6 +5660,40 @@ function builderModels(){
   };
 }
 
+// LoRA를 고르면 그 LoRA의 트리거 워드(설치된 모델 모달에서 입력해둔 값)를
+// 긍정 프롬프트에 자동으로 덧붙인다. 트리거 워드 자체에 쉼표가 여러 개 섞여
+// 있을 수 있어(예: "mecha, glowing eyes") 프롬프트를 태그 배열로 쪼개 다루지
+//않고, 문자열 그대로 덧붙이거나(중복이면 건너뜀) 정확히 그 문자열만 골라
+// 지운다 — 그래야 다른 LoRA 행의 트리거나 사용자가 직접 쓴 내용을 안 건드린다.
+function escapeRegexChars(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function appendTriggerToPrompt(trigger){
+  const trimmed = (trigger || '').trim();
+  if(!trimmed) return;
+  const textarea = document.getElementById('builder-positive');
+  if(textarea.value.includes(trimmed)) return;
+  const prefix = textarea.value.trim();
+  textarea.value = prefix ? `${prefix}, ${trimmed}` : trimmed;
+}
+
+function removeTriggerFromPrompt(trigger){
+  const trimmed = (trigger || '').trim();
+  if(!trimmed) return;
+  const textarea = document.getElementById('builder-positive');
+  const escaped = escapeRegexChars(trimmed);
+  const patterns = [
+    new RegExp(`,\\s*${escaped}\\s*(?=,|$)`), // 중간/끝에 있을 때 — 앞쪽 콤마까지 같이 지움
+    new RegExp(`^${escaped}\\s*,\\s*`),        // 맨 앞에 있을 때 — 뒤쪽 콤마까지 같이 지움
+    new RegExp(`^${escaped}$`),                // 그 문자열만 있을 때
+  ];
+  for(const re of patterns){
+    if(re.test(textarea.value)){
+      textarea.value = textarea.value.replace(re, '').trim();
+      return;
+    }
+  }
+}
+
 function builderAddLoraRow(){
   const list = document.getElementById('builder-lora-list');
   const empty = list.querySelector('.builder-lora-empty');
@@ -5596,6 +5704,16 @@ function builderAddLoraRow(){
   const select = document.createElement('select');
   select.className = 'option-input builder-lora-name';
   builderSelectOptions(select, builderModels().loras, '(설치된 LoRA 없음)', false);
+  select.addEventListener('change', () => {
+    if(row.dataset.insertedTrigger) removeTriggerFromPrompt(row.dataset.insertedTrigger);
+    const trigger = loraTriggers[select.value] || '';
+    if(trigger){
+      appendTriggerToPrompt(trigger);
+      row.dataset.insertedTrigger = trigger;
+    }else{
+      delete row.dataset.insertedTrigger;
+    }
+  });
   const label = document.createElement('span');
   label.className = 'builder-lora-strength-label';
   label.textContent = '강도';
@@ -5611,6 +5729,7 @@ function builderAddLoraRow(){
   remove.textContent = '✕';
   remove.title = '이 LoRA 빼기';
   remove.addEventListener('click', () => {
+    if(row.dataset.insertedTrigger) removeTriggerFromPrompt(row.dataset.insertedTrigger);
     row.remove();
     if(list.children.length === 0) builderRenderEmptyLoras();
   });
@@ -5758,6 +5877,7 @@ fetchTemplates();
 fetchJobs();
 fetchDeletedJobs();
 fetchComfyStatus();
+fetchLoraTriggers();
 initDanbooru();
 setInterval(fetchJobs, 2000);
 setInterval(() => { if(expandedId) loadLog(expandedId); }, 2000);
