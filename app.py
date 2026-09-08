@@ -240,6 +240,14 @@ ENHANCE_POLL_INTERVAL_SEC = float(os.environ.get("NIGHTSHIFT_ENHANCE_POLL_INTERV
 # 삭제된 작업은 워크플로우/CSV 파일까지 완전히 지운다.
 DELETED_JOBS_RETENTION = int(os.environ.get("NIGHTSHIFT_DELETED_JOBS_RETENTION", "30"))
 
+# worker_loop는 한 번에 하나씩만 순차 실행하므로, 대기/실행 중인 작업이 한없이
+# 쌓이는 걸 막을 안전장치가 없으면 (예: 반복 호출하는 스크립트나 LLM의 버그로)
+# 큐가 통제 불능으로 불어날 수 있다 — 각 작업이 실제 GPU 시간을 쓰므로 위험이
+# 크다. pending/queued/running 합계가 이 값 이상이면 새 작업 추가를 거부한다.
+# 비밀값이 아니라서 기본값을 코드에 그대로 박아두되, .env에
+# NIGHTSHIFT_MAX_ACTIVE_JOBS가 있으면 그 값이 우선한다.
+MAX_ACTIVE_JOBS = int(os.environ.get("NIGHTSHIFT_MAX_ACTIVE_JOBS", "100"))
+
 job_queue: "queue.Queue[str]" = queue.Queue()
 jobs: dict[str, dict] = {}
 lock = threading.Lock()
@@ -1139,30 +1147,43 @@ def delete_recent_csv(csv_id: str):
     return {"ok": True}
 
 
-@app.post("/api/upload")
-async def upload(request: Request):
-    form = await request.form()
-
-    template_id = form.get("template_id")
-    if not template_id:
+def resolve_template(template_id) -> dict:
+    if not isinstance(template_id, str) or not template_id:
         raise HTTPException(400, "template_id는 필수예요.")
     template = load_templates_map().get(template_id)
     if template is None:
         raise HTTPException(400, "존재하지 않는 템플릿이에요.")
+    return template
 
-    workflow = form.get("workflow")
-    if not isinstance(workflow, UploadFile) or not workflow.filename or not workflow.filename.endswith(".json"):
-        raise HTTPException(400, "워크플로우는 json 파일만 업로드할 수 있어요.")
 
+async def create_job(
+    template: dict,
+    workflow_bytes: bytes,
+    workflow_filename: str,
+    csv_bytes: bytes | None,
+    csv_filename: str | None,
+    raw_options: dict,
+) -> dict:
+    # POST /api/upload(사람이 브라우저에서 파일 첨부)와 POST /api/jobs(LLM 등
+    # 프로그램이 JSON으로 호출)가 공유하는 실제 잡 생성 로직 — 두 경로 모두
+    # 워크플로우/CSV를 이미 bytes로, 옵션을 이미 {name: 원본 문자열} 형태로
+    # 만들어서 넘겨준다. 그 앞단(멀티파트 폼 파싱 vs JSON 파싱)만 다르다.
+    with lock:
+        active_count = sum(
+            1 for j in jobs.values()
+            if j["status"] in ("pending", "queued", "running") and not j.get("deleted")
+        )
+    if active_count >= MAX_ACTIVE_JOBS:
+        raise HTTPException(
+            429,
+            f"대기/실행 중인 작업이 이미 {MAX_ACTIVE_JOBS}개예요 — 너무 많이 쌓였어요. "
+            "완료된 작업을 정리하거나 잠시 후 다시 시도하세요.",
+        )
+
+    template_id = template["id"]
     requires_csv = bool(template.get("requires_csv"))
-    csv_file = form.get("csv")
-    if requires_csv and (not isinstance(csv_file, UploadFile) or not csv_file.filename or not csv_file.filename.endswith(".csv")):
-        raise HTTPException(400, "이 템플릿은 csv 파일이 필요해요.")
-
-    # UploadFile은 한 번만 읽을 수 있으므로, 검증에도 쓰고 저장에도 쓸 수 있게
-    # 여기서 미리 한 번만 읽어둔다.
-    workflow_bytes = await workflow.read()
-    csv_bytes = await csv_file.read() if requires_csv else None
+    if requires_csv and not csv_bytes:
+        raise HTTPException(400, "이 템플릿은 csv가 필요해요.")
 
     primary_kind = TEMPLATE_PRIMARY_KIND.get(template_id)
     primary_csv_column = CSV_PRIMARY_REF_COLUMN.get(template_id)
@@ -1171,11 +1192,10 @@ async def upload(request: Request):
 
         # 보조 참조(CSV 템플릿 전용) — secondary_kind가 "none"이 아니면 CSV의
         # secondary_ref/secondary_char_no 컬럼도 미리 검증한다. 아직 옵션을
-        # coerce하기 전이라 폼에서 원본 값을 직접 읽는다(정식 검증은 select
-        # 타입 처리에서 한 번 더 함 — 여기서는 "CSV 컬럼 검사가 필요한지"
-        # 판단용으로만 가볍게 읽는다).
-        secondary_kind_raw = form.get("secondary_kind")
-        secondary_kind_raw = secondary_kind_raw if isinstance(secondary_kind_raw, str) else None
+        # coerce하기 전이라 원본 값을 직접 읽는다(정식 검증은 select 타입
+        # 처리에서 한 번 더 함 — 여기서는 "CSV 컬럼 검사가 필요한지" 판단용으로만
+        # 가볍게 읽는다).
+        secondary_kind_raw = raw_options.get("secondary_kind")
         if secondary_kind_raw in REF_KINDS:
             validate_ref_csv_rows(csv_bytes, secondary_kind_raw, "secondary_ref", "secondary_char_no")
 
@@ -1198,22 +1218,22 @@ async def upload(request: Request):
 
     options = {}
     for option in template.get("options", []):
-        raw = form.get(option["name"])
-        options[option["name"]] = coerce_option(option, raw if isinstance(raw, str) else None, options)
+        raw = raw_options.get(option["name"])
+        options[option["name"]] = coerce_option(option, raw, options)
 
     job_id = str(uuid.uuid4())[:8]
 
-    workflow_dest_name = f"{job_id}_{workflow.filename}"
+    workflow_dest_name = f"{job_id}_{workflow_filename}"
     (JOBS_DIR / workflow_dest_name).write_bytes(workflow_bytes)
-    recent_workflows_store.record(workflow.filename, workflow_bytes)
+    recent_workflows_store.record(workflow_filename, workflow_bytes)
 
     csv_dest_name = None
     csv_original_name = None
     if requires_csv:
-        csv_dest_name = f"{job_id}_{csv_file.filename}"
+        csv_dest_name = f"{job_id}_{csv_filename}"
         (JOBS_DIR / csv_dest_name).write_bytes(csv_bytes)
-        csv_original_name = csv_file.filename
-        recent_csvs_store.record(csv_file.filename, csv_bytes)
+        csv_original_name = csv_filename
+        recent_csvs_store.record(csv_filename, csv_bytes)
 
     with lock:
         jobs[job_id] = {
@@ -1223,7 +1243,7 @@ async def upload(request: Request):
             "script_filename": template["script_filename"],
             "options": options,
             "workflow_filename": workflow_dest_name,
-            "workflow_original_name": workflow.filename,
+            "workflow_original_name": workflow_filename,
             "csv_filename": csv_dest_name,
             "csv_original_name": csv_original_name,
             "status": "pending",
@@ -1245,6 +1265,86 @@ async def upload(request: Request):
     if auto_queued:
         job_queue.put(job_id)
     return jobs[job_id]
+
+
+@app.post("/api/upload")
+async def upload(request: Request):
+    form = await request.form()
+
+    template = resolve_template(form.get("template_id"))
+
+    workflow = form.get("workflow")
+    if not isinstance(workflow, UploadFile) or not workflow.filename or not workflow.filename.endswith(".json"):
+        raise HTTPException(400, "워크플로우는 json 파일만 업로드할 수 있어요.")
+
+    requires_csv = bool(template.get("requires_csv"))
+    csv_file = form.get("csv")
+    if requires_csv and (not isinstance(csv_file, UploadFile) or not csv_file.filename or not csv_file.filename.endswith(".csv")):
+        raise HTTPException(400, "이 템플릿은 csv 파일이 필요해요.")
+
+    # UploadFile은 한 번만 읽을 수 있으므로, 검증에도 쓰고 저장에도 쓸 수 있게
+    # 여기서 미리 한 번만 읽어둔다.
+    workflow_bytes = await workflow.read()
+    csv_bytes = await csv_file.read() if requires_csv else None
+
+    raw_options = {}
+    for option in template.get("options", []):
+        value = form.get(option["name"])
+        raw_options[option["name"]] = value if isinstance(value, str) else None
+
+    return await create_job(
+        template,
+        workflow_bytes,
+        workflow.filename,
+        csv_bytes,
+        csv_file.filename if requires_csv else None,
+        raw_options,
+    )
+
+
+@app.post("/api/jobs")
+async def create_job_from_json(request: Request):
+    # /api/upload과 완전히 같은 파이프라인(create_job)을 파일 첨부 없이 JSON
+    # 바디로 쓸 수 있게 한 것. 사람은 브라우저에서 파일을 고르지만, curl이나
+    # LLM처럼 프로그램으로 호출하는 쪽엔 multipart/form-data보다 JSON이 훨씬
+    # 다루기 쉽다 — 워크플로우는 POST /api/build-workflow로 만든 걸 그대로
+    # 넣거나 직접 준 JSON을 쓰면 되고, CSV는 원문 문자열 그대로 준다(csv_batch.
+    # sample.csv 같은 형식). 큐에 실제로 등록된다는 점은 /api/upload와 동일하다
+    # — 미리보기가 필요하면 POST /api/validate-workflow를 먼저 불러볼 것.
+    try:
+        body = json.loads(await request.body())
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "요청 본문이 JSON 객체여야 해요.")
+
+    template = resolve_template(body.get("template_id"))
+
+    workflow = body.get("workflow")
+    if not isinstance(workflow, dict):
+        raise HTTPException(400, "workflow는 JSON 객체(워크플로우 자체)여야 해요.")
+    workflow_filename = body.get("workflow_filename") or "workflow.json"
+    if not isinstance(workflow_filename, str) or not workflow_filename.endswith(".json"):
+        raise HTTPException(400, "workflow_filename은 .json으로 끝나야 해요.")
+    workflow_bytes = json.dumps(workflow).encode("utf-8")
+
+    csv_text = body.get("csv")
+    csv_bytes = None
+    csv_filename = None
+    if csv_text is not None:
+        if not isinstance(csv_text, str):
+            raise HTTPException(400, "csv는 CSV 원문을 담은 문자열이어야 해요.")
+        csv_filename = body.get("csv_filename") or "data.csv"
+        if not isinstance(csv_filename, str) or not csv_filename.endswith(".csv"):
+            raise HTTPException(400, "csv_filename은 .csv로 끝나야 해요.")
+        csv_bytes = csv_text.encode("utf-8")
+
+    raw_options_in = body.get("options") or {}
+    if not isinstance(raw_options_in, dict):
+        raise HTTPException(400, "options는 JSON 객체여야 해요.")
+    raw_options = {k: (None if v is None else str(v)) for k, v in raw_options_in.items()}
+
+    return await create_job(template, workflow_bytes, workflow_filename, csv_bytes, csv_filename, raw_options)
 
 
 @app.post("/api/queue/start")
