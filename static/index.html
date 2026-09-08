@@ -2113,6 +2113,10 @@ function escapeHtml(str){
 
 async function fetchJobs(){
   const res = await fetch('/api/jobs');
+  // 401(API 키 없음/오류) 등으로 실패하면 목록을 비우지 않고 마지막으로 받아온
+  // 상태를 그대로 둔다 — 헤더의 "🔑 API 키" 버튼이 이미 빨간색으로 문제를
+  // 알려주므로, 여기서는 2초 뒤 다음 폴링 때 다시 시도하기만 하면 된다.
+  if(!res.ok) return;
   const data = await res.json();
   render(data.jobs, data.pending_count, data.running);
 }
@@ -2240,6 +2244,9 @@ function render(jobs, pendingCount, running){
 
 async function loadLog(id){
   const res = await fetch(`/api/jobs/${id}/log`);
+  // 401 등으로 실패하면 "아직 출력이 없어요"로 잘못 보이지 않게, 마지막으로
+  // 받아온 로그를 그대로 두고 다음 폴링(2초 뒤)에서 다시 시도한다.
+  if(!res.ok) return;
   const data = await res.json();
   const el = document.getElementById('log-' + id);
   if(el) el.textContent = data.log || '(아직 출력이 없어요)';
@@ -3047,6 +3054,9 @@ async function resetNewJobForm(){
 
 async function fetchTemplates(){
   const res = await fetch('/api/templates');
+  // 페이지를 열 때 한 번만 부르는데, 401이면(키가 아직 없거나 틀림) 템플릿
+  // 목록 없이 빈 채로 두고 넘어간다 — 키를 맞게 넣은 뒤 새로고침하면 다시 시도된다.
+  if(!res.ok) return;
   const list = await res.json();
   templatesById = {};
   templateSelect.innerHTML = '';
@@ -5524,7 +5534,7 @@ function danbooruSendTextToExtra(text){
 async function initDanbooru(){
   try{
     const res = await fetch('/api/danbooru/tag-edits');
-    danbooruState.tagEdits = await res.json();
+    danbooruState.tagEdits = res.ok ? await res.json() : {};
   }catch(e){
     danbooruState.tagEdits = {};
   }
