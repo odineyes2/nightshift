@@ -296,8 +296,11 @@ async def start_queue() -> dict:
 
 @mcp.tool()
 async def stop_queue() -> dict:
-    """큐 자동 실행을 끈다 — 이미 실행 중이거나 큐에 들어간 잡은 끝까지
-    진행되고, 이후 새로 추가되는 잡만 대기 상태로 쌓인다."""
+    """큐 자동 실행을 끈다. 이미 큐에 들어갔지만 아직 안 돈 잡은 대기 상태로
+    남고, 이후 새로 추가되는 잡도 대기 상태로 쌓인다 — 하지만 지금 실행 중인
+    잡이 있으면 그 서브프로세스를 즉시 종료 요청해서 status가 interrupted가
+    된다(완전히 멈추기까지 몇 초 걸릴 수 있음, get_job으로 확인). interrupted
+    잡은 다시 큐에 올릴 수 있다(재시도는 웹 UI 또는 POST /api/jobs/{id}/retry)."""
     try:
         async with _client(STATUS_TIMEOUT) as client:
             resp = await client.post("/api/queue/stop")

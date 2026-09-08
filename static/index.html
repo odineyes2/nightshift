@@ -2137,7 +2137,7 @@ function render(jobs, pendingCount, running){
     // (auto_run) 대기 개수를 보여줄 필요가 없다 — 헤더의 "대기 N건"이 실행 큐
     // 깊이를 실시간으로 보여준다.
     startBtn.textContent = '⏸ 정지';
-    startBtn.title = '자동 실행 정지 (이미 큐에 들어간 작업은 끝까지 진행돼요)';
+    startBtn.title = '자동 실행 정지 (지금 실행 중인 작업도 즉시 중단돼요 — 상태가 "중단됨"으로 바뀌어요)';
     startBtn.disabled = false;
   }else{
     startBtn.innerHTML = `▶ 시작 (<span id="pending-batch-count">${pendingBatchCount}</span>)`;
