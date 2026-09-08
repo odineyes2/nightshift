@@ -32,6 +32,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
   완료될 때마다 진행 상황을 서버에 보고 — 작업 목록에서 상태 배지 아래 진행률 바(`done/total`)로 실시간 확인 가능
 - 시작 전(대기중)이거나 완료/실패/중단된 작업 삭제 (이미 시작됐거나 실행 중인 작업은 삭제 불가). "작업 목록" 패널의 "🗑 완료 삭제" 버튼으로 완료/실패/중단된 작업을 한꺼번에 정리할 수도 있음(둘 다 소프트 삭제라 "삭제된 작업 설정 불러오기"로 되돌릴 수 있음)
 - 서버가 재시작되어도 `jobs_state.json`에 저장된 이력은 유지됨 (단, 이미 시작된 상태로 큐에 남아있던 작업은 재실행되지 않고 `interrupted`로 표시됨. 아직 시작하지 않은 `pending` 작업은 그대로 남아 다시 배치를 시작할 수 있음). `interrupted` 작업은 "🔁 재시작" 버튼으로 워크플로우/CSV/옵션을 다시 첨부할 필요 없이 그 자리에서 다시 큐에 올릴 수 있음
+- ComfyUI가 원격(GPU pod)에 있을 때 결과 이미지를 이 서버의 출력 폴더로 자동으로 끌어오기 — 작업이 끝날 때마다 그 작업 몫만 받아오고, 한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않음(`comfy_outputs.py`)
 - "결과 이미지 이메일 전송" 패널에서 보내는 메일 계정/비밀번호/받는 메일 계정을 입력하면, 서버의 출력 폴더에 쌓인 이미지를 모아 용량 한도 안에서 여러 통으로 나눠 발송 (계정 정보는 저장하지 않고 그 요청 처리에만 사용)
 - "결과 이미지 ZIP 다운로드" 패널에서 버튼 하나로 출력 폴더의 이미지를 모두 zip으로 묶어 바로 다운로드
 - "결과 이미지 관리" 패널에서 가로형(hires-fix/USDU 등으로 만들어진 1536×704 비율) 이미지를 시계 방향으로 90도 돌려서 저장하거나, 출력 폴더의 이미지를 한 번에 삭제 (삭제는 되돌릴 수 없어 브라우저 확인창을 한 번 더 거침)
@@ -228,6 +229,29 @@ nightshift를 홈서버에 상시 띄워두고 ComfyUI만 원격 GPU pod에서 �
 - 붙잡혀 있는 동안 서버가 재시작되면 다른 `queued` 작업과 똑같이 `interrupted`가 되고, "🔁 재시작"으로 다시 올릴 수 있습니다.
 - 작업이 **실행되기 시작한 뒤** 연결이 끊기는 경우는 여기 해당하지 않습니다 — 그때는 템플릿 스크립트가 실패하면서
   평소처럼 `failed`가 됩니다.
+
+### 원격 ComfyUI의 결과 이미지 가져오기
+
+갤러리·zip 다운로드·이메일 발송·가로형 자동 회전은 전부 **로컬 출력 폴더**(`NIGHTSHIFT_OUTPUT_DIR`)를 읽습니다.
+ComfyUI가 같은 머신에 있으면 그 폴더가 곧 ComfyUI의 출력 폴더라 그냥 맞아떨어지지만, ComfyUI만 원격 GPU pod에
+있으면 결과 이미지가 그쪽 디스크에만 쌓여서 갤러리가 비어 보입니다.
+
+접속 주소 모달의 **"결과 이미지를 이 서버로 가져오기"**를 켜면(`pull_outputs`), 작업이 끝날 때마다 그 작업의
+이미지를 ComfyUI에서 HTTP로 받아 로컬 출력 폴더에 채워 넣습니다(`comfy_outputs.py`). 갤러리 탭의
+**"⬇ 결과 가져오기"** 버튼으로 밀린 것을 한꺼번에 받을 수도 있습니다(설정이 켜져 있을 때만 보입니다).
+
+- **폴더 구조가 그대로 맞아떨어지는 이유**: 템플릿 스크립트가 `filename_prefix`를 `"<JOB_ID>/..."`로 바꿔 두기
+  때문에 ComfyUI는 결과를 job_id 이름의 하위 폴더에 저장하고, `/history` 응답의 `subfolder`에도 그 job_id를 그대로
+  실어 줍니다. 받아온 파일을 `출력폴더/<job_id>/<파일명>`에 떨궈 주기만 하면 갤러리의 "작업별 보기"부터 zip·이메일까지
+  한 줄도 안 고치고 그대로 동작합니다.
+- **지운 이미지는 되살아나지 않습니다**: 한 번 받아온 파일은 `comfy_output_sync.json`에 기록해 두고, 로컬에 지금
+  있든 없든 다시 받지 않습니다(원격 히스토리에는 그 이미지가 계속 남아 있으므로 이 기록이 없으면 지울 때마다 되살아납니다).
+  정말 다시 받고 싶으면 `POST /api/comfy-outputs/sync`에 `{"force": true}`를 보내세요.
+- 자동 가져오기가 실패해도 작업 상태는 바뀌지 않습니다 — 이미지는 원격에 그대로 있고 나중에 수동으로 받을 수 있으니
+  이미 끝난 작업을 실패로 뒤집을 이유가 없습니다. 대신 그 작업 로그 끝에 `[출력 동기화] ...` 한 줄이 남습니다.
+- 훑어볼 히스토리 개수(`NIGHTSHIFT_SYNC_MAX_ITEMS`, 기본 500)와 HTTP 타임아웃(`NIGHTSHIFT_SYNC_TIMEOUT_SEC`,
+  기본 60)은 환경변수로 조정할 수 있습니다. 한 작업이 이미지 수만큼 프롬프트를 만들기 때문에, 한 번에 500장을 넘게
+  뽑는다면 `NIGHTSHIFT_SYNC_MAX_ITEMS`를 올려야 합니다.
 
 ### 설치된 모델 조회와 워크플로우 호환성 검사
 
@@ -530,8 +554,10 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 |---|---|---|
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
 | `GET` | `/api/comfy-status` | 지금 쓰이는 ComfyUI 주소(`url`), 연결 가능 여부(`connected`), 그 주소가 어디서 왔는지(`source`: `setting`/`env`/`auto`)를 조회. 매 호출마다 실시간으로 재확인함 |
-| `GET` | `/api/comfy-endpoint` | 접속 주소 설정 상태를 `{"url"(저장된 설정값, 없으면 ""), "effective_url"(설정/환경변수로 정해진 주소, 자동 탐지면 null), "source", "env_url", "candidates", "updated_at"}`로 반환 |
-| `PUT` | `/api/comfy-endpoint` | 접속 주소를 저장한다(요청 본문 `{"url": "..."}`). **서버 재시작 없이 즉시 반영되고**, 이전 서버의 모델/노드 목록 캐시를 비운다. 빈 문자열을 보내면 설정을 지우고 환경변수/자동 탐지로 되돌린다. `http://`/`https://`로 시작하지 않으면 400. 응답은 GET과 같은 형태 + 저장 직후 실측한 `connected` |
+| `GET` | `/api/comfy-endpoint` | 접속 주소 설정 상태를 `{"url"(저장된 설정값, 없으면 ""), "effective_url"(설정/환경변수로 정해진 주소, 자동 탐지면 null), "source", "env_url", "candidates", "updated_at", "pull_outputs"(결과 이미지를 HTTP로 끌어올지), "output_dir"(끌어온 이미지가 쌓이는 로컬 폴더), "output_sync": {"last_sync", "known"}}`로 반환 |
+| `PUT` | `/api/comfy-endpoint` | 접속 주소를 저장한다(요청 본문 `{"url": "...", "pull_outputs": bool(선택)}` — `pull_outputs`를 아예 안 보내면 지금 설정을 그대로 유지한다). **서버 재시작 없이 즉시 반영되고**, 이전 서버의 모델/노드 목록 캐시를 비운다. 빈 문자열을 보내면 설정을 지우고 환경변수/자동 탐지로 되돌린다. `http://`/`https://`로 시작하지 않으면 400. 응답은 GET과 같은 형태 + 저장 직후 실측한 `connected` |
+| `POST` | `/api/comfy-outputs/sync` | 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(요청 본문 `{"job_id": "..."(선택, 그 작업 것만), "force": bool(선택)}`). 응답 `{"url", "checked", "downloaded": [...], "skipped_known", "skipped_existing", "skipped_invalid", "errors", "last_sync"}`. **한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않는다**(`comfy_output_sync.json`) — 정말 다시 받고 싶으면 `force: true`. 로컬에 이미 있는 파일은 어느 경우에도 덮어쓰지 않는다. ComfyUI에 연결이 안 되면 503, 히스토리 조회에 실패하면 502 |
+| `POST` | `/api/comfy-outputs/forget` | "이미 받아왔다"는 기록을 지운다(요청 본문 `{"job_id": "..."}`를 주면 그 작업 것만, 없으면 전부). 응답 `{"forgotten": N, "last_sync", "known"}`. 한 번만 다시 받으면 되는 경우라면 위의 `force: true`가 더 간단하다 |
 | `POST` | `/api/comfy-endpoint/test` | 저장하지 않고 주소만 확인한다(요청 본문 `{"url": "..."}`, 비워 보내면 지금 적용 중인 주소를 확인). 응답 `{"url", "connected"}`. 폴링(2초)보다 넉넉한 타임아웃(8초)을 써서 원격 pod의 첫 TLS 핸드셰이크까지 기다린다 |
 | `GET` | `/api/comfy-object-info?refresh=false` | 지금 연결된 ComfyUI에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
 | `GET` | `/api/lora-triggers` | LoRA 파일명 → `{trigger, families}` 매핑을 반환(설정 안 한 LoRA는 키 자체가 없음). `families`는 이 LoRA가 호환되는 베이스 모델 family id 목록 — 빈 배열이면 모든 family와 호환되는 것으로 취급 |

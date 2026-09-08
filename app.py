@@ -45,6 +45,7 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
 from PIL import Image
 
+from comfy_outputs import OutputSyncError, forget_downloaded, sync_outputs, sync_state_summary
 from email_sender import EmailSendError, find_image_files, send_output_images
 from workflow_builder import WorkflowBuildError, build_workflow
 from output_images import (
@@ -313,7 +314,11 @@ COMFY_WAIT_RETRY_SEC = float(os.environ.get("NIGHTSHIFT_COMFY_WAIT_RETRY_SEC", "
 # 기다리는 동안에도 "⏸ 정지"에는 빨리 반응해야 하니 위 간격을 이 단위로 쪼개 잔다.
 COMFY_WAIT_TICK_SEC = 1.0
 
-comfy_endpoint: dict = {"url": "", "updated_at": None}
+# pull_outputs: ComfyUI가 원격에 있어서 결과 이미지를 로컬 출력 폴더로 HTTP로
+# 끌어와야 하는지(comfy_outputs.py). 같은 머신에서 도는 구성에서는 출력 폴더가 곧
+# ComfyUI의 출력 폴더라 켤 필요가 없다 — 그래서 기본값은 꺼짐이고, 화면의 접속 주소
+# 설정에서 켠다.
+comfy_endpoint: dict = {"url": "", "updated_at": None, "pull_outputs": False}
 
 
 def load_comfy_endpoint():
@@ -323,6 +328,7 @@ def load_comfy_endpoint():
         if isinstance(data, dict):
             comfy_endpoint["url"] = str(data.get("url") or "")
             comfy_endpoint["updated_at"] = data.get("updated_at")
+            comfy_endpoint["pull_outputs"] = bool(data.get("pull_outputs"))
 
 
 def save_comfy_endpoint():
@@ -763,6 +769,34 @@ def wait_for_comfy(job_id: str) -> str | None:
                     break
 
 
+def pull_job_outputs(job_id: str, comfy_url: str, log_path: Path):
+    """작업 하나가 끝난 뒤 그 작업(job_id 하위 폴더)의 결과 이미지만 끌어온다.
+
+    설정이 꺼져 있으면 아무것도 안 한다. 실패해도 작업 상태에는 영향을 주지 않는다 —
+    이미지는 원격에 그대로 남아 있고 갤러리 탭에서 수동으로 다시 가져올 수 있으므로,
+    이미 끝난 작업을 실패로 뒤집을 이유가 없다. 대신 무슨 일이 있었는지 그 작업의
+    로그 끝에 덧붙여, 이미지가 안 보일 때 이유를 찾을 수 있게 한다."""
+    if not comfy_endpoint.get("pull_outputs"):
+        return
+    try:
+        result = sync_outputs(comfy_url, only_subfolder=job_id)
+    except OutputSyncError as e:
+        note = f"[출력 동기화] 실패: {e}"
+    else:
+        note = (
+            f"[출력 동기화] {len(result['downloaded'])}장 가져옴 "
+            f"(확인 {result['checked']}장, 이미 있음 {result['skipped_existing']}장, "
+            f"기록됨 {result['skipped_known']}장)"
+        )
+        if result["errors"]:
+            note += f" — 실패 {len(result['errors'])}건: {'; '.join(result['errors'][:3])}"
+    try:
+        with open(log_path, "a", encoding="utf-8") as logf:
+            logf.write(f"\n{note}\n")
+    except OSError:
+        pass
+
+
 def worker_loop():
     global current_job_id, current_process
     while True:
@@ -823,6 +857,12 @@ def worker_loop():
             job["returncode"] = returncode
             job["finished_at"] = now_iso()
         save_state()
+
+        # ComfyUI가 원격이면 결과 이미지는 그쪽 디스크에만 있다 — 갤러리/zip/이메일은
+        # 전부 로컬 출력 폴더를 읽으므로, 작업이 끝난 직후 그 작업 몫만 끌어온다.
+        # 중간에 실패했더라도 그때까지 나온 이미지는 가져온다(returncode를 안 본다).
+        pull_job_outputs(job_id, comfy_url, log_path)
+
         job_queue.task_done()
 
 
@@ -895,7 +935,14 @@ def list_templates():
 async def comfy_status():
     url, connected = await asyncio.to_thread(resolve_comfy_url)
     _, source = configured_comfy_url()
-    return {"url": url, "connected": connected, "source": source}
+    return {
+        "url": url,
+        "connected": connected,
+        "source": source,
+        # 화면이 갤러리의 "결과 가져오기" 버튼을 보여줄지 정하는 데 쓴다 — 5초마다
+        # 폴링하는 이 응답에 실어 주면 설정을 바꿨을 때 저절로 따라온다.
+        "pull_outputs": bool(comfy_endpoint.get("pull_outputs")),
+    }
 
 
 def comfy_endpoint_payload() -> dict:
@@ -908,6 +955,9 @@ def comfy_endpoint_payload() -> dict:
         "env_url": (os.environ.get("COMFY_URL") or ""),   # 참고용 — 설정을 비웠을 때 쓰일 값
         "candidates": COMFY_CANDIDATE_URLS,               # 자동 탐지가 훑는 후보들
         "updated_at": comfy_endpoint.get("updated_at"),
+        "pull_outputs": bool(comfy_endpoint.get("pull_outputs")),  # 결과 이미지를 HTTP로 끌어올지
+        "output_dir": OUTPUT_DIR,                         # 끌어온 이미지가 쌓이는 로컬 폴더
+        "output_sync": sync_state_summary(),              # {"last_sync", "known"}
     }
 
 
@@ -936,6 +986,10 @@ async def put_comfy_endpoint(request: Request):
 
     comfy_endpoint["url"] = url
     comfy_endpoint["updated_at"] = now_iso()
+    # pull_outputs를 아예 안 보내면 지금 설정을 유지한다 — 주소만 바꾸려는 요청이
+    # 조용히 "가져오기 끄기"로 동작하면 안 되므로.
+    if "pull_outputs" in data:
+        comfy_endpoint["pull_outputs"] = bool(data.get("pull_outputs"))
     save_comfy_endpoint()
     # 주소가 바뀌면 이전 서버에서 받아둔 모델/노드 목록은 더 이상 그 서버의 것이
     # 아니다. 캐시 키에 url이 들어 있어 자연히 미스가 나지만, 명시적으로 비워서
@@ -2282,6 +2336,51 @@ def list_output_images_meta() -> list[dict]:
 @app.get("/api/output-images")
 def list_output_images_api():
     return {"images": list_output_images_meta()}
+
+
+async def read_json_object(request: Request, allow_empty: bool = True) -> dict:
+    body = (await request.body()).strip()
+    if not body:
+        if allow_empty:
+            return {}
+        raise HTTPException(400, "JSON 본문이 필요해요.")
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "JSON 객체여야 해요.")
+    return data
+
+
+@app.post("/api/comfy-outputs/sync")
+async def sync_comfy_outputs(request: Request):
+    # 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(comfy_outputs.py).
+    # 작업이 끝날 때마다 자동으로도 돌지만(pull_outputs 설정), pod를 껐다 켠 뒤 밀린
+    # 것을 한꺼번에 받거나 설정을 뒤늦게 켠 경우를 위해 수동으로도 돌릴 수 있다.
+    data = await read_json_object(request)
+    job_id = (data.get("job_id") or "").strip() or None
+    force = bool(data.get("force"))
+
+    url, connected = await asyncio.to_thread(resolve_comfy_url)
+    if not url or not connected:
+        raise HTTPException(503, "ComfyUI에 연결할 수 없어 결과 이미지를 가져올 수 없어요.")
+    try:
+        result = await asyncio.to_thread(sync_outputs, url, only_subfolder=job_id, force=force)
+    except OutputSyncError as e:
+        raise HTTPException(502, str(e))
+    return {"url": url, **result}
+
+
+@app.post("/api/comfy-outputs/forget")
+async def forget_comfy_outputs(request: Request):
+    # "한 번 받아온 이미지"라는 기록을 지운다 — 지운 이미지가 다음 동기화에서 되살아나지
+    # 않게 하는 것이 이 기록의 목적이므로, 정말 다시 받고 싶을 때만 쓰는 탈출구다.
+    # (한 번만 다시 받으면 되는 경우라면 sync의 force=true가 더 간단하다.)
+    data = await read_json_object(request)
+    job_id = (data.get("job_id") or "").strip() or None
+    removed = await asyncio.to_thread(forget_downloaded, job_id)
+    return {"forgotten": removed, **sync_state_summary()}
 
 
 def resolve_output_image(filename: str) -> Path:
