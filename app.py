@@ -210,6 +210,28 @@ def save_danbooru_history():
         with open(DANBOORU_HISTORY_FILE, "w") as f:
             json.dump(danbooru_history, f, indent=2, ensure_ascii=False)
 
+
+# LoRA 파일 이름 -> 트리거 워드(프롬프트에 자동으로 덧붙일 문자열) 매핑. ComfyUI는
+# LoRA가 설치돼 있다는 것만 알지 트리거 워드가 뭔지는 모르므로(그 LoRA를 만든
+# 사람이 문서/civitai 페이지 등에 적어둔 값이라 사용자가 직접 입력해야 함), 여기
+# 저장해두고 "워크플로우" 탭에서 그 LoRA를 고르면 자동으로 긍정 프롬프트에
+# 덧붙인다("설치된 모델" 모달에서 LoRA 목록 옆에 입력해서 편집함).
+LORA_TRIGGERS_FILE = BASE_DIR / "lora_triggers.json"
+lora_triggers: dict[str, str] = {}  # {lora_filename: trigger_word}
+
+
+def load_lora_triggers():
+    if LORA_TRIGGERS_FILE.exists():
+        with open(LORA_TRIGGERS_FILE) as f:
+            lora_triggers.update(json.load(f))
+
+
+def save_lora_triggers():
+    with lock:
+        with open(LORA_TRIGGERS_FILE, "w") as f:
+            json.dump(lora_triggers, f, indent=2, ensure_ascii=False)
+
+
 # ComfyUI는 같은 파드 안에서 돌아가지만 설치 방식에 따라 포트가 다를 수 있어, 이 후보들을
 # 순서대로 짧은 타임아웃으로 찔러보고 처음 응답하는 곳을 채택한다. COMFY_URL 환경변수가
 # 명시적으로 설정돼 있으면 이 감지 과정을 건너뛰고 그 값을 그대로 쓴다.
@@ -607,6 +629,7 @@ async def lifespan(app: FastAPI):
     recent_workflows_store.load()
     recent_csvs_store.load()
     load_danbooru_state()
+    load_lora_triggers()
     # 재시작 전에 running/queued 상태로 남아있던 기록은 재실행되지 않으므로 상태만 정리
     with lock:
         for job in jobs.values():
@@ -696,6 +719,30 @@ async def comfy_object_info(refresh: bool = False):
         "samplers": combo_choices(object_info, "KSampler", "sampler_name"),
         "schedulers": combo_choices(object_info, "KSampler", "scheduler"),
     }
+
+
+@app.get("/api/lora-triggers")
+def get_lora_triggers():
+    return lora_triggers
+
+
+@app.put("/api/lora-triggers")
+async def put_lora_triggers(request: Request):
+    # "설치된 모델" 모달의 LoRA 목록 옆 입력칸이 편집할 때마다 전체 매핑을
+    # 통째로 보내서 그대로 덮어쓴다 — danbooru tag-edits와 같은 이유로(개수가
+    # 많지 않고 편집도 잦지 않아 부분 patch를 둘 이유가 없음).
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    if not isinstance(data, dict) or not all(isinstance(v, str) for v in data.values()):
+        raise HTTPException(400, "{LoRA 파일명: 트리거 워드} 형태의 객체여야 해요.")
+
+    lora_triggers.clear()
+    lora_triggers.update({k: v for k, v in data.items() if v.strip()})
+    save_lora_triggers()
+    return lora_triggers
 
 
 @app.post("/api/build-workflow")
