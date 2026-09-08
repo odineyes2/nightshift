@@ -761,6 +761,10 @@
   .badge.done{ color:var(--done); background:rgba(var(--done-rgb),0.10); }
   .badge.failed{ color:var(--failed); background:rgba(var(--failed-rgb),0.10); }
   .badge.interrupted{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.10); }
+  /* ComfyUI(GPU)에 연결될 때까지 큐에서 붙잡혀 있는 작업 — 실패가 아니라 대기다.
+     "대기중"(queued)과 눈에 띄게 구분돼야 사용자가 "왜 안 도나"를 바로 안다. */
+  .badge.waiting{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.12); }
+  .badge.waiting .bdot{ animation: pulse-run 1.6s infinite; }
   .badge .bdot{ width:5px; height:5px; border-radius:50%; background:currentColor; }
   .badge.running .bdot{ animation: pulse-run 1.2s infinite; }
   @keyframes pulse-run{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
@@ -2528,6 +2532,8 @@ function render(jobs, pendingCount, running){
     const progress = j.progress;
     const progressPct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
     const est = estimateJob(j);
+    // 서버가 ComfyUI 연결을 기다리며 붙잡아 둔 작업(app.py의 wait_for_comfy).
+    const waitingForComfy = !!j.waiting_for_comfy;
     let rows = `
       <tr data-id="${j.id}" class="job-row">
         <td>${isOpen ? '▾' : '▸'}</td>
@@ -2536,7 +2542,7 @@ function render(jobs, pendingCount, running){
         <td class="fname${j.workflow_original_name ? '' : ' dim'}" title="${escapeHtml(workflowText)}">${escapeHtml(workflowText)}</td>
         <td class="fname${j.csv_original_name ? '' : ' dim'}" title="${escapeHtml(csvText)}">${escapeHtml(csvText)}</td>
         <td>
-          <span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span>
+          <span class="badge ${waitingForComfy ? 'waiting' : j.status}"${waitingForComfy ? ' title="ComfyUI(GPU) 서버에 연결되면 자동으로 이어서 시작해요. 헤더의 연결 상태를 눌러 주소를 확인할 수 있어요."' : ''}><span class="bdot"></span>${waitingForComfy ? 'GPU 대기' : (STATUS_LABEL[j.status] || j.status)}</span>
           ${progress ? `
             <div class="progress-wrap">
               <div class="progress-track"><div class="progress-fill ${j.status}" style="width:${progressPct}%"></div></div>
