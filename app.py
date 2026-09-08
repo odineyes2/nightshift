@@ -244,7 +244,9 @@ DELETED_JOBS_RETENTION = int(os.environ.get("NIGHTSHIFT_DELETED_JOBS_RETENTION",
 # 쌓이는 걸 막을 안전장치가 없으면 (예: 반복 호출하는 스크립트나 LLM의 버그로)
 # 큐가 통제 불능으로 불어날 수 있다 — 각 작업이 실제 GPU 시간을 쓰므로 위험이
 # 크다. pending/queued/running 합계가 이 값 이상이면 새 작업 추가를 거부한다.
-MAX_ACTIVE_JOBS = int(os.environ.get("NIGHTSHIFT_MAX_ACTIVE_JOBS", "1000"))
+# 비밀값이 아니라 환경마다 달라질 이유가 없어서 .env가 아니라 그냥 상수로 둔다
+# — 바꾸고 싶으면 이 숫자를 직접 고치면 된다.
+MAX_ACTIVE_JOBS = 1000
 
 job_queue: "queue.Queue[str]" = queue.Queue()
 jobs: dict[str, dict] = {}
