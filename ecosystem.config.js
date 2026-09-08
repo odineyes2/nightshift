@@ -75,5 +75,25 @@ module.exports = {
       // (둘 다 켜두면 재시작이 중복으로 겹칠 수 있음).
       watch: false,
     },
+    {
+      // nightshift(app.py)의 REST API를 MCP 도구로 감싸는 별도 프로세스
+      // (mcp_server.py) — app.py를 뜯어고치지 않고 그 위에 얹는 얇은 레이어라
+      // 별도 포트로 따로 띄운다. app.py처럼 uvicorn --reload가 있는 구조가
+      // 아니라서(fastmcp가 내부적으로 서버를 띄움), 코드 변경 감지는 여기서
+      // pm2 자체의 watch로 대신한다.
+      name: "nightshift-mcp",
+      script: resolvePython3(),
+      args: "mcp_server.py",
+      interpreter: "none",
+      cwd: __dirname,
+      env: {
+        PYTHONUNBUFFERED: "1",
+        ...loadDotEnv(), // .env의 JOB_QUEUE_BASE_URL/JOB_QUEUE_API_KEY/MCP_SERVER_PORT 전달
+      },
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
+      watch: ["mcp_server.py"],
+    },
   ],
 };
