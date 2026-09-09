@@ -93,7 +93,7 @@ cp .env.example .env
 vi .env   # NTFY_TOPIC=아무나-추측하기-어려운-이름 을 채운다
 ```
 
-`NTFY_TOPIC`을 비워두면(=`.env`를 안 만들면) 알림 없이 조용히 건너뛰므로, 이 기능은 순수 선택 사항입니다. 포트를 8000이 아닌 값으로 바꿨다면 `.env`의 `NIGHTSHIFT_PORT`도 같이 맞춰야 주소가 정확합니다. 헬스체크가 타임아웃돼도(서버가 예상보다 늦게 뜨는 경우) 알림은 그대로 보내되 `logs/notify_ntfy.log`에 경고를 남기고, ntfy 전송 자체가 실패해도 한 번 재시도한 뒤 로그만 남기고 넘어가서 웹앱 실행 자체를 막지 않습니다. 수동 재전송 등 테스트 방법은 `notify_ntfy.sh` 상단 주석에 정리돼 있습니다.
+`NTFY_TOPIC`을 비워두면(=`.env`를 안 만들면) 알림 없이 조용히 건너뛰므로, 이 기능은 순수 선택 사항입니다. 포트는 `.env`의 `NIGHTSHIFT_PORT` 한 곳에서만 정하면 됩니다 — `ecosystem.config.js`가 그 값으로 `--port`를 넘기고, 템플릿이 진행 상황을 보고할 주소(`app.py`의 `SELF_URL`)도 같은 값에서 유도됩니다(리버스 프록시 뒤처럼 그것도 안 맞는 배치라면 `NIGHTSHIFT_SELF_URL`로 통째로 덮어쓸 수 있습니다). 헬스체크가 타임아웃돼도(서버가 예상보다 늦게 뜨는 경우) 알림은 그대로 보내되 `logs/notify_ntfy.log`에 경고를 남기고, ntfy 전송 자체가 실패해도 한 번 재시도한 뒤 로그만 남기고 넘어가서 웹앱 실행 자체를 막지 않습니다. 수동 재전송 등 테스트 방법은 `notify_ntfy.sh` 상단 주석에 정리돼 있습니다.
 
 ### pm2로 실행 (같은 세션에서 다시 시작할 때)
 
@@ -208,6 +208,16 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 확인할 수 있습니다. 주소를 저장하면 이전 서버에서 받아둔 모델/노드 목록 캐시는 즉시 비워집니다.
 
 화면 상단의 인디케이터가 5초마다 `/api/comfy-status`를 폴링해 연결 상태(연결됨/연결 안 됨)와 감지된 주소를 보여줍니다.
+이 응답은 **서버가 캐시해 두고 즉시 돌려줍니다**(4초보다 오래됐으면 백그라운드로 다시 확인) — 폴링이 매번 원격 pod까지
+왕복하면 열어둔 탭 수만큼 pod를 찌르게 되고, 응답이 느린 날에는 요청 자체가 몇 초씩 걸리기 때문입니다. 언제 실측한
+값인지는 배지에 마우스를 올리면(그리고 응답의 `checked_age_sec`로) 확인할 수 있습니다. 또 **한 번 실패했다고 바로
+"연결 안 됨"으로 뒤집지 않고 연속 2회 실패해야 끊긴 것으로 봅니다** — WAN에서는 패킷 하나만 흘려도 실패로 보이는데,
+그때마다 배지가 빨갛게 깜빡이면 신뢰할 수 없게 되기 때문입니다(반대로 다시 붙는 것은 즉시 반영합니다).
+
+연결 확인 타임아웃은 찌르는 대상에 따라 다릅니다: 자동 탐지 후보는 정의상 전부 `127.0.0.1`이라 2초,
+명시적으로 지정된 주소는 원격일 수 있으므로 5초(`NIGHTSHIFT_COMFY_TIMEOUT_SEC`), 사용자가 "연결 테스트"/"저장"으로
+직접 확인할 때는 8초를 씁니다.
+
 작업은 워커가 실제로 실행하기 직전에도 다시 한번 이 감지를 수행합니다 — 업로드 시점은 물론 "▶ 시작"으로
 배치를 시작한 시점(또는 자동 실행 모드가 켜진 상태에서 새 작업이 큐에 들어간 시점)에도 ComfyUI가 떠 있지 않아도
 정상 진행됩니다.
@@ -553,7 +563,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | Method | Path | 설명 |
 |---|---|---|
 | `GET` | `/api/templates` | `templates/manifest.json`의 내용을 그대로 반환 |
-| `GET` | `/api/comfy-status` | 지금 쓰이는 ComfyUI 주소(`url`), 연결 가능 여부(`connected`), 그 주소가 어디서 왔는지(`source`: `setting`/`env`/`auto`)를 조회. 매 호출마다 실시간으로 재확인함 |
+| `GET` | `/api/comfy-status` | 지금 쓰이는 ComfyUI 주소(`url`), 연결 가능 여부(`connected`), 그 주소가 어디서 왔는지(`source`: `setting`/`env`/`auto`), 결과 이미지 가져오기 설정(`pull_outputs`), 이 상태를 몇 초 전에 실측했는지(`checked_age_sec`)를 조회. **서버가 캐시한 값을 즉시 돌려주고**(4초보다 오래됐으면 백그라운드로 다시 확인) 연속 2회 실패해야 `connected: false`로 뒤집으므로, 화면이 5초마다 폴링해도 원격 pod의 응답 지연이 요청 시간에 실리지 않음. 서버 기동 후 첫 호출만 실측이 끝날 때까지 기다림 |
 | `GET` | `/api/comfy-endpoint` | 접속 주소 설정 상태를 `{"url"(저장된 설정값, 없으면 ""), "effective_url"(설정/환경변수로 정해진 주소, 자동 탐지면 null), "source", "env_url", "candidates", "updated_at", "pull_outputs"(결과 이미지를 HTTP로 끌어올지), "output_dir"(끌어온 이미지가 쌓이는 로컬 폴더), "output_sync": {"last_sync", "known"}}`로 반환 |
 | `PUT` | `/api/comfy-endpoint` | 접속 주소를 저장한다(요청 본문 `{"url": "...", "pull_outputs": bool(선택)}` — `pull_outputs`를 아예 안 보내면 지금 설정을 그대로 유지한다). **서버 재시작 없이 즉시 반영되고**, 이전 서버의 모델/노드 목록 캐시를 비운다. 빈 문자열을 보내면 설정을 지우고 환경변수/자동 탐지로 되돌린다. `http://`/`https://`로 시작하지 않으면 400. 응답은 GET과 같은 형태 + 저장 직후 실측한 `connected` |
 | `POST` | `/api/comfy-outputs/sync` | 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(요청 본문 `{"job_id": "..."(선택, 그 작업 것만), "force": bool(선택)}`). 응답 `{"url", "checked", "downloaded": [...], "skipped_known", "skipped_existing", "skipped_invalid", "errors", "last_sync"}`. **한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않는다**(`comfy_output_sync.json`) — 정말 다시 받고 싶으면 `force: true`. 로컬에 이미 있는 파일은 어느 경우에도 덮어쓰지 않는다. ComfyUI에 연결이 안 되면 503, 히스토리 조회에 실패하면 502 |

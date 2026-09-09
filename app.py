@@ -300,10 +300,26 @@ def save_base_model_families():
 #      타임아웃으로 찔러보고 처음 응답하는 곳을 채택한다.
 COMFY_ENDPOINT_FILE = BASE_DIR / "comfy_endpoint.json"
 COMFY_CANDIDATE_URLS = ["http://127.0.0.1:8188", "http://127.0.0.1:8000"]
-COMFY_CHECK_TIMEOUT = 2
-# 사용자가 "연결 테스트"/"저장"으로 명시적으로 확인할 때는 폴링(2초)보다 넉넉하게
-# 기다린다 — 원격 pod는 첫 연결에 TLS 핸드셰이크까지 붙어 2초를 넘기기 쉽다.
+# 연결 확인 타임아웃은 "어디를 찌르는지"에 따라 다르게 잡는다.
+#   - 자동 탐지 후보는 정의상 전부 127.0.0.1이라 응답이 없으면 즉시 실패한다.
+#     여기에 긴 타임아웃을 쓰면 ComfyUI가 없는 머신에서 후보 수만큼 초를 버린다.
+#   - 반대로 명시적으로 지정된 주소는 원격 pod일 수 있다. WAN 왕복 + TLS 핸드셰이크가
+#     붙으면 2초는 쉽게 넘고, 그러면 멀쩡히 떠 있는 pod가 "연결 안 됨"으로 깜빡인다.
+COMFY_CHECK_TIMEOUT_LOCAL = 2
+COMFY_CHECK_TIMEOUT = float(os.environ.get("NIGHTSHIFT_COMFY_TIMEOUT_SEC", "5"))
+# 사용자가 "연결 테스트"/"저장"으로 명시적으로 확인할 때는 더 넉넉하게 기다린다 —
+# 사람이 버튼을 누르고 결과를 기다리는 중이므로 몇 초 더 쓰는 편이 낫다.
 COMFY_CHECK_TIMEOUT_INTERACTIVE = 8
+
+# 헤더의 연결 상태 배지는 5초마다 /api/comfy-status를 폴링한다. 그 요청이 매번
+# 원격 pod까지 왕복하면 (a) 탭 수만큼 pod를 찌르게 되고 (b) 응답이 느린 날에는
+# 요청 자체가 몇 초씩 걸린다. 그래서 상태는 캐시해 두고 즉시 돌려주되, 오래된
+# 값이면 백그라운드로 다시 확인한다(stale-while-revalidate).
+COMFY_STATUS_TTL_SEC = 4
+# 한 번 실패했다고 바로 "연결 안 됨"으로 뒤집지 않는다 — WAN에서는 패킷 하나만
+# 흘려도 실패로 보이는데, 그때마다 배지가 빨갛게 깜빡이면 신뢰할 수 없게 된다.
+# 연속으로 이만큼 실패해야 끊긴 것으로 본다(연결됨으로 돌아가는 건 즉시).
+COMFY_STATUS_FAIL_STREAK = 2
 
 # ComfyUI가 안 떠 있을 때, 큐에서 꺼낸 작업을 실패시키지 않고 붙잡아 두는 재확인
 # 간격(초). nightshift를 홈서버에 상시 띄워두고 ComfyUI만 원격 GPU pod에서 돌리는
@@ -349,8 +365,14 @@ def normalize_comfy_url(raw: str) -> str:
     return url
 
 # 템플릿 스크립트가 자기 자신의 진행 상황(PUT /api/jobs/{job_id}/progress)을
-# 보고할 때 사용하는, nightshift 자신의 주소. 서버가 항상 이 포트로 뜨므로 고정값.
-SELF_URL = "http://127.0.0.1:8000"
+# 보고할 때 쓰는, nightshift 자신의 주소. 예전에는 8000으로 박아뒀는데, 홈서버로
+# 옮기면서 다른 포트로 띄우면 진행률 보고가 통째로 조용히 끊긴다(템플릿은 실패해도
+# 경고만 찍고 계속 돈다). 그래서 실제로 뜨는 포트(NIGHTSHIFT_PORT, ecosystem.config.js가
+# 같은 값으로 --port를 넘긴다)에서 유도하고, 그것도 안 맞는 특수한 배치(리버스 프록시
+# 뒤 등)를 위해 NIGHTSHIFT_SELF_URL로 통째로 덮어쓸 수 있게 둔다.
+SELF_PORT = os.environ.get("NIGHTSHIFT_PORT", "8000").strip() or "8000"
+SELF_URL = (os.environ.get("NIGHTSHIFT_SELF_URL", "").strip().rstrip("/")
+            or f"http://127.0.0.1:{SELF_PORT}")
 
 # "새 작업 추가"의 메인 프롬프트 필드에 있는 "Prompt Enhance" 버튼이 쓰는, 프롬프트를
 # 다듬어주는 전용 ComfyUI 워크플로우. 배치 템플릿과 달리 사용자가 매번 업로드하는 게
@@ -467,7 +489,7 @@ def resolve_comfy_url() -> tuple[str | None, bool]:
     if url:
         return url, check_comfy_url(url)
     for candidate in COMFY_CANDIDATE_URLS:
-        if check_comfy_url(candidate):
+        if check_comfy_url(candidate, COMFY_CHECK_TIMEOUT_LOCAL):
             return candidate, True
     return None, False
 
@@ -931,18 +953,92 @@ def list_templates():
     return load_templates_list()
 
 
-@app.get("/api/comfy-status")
-async def comfy_status():
-    url, connected = await asyncio.to_thread(resolve_comfy_url)
-    _, source = configured_comfy_url()
+# 헤더 배지가 5초마다 물어보는 연결 상태의 캐시. 이 요청이 매번 원격 pod까지
+# 왕복하면 탭 수만큼 pod를 찌르고, 응답이 느린 날에는 요청 자체가 몇 초씩 걸린다.
+# 그래서 캐시값을 즉시 돌려주고 오래됐으면 백그라운드로 다시 확인한다.
+_comfy_status_cache: dict = {
+    "url": None, "connected": False, "source": "auto", "checked_at": 0.0, "fail_streak": 0,
+}
+_comfy_status_lock = threading.Lock()
+_comfy_status_refreshing = False
+
+
+def comfy_status_payload() -> dict:
+    """캐시된 연결 상태 (호출 전에 _comfy_status_lock을 쥐고 있어야 한다)."""
+    checked_at = _comfy_status_cache["checked_at"]
     return {
-        "url": url,
-        "connected": connected,
-        "source": source,
+        "url": _comfy_status_cache["url"],
+        "connected": _comfy_status_cache["connected"],
+        "source": _comfy_status_cache["source"],
         # 화면이 갤러리의 "결과 가져오기" 버튼을 보여줄지 정하는 데 쓴다 — 5초마다
         # 폴링하는 이 응답에 실어 주면 설정을 바꿨을 때 저절로 따라온다.
         "pull_outputs": bool(comfy_endpoint.get("pull_outputs")),
+        # 이 상태가 몇 초 전에 실측된 것인지(캐시라는 사실을 숨기지 않는다).
+        "checked_age_sec": round(time.monotonic() - checked_at, 1) if checked_at else None,
     }
+
+
+def refresh_comfy_status() -> dict:
+    """실제로 ComfyUI를 찔러 보고 캐시를 갱신한다(블로킹).
+
+    한 번 실패했다고 바로 "연결 안 됨"으로 뒤집지 않는다 — WAN에서는 패킷 하나만
+    흘려도 실패로 보이는데, 그때마다 배지가 빨갛게 깜빡이면 아무도 안 믿게 된다.
+    직전까지 같은 주소로 연결돼 있었다면 COMFY_STATUS_FAIL_STREAK번 연속 실패할
+    때까지 "연결됨"을 유지한다(반대로 다시 붙는 건 즉시 반영한다)."""
+    url, connected = resolve_comfy_url()
+    _, source = configured_comfy_url()
+    with _comfy_status_lock:
+        if connected:
+            reported, streak = True, 0
+        else:
+            streak = _comfy_status_cache["fail_streak"] + 1
+            was_up = _comfy_status_cache["connected"] and _comfy_status_cache["url"] == url
+            reported = was_up and streak < COMFY_STATUS_FAIL_STREAK
+        _comfy_status_cache.update({
+            "url": url, "connected": reported, "source": source,
+            "checked_at": time.monotonic(), "fail_streak": streak,
+        })
+        return comfy_status_payload()
+
+
+def invalidate_comfy_status_cache():
+    """주소 설정이 바뀌었을 때 — 다음 조회가 옛 주소의 결과를 그대로 쓰지 않게 한다."""
+    with _comfy_status_lock:
+        _comfy_status_cache.update({"checked_at": 0.0, "fail_streak": 0})
+
+
+def _refresh_comfy_status_bg():
+    global _comfy_status_refreshing
+    try:
+        refresh_comfy_status()
+    finally:
+        with _comfy_status_lock:
+            _comfy_status_refreshing = False
+
+
+@app.get("/api/comfy-status")
+async def comfy_status():
+    global _comfy_status_refreshing
+    with _comfy_status_lock:
+        first_time = not _comfy_status_cache["checked_at"]
+        stale = first_time or (time.monotonic() - _comfy_status_cache["checked_at"]) >= COMFY_STATUS_TTL_SEC
+        should_refresh = stale and not _comfy_status_refreshing
+        if should_refresh:
+            _comfy_status_refreshing = True
+
+    if first_time and should_refresh:
+        # 서버 기동 직후 첫 요청. 여기서만 실제 확인이 끝날 때까지 기다린다 —
+        # 첫 화면에 근거 없는 "연결 안 됨"이 떴다가 5초 뒤에 바뀌는 것보다 낫다.
+        try:
+            return await asyncio.to_thread(refresh_comfy_status)
+        finally:
+            with _comfy_status_lock:
+                _comfy_status_refreshing = False
+
+    if should_refresh:
+        threading.Thread(target=_refresh_comfy_status_bg, daemon=True).start()
+    with _comfy_status_lock:
+        return comfy_status_payload()
 
 
 def comfy_endpoint_payload() -> dict:
@@ -995,6 +1091,7 @@ async def put_comfy_endpoint(request: Request):
     # 아니다. 캐시 키에 url이 들어 있어 자연히 미스가 나지만, 명시적으로 비워서
     # "바꾼 직후 잠깐 옛 목록이 보이는" 창을 없앤다.
     _object_info_cache.update({"url": None, "data": None, "fetched_at": 0.0})
+    invalidate_comfy_status_cache()
 
     payload = comfy_endpoint_payload()
     effective_url = payload["effective_url"]

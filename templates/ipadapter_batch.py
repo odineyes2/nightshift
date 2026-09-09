@@ -52,6 +52,7 @@ ComfyUI로의 이미지 주입 방식:
     COMFY_URL          ComfyUI 서버 주소 (기본 http://127.0.0.1:8188)
     JOB_ID             nightshift가 주입하는 이 작업의 id (진행 상황 보고용, 없으면 보고 생략)
     NIGHTSHIFT_URL     nightshift 자신의 주소 (진행 상황 보고용, 기본 http://127.0.0.1:8000)
+    NIGHTSHIFT_API_KEY 설정돼 있으면 진행 상황 보고에 X-API-Key로 실어 보냄 (선택)
     SEED_NODE_TITLE    시드를 주입할 노드의 _meta.title 부분일치 (기본 "KSampler")
     IPADAPTER_NODE_TITLE  참조 이미지를 주입할 LoadImage 노드의 _meta.title 부분일치
                        (기본 "ipadapter_ref" — 정확히 일치하는 노드가 없으면, 워크플로우에
@@ -339,10 +340,18 @@ def report_progress(job_id, nightshift_url, total, done):
         return
     try:
         payload = json.dumps({"total": total, "done": done}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        # nightshift가 NIGHTSHIFT_API_KEY로 인증을 켜두면 /api/*가 전부 이 키를
+        # 요구한다. 키 없이 보내면 401로 조용히 실패해서(경고만 찍고 계속 돈다)
+        # 진행률 바가 영영 안 움직인다 — 홈서버처럼 밖에서 닿는 곳에 띄운다면 키를
+        # 켜는 쪽이 정상이므로 여기서 같이 실어 보낸다.
+        api_key = os.environ.get("NIGHTSHIFT_API_KEY", "").strip()
+        if api_key:
+            headers["X-API-Key"] = api_key
         req = urllib.request.Request(
             f"{nightshift_url}/api/jobs/{job_id}/progress",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="PUT",
         )
         urllib.request.urlopen(req, timeout=10).read()
