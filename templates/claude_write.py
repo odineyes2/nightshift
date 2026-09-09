@@ -15,8 +15,9 @@ ComfyUI가 아니라 Claude API다. nightshift 입장에서는 "스크립트를 
 
 환경변수 (nightshift가 주입한다):
     PROMPT             모델에 보낼 프롬프트 (필수)
+    MODEL              쓸 모델 (작업 화면의 "모델" 선택칸, manifest.json)
     MAX_TOKENS         응답 최대 토큰 수 (기본 16000)
-    CLAUDE_MODEL       쓸 모델 (드라이버가 주입, 기본 claude-opus-5)
+    CLAUDE_MODEL       MODEL이 없을 때 쓰는 기본값 (드라이버가 주입, 기본 claude-opus-5)
     ANTHROPIC_API_KEY  Claude API 키 (드라이버가 주입)
     NIGHTSHIFT_OUTPUT_DIR  산출물이 쌓이는 폴더 (기본 /workspace/output)
     JOB_ID             nightshift가 주입하는 이 작업의 id (진행 상황 보고/출력 폴더용)
@@ -71,7 +72,9 @@ def main():
         print("[claude_write] ANTHROPIC_API_KEY가 설정돼 있지 않습니다.", file=sys.stderr)
         sys.exit(1)
 
-    model = env("CLAUDE_MODEL", "claude-opus-5")
+    # MODEL은 작업 화면의 "모델" 선택칸(manifest.json)에서 오고, CLAUDE_MODEL은
+    # 드라이버가 주는 기본값이다 — 둘 다 없을 때만 코드 기본값(claude-opus-5)을 쓴다.
+    model = env("MODEL") or env("CLAUDE_MODEL", "claude-opus-5")
     try:
         max_tokens = int(env("MAX_TOKENS", "16000"))
     except ValueError:
