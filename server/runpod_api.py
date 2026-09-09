@@ -17,13 +17,18 @@ RUNPOD_API_KEY 환경변수가 없으면 이 기능은 통째로 꺼진다(조�
 거기서 뽑아 쓴다. url이 그 형태가 아니면(로컬 ComfyUI, 다른 클라우드 등) 이 기능은
 그냥 아무것도 하지 않는다.
 
-## 필드 이름을 100% 확신하지 못한다
+## GPU 모델명이 REST API에는 안 실려 온다 (실측 확인됨)
 
-이 환경(샌드박스)에서는 RunPod의 API 도메인 자체에 나갈 수 없어 실제 응답을 직접
-받아본 적이 없다 — GraphQL 기반 구버전 SDK 문서와 최신 REST API에 대한 간접적인
-근거(검색 스니펫)만으로 아래 필드 이름을 정했다. 실제로 값이 하나도 안 뜨거나
-다르게 뜬다면, 응답 원본을 한 번 찍어봐야 정확한 키 이름을 알 수 있다 — 그래서
-normalize()가 후보 키를 여러 개 시도하도록 방어적으로 짜여 있다.
+`GET /v1/pods/{id}`의 실제 응답을 사용자가 "RunPod 정보 테스트" 버튼으로 찍어봐
+확인한 결과, `machine` 필드가 빈 객체(`{}`)로 온다 — `gpuCount`(GPU 개수)만 있고
+어떤 GPU인지(모델명)는 REST 쪽에 없다. 반면 레거시 GraphQL API
+(`https://api.runpod.io/graphql`)의 `pod.machine.gpuDisplayName`에는 있다고 알려져
+있어서, REST 응답에 GPU 모델명이 비어 있을 때만 그쪽으로 한 번 더 물어본다
+(`_fetch_gpu_display_name`). 이것도 실패하면 조용히 빈 채로 둔다 — GPU 이름 하나
+때문에 카드의 나머지 정보(이름/비용/일시)까지 못 뜨면 안 되므로.
+
+VRAM은 이 모듈이 다루지 않는다 — ComfyUI 자체의 `/system_stats`에서 이미 가져오고
+있다(`drivers/comfyui.py`의 `card()`, 대시보드 카드의 주소 옆 숫자).
 """
 
 import json
@@ -35,6 +40,12 @@ import re
 
 RUNPOD_API_KEY = (os.environ.get("RUNPOD_API_KEY") or "").strip()
 RUNPOD_API_BASE = "https://rest.runpod.io/v1"
+RUNPOD_GRAPHQL_URL = "https://api.runpod.io/graphql"
+
+# REST 응답에 GPU 모델명이 없을 때만 여기로 한 번 더 물어본다(모듈 docstring 참고).
+_GPU_DISPLAY_NAME_QUERY = (
+    "query PodGpu($podId: String!) { pod(input: {podId: $podId}) { machine { gpuDisplayName } } }"
+)
 
 # ComfyUI 쪽과 같은 이유(Cloudflare가 기본 UA를 막을 수 있다)로 흔한 브라우저 UA를
 # 실어 보낸다. drivers/comfyui.py의 COMFY_USER_AGENT와 값은 같지만, 그쪽을 import하면
@@ -85,6 +96,34 @@ def _fetch_pod_raw(pod_id: str) -> dict | None:
             return json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
         return None
+
+
+def _fetch_gpu_display_name(pod_id: str) -> str | None:
+    """REST의 machine이 비어 있을 때 레거시 GraphQL API로 GPU 모델명만 보충한다.
+    이 호출 하나가 실패해도(네트워크/스키마 변경 등) 조용히 None — 호출부가 REST
+    쪽 데이터는 그대로 쓸 수 있어야 하므로."""
+    body = json.dumps({
+        "query": _GPU_DISPLAY_NAME_QUERY,
+        "variables": {"podId": pod_id},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{RUNPOD_GRAPHQL_URL}?api_key={RUNPOD_API_KEY}",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": RUNPOD_USER_AGENT,
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SEC) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return None
+    pod = (data.get("data") or {}).get("pod") or {}
+    machine = pod.get("machine") or {}
+    return machine.get("gpuDisplayName") or None
 
 
 def _first(d: dict, *paths):
@@ -154,7 +193,13 @@ def debug_probe(url: str) -> dict:
                 result["raw_body"] = body[:2000]
                 return result
             result["raw_response"] = raw
-            result["normalized"] = _normalize(raw)
+            normalized = _normalize(raw)
+            if not normalized.get("gpu_type"):
+                gpu = _fetch_gpu_display_name(pod_id)
+                result["graphql_gpu_type"] = gpu   # REST에 없어서 시도한 결과 — None이면 그것도 실패
+                if gpu:
+                    normalized["gpu_type"] = gpu
+            result["normalized"] = normalized
     except urllib.error.HTTPError as e:
         result["status_code"] = e.code
         try:
@@ -186,6 +231,10 @@ def get_runpod_info(url: str) -> dict | None:
 
     raw = _fetch_pod_raw(pod_id)
     data = _normalize(raw) if raw else None
+    if data is not None and not data.get("gpu_type"):
+        gpu = _fetch_gpu_display_name(pod_id)
+        if gpu:
+            data["gpu_type"] = gpu
     _cache[pod_id] = {"data": data, "at": now}
     return data
 
