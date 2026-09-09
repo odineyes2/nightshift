@@ -36,8 +36,11 @@ import os
 import shutil
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("NIGHTSHIFT_DATA_DIR") or (BASE_DIR / "data"))
+# 이 파일은 server/ 안에 있지만, data/는 저장소 루트에 둔다 — server/ 자체가
+# 코드 트리이고 data/는 그와 나란한 별개 산출물 트리이기 때문이다(server/ 안에
+# 중첩시키면 "코드와 생성물을 가른다"는 애초 목적이 흐려진다).
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = Path(os.environ.get("NIGHTSHIFT_DATA_DIR") or (REPO_ROOT / "data"))
 
 # 옛 위치(저장소 루트)에서 data/로 옮겨올 이름들. 여기 적힌 것이 곧 "이 앱이 만들어
 # 내는 것 전부"이기도 하다 — 새로 저장소를 하나 늘릴 때 여기에도 이름을 추가한다.
@@ -64,7 +67,7 @@ def _migrate_legacy():
     """옛 위치에 있는 것을 data/로 옮긴다. 이미 data/에 있으면 건드리지 않는다 —
     양쪽에 다 있으면 새 위치가 최신이라고 본다(이관은 한 번만 일어나므로)."""
     for name in MIGRATED_NAMES:
-        old = BASE_DIR / name
+        old = REPO_ROOT / name
         new = DATA_DIR / name
         if not old.exists() or new.exists():
             continue

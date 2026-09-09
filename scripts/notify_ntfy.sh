@@ -4,11 +4,11 @@
 # RunPod pod을 재시작할 때마다 프록시 주소(https://{POD_ID}-{PORT}.proxy.runpod.net/)가
 # 바뀌므로, 서버가 완전히 뜬 걸 확인한 뒤 그 주소를 ntfy.sh 토픽으로 보내 폰(ntfy 앱)
 # 알림을 탭해서 바로 접속할 수 있게 한다. bootstrap.sh가 서버를 띄우기 직전에 이 스크립트를
-# 백그라운드(`./notify_ntfy.sh &`)로 실행한다 — 자체적으로 서버가 응답할 때까지 기다렸다가
+# 백그라운드(`./scripts/notify_ntfy.sh &`)로 실행한다 — 자체적으로 서버가 응답할 때까지 기다렸다가
 # 보내므로 순서를 맞추려고 sleep을 넣거나 실행 순서를 바꿀 필요가 없다.
 #
-# 사용법 (보통은 bootstrap.sh가 대신 호출하므로 직접 실행할 일은 거의 없음):
-#   ./notify_ntfy.sh
+# 사용법 (보통은 bootstrap.sh가 대신 호출하므로 직접 실행할 일은 거의 없음, 저장소 루트에서):
+#   ./scripts/notify_ntfy.sh
 #
 # 환경변수 (.env 파일이 있으면 먼저 읽어들인 뒤 적용):
 #   NTFY_TOPIC                  (필수) ntfy.sh 토픽 이름 — 하드코딩하지 않고 반드시 이걸로 받는다
@@ -23,11 +23,11 @@
 # 테스트 방법 (수동 재전송으로 확인):
 #   1) 웹앱이 이미 떠 있는 상태에서 그냥 다시 실행해보면 된다 — 헬스체크를 바로
 #      통과하고 몇 초 안에 알림이 온다.
-#        NTFY_TOPIC=내토픽 RUNPOD_POD_ID=테스트용아이디 ./notify_ntfy.sh
+#        NTFY_TOPIC=내토픽 RUNPOD_POD_ID=테스트용아이디 ./scripts/notify_ntfy.sh
 #   2) 헬스체크/타임아웃 로직만 따로 확인하려면 웹앱을 잠깐 내려둔 채로 실행 —
 #      NTFY_HEALTHCHECK_TIMEOUT_SEC=5 등으로 짧게 줘서 타임아웃 경고 로그가
 #      남는지, 그래도 알림이 가는지 확인한다.
-#        NTFY_TOPIC=내토픽 NTFY_HEALTHCHECK_TIMEOUT_SEC=5 ./notify_ntfy.sh
+#        NTFY_TOPIC=내토픽 NTFY_HEALTHCHECK_TIMEOUT_SEC=5 ./scripts/notify_ntfy.sh
 #   3) curl 자체만 재전송해서 ntfy 쪽 확인만 하고 싶다면:
 #        curl -s -H "Title: RunPod 웹앱 준비 완료" -d "웹앱 접속 주소: https://example.com/" \
 #             "https://ntfy.sh/내토픽"
@@ -37,7 +37,9 @@
 # 모든 실패 지점을 if/then으로 직접 처리하고 항상 exit 0으로 끝낸다.
 set -uo pipefail
 
-cd "$(dirname "$0")"
+# 이 스크립트는 scripts/ 아래로 옮겨졌으므로, 저장소 루트(.env·data/가 있는 곳)로
+# 가려면 한 단계 위로 올라가야 한다.
+cd "$(dirname "$0")/.."
 
 # .env가 있으면 여기서 채운다 — NTFY_TOPIC 같은 민감정보를 코드에 하드코딩하지 않기 위함.
 if [ -f .env ]; then
