@@ -16,7 +16,7 @@
 #                                --port 값을 바꿨다면 여기도 같이 바꿔야 주소가 맞는다
 #   NTFY_HEALTHCHECK_TIMEOUT_SEC 헬스체크 최대 대기 시간 초 (기본 30)
 #   NTFY_HEALTHCHECK_INTERVAL_SEC 헬스체크 폴링 간격 초 (기본 2)
-#   NTFY_LOG_FILE                로그를 남길 파일 (기본 ./logs/notify_ntfy.log)
+#   NTFY_LOG_FILE                로그를 남길 파일 (기본 ./data/logs/notify_ntfy.log)
 #   RUNPOD_POD_ID                RunPod가 자동으로 주입 — 없으면 RunPod pod가 아니라고
 #                                판단해 조용히 건너뛴다
 #
@@ -31,7 +31,7 @@
 #   3) curl 자체만 재전송해서 ntfy 쪽 확인만 하고 싶다면:
 #        curl -s -H "Title: RunPod 웹앱 준비 완료" -d "웹앱 접속 주소: https://example.com/" \
 #             "https://ntfy.sh/내토픽"
-#   4) 로그는 ./logs/notify_ntfy.log(또는 NTFY_LOG_FILE로 지정한 경로)에 계속 쌓인다.
+#   4) 로그는 ./data/logs/notify_ntfy.log(또는 NTFY_LOG_FILE로 지정한 경로)에 계속 쌓인다.
 
 # 헬스체크/전송이 실패해도 웹앱 실행을 막으면 안 되므로(요구사항) -e는 일부러 안 쓴다 —
 # 모든 실패 지점을 if/then으로 직접 처리하고 항상 exit 0으로 끝낸다.
@@ -50,7 +50,8 @@ fi
 PORT="${NIGHTSHIFT_PORT:-8000}"
 HEALTHCHECK_TIMEOUT_SEC="${NTFY_HEALTHCHECK_TIMEOUT_SEC:-30}"
 HEALTHCHECK_INTERVAL_SEC="${NTFY_HEALTHCHECK_INTERVAL_SEC:-2}"
-LOG_FILE="${NTFY_LOG_FILE:-$(pwd)/logs/notify_ntfy.log}"
+# 앱이 만들어내는 것은 전부 data/ 아래에 모은다(data_paths.py 참고).
+LOG_FILE="${NTFY_LOG_FILE:-$(pwd)/data/logs/notify_ntfy.log}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
 

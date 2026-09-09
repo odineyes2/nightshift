@@ -97,7 +97,7 @@ cp .env.example .env
 vi .env   # NTFY_TOPIC=아무나-추측하기-어려운-이름 을 채운다
 ```
 
-`NTFY_TOPIC`을 비워두면(=`.env`를 안 만들면) 알림 없이 조용히 건너뛰므로, 이 기능은 순수 선택 사항입니다. 포트는 `.env`의 `NIGHTSHIFT_PORT` 한 곳에서만 정하면 됩니다 — `ecosystem.config.js`가 그 값으로 `--port`를 넘기고, 템플릿이 진행 상황을 보고할 주소(`app.py`의 `SELF_URL`)도 같은 값에서 유도됩니다(리버스 프록시 뒤처럼 그것도 안 맞는 배치라면 `NIGHTSHIFT_SELF_URL`로 통째로 덮어쓸 수 있습니다). 헬스체크가 타임아웃돼도(서버가 예상보다 늦게 뜨는 경우) 알림은 그대로 보내되 `logs/notify_ntfy.log`에 경고를 남기고, ntfy 전송 자체가 실패해도 한 번 재시도한 뒤 로그만 남기고 넘어가서 웹앱 실행 자체를 막지 않습니다. 수동 재전송 등 테스트 방법은 `notify_ntfy.sh` 상단 주석에 정리돼 있습니다.
+`NTFY_TOPIC`을 비워두면(=`.env`를 안 만들면) 알림 없이 조용히 건너뛰므로, 이 기능은 순수 선택 사항입니다. 포트는 `.env`의 `NIGHTSHIFT_PORT` 한 곳에서만 정하면 됩니다 — `ecosystem.config.js`가 그 값으로 `--port`를 넘기고, 템플릿이 진행 상황을 보고할 주소(`app.py`의 `SELF_URL`)도 같은 값에서 유도됩니다(리버스 프록시 뒤처럼 그것도 안 맞는 배치라면 `NIGHTSHIFT_SELF_URL`로 통째로 덮어쓸 수 있습니다). 헬스체크가 타임아웃돼도(서버가 예상보다 늦게 뜨는 경우) 알림은 그대로 보내되 `data/logs/notify_ntfy.log`에 경고를 남기고, ntfy 전송 자체가 실패해도 한 번 재시도한 뒤 로그만 남기고 넘어가서 웹앱 실행 자체를 막지 않습니다. 수동 재전송 등 테스트 방법은 `notify_ntfy.sh` 상단 주석에 정리돼 있습니다.
 
 ### pm2로 실행 (같은 세션에서 다시 시작할 때)
 
@@ -304,7 +304,7 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 ### 파드(워커) 레지스트리
 
-nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_registry.py`, 저장 위치는 `pods.json`).
+nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_registry.py`, 저장 위치는 `data/pods.json`).
 파드는 "ComfyUI 한 대"가 아니라 **드라이버가 붙은 엔드포인트**입니다 — 레코드의 `kind`가 어떤
 드라이버로 그 파드를 다룰지 정하고(`drivers/`), 드라이버가 "살아 있나 / 뭘 할 수 있나 / 작업에
 어떤 환경변수를 실어 보내나 / 결과물을 어떻게 회수하나 / 대시보드 카드에 뭘 보여주나"를 압니다.
@@ -766,7 +766,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 
 주피터랩 등에서 배치 완료 후 수동으로 돌리던 `send_images_email.py`를 웹 UI의 "결과 이미지 이메일 전송" 패널로 옮긴 기능입니다. `NIGHTSHIFT_OUTPUT_DIR`(기본 `/workspace/output`)에 있는 이미지 파일들을 찾아, 한 통당 `max_mb`(기본 20MB)를 넘지 않는 선에서 묶어 필요한 만큼 여러 통으로 나눠 보냅니다. SMTP 서버는 기본 `smtp.gmail.com:587`이며 `NIGHTSHIFT_SMTP_HOST`/`NIGHTSHIFT_SMTP_PORT`로 바꿀 수 있습니다. Gmail을 쓴다면 2단계 인증을 켠 뒤 [앱 비밀번호](https://myaccount.google.com/apppasswords)를 발급받아 비밀번호 칸에 입력하세요.
 
-**보안 참고**: 입력한 메일 계정/비밀번호/받는 주소는 그 발송 요청 처리에만 쓰이고 어디에도 저장되지 않습니다 — `jobs_state.json`처럼 git으로 버전 관리되는 파일에 남지 않도록 의도적으로 그렇게 설계했습니다. 브라우저에는(비밀번호는 제외하고) 보내는/받는 메일 주소만 `localStorage`에 남아 다음에 폼을 다시 채워줍니다. 이 앱 자체는 인증이 없으므로, 외부에 노출된 상태라면 이 엔드포인트로 다른 사람이 내 메일 계정으로 로그인을 시도할 수 있다는 점을 감안하세요(아래 "주의사항" 참고).
+**보안 참고**: 입력한 메일 계정/비밀번호/받는 주소는 그 발송 요청 처리에만 쓰이고 어디에도 저장되지 않습니다 — 작업 이력(`data/jobs_state.json`)이나 로그처럼 디스크에 남는 곳에 흘러들지 않도록 의도적으로 그렇게 설계했습니다. 브라우저에는(비밀번호는 제외하고) 보내는/받는 메일 주소만 `localStorage`에 남아 다음에 폼을 다시 채워줍니다. 이 앱 자체는 인증이 없으므로, 외부에 노출된 상태라면 이 엔드포인트로 다른 사람이 내 메일 계정으로 로그인을 시도할 수 있다는 점을 감안하세요(아래 "주의사항" 참고).
 
 ### 결과 이미지 ZIP 다운로드
 
@@ -817,6 +817,10 @@ nightshift/
 ├── ref_assets.py              # pose/depth/lineart 참조 세트 폴더 스캔/업로드 시점 검증 로직
 ├── input_assets.py            # img2img/USDU 입력 이미지(세트 없는 평평한 목록) 스캔 로직
 ├── workflow_builder.py        # 워크플로우 빌더 탭 + 마법사가 쓰는 워크플로우 JSON 조립 로직
+├── pod_registry.py            # 파드(워커) 레지스트리 — pods.json 로드/저장/CRUD
+├── comfy_outputs.py           # 원격 ComfyUI의 결과 이미지를 HTTP로 끌어오기
+├── data_paths.py              # 런타임에 생기는 것들의 경로를 한 곳에서 정함 (아래 data/ 참고)
+├── drivers/                   # 파드 종류별 드라이버 (comfyui, shell)
 ├── requirements.txt
 ├── package.json               # pm2 실행용 npm 스크립트(`npm start` 등) — 서버 코드와 무관
 ├── ecosystem.config.js        # pm2 앱 설정 (uvicorn --reload를 이 설정으로 감독)
@@ -840,18 +844,53 @@ nightshift/
 │   ├── input_image_csv_batch.py # 템플릿 스크립트 (img2img — CSV 행마다 다른 입력 이미지)
 │   ├── ipadapter_batch.py       # 템플릿 스크립트 (IPAdapter 프리셋 — 참조 이미지 1장 + 시드 반복)
 │   └── ipadapter_csv_batch.py   # 템플릿 스크립트 (IPAdapter 프리셋 — CSV 행마다 다른 참조 이미지)
-├── jobs/                      # 업로드된 워크플로우/CSV가 저장되는 곳 (자동 생성)
-├── logs/                      # 작업별 실행 로그 (자동 생성)
-├── workflow_presets/           # family별 ControlNet 프리셋 워크플로우 (자동 생성, git 제외)
-├── jobs_state.json            # 작업 이력 저장 파일 (자동 생성)
-├── lora_triggers.json          # LoRA 트리거 워드 + 호환 베이스 모델 (자동 생성)
-├── base_model_families.json    # 베이스 모델(family) 정의 (자동 생성)
-└── comfy_endpoint.json         # ComfyUI 접속 주소 설정 (자동 생성, 화면에서 저장할 때만 생김)
+└── data/                       # 돌면서 생기는 것 전부 (자동 생성, git 제외)
+    ├── jobs/                   # 업로드된 워크플로우/CSV
+    ├── logs/                   # 작업별 실행 로그
+    ├── recent_workflows/       # "🕘 최근" 워크플로우 사본
+    ├── recent_csvs/            # "🕘 최근" CSV 사본
+    ├── workflow_presets/       # family별 ControlNet 프리셋 워크플로우
+    ├── jobs_state.json         # 작업 이력
+    ├── pods.json               # 파드(워커) 목록
+    ├── comfy_endpoint.json     # (옛 형식) ComfyUI 접속 주소 — 있으면 pods.json으로 이관됨
+    ├── comfy_output_sync.json  # 원격 ComfyUI에서 어디까지 받아왔는지의 기록
+    ├── lora_triggers.json      # LoRA 트리거 워드 + 호환 베이스 모델
+    ├── base_model_families.json # 베이스 모델(family) 정의
+    ├── danbooru_tag_edits.json # Danbooru 태그 풀 편집
+    └── danbooru_history.json   # Danbooru 프롬프트 조합 기록
 ```
 
-- 모든 작업은 `templates/{script_filename}`을 직접 실행하고, 업로드된 워크플로우/CSV만 `jobs/{job_id}_{원본파일명}` 형태로 저장됩니다.
-- 각 작업의 로그는 `logs/{job_id}.log`에 저장됩니다.
-- 워커는 단일 스레드로 동작하므로 스크립트는 항상 큐에 들어온 순서대로 **하나씩** 실행됩니다(동시 실행 없음).
+### `data/` — 소스와 생성물을 갈라놓는 곳
+
+**저장소에 커밋돼 있는 것**(스크립트·정적 페이지·샘플 워크플로우)은 저장소 루트에,
+**앱이 돌면서 만들어내는 것**은 전부 `data/` 아래에 있습니다. 경로만 봐도 무엇이 코드이고
+무엇이 생성물인지 갈리게 하려는 것으로, 경로는 `data_paths.py` 한 곳에서 정합니다.
+
+- `data/`는 통째로 `.gitignore`에 있습니다. 그래서 작업을 아무리 돌려도 워킹 트리가
+  더러워지지 않고, 홈서버에서 `git pull` 할 때 걸릴 일이 없습니다.
+- **옛 배치는 자동으로 이관됩니다** — 저장소 루트에 `jobs/`·`jobs_state.json`·`pods.json`
+  같은 것이 남아 있으면 첫 실행 때 `data/` 아래로 옮깁니다. 이미 돌고 있는 홈서버나 pod가
+  설정과 기록을 잃지 않게 하기 위한 것입니다.
+- 결과 이미지는 여기 두지 않습니다 — 보통 저장소 밖(원격 pod의 네트워크 볼륨 등)에 있고
+  `NIGHTSHIFT_OUTPUT_DIR`로 따로 정합니다.
+- 다른 위치에 두고 싶으면 `NIGHTSHIFT_DATA_DIR`로 폴더 전체를 옮길 수 있습니다.
+
+> **⚠ 이 버전으로 올릴 때 한 번만** — 이전 버전에서는 `jobs_state.json`,
+> `recent_csvs_state.json`, `recent_workflows_state.json`이 저장소에 커밋돼 있었습니다.
+> 지금은 추적하지 않으므로, 이미 돌고 있는 머신에서는 `git pull`이 "로컬 변경을 덮어쓴다"며
+> 멈춥니다. 아래를 먼저 실행한 뒤 pull 하세요(나머지 파일은 추적 대상이 아니라 pull과
+> 무관하며, 앱이 다음 시작 때 알아서 `data/`로 옮깁니다):
+>
+> ```bash
+> mkdir -p data
+> cp jobs_state.json recent_csvs_state.json recent_workflows_state.json data/ 2>/dev/null
+> git checkout -- jobs_state.json recent_csvs_state.json recent_workflows_state.json
+> git pull
+> ```
+
+- 모든 작업은 `templates/{script_filename}`을 직접 실행하고, 업로드된 워크플로우/CSV만 `data/jobs/{job_id}_{원본파일명}` 형태로 저장됩니다.
+- 각 작업의 로그는 `data/logs/{job_id}.log`에 저장됩니다.
+- 워커 스레드는 **파드마다** 따로 돌고, 한 파드 안에서는 `max_concurrent`(기본 1)만큼 동시에 실행됩니다.
 - 서버가 재시작되면 이전에 `queued`/`running` 상태였던 작업은 `interrupted`로 표시되며, 자동으로 재실행되지 않습니다.
 
 ## 주의사항
