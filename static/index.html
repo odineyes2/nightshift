@@ -2518,6 +2518,7 @@
     <div class="modal-footer">
       <button class="del-btn" id="pod-edit-delete" type="button" style="margin-right:auto;">🗑 삭제</button>
       <button class="modal-btn-secondary" id="pod-edit-test" type="button">🔌 연결 테스트</button>
+      <button class="modal-btn-secondary" id="pod-edit-runpod-test" type="button">🛰 RunPod 정보 테스트</button>
       <button class="modal-btn-secondary" id="pod-edit-cancel" type="button">✕ 취소</button>
       <button class="submit-btn" id="pod-edit-save" type="button">💾 저장</button>
     </div>
@@ -6082,6 +6083,43 @@ document.getElementById('pod-edit-test').addEventListener('click', async () => {
     statusEl.textContent = data.ok
       ? `✅ 응답했어요 — ${data.url}`
       : `⚠ ${data.detail || '응답이 없어요.'}${data.url ? ` (${data.url})` : ''}`;
+  }catch(e){
+    statusEl.textContent = '';
+    errorEl.textContent = e.message || '확인하지 못했어요.';
+  }
+});
+
+// 대시보드 카드의 RunPod 정보(card.runpod)는 실패를 조용히 삼키고 비워두므로, "왜 안
+// 뜨는지"를 직접 확인하려면 캐시를 거치지 않는 이 진단 엔드포인트가 필요하다. 원본
+// 응답(raw_response)은 콘솔에 남겨서, 정규화된 필드가 이상해도 원인을 눈으로 볼 수
+// 있게 한다.
+document.getElementById('pod-edit-runpod-test').addEventListener('click', async () => {
+  const statusEl = document.getElementById('pod-edit-status');
+  const errorEl = document.getElementById('pod-edit-error');
+  errorEl.textContent = '';
+  if(!podEditId){
+    statusEl.textContent = '';
+    errorEl.textContent = '먼저 저장한 뒤에 확인할 수 있어요.';
+    return;
+  }
+  statusEl.textContent = 'RunPod API 확인 중…';
+  try{
+    const res = await fetch(`/api/pods/${podEditId}/runpod-test`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '확인하지 못했어요.');
+    console.log('[runpod-test]', data);
+    if(data.error){
+      statusEl.textContent = `⚠ ${data.error}${data.status_code ? ` (HTTP ${data.status_code})` : ''} — 자세한 응답은 브라우저 콘솔(F12)에 남겨뒀어요.`;
+    }else{
+      const n = data.normalized || {};
+      const parts = [
+        n.pod_name, n.gpu_type,
+        n.cost_per_hr != null ? `$${Number(n.cost_per_hr).toFixed(2)}/hr` : null,
+      ].filter(Boolean);
+      statusEl.textContent = parts.length
+        ? `✅ ${parts.join(' · ')} — 원본 응답은 콘솔(F12)에 남겨뒀어요.`
+        : '⚠ 응답은 받았지만 알아본 필드가 없어요 — 콘솔(F12)의 원본 응답을 확인해주세요.';
+    }
   }catch(e){
     statusEl.textContent = '';
     errorEl.textContent = e.message || '확인하지 못했어요.';
