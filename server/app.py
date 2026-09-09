@@ -2957,8 +2957,18 @@ async def sync_comfy_outputs(request: Request):
     data = await read_json_object(request)
     job_id = (data.get("job_id") or "").strip() or None
     force = bool(data.get("force"))
+    pod_id = (data.get("pod_id") or "").strip() or None
 
-    url, connected = await asyncio.to_thread(resolve_comfy_url)
+    # pod_id를 주면 그 파드에서 가져온다(파드 갤러리의 "⬇ 결과 가져오기") — 안 주면
+    # 예전처럼 기본 파드([헤더의 연결 상태 배지]·전역 갤러리가 여기 해당한다).
+    if pod_id:
+        pod = pod_registry.get_pod(pod_id)
+        if pod is None:
+            raise HTTPException(404, "없는 파드예요.")
+        health = await asyncio.to_thread(driver_for(pod).health, pod)
+        url, connected = health["url"], health["ok"]
+    else:
+        url, connected = await asyncio.to_thread(resolve_comfy_url)
     if not url or not connected:
         raise HTTPException(503, "ComfyUI에 연결할 수 없어 결과 이미지를 가져올 수 없어요.")
     try:
