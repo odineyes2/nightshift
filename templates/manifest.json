@@ -202,6 +202,7 @@
     "pod_kinds": ["claude_writer"],
     "options": [
       { "name": "prompt", "label": "프롬프트", "type": "textarea", "default": "", "required": true, "placeholder": "예: SF 단편소설을 800자 이내로 써줘" },
+      { "name": "model", "label": "모델", "type": "select", "choices": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"], "default": "claude-opus-5" },
       { "name": "max_tokens", "label": "최대 출력 토큰", "type": "number", "default": 16000 }
     ]
   }
