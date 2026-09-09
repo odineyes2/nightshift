@@ -119,7 +119,7 @@ npm start
 |---|---|
 | `npm start` | 서버 시작(이미 떠 있으면 재시작) + 로그 tail 시작 |
 | `npm run stop` | 서버 완전히 중지 |
-| `npm run restart` | 서버 재시작 (코드 변경은 자동 반영되므로 보통 필요 없음 — 환경변수를 바꿨을 때 등에 사용) |
+| `npm run restart` | 서버 재시작 (코드 변경은 자동 반영되므로 보통 필요 없음 — `.env`를 바꿨을 때 등에 사용). `ecosystem.config.js --update-env`로 재시작해 `.env`를 다시 읽습니다 — `pm2 restart nightshift`나 `pm2 restart all`처럼 **이름으로** 재시작하면 pm2가 맨 처음 떴을 때 읽은 옛 환경변수를 그대로 재사용해서 `.env`를 고쳐도 반영되지 않으니 주의하세요 |
 | `npm run status` | 지금 떠 있는지, PID/메모리/재시작 횟수 등을 표로 확인 (`pm2 status`) |
 | `npm run logs` | 로그만 따로 열어보기 (`Ctrl+C`로 빠져나와도 서버는 안 멈춤) |
 
