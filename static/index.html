@@ -816,6 +816,28 @@
     background:var(--panel); border:1px solid var(--border); border-radius:10px;
   }
   .dash-card[data-span="2"]{ grid-column:span 2; }
+  /* 카드 전체가 클릭 영역이다 — 눌러도 되는 곳이라는 걸 커서와 미묘한 hover로
+     알려준다. 안쪽 버튼(⚙/▶ 시작/⏸ 정지)은 자기 cursor:pointer가 그대로 이기므로
+     구분엔 문제없다. */
+  .dash-card-clickable{ cursor:pointer; transition:border-color .12s ease, background .12s ease; }
+  .dash-card-clickable:hover{ border-color:var(--queued); background:rgba(var(--queued-rgb),0.04); }
+  /* 상태별 시각 구분 — 점 색깔 하나로는 카드가 많아지면 눈에 잘 안 들어온다.
+     왼쪽 띠 색 + 옅은 배경 톤을 더해서, 굳이 점을 찾아보지 않아도 "지금 뭐가
+     돌고 있고 뭐가 안 붙는지"가 카드를 훑기만 해도 보이게 한다. hover 시
+     border-color를 덮어쓰는 규칙보다 아래 있어야 하고(우선순위), 왼쪽 테두리는
+     hover와 무관하게 그 파드의 상태를 계속 보여줘야 하므로 border-left만 별도로
+     둔다. */
+  .dash-card[data-pod-state]{ border-left-width:3px; border-left-style:solid; }
+  .dash-card[data-pod-state="online"]{ border-left-color:var(--done); }
+  .dash-card[data-pod-state="offline"]{
+    border-left-color:var(--failed);
+    background:rgba(var(--failed-rgb),0.045);
+  }
+  .dash-card[data-pod-state="busy"]{
+    border-left-color:var(--running);
+    background:rgba(var(--running-rgb),0.05);
+  }
+  .dash-card[data-pod-state="disabled"]{ border-left-color:var(--border); }
   .dash-card-head{ display:flex; align-items:center; gap:8px; }
   .dash-card-name{ font-family:var(--mono); font-size:14px; color:var(--text); }
   .dash-card-kind{ font-size:10.5px; color:var(--text-dim); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
@@ -1035,6 +1057,25 @@
   }
   .lora-tab-family-chip input{ margin:0; }
   .lora-tab-family-chip.checked{ color:var(--text); border-color:var(--queued); }
+  /* 아직 family로 등록 안 된, 설치된 체크포인트 안내 — family-row보다 눈에 덜
+     띄게(점선 테두리) 둔다. "해도 되고 안 해도 되는" 편의 기능이라서다. */
+  .family-unregistered{
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+    padding:8px 12px; margin-bottom:10px;
+    border:1px dashed var(--border); border-radius:var(--radius-sm);
+    font-size:12.5px; color:var(--text-dim);
+  }
+  .family-unregistered-chip{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family:var(--mono); font-size:12px; color:var(--text);
+    border:1px solid var(--border); border-radius:6px; padding:2px 4px 2px 8px;
+    background:var(--bg);
+  }
+  .family-quick-register-btn{
+    background:none; border:none; color:var(--queued); font-family:var(--mono);
+    font-size:11.5px; font-weight:600; cursor:pointer; padding:2px 6px;
+  }
+  .family-quick-register-btn:hover{ text-decoration:underline; }
   /* "🎛 모델" 탭의 베이스 모델(family) 목록 줄 — 이름/체크포인트 다중선택/삭제. */
   .family-row{
     display:flex;
@@ -1798,7 +1839,7 @@
      무엇이 설치돼 있는가"에 종속되므로 파드 스코프(아래 pod-bar) 안으로 들어갔다.
      Danbooru는 태그를 조립할 뿐 파드를 쓰지 않아 전역에 남되, 도구라는 뜻으로
      구분선 뒤에 둔다. -->
-<div class="tab-bar">
+<div class="tab-bar" id="global-tab-bar">
   <div class="tab-bar-inner">
     <button class="tab-btn active" data-tab="dashboard" type="button" title="파드(워커) 대시보드">📊 대시보드</button>
     <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
@@ -2020,7 +2061,7 @@
 <main id="tab-gallery" style="display:none;">
   <div class="panel">
     <div class="panel-header">
-      <div class="section-label">갤러리</div>
+      <div class="section-label" id="gallery-section-label">갤러리</div>
       <div class="panel-header-actions">
         <span class="gallery-count" id="gallery-count"></span>
         <div class="enhance-mode" id="gallery-view-toggle">
@@ -2049,7 +2090,7 @@
       </div>
       <div class="upload-error" id="gallery-error"></div>
       <div class="gallery-grid" id="gallery-grid"></div>
-      <div class="empty" id="gallery-empty" style="display:none;">서버에 저장된 이미지가 없어요</div>
+      <div class="empty" id="gallery-empty" style="display:none;"></div>
     </div>
   </div>
 </main>
@@ -2241,6 +2282,7 @@
         "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/ControlNet 프리셋을 걸러서 보여줘요.
         family 하나에 체크포인트를 여러 개(같은 계열의 다른 파인튜닝 등) 넣을 수 있어요.</div>
       <div class="upload-error" id="family-tab-error"></div>
+      <div id="family-tab-unregistered"></div>
       <div id="family-tab-list"></div>
       <div class="lora-tab-row" style="margin-top:8px;">
         <input type="text" class="option-input" id="family-new-id" placeholder="family id (영문/숫자/-/_, 예: wai-illustrious)" style="max-width:220px;">
@@ -2603,6 +2645,9 @@ let podKinds = [];      // 등록할 수 있는 파드 종류(드라이버) 목�
 let allTemplates = [];  // 서버가 준 템플릿 전체(고른 파드 종류에 맞는 것만 드롭다운에 넣는다)
 // 작업 목록을 한 파드 것만 보고 있을 때 그 파드 id. null이면 전체.
 let jobPodFilter = null;
+// 갤러리를 한 파드 것만 보고 있을 때 그 파드 id. null이면 전체(jobPodFilter와
+// 같은 자리, 같은 생명주기 — showTab에서 같이 정해진다).
+let galleryPodFilter = null;
 // 지금 열려 있는 파드 스코프(#pod/{id}/...). 전역 화면(대시보드·갤러리·Danbooru)에
 // 있으면 null이다.
 let currentPodId = null;
@@ -4286,7 +4331,15 @@ function renderComfyEndpointCurrent(info, connected){
 let comfyPullOutputs = false;
 function applyPullOutputsVisibility(){
   const btn = document.getElementById('gallery-pull-btn');
-  if(btn) btn.style.display = comfyPullOutputs ? '' : 'none';
+  if(!btn) return;
+  // 파드 갤러리에서는 지금 보고 있는 그 파드의 설정을 본다 — 전역 갤러리(과
+  // 헤더 배지)는 예전처럼 기본 파드 기준(comfyPullOutputs)이다. 파드가 여럿일 때
+  // "기본 파드"와 "지금 보는 파드"가 다를 수 있어서 둘을 섞으면 안 된다.
+  const on = galleryPodFilter ? !!(podsById[galleryPodFilter] || {}).pull_outputs : comfyPullOutputs;
+  btn.style.display = on ? '' : 'none';
+  btn.title = galleryPodFilter
+    ? `'${podName(galleryPodFilter)}' 파드가 만든 결과 이미지를 이 서버로 가져와요.`
+    : '원격 ComfyUI가 만든 결과 이미지를 이 서버로 가져와요. 작업이 끝날 때마다 자동으로도 가져오지만, pod를 껐다 켠 뒤 밀린 것을 한꺼번에 받을 때 쓰세요.';
 }
 
 async function openComfyEndpointModal(){
@@ -4664,14 +4717,45 @@ document.getElementById('lora-tab-refresh-btn').addEventListener('click', () => 
 document.getElementById('lora-tab-filter').addEventListener('input', renderLoraTab);
 
 // ---- "🎛 모델" 탭 — 베이스 모델(family) 관리 ----
+// family id로 쓸 수 있는 글자만 남기고, 겹치면 -2, -3...을 붙인다. 체크포인트
+// 파일명(예: "krea2_turbo_fp8_scaled.safetensors")을 그대로 넣어도 안전한 id가
+// 나오게 하려고 둔다.
+function slugifyFamilyId(name){
+  const base = name.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, '') || 'model';
+  let id = base, n = 2;
+  while(baseModelFamilies[id]) id = `${base}-${n++}`;
+  return id;
+}
+
 function renderFamilyTab(){
   const listEl = document.getElementById('family-tab-list');
+  const unregEl = document.getElementById('family-tab-unregistered');
   const entries = Object.entries(baseModelFamilies);
+  const installed = (comfyObjectInfoCache && comfyObjectInfoCache.connected) ? (comfyObjectInfoCache.models.checkpoints || []) : [];
+
+  // 새 작업 마법사의 "베이스 모델" 1단계는 family만 보므로, ComfyUI에 체크포인트가
+  // 설치돼 있어도 family로 한 번 등록해야 마법사에 나타난다(설치 여부와 family는
+  // 서로 다른 개념 — family는 nightshift가 붙이는 사람이 읽을 이름/그룹이다).
+  // "분명 이 파드에 있는데 왜 마법사에 안 뜨지"를 줄이려고, 아직 어떤 family에도
+  // 없는 설치된 체크포인트를 여기 보여주고 클릭 한 번으로 등록하게 한다.
+  const assigned = new Set(entries.flatMap(([, f]) => f.checkpoints || []));
+  const unregistered = installed.filter(name => !assigned.has(name));
+  if(unregEl){
+    unregEl.innerHTML = unregistered.length ? `
+      <div class="family-unregistered">
+        <span>이 파드에 설치돼 있지만 아직 베이스 모델로 등록 안 된 체크포인트 — 눌러서 바로 등록:</span>
+        ${unregistered.map(name => `
+          <span class="family-unregistered-chip">
+            ${escapeHtml(name)}
+            <button type="button" class="family-quick-register-btn" data-name="${escapeHtml(name)}" title="이 체크포인트로 베이스 모델 등록">+ 등록</button>
+          </span>`).join('')}
+      </div>` : '';
+  }
+
   if(entries.length === 0){
     listEl.innerHTML = '<div class="comfy-model-empty">등록된 베이스 모델이 없어요 — 아래에서 추가하세요.</div>';
     return;
   }
-  const installed = (comfyObjectInfoCache && comfyObjectInfoCache.connected) ? (comfyObjectInfoCache.models.checkpoints || []) : [];
   listEl.innerHTML = entries.map(([familyId, family]) => {
     // 이 family에 저장돼 있지만 지금 ComfyUI에는 없는 체크포인트도 선택지에서
     // 빠지면 안 되므로(연결이 잠깐 끊겼거나 다른 파드일 수 있음) 합쳐서 보여준다.
@@ -4722,6 +4806,19 @@ document.getElementById('family-tab-list').addEventListener('click', (e) => {
   const familyId = btn.dataset.familyId;
   if(!confirm(`'${baseModelFamilies[familyId]?.label || familyId}' 베이스 모델을 삭제할까요? (LoRA/프리셋의 호환 설정에서도 사라져요)`)) return;
   delete baseModelFamilies[familyId];
+  scheduleSaveBaseModelFamilies();
+  renderFamilyTab();
+  renderLoraTab();
+});
+
+document.getElementById('family-tab-unregistered').addEventListener('click', (e) => {
+  const btn = e.target.closest('.family-quick-register-btn');
+  if(!btn) return;
+  const name = btn.dataset.name;
+  const familyId = slugifyFamilyId(name);
+  // 표시 이름은 확장자를 뗀 파일명 그대로 둔다 — 나중에 "🎛 모델" 탭에서 언제든
+  // 바꿀 수 있으니 여기서는 빠르게 등록하는 게 우선이다.
+  baseModelFamilies[familyId] = { label: name.replace(/\.[^.]+$/, ''), checkpoints: [name] };
   scheduleSaveBaseModelFamilies();
   renderFamilyTab();
   renderLoraTab();
@@ -5764,7 +5861,7 @@ function renderPodCard(p){
     `<img class="dash-thumb" src="/api/output-images/${encodeURI(name)}/thumbnail?size=120" alt="" loading="lazy">`).join('');
 
   return `
-    <div class="dash-card${p.enabled ? '' : ' disabled'}" data-card-type="pod" data-pod-id="${escapeHtml(p.id)}">
+    <div class="dash-card dash-card-clickable${p.enabled ? '' : ' disabled'}" data-card-type="pod" data-pod-id="${escapeHtml(p.id)}" data-pod-open="${escapeHtml(p.id)}" data-pod-state="${state.cls}">
       <div class="dash-card-head">
         <span class="dash-dot ${state.cls}" title="${state.label}"></span>
         <span class="dash-card-name">${escapeHtml(p.name)}</span>
@@ -5794,7 +5891,6 @@ function renderPodCard(p){
         ${p.auto_run
           ? `<button class="del-btn" data-pod-stop="${escapeHtml(p.id)}">⏸ 정지</button>`
           : `<button class="load-btn" data-pod-start="${escapeHtml(p.id)}"${p.enabled ? '' : ' disabled'}>▶ 시작</button>`}
-        <button class="load-btn" data-pod-jobs="${escapeHtml(p.id)}">🗂 열기</button>
       </div>
     </div>`;
 }
@@ -5862,8 +5958,9 @@ function renderDashboard(){
   canvas.querySelectorAll('[data-pod-edit]').forEach(btn => btn.addEventListener('click', () => {
     openPodEditModal(btn.dataset.podEdit);
   }));
-  canvas.querySelectorAll('[data-pod-jobs]').forEach(btn => btn.addEventListener('click', () => {
-    showTab('jobs', { podId: btn.dataset.podJobs });
+  canvas.querySelectorAll('[data-pod-open]').forEach(card => card.addEventListener('click', (e) => {
+    if(e.target.closest('button, select, a')) return; // ⚙ 설정, ▶ 시작/⏸ 정지는 자기 할 일만 한다
+    showTab('jobs', { podId: card.dataset.podOpen });
   }));
   canvas.querySelectorAll('[data-job-pod]').forEach(row => row.addEventListener('click', () => {
     showTab('jobs', { podId: row.dataset.jobPod });
@@ -6011,14 +6108,24 @@ const TAB_MAINS = {
   danbooru: document.getElementById('tab-danbooru'),
   builder: document.getElementById('tab-builder'),
   lora: document.getElementById('tab-lora'),
+  // 파드 갤러리("그 파드가 만든 것만")는 전역 갤러리와 같은 화면을 그대로 쓴다 —
+  // ~500줄짜리 갤러리 구현(격자/작업별·날짜별 보기/선택/삭제/라이트박스)을 통째로
+  // 복제하는 대신, galleryPodFilter 하나로 같은 코드가 "전체"와 "이 파드 것만"을
+  // 둘 다 그리게 한다. 같은 DOM을 두 이름이 가리키므로 아래 표시 전환 루프는
+  // "이름"이 아니라 "실제 화면 요소" 기준으로 처리한다(그래야 pgallery로 보여준
+  // 요소를 gallery 키가 다시 숨기는 일이 없다).
+  pgallery: document.getElementById('tab-gallery'),
 };
 
-const POD_TABS = ['jobs', 'builder', 'lora'];
-const POD_TAB_LABEL = { jobs: '🗂 작업', builder: '🧩 워크플로우', lora: '🎛 모델' };
+const POD_TABS = ['jobs', 'builder', 'lora', 'pgallery'];
+const POD_TAB_LABEL = { jobs: '🗂 작업', builder: '🧩 워크플로우', lora: '🎛 모델', pgallery: '🖼 갤러리' };
 // 파드 종류가 서브탭 구성을 정한다 — 셸 파드에는 워크플로우도 설치된 모델도 없다.
 // (예전에는 셸 파드만 등록해도 상단에 🧩·🎛 탭이 그대로 보였고, 눌러봐야 빈
 // 목록이었다.) 새 종류의 워커를 붙일 때 여기 한 줄이 그 워커의 화면 구성이 된다.
-const POD_SUBTABS = { comfyui: ['jobs', 'builder', 'lora'], shell: ['jobs'] };
+// pgallery는 모든 종류에 둔다 — 셸 파드는 결과가 이미지가 아니라 갤러리가 항상
+// 비어 보이겠지만, 그 자체가 "이 파드는 이미지가 아니라 이런 걸 만든다"는 정직한
+// 신호이기도 해서 굳이 숨기지 않는다.
+const POD_SUBTABS = { comfyui: ['jobs', 'builder', 'lora', 'pgallery'], shell: ['jobs', 'pgallery'] };
 
 function podSubtabs(pod){ return POD_SUBTABS[(pod || {}).kind] || ['jobs']; }
 
@@ -6058,9 +6165,15 @@ function showTab(tab, { podId = null } = {}){
   jobPodFilter = (tab === 'jobs') ? scopedPodId : null;
 
   document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  for(const [name, el] of Object.entries(TAB_MAINS)){
-    el.style.display = (name === tab) ? '' : 'none';
+  const targetMain = TAB_MAINS[tab];
+  for(const el of new Set(Object.values(TAB_MAINS))){
+    el.style.display = (el === targetMain) ? '' : 'none';
   }
+  // 갤러리 화면(gallery/pgallery가 같은 요소)이 지금 "전체"인지 "이 파드 것만"인지.
+  // jobPodFilter와 같은 자리에서 같이 정한다 — 화면을 나가면(다른 탭으로 이동하면)
+  // 필터도 같이 풀린다.
+  galleryPodFilter = (tab === 'pgallery') ? scopedPodId : null;
+  updateGalleryScopeUI();
   renderPodBar();
 
   // 파드 종류가 바뀌면 그 종류에서 쓸 수 있는 템플릿만 남긴다. 종류가 그대로면
@@ -6079,7 +6192,7 @@ function showTab(tab, { podId = null } = {}){
     dashTimer = null;
   }
 
-  if(tab === 'gallery') fetchGalleryImages();
+  if(tab === 'gallery' || tab === 'pgallery') fetchGalleryImages();
   if(tab === 'builder') initBuilderTab();
   if(tab === 'lora') initLoraTab();
   if(tab === 'jobs') fetchJobs();
@@ -6092,6 +6205,11 @@ function showTab(tab, { podId = null } = {}){
 function renderPodBar(){
   const bar = document.getElementById('pod-bar');
   if(!bar) return;
+  // 파드 안에 있는 동안은 전역 탭(대시보드·갤러리·Danbooru)을 아예 숨긴다 — 그
+  // 탭들은 "파드 밖" 개념이라, 파드 스코프 바와 같이 떠 있으면 지금 어느 층에
+  // 있는지 헷갈린다. 대시보드로는 파드 스코프 바의 "← 대시보드"로 돌아간다.
+  const globalBar = document.getElementById('global-tab-bar');
+  if(globalBar) globalBar.style.display = currentPodId ? 'none' : '';
   if(!currentPodId){ bar.style.display = 'none'; return; }
   bar.style.display = '';
   const pod = podsById[currentPodId] || {};
@@ -6534,6 +6652,29 @@ document.querySelectorAll('#gallery-display-toggle .enhance-mode-btn').forEach(b
   });
 });
 
+// job_id로 그 작업이 배정된 파드를 찾는다. lastJobs는 2초마다 갱신되는 전역 작업
+// 목록(작업 화면과 공유)이라 따로 다시 받아올 필요가 없다. 오래전에 완전히
+// 삭제된 작업이면 못 찾는데, 그런 이미지는 애초에 "이 파드 것"이라고 확신할
+// 근거가 없으므로 파드 갤러리에서는 뺀다(전체 갤러리에서는 그대로 보인다).
+function podIdForImage(img){
+  if(!img.job_id) return null;
+  const job = lastJobs.find(j => j.id === img.job_id);
+  return job ? job.pod_id : null;
+}
+
+// 갤러리 화면이 "전체"인지 "이 파드 것만"인지에 따라 제목/가져오기 버튼을 맞춘다.
+// showTab()이 galleryPodFilter를 정한 직후, 그리고 상태 폴링(fetchComfyStatus)마다
+// 부른다 — 둘 다 곧바로 반영돼야 5초씩 기다리다 헷갈리지 않는다.
+function updateGalleryScopeUI(){
+  const label = document.getElementById('gallery-section-label');
+  if(label){
+    label.textContent = galleryPodFilter
+      ? `🖼 갤러리 · ${podName(galleryPodFilter) || galleryPodFilter}`
+      : '갤러리';
+  }
+  applyPullOutputsVisibility();
+}
+
 async function fetchGalleryImages(){
   const grid = document.getElementById('gallery-grid');
   const emptyMsg = document.getElementById('gallery-empty');
@@ -6545,6 +6686,10 @@ async function fetchGalleryImages(){
     ]);
     const data = await imgRes.json();
     galleryImages = data.images || [];
+    // 파드 갤러리면 그 파드가 배정된 작업의 이미지만 남긴다.
+    if(galleryPodFilter){
+      galleryImages = galleryImages.filter(img => podIdForImage(img) === galleryPodFilter);
+    }
     galleryJobLabels = labels;
   }catch(e){
     galleryImages = [];
@@ -6564,6 +6709,7 @@ async function fetchGalleryImages(){
   if(galleryImages.length === 0){
     grid.innerHTML = '';
     displayedGalleryImages = [];
+    emptyMsg.textContent = galleryPodFilter ? '이 파드가 만든 이미지가 아직 없어요' : '서버에 저장된 이미지가 없어요';
     emptyMsg.style.display = 'block';
     return;
   }
@@ -6588,7 +6734,7 @@ document.getElementById('gallery-pull-btn').addEventListener('click', async () =
     const res = await fetch('/api/comfy-outputs/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify(galleryPodFilter ? { pod_id: galleryPodFilter } : {}),
     });
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || '가져오지 못했어요.');
