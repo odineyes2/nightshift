@@ -26,7 +26,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 - ComfyUI 서버 주소 자동 감지 — 후보 포트를 순서대로 찔러보고 응답하는 첫 주소를 채택, 상단 인디케이터로 연결 상태 표시
 - 아직 시작하지 않은(대기중) 작업의 워크플로우 JSON과 CSV를 웹 UI에서 바로 열어 편집/저장 (시작 이후에는 수정 불가)
 - 실행 큐에 들어간 순서대로 워커 스레드가 하나씩 `python3`로 실행 (동시 실행 없음)
-- 작업 상태 추적: `pending`(대기중, 시작 전) → `queued`(배치 시작됨, 워커 차례 대기) → `running` → `done` / `failed` (서버 재시작 시 `queued`/`running`이었던 작업은 `interrupted`). ComfyUI가 꺼져 있으면 `queued`인 채로 붙잡아 두고 연결되면 이어서 실행합니다(`waiting_for_comfy`, 화면에는 `GPU 대기`)
+- 작업 상태 추적: `pending`(대기중, 시작 전) → `queued`(배치 시작됨, 워커 차례 대기) → `running` → `done` / `failed` (서버 재시작 시 `queued`/`running`이었던 작업은 `interrupted`). ComfyUI가 꺼져 있으면 `queued`인 채로 붙잡아 두고 연결되면 이어서 실행합니다(`waiting_for_comfy`, 화면에는 `GPU 대기`). 작업마다 `pod_id`(어느 워커에서 돌지)가 붙고, 큐는 파드별로 따로 돕니다
 - 작업별 실행 로그(stdout/stderr)를 실시간에 가깝게 조회 (2초 폴링)
 - `seed_batch`/`csv_batch` 템플릿은 실행 전에 예상 총 이미지 수(시드/행 수 × batch_size)를 계산해 두고, 이미지가 하나
   완료될 때마다 진행 상황을 서버에 보고 — 작업 목록에서 상태 배지 아래 진행률 바(`done/total`)로 실시간 확인 가능
@@ -221,9 +221,27 @@ nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_regi
   실행 때 파드 1개짜리 목록으로 옮겨 담습니다(주소와 "결과 가져오기" 설정 그대로).
 - 파드 목록은 절대 비지 않습니다. 하나도 없으면 url이 빈 기본 파드를 하나 만들고, 마지막 파드는
   삭제할 수 없습니다(쓰지 않을 파드는 `enabled: false`로 둡니다).
-- **아직 작업을 파드별로 나눠 돌리지는 않습니다.** 여러 개를 등록해 둘 수는 있지만, 실행은
-  여전히 "기본 파드"(`enabled`인 첫 파드) 하나로만 갑니다 — 파드별 큐는 다음 단계입니다.
-  파드가 하나뿐이면 예전과 동작이 완전히 같습니다.
+#### 파드별 독립 큐
+
+**파드마다 큐와 워커 스레드가 따로 돕니다.** 작업에는 `pod_id`가 붙고 그 파드의 큐에만 들어가며,
+파드 하나가 멈춰도 다른 파드는 그대로 돕니다. 파드가 하나뿐이면 예전과 동작이 완전히 같습니다.
+
+- **자동 실행("▶ 시작"/"⏸ 정지")도 파드별**입니다. 화면의 버튼 하나는 편의상 **사용 중인 파드
+  전부**를 켜고 끕니다(`/api/queue/start`·`/api/queue/stop`). 한 대씩 굴리려면
+  `/api/pods/{id}/queue/start`·`stop`을 씁니다.
+- **`max_concurrent`**만큼 그 파드에서 작업이 동시에 돕니다(기본 1 — 예전과 같은 순차 실행).
+- **파드가 죽으면 그 큐만 멈춥니다.** 옆 파드가 놀아도 자동으로 넘어가지 않습니다(자동 배분은
+  일부러 넣지 않았습니다 — `multipod_plan.md`의 "지금 하지 않을 것" 참고). 대신 작업 행의
+  **"➡ 파드 이동"** 버튼(`POST /api/jobs/{id}/move`)으로 다른 파드로 옮겨 이어서 돌릴 수
+  있습니다. 아직 시작하지 않은 작업(`pending`/`queued`/`interrupted`)만 옮길 수 있고, 실행
+  중인 작업은 먼저 멈춰야 합니다.
+- 이미 큐에 들어간 작업도 옮길 수 있습니다. 파이썬 큐에서 항목을 빼는 건 불가능하지만, 워커가
+  작업을 꺼낼 때 **"이 작업이 아직 내 것인가"를 확인하고 아니면 그냥 버리기** 때문입니다
+  (옮긴 쪽이 이미 새 파드 큐에 넣었으므로, 여기서 또 넣으면 같은 작업이 두 번 돕니다).
+- **화면은 파드가 둘 이상일 때만 파드 이야기를 꺼냅니다** — "새 작업 추가"의 "실행할 파드"
+  선택, 작업 행의 파드 배지, "➡ 파드 이동" 버튼이 그때 나타납니다.
+- 파드를 지우면 그 파드에 배정돼 있던 미완료 작업은 기본 파드로 되돌아갑니다(`queued`였다면
+  `pending`으로). 실행 중인 작업이 있는 파드는 지울 수 없습니다.
 
 `GET/PUT /api/comfy-endpoint`(헤더의 연결 상태 배지가 여는 설정 화면)는 그대로 남아 있고,
 **기본 파드의 주소·가져오기 설정을 읽고 씁니다**.
@@ -593,6 +611,10 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/pods` | 파드를 추가한다(요청 본문 = 파드 레코드, `name`만 필수). 이름이 비었거나 주소 형식이 틀리거나 `max_concurrent`가 1 미만이면 400 |
 | `PUT` | `/api/pods/{pod_id}` | 파드를 **부분 수정**한다 — 보낸 필드만 바뀐다(이름만 바꾸려는 요청이 주소를 지우면 안 되므로). 주소가 바뀌면 그 파드의 노드/모델 목록 캐시를 비운다. 없는 파드면 404 |
 | `DELETE` | `/api/pods/{pod_id}` | 파드를 지운다. 마지막 하나는 지울 수 없음(400) — 쓰지 않으려면 `enabled: false` |
+| `GET` | `/api/pods/summary` | 대시보드가 폴링할 파드별 요약 — 레코드 + 연결 상태(캐시) + `auto_run`/`queue_len`/`running_jobs`/`waiting_for_pod`/`pending_count`/`images_today`. 값싼 것만 담는다(파드별 `/system_stats` 같은 추가 조회는 넣지 않음) |
+| `POST` | `/api/pods/{pod_id}/queue/start` | **그 파드만** 자동 실행을 켜고, 그 파드로 배정된 대기 작업을 큐에 넣음. 응답 `{"pod_id", "running": true, "started": N}` |
+| `POST` | `/api/pods/{pod_id}/queue/stop` | **그 파드만** 멈춤(다른 파드는 계속 돎). 그 파드에서 실행 중인 작업에 종료 요청. 응답 `{"pod_id", "running": false, "stopped_job_ids": [...]}` |
+| `POST` | `/api/jobs/{job_id}/move` | 작업을 다른 파드로 옮김(요청 본문 `{"pod_id": "..."}`). `pending`/`queued`/`interrupted`만 가능하고 실행 중이면 400, 없는 파드면 404, 사용 안 함 파드면 400 |
 | `POST` | `/api/pods/{pod_id}/test` | 저장된 그대로의 파드가 응답하는지 확인(설정은 안 건드림). 응답 `{"pod_id", "ok", "url", "source", "detail"}`. 사람이 기다리는 동작이라 폴링보다 넉넉한 타임아웃(8초)을 씀 |
 | `POST` | `/api/comfy-outputs/sync` | 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(요청 본문 `{"job_id": "..."(선택, 그 작업 것만), "force": bool(선택)}`). 응답 `{"url", "checked", "downloaded": [...], "skipped_known", "skipped_existing", "skipped_invalid", "errors", "last_sync"}`. **한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않는다**(`comfy_output_sync.json`) — 정말 다시 받고 싶으면 `force: true`. 로컬에 이미 있는 파일은 어느 경우에도 덮어쓰지 않는다. ComfyUI에 연결이 안 되면 503, 히스토리 조회에 실패하면 502 |
 | `POST` | `/api/comfy-outputs/forget` | "이미 받아왔다"는 기록을 지운다(요청 본문 `{"job_id": "..."}`를 주면 그 작업 것만, 없으면 전부). 응답 `{"forgotten": N, "last_sync", "known"}`. 한 번만 다시 받으면 되는 경우라면 위의 `force: true`가 더 간단하다 |
@@ -614,10 +636,10 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/assets/import-from-output` | 출력 폴더의 결과 이미지를 참조 세트에 사본으로 추가(원본은 그대로 둠) — 갤러리의 "참조 세트로 보내기". 요청 본문 `{"names": [파일명...], "kind": "pose", "char_no": "1", "set_name": "새_세트"}` (`kind`는 `pose`/`depth`/`lineart`, 없으면 `"pose"`). 존재하지 않는 char_no/세트 이름은 그 자리에서 새로 만듦. 응답 `{"added": N, "skipped": [{"name", "reason"}, ...]}` — 그 사이 지워진 이미지 등은 건너뛰고 이유를 담아 반환 |
 | `POST` | `/api/upload` | 작업을 `pending`(대기중) 상태로 등록만 함 — 아직 실행 큐에 들어가지 않음 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨). `template_id`가 `pose_csv_batch`/`depth_csv_batch`/`lineart_csv_batch`면 CSV의 주 참조 컬럼(`pose`/`depth`/`lineart`) 값을 전부 미리 해석해보고, 실패하는 행이 있으면 400으로 거부함(`secondary_kind` 필드가 `"none"`이 아니면 CSV의 `secondary_ref`/`secondary_char_no` 컬럼도 같이 검증함) |
 | `POST` | `/api/jobs` | `/api/upload`와 완전히 같은 파이프라인(검증/큐 등록)을 파일 첨부 없이 JSON 바디로 쓸 수 있게 한 것 — curl이나 LLM처럼 프로그램으로 호출하는 쪽엔 multipart/form-data보다 다루기 쉽다. 요청 본문: `{"template_id", "workflow": {...}(JSON 객체, 필수), "workflow_filename"(선택, 기본 "workflow.json"), "csv"(CSV 원문 문자열, requires_csv 템플릿이면 필수), "csv_filename"(선택, 기본 "data.csv"), "options": {name: 값, ...}}`. 워크플로우는 `POST /api/build-workflow`로 만든 걸 그대로 넣어도 되고, 미리 점검하려면 `POST /api/validate-workflow`를 먼저 불러볼 것. 나머지 검증/에러 규칙과 응답 형식은 `/api/upload`와 동일 |
-| `POST` | `/api/queue/start` | 자동 실행 모드를 켬 — 그 시점에 `pending`인 작업 **전체**를 대기 등록 순서대로 실행 큐에 넣고(상태를 `queued`로 일괄 전환), 이후 자동 실행 모드가 꺼지기 전까지는 `POST /api/upload`로 새로 추가되는 작업도 `pending`을 거치지 않고 바로 `queued`로 등록됨. 응답 `{"running": true, "started": N}`(`N`은 이번 호출로 큐에 들어간 기존 대기 작업 수) |
+| `POST` | `/api/queue/start` | 자동 실행 모드를 켬 — 그 시점에 `pending`인 작업 **전체**를 대기 등록 순서대로 실행 큐에 넣고(상태를 `queued`로 일괄 전환), 이후 자동 실행 모드가 꺼지기 전까지는 `POST /api/upload`로 새로 추가되는 작업도 `pending`을 거치지 않고 바로 `queued`로 등록됨. 응답 `{"running": true, "started": N}`(`N`은 이번 호출로 큐에 들어간 기존 대기 작업 수). 파드가 여러 개면 **사용 중인 파드 전부**를 켠다(응답에 `pods`로 어느 파드들을 켰는지 담김) |
 | `POST` | `/api/queue/stop` | 자동 실행 모드를 끔 — 이후 새로 추가되는 작업은 다시 `pending`으로 쌓이고, 이미 큐에 들어갔지만 아직 안 돈 작업(`queued`)은 그대로 대기하다 다음 `queue/start` 때 이어서 돎. ComfyUI 연결을 기다리며 붙잡혀 있던 작업(`waiting_for_comfy`)은 이때 `pending`으로 풀려남(로그에 되돌린 이유가 남음). **지금 실행 중인(`running`) 작업이 있으면 그 서브프로세스를 즉시 종료 요청**해서 상태를 `interrupted`로 만듦(완전히 죽기까지 몇 초 걸릴 수 있음 — `GET /api/jobs`로 확인). `interrupted` 작업은 `POST /api/jobs/{job_id}/retry`로 다시 큐에 올릴 수 있음. 응답 `{"running": false, "stopped_job_id": string|null}`(중단시킨 작업이 없었으면 `null`) |
 | `POST` | `/api/jobs/clear-completed` | 그 시점에 `done`/`failed`/`interrupted`인 작업 **전체**를 한꺼번에 소프트 삭제("작업 목록" 패널의 "🗑 완료 삭제" 버튼). `pending`/`queued`/`running`은 건드리지 않음. `DELETE /api/jobs/{job_id}`와 동일하게 소프트 삭제라 "삭제된 작업 설정 불러오기"에서 개별적으로 되돌릴 수 있음. 응답 `{"cleared": N}` |
-| `GET` | `/api/jobs` | 삭제되지 않은 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수, 자동 실행 모드 상태(`running`)를 조회. 응답 `{"jobs": [...], "pending_count": N, "running": bool}`. 워커가 ComfyUI 연결을 기다리며 붙잡고 있는 작업은 `status`가 `queued`인 채 `waiting_for_comfy: true`와 `waiting_since`가 붙음(화면에는 `GPU 대기` 배지) |
+| `GET` | `/api/jobs` | 삭제되지 않은 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수, 자동 실행 모드 상태(`running`)를 조회. 응답 `{"jobs": [...], "pending_count": N, "running": bool, "pods": {pod_id: {running, pending_count, running_jobs}}}`(`pending_count`/`running`은 모든 파드를 합친 값 — 화면의 버튼 하나가 쓰는 값이라 형식을 그대로 뒀다). 워커가 ComfyUI 연결을 기다리며 붙잡고 있는 작업은 `status`가 `queued`인 채 `waiting_for_comfy: true`와 `waiting_since`가 붙음(화면에는 `GPU 대기` 배지) |
 | `GET` | `/api/jobs/deleted` | 소프트 삭제된(아래 `DELETE /api/jobs/{job_id}` 참고) 작업 목록을 최근 삭제순으로 반환. "삭제된 작업 설정 불러오기" 드롭다운을 채우는 용도. `{"jobs": [...], "retention": N}` — `retention`은 `NIGHTSHIFT_DELETED_JOBS_RETENTION`(기본 30) |
 | `GET` | `/api/jobs/{job_id}/log?tail=200` | 특정 작업의 로그 조회 (기본 마지막 200줄) |
 | `PUT` | `/api/jobs/{job_id}/progress` | 실행 중인 템플릿 스크립트가 자기 진행 상황을 스스로 보고하는 용도 (요청 본문: `{"total": N, "done": M}`, 둘 다 0 이상의 정수). 매 이미지마다 호출될 수 있어 디스크에는 쓰지 않고 메모리만 갱신함. 없는 작업 id면 404, total/done이 정수가 아니거나 음수면 400 |
