@@ -360,7 +360,7 @@ ENHANCE_POLL_INTERVAL_SEC = float(os.environ.get("NIGHTSHIFT_ENHANCE_POLL_INTERV
 # 삭제된 작업은 워크플로우/CSV 파일까지 완전히 지운다.
 DELETED_JOBS_RETENTION = int(os.environ.get("NIGHTSHIFT_DELETED_JOBS_RETENTION", "30"))
 
-# worker_loop는 한 번에 하나씩만 순차 실행하므로, 대기/실행 중인 작업이 한없이
+# 워커는 파드마다 max_concurrent개씩만 돌므로, 대기/실행 중인 작업이 한없이
 # 쌓이는 걸 막을 안전장치가 없으면 (예: 반복 호출하는 스크립트나 LLM의 버그로)
 # 큐가 통제 불능으로 불어날 수 있다 — 각 작업이 실제 GPU 시간을 쓰므로 위험이
 # 크다. pending/queued/running 합계가 이 값 이상이면 새 작업 추가를 거부한다.
@@ -368,22 +368,33 @@ DELETED_JOBS_RETENTION = int(os.environ.get("NIGHTSHIFT_DELETED_JOBS_RETENTION",
 # NIGHTSHIFT_MAX_ACTIVE_JOBS가 있으면 그 값이 우선한다.
 MAX_ACTIVE_JOBS = int(os.environ.get("NIGHTSHIFT_MAX_ACTIVE_JOBS", "100"))
 
-job_queue: "queue.Queue[str]" = queue.Queue()
 jobs: dict[str, dict] = {}
 lock = threading.Lock()
 
-# 자동 실행 모드 — 켜져 있는 동안에는 POST /api/upload로 새로 추가되는 작업도
-# pending에 머무르지 않고 바로 큐에 들어간다("▶ 시작"/"⏸ 정지" 토글). "⏸ 정지"는
-# 새 작업을 더 안 받는 것과 동시에, 지금 실행 중인 작업의 서브프로세스도 즉시
-# 종료 요청한다(아래 stop_current_job 참고). 서버가 재시작되면 큐에 남아있던
-# 작업이 interrupted로 표시되는 것과 같은 이유로 이 값도 초기화된다(재시작
-# 후 자동으로 다시 돌기 시작하면 안 되므로).
-auto_run = False
+# ---- 파드별 실행 상태 ---------------------------------------------------------
+# 예전에는 큐도 자동 실행 플래그도 "지금 돌고 있는 서브프로세스"도 전부 모듈 전역이었다
+# — 워커가 하나뿐이었기 때문이다. 이제는 파드마다 하나씩 갖는다. 작업에는 pod_id가
+# 붙고, 그 파드의 큐에만 들어간다(파드별 독립 큐 — multipod_plan.md 참고).
+class PodRuntime:
+    """파드 하나의 실행 상태. 필드는 전부 전역 lock 아래에서 읽고 쓴다."""
 
-# worker_loop가 지금 돌리고 있는 서브프로세스 — "⏸ 정지"가 이걸 종료시킬 수
-# 있게 lock으로 보호된 상태로 들고 있는다. 실행 중인 작업이 없으면 둘 다 None.
-current_job_id: str | None = None
-current_process: subprocess.Popen | None = None
+    def __init__(self, pod_id: str, max_concurrent: int = 1):
+        self.pod_id = pod_id
+        self.queue: "queue.Queue[str]" = queue.Queue()
+        # 자동 실행 모드 — 켜져 있는 동안에는 이 파드로 새로 추가되는 작업이 pending에
+        # 머무르지 않고 바로 큐에 들어간다("▶ 시작"/"⏸ 정지"). 서버가 재시작되면 큐에
+        # 남아있던 작업이 interrupted로 표시되는 것과 같은 이유로 초기화된다(재시작 후
+        # 저절로 다시 돌기 시작하면 안 되므로) — 그래서 디스크에 저장하지 않는다.
+        self.auto_run = False
+        # 지금 이 파드에서 돌고 있는 작업 {job_id: 서브프로세스}. "⏸ 정지"가 이걸
+        # 종료시킨다. max_concurrent가 1이면 최대 한 개다.
+        self.running: dict[str, subprocess.Popen] = {}
+        self.max_concurrent = max(1, int(max_concurrent or 1))
+        self.workers = 0        # 실제로 띄운 워커 스레드 수
+        self.closed = False     # 파드가 지워지면 True — 스레드가 스스로 끝난다
+
+
+pod_runtimes: dict[str, PodRuntime] = {}
 
 
 def now_iso() -> str:
@@ -620,27 +631,39 @@ def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
     raise HTTPException(504, f"프롬프트 개선이 {int(ENHANCE_TIMEOUT_SEC)}초 안에 끝나지 않았어요.")
 
 
-def stop_current_job() -> str | None:
-    """지금 worker_loop가 돌리고 있는 서브프로세스에 종료를 요청한다("⏸ 정지").
-    실행 중인 작업이 있었으면 그 job_id를, 없었으면 None을 반환한다. SIGTERM을
-    무시하고 계속 살아있는 경우를 대비해 잠시 후에도 안 죽어있으면 강제 종료
-    (kill)하는 감시 스레드를 하나 띄운다."""
+def stop_pod_jobs(pod_id: str) -> list[str]:
+    """그 파드에서 지금 돌고 있는 서브프로세스들에 종료를 요청한다("⏸ 정지").
+    종료를 요청한 job_id 목록을 반환한다. SIGTERM을 무시하고 계속 살아있는 경우를
+    대비해, 잠시 후에도 안 죽어있으면 강제 종료(kill)하는 감시 스레드를 띄운다."""
     with lock:
-        if current_process is None or current_job_id is None:
-            return None
-        job_id = current_job_id
-        jobs[job_id]["_stop_requested"] = True
-        proc = current_process
+        rt = pod_runtimes.get(pod_id)
+        if rt is None:
+            return []
+        targets = list(rt.running.items())
+        for job_id, _proc in targets:
+            job = jobs.get(job_id)
+            if job is not None:
+                job["_stop_requested"] = True
 
-    proc.terminate()
+    for _job_id, proc in targets:
+        proc.terminate()
 
-    def _kill_if_still_alive():
-        time.sleep(5)
-        if proc.poll() is None:
-            proc.kill()
+        def _kill_if_still_alive(p=proc):
+            time.sleep(5)
+            if p.poll() is None:
+                p.kill()
 
-    threading.Thread(target=_kill_if_still_alive, daemon=True).start()
-    return job_id
+        threading.Thread(target=_kill_if_still_alive, daemon=True).start()
+    return [job_id for job_id, _ in targets]
+
+
+def stop_all_jobs() -> list[str]:
+    with lock:
+        pod_ids = list(pod_runtimes)
+    stopped = []
+    for pod_id in pod_ids:
+        stopped.extend(stop_pod_jobs(pod_id))
+    return stopped
 
 
 def set_comfy_wait_flag(job: dict, waiting: bool) -> bool:
@@ -660,42 +683,53 @@ def set_comfy_wait_flag(job: dict, waiting: bool) -> bool:
     return True
 
 
-def wait_for_comfy(job_id: str) -> str | None:
-    """ComfyUI에 연결될 때까지 붙잡고 있다가, 연결되면 그때 쓸 주소를 돌려준다.
+def wait_for_pod(pod_id: str, job_id: str) -> tuple[str, str | None]:
+    """파드에 연결될 때까지 붙잡고 있다가, 연결되면 ("run", 주소)를 돌려준다.
 
     예전에는 큐에서 꺼낸 작업을 곧바로 실행 상태로 바꾼 뒤 연결을 확인하고, 안 되면
-    그 자리에서 failed 처리했다. ComfyUI가 같은 머신에서 항상 같이 떠 있던 시절에는
+    그 자리에서 failed 처리했다. 워커가 같은 머신에서 항상 같이 떠 있던 시절에는
     그게 맞았지만, GPU pod가 따로 있는 구성에서는 pod가 잠깐 꺼져 있는 동안 대기 중인
     작업이 순식간에 전멸한다 — 큐가 한 번에 한 개씩 돌기 때문에 수십 개가 몇 초 만에
     차례로 실패한다. 그래서 이제는 실패시키지 않고 "queued"인 채로 기다린다.
 
-    기다리기를 그만둬야 하는 경우에는 None을 돌려준다:
-      - 그 사이 작업이 삭제됐다 → 그냥 건너뛴다.
-      - "⏸ 정지"로 auto_run이 꺼졌다 → 작업을 "pending"으로 되돌린다. 다음 "▶ 시작"
-        때 이어서 돌고, 무한정 기다리는 상태에서 빠져나오는 탈출구이기도 하다
-        (대기 중인 작업은 status가 "queued"라 그대로는 삭제할 수 없다).
+    기다리기를 그만둬야 하는 경우:
+      ("skip", None)   그 사이 작업이 삭제됐다 → 그냥 건너뛴다.
+      ("moved", None)  그 사이 작업이 다른 파드로 옮겨졌다 → 그 파드 큐로 넘긴다.
+      ("pending", None) "⏸ 정지"로 이 파드의 auto_run이 꺼졌다 → 작업을 "pending"으로
+                       되돌린다. 다음 "▶ 시작" 때 이어서 돌고, 무한정 기다리는 상태에서
+                       빠져나오는 탈출구이기도 하다(대기 중인 작업은 status가 "queued"라
+                       그대로는 삭제할 수 없다).
     """
     waited = False
     while True:
-        comfy_url, connected = resolve_comfy_url()
+        pod = pod_registry.get_pod(pod_id)
+        if pod is None:
+            return "moved", None      # 파드가 지워졌다 — 다시 배차한다
+        health = driver_for(pod).health(pod)
+        url, connected = health["url"], health["ok"]
 
         with lock:
             job = jobs.get(job_id)
             gone = job is None or job.get("deleted")
-            if job is not None:
-                if connected or gone:
-                    set_comfy_wait_flag(job, False)
+            moved = not gone and job.get("pod_id") != pod_id
+            if job is not None and (connected or gone or moved):
+                set_comfy_wait_flag(job, False)
         if gone:
             if waited:
                 save_state()
-            return None
+            return "skip", None
+        if moved:
+            if waited:
+                save_state()
+            return "moved", None
         if connected:
             if waited:
                 save_state()
-            return comfy_url
+            return "run", url
 
         with lock:
-            keep_waiting = auto_run
+            rt = pod_runtimes.get(pod_id)
+            keep_waiting = bool(rt and rt.auto_run and not rt.closed)
             if keep_waiting:
                 changed = set_comfy_wait_flag(job, True)
             else:
@@ -708,13 +742,13 @@ def wait_for_comfy(job_id: str) -> str | None:
         if not keep_waiting:
             # 아무 설명 없이 대기 목록으로 되돌아가면 사용자가 이유를 알 길이 없으므로
             # 로그에 한 줄 남긴다(작업 행을 펼치면 그대로 보인다).
-            where = comfy_url or "자동 탐지 실패"
+            where = url or "자동 탐지 실패"
             (LOGS_DIR / f"{job_id}.log").write_text(
-                f"ComfyUI(GPU) 서버에 연결할 수 없어 대기 목록으로 되돌렸어요 ({where}).\n"
+                f"'{pod['name']}' 파드에 연결할 수 없어 대기 목록으로 되돌렸어요 ({where}).\n"
                 "서버가 켜진 걸 확인한 뒤 ▶ 시작을 누르면 이어서 실행됩니다.\n",
                 encoding="utf-8",
             )
-            return None
+            return "pending", None
         waited = True
 
         # COMFY_WAIT_RETRY_SEC를 통째로 자면 그동안 "⏸ 정지"에 반응하지 못하므로
@@ -725,18 +759,20 @@ def wait_for_comfy(job_id: str) -> str | None:
             slept += COMFY_WAIT_TICK_SEC
             with lock:
                 job = jobs.get(job_id)
-                if not auto_run or job is None or job.get("deleted"):
+                rt = pod_runtimes.get(pod_id)
+                if (rt is None or not rt.auto_run or rt.closed
+                        or job is None or job.get("deleted")
+                        or job.get("pod_id") != pod_id):
                     break
 
 
-def pull_job_outputs(job_id: str, comfy_url: str, log_path: Path):
+def pull_job_outputs(pod: dict, job_id: str, comfy_url: str, log_path: Path):
     """작업 하나가 끝난 뒤 그 작업(job_id 하위 폴더)의 결과 이미지만 끌어온다.
 
     설정이 꺼져 있으면 아무것도 안 한다. 실패해도 작업 상태에는 영향을 주지 않는다 —
     이미지는 원격에 그대로 남아 있고 갤러리 탭에서 수동으로 다시 가져올 수 있으므로,
     이미 끝난 작업을 실패로 뒤집을 이유가 없다. 대신 무슨 일이 있었는지 그 작업의
     로그 끝에 덧붙여, 이미지가 안 보일 때 이유를 찾을 수 있게 한다."""
-    pod = pod_registry.default_pod()
     try:
         result = driver_for(pod).collect(pod, comfy_url, job_id)
     except OutputSyncError as e:
@@ -758,77 +794,151 @@ def pull_job_outputs(job_id: str, comfy_url: str, log_path: Path):
         pass
 
 
-def worker_loop():
-    global current_job_id, current_process
-    while True:
-        job_id = job_queue.get()
+def dispatch_job(job_id: str, pod_id: str | None = None):
+    """작업을 그 작업이 배정된 파드의 큐에 넣는다. 파드가 없거나 꺼져 있으면 기본
+    파드로 되돌린다 — 큐에 못 들어가 영영 안 도는 작업이 생기면 안 되므로."""
+    with lock:
+        job = jobs.get(job_id)
+        if job is None or job.get("deleted"):
+            return
+        target = pod_id or job.get("pod_id")
+    pod = pod_registry.get_pod(target) if target else None
+    if pod is None:
+        pod = pod_registry.default_pod()
+    with lock:
+        jobs[job_id]["pod_id"] = pod["id"]
+        rt = pod_runtimes.get(pod["id"])
+    if rt is None:
+        rt = ensure_runtime(pod)
+    rt.queue.put(job_id)
 
-        # ComfyUI(GPU)가 아직 안 떠 있으면 여기서 붙잡아 둔다 — 작업은 "queued"인 채
-        # waiting_for_comfy 표시만 붙고, 연결되는 순간 이어서 실행된다.
-        comfy_url = wait_for_comfy(job_id)
-        if comfy_url is None:
-            job_queue.task_done()
+
+def pod_worker_loop(pod_id: str):
+    """파드 하나를 담당하는 워커 스레드. 파드마다 max_concurrent개가 돈다.
+
+    예전에는 이 루프가 프로세스 전체에 하나뿐이었다(전역 job_queue). 이제 큐도 자동
+    실행 플래그도 파드별이라, 파드 하나가 멈춰도 다른 파드는 그대로 돈다."""
+    while True:
+        with lock:
+            rt = pod_runtimes.get(pod_id)
+            if rt is None or rt.closed:
+                return
+            q = rt.queue
+        try:
+            job_id = q.get(timeout=1.0)
+        except queue.Empty:
             continue
 
-        with lock:
-            job = jobs.get(job_id)
-            if job is None or job.get("deleted"):
-                job_queue.task_done()
-                continue
-            job["status"] = "running"
-            job["started_at"] = now_iso()
-            job["progress"] = None
-        save_state()
+        try:
+            _run_one_job(pod_id, job_id)
+        finally:
+            q.task_done()
 
-        log_path = LOGS_DIR / f"{job_id}.log"
-        script_path = TEMPLATES_DIR / job["script_filename"]
 
-        # 파드 종류마다 작업에 실어 보낼 환경변수가 다르다(ComfyUI는 COMFY_URL).
-        # JOB_ID/NIGHTSHIFT_URL은 워커 종류와 무관하게 항상 필요한 것들이다.
-        pod = pod_registry.default_pod()
-        extra_env = {"JOB_ID": job_id, "NIGHTSHIFT_URL": SELF_URL,
-                     **driver_for(pod).job_env(pod, comfy_url)}
-        if job.get("workflow_filename"):
-            extra_env["WORKFLOW_PATH"] = str((JOBS_DIR / job["workflow_filename"]).resolve())
-        if job.get("csv_filename"):
-            extra_env["CSV_PATH"] = str((JOBS_DIR / job["csv_filename"]).resolve())
-        for name, value in job.get("options", {}).items():
-            extra_env[name.upper()] = str(value)
-        env = {**os.environ, **extra_env}
+def _run_one_job(pod_id: str, job_id: str):
+    # 파드에 연결될 때까지 붙잡아 둔다 — 작업은 "queued"인 채 waiting_for_comfy
+    # 표시만 붙고, 연결되는 순간 이어서 실행된다.
+    # 큐에 들어간 뒤 다른 파드로 옮겨졌을 수 있다. 그때는 여기서 **그냥 버린다** —
+    # 다시 배차하지 않는다. 파드를 바꾼 쪽(POST /api/jobs/{id}/move)이 새 파드 큐에
+    # 이미 넣었기 때문에, 여기서 또 넣으면 같은 작업이 두 번 돈다. 파드가 통째로
+    # 지워진 경우도 마찬가지로 그쪽에서 pending으로 되돌려 두므로 버리면 된다.
+    action, comfy_url = wait_for_pod(pod_id, job_id)
+    if action != "run" or comfy_url is None:
+        return
 
-        with open(log_path, "w") as logf:
-            try:
-                proc = subprocess.Popen(
-                    ["python3", "-u", str(script_path)],
-                    stdout=logf,
-                    stderr=subprocess.STDOUT,
-                    env=env,
-                )
-                with lock:
-                    current_job_id = job_id
-                    current_process = proc
-                returncode = proc.wait()
-            except Exception as e:
-                logf.write(f"\n[runner error] {e}\n")
-                returncode = -1
-            finally:
-                with lock:
-                    stopped = current_job_id == job_id and job.pop("_stop_requested", False)
-                    current_job_id = None
-                    current_process = None
+    pod = pod_registry.get_pod(pod_id)
+    if pod is None:
+        return
 
-        with lock:
-            job["status"] = "interrupted" if stopped else ("done" if returncode == 0 else "failed")
-            job["returncode"] = returncode
-            job["finished_at"] = now_iso()
-        save_state()
+    with lock:
+        job = jobs.get(job_id)
+        if job is None or job.get("deleted") or job.get("pod_id") != pod_id:
+            return
+        job["status"] = "running"
+        job["started_at"] = now_iso()
+        job["progress"] = None
+    save_state()
 
-        # ComfyUI가 원격이면 결과 이미지는 그쪽 디스크에만 있다 — 갤러리/zip/이메일은
-        # 전부 로컬 출력 폴더를 읽으므로, 작업이 끝난 직후 그 작업 몫만 끌어온다.
-        # 중간에 실패했더라도 그때까지 나온 이미지는 가져온다(returncode를 안 본다).
-        pull_job_outputs(job_id, comfy_url, log_path)
+    log_path = LOGS_DIR / f"{job_id}.log"
+    script_path = TEMPLATES_DIR / job["script_filename"]
 
-        job_queue.task_done()
+    # 파드 종류마다 작업에 실어 보낼 환경변수가 다르다(ComfyUI는 COMFY_URL).
+    # JOB_ID/NIGHTSHIFT_URL은 워커 종류와 무관하게 항상 필요한 것들이다.
+    extra_env = {"JOB_ID": job_id, "NIGHTSHIFT_URL": SELF_URL,
+                 **driver_for(pod).job_env(pod, comfy_url)}
+    if job.get("workflow_filename"):
+        extra_env["WORKFLOW_PATH"] = str((JOBS_DIR / job["workflow_filename"]).resolve())
+    if job.get("csv_filename"):
+        extra_env["CSV_PATH"] = str((JOBS_DIR / job["csv_filename"]).resolve())
+    for name, value in job.get("options", {}).items():
+        extra_env[name.upper()] = str(value)
+    env = {**os.environ, **extra_env}
+
+    stopped = False
+    with open(log_path, "w") as logf:
+        try:
+            proc = subprocess.Popen(
+                ["python3", "-u", str(script_path)],
+                stdout=logf,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+            with lock:
+                rt = pod_runtimes.get(pod_id)
+                if rt is not None:
+                    rt.running[job_id] = proc
+            returncode = proc.wait()
+        except Exception as e:
+            logf.write(f"\n[runner error] {e}\n")
+            returncode = -1
+        finally:
+            with lock:
+                rt = pod_runtimes.get(pod_id)
+                if rt is not None:
+                    rt.running.pop(job_id, None)
+                stopped = bool(job.pop("_stop_requested", False))
+
+    with lock:
+        job["status"] = "interrupted" if stopped else ("done" if returncode == 0 else "failed")
+        job["returncode"] = returncode
+        job["finished_at"] = now_iso()
+    save_state()
+
+    # 워커가 원격이면 결과물은 그쪽 디스크에만 있다 — 갤러리/zip/이메일은 전부 로컬
+    # 출력 폴더를 읽으므로, 작업이 끝난 직후 그 작업 몫만 끌어온다. 중간에 실패했더라도
+    # 그때까지 나온 이미지는 가져온다(returncode를 안 본다).
+    pull_job_outputs(pod, job_id, comfy_url, log_path)
+
+
+def ensure_runtime(pod: dict) -> PodRuntime:
+    """그 파드의 실행 상태와 워커 스레드를 준비한다(이미 있으면 그대로 쓴다).
+    max_concurrent를 늘렸으면 모자란 만큼 스레드를 더 띄운다."""
+    pod_id = pod["id"]
+    with lock:
+        rt = pod_runtimes.get(pod_id)
+        if rt is None:
+            rt = PodRuntime(pod_id, pod.get("max_concurrent", 1))
+            pod_runtimes[pod_id] = rt
+        rt.closed = False
+        rt.max_concurrent = max(1, int(pod.get("max_concurrent") or 1))
+        missing = rt.max_concurrent - rt.workers
+        rt.workers += max(0, missing)
+    for _ in range(max(0, missing)):
+        threading.Thread(target=pod_worker_loop, args=(pod_id,), daemon=True).start()
+    return rt
+
+
+def sync_runtimes():
+    """레지스트리에 있는 파드마다 런타임을 준비하고, 사라진 파드의 런타임은 닫는다."""
+    pods = pod_registry.list_pods()
+    for pod in pods:
+        ensure_runtime(pod)
+    alive = {p["id"] for p in pods}
+    with lock:
+        gone = [pid for pid in pod_runtimes if pid not in alive]
+        for pid in gone:
+            pod_runtimes[pid].closed = True
+            del pod_runtimes[pid]
 
 
 @asynccontextmanager
@@ -841,15 +951,18 @@ async def lifespan(app: FastAPI):
     load_base_model_families()
     pod_registry.load()
     # 재시작 전에 running/queued 상태로 남아있던 기록은 재실행되지 않으므로 상태만 정리.
-    # ComfyUI 연결을 기다리던 중이었다는 표시(waiting_for_comfy)도 함께 지운다 — 그
-    # 대기는 worker_loop 안에서만 살아 있는 상태라 재시작하면 남아 있을 이유가 없다.
+    # 파드 연결을 기다리던 중이었다는 표시(waiting_for_comfy)도 함께 지운다 — 그
+    # 대기는 워커 스레드 안에서만 살아 있는 상태라 재시작하면 남아 있을 이유가 없다.
+    # pod_id가 없는 옛 작업 기록은 기본 파드 것으로 본다(다중 파드 이전에 만들어진 것).
+    default_id = pod_registry.default_pod()["id"]
     with lock:
         for job in jobs.values():
             if job["status"] in ("queued", "running"):
                 job["status"] = "interrupted"
+            job.setdefault("pod_id", default_id)
             set_comfy_wait_flag(job, False)
     save_state()
-    threading.Thread(target=worker_loop, daemon=True).start()
+    sync_runtimes()
     yield
 
 
@@ -899,89 +1012,107 @@ def list_templates():
 # 헤더 배지가 5초마다 물어보는 연결 상태의 캐시. 이 요청이 매번 원격 pod까지
 # 왕복하면 탭 수만큼 pod를 찌르고, 응답이 느린 날에는 요청 자체가 몇 초씩 걸린다.
 # 그래서 캐시값을 즉시 돌려주고 오래됐으면 백그라운드로 다시 확인한다.
-_comfy_status_cache: dict = {
-    "url": None, "connected": False, "source": "auto", "checked_at": 0.0, "fail_streak": 0,
-}
+# 파드마다 하나씩. 파드가 여러 대면 대시보드가 전부를 한 번에 물어보므로, 캐시가
+# 없으면 그 요청 하나가 파드 수만큼의 왕복이 된다.
+_comfy_status_cache: dict[str, dict] = {}
 _comfy_status_lock = threading.Lock()
-_comfy_status_refreshing = False
+_comfy_status_refreshing: set[str] = set()
 
 
-def comfy_status_payload() -> dict:
+def _status_entry(pod_id: str) -> dict:
+    """호출 전에 _comfy_status_lock을 쥐고 있어야 한다."""
+    return _comfy_status_cache.setdefault(pod_id, {
+        "url": None, "connected": False, "source": "auto", "checked_at": 0.0, "fail_streak": 0,
+    })
+
+
+def pod_status_payload(pod: dict) -> dict:
     """캐시된 연결 상태 (호출 전에 _comfy_status_lock을 쥐고 있어야 한다)."""
-    checked_at = _comfy_status_cache["checked_at"]
+    entry = _status_entry(pod["id"])
+    checked_at = entry["checked_at"]
     return {
-        "url": _comfy_status_cache["url"],
-        "connected": _comfy_status_cache["connected"],
-        "source": _comfy_status_cache["source"],
+        "pod_id": pod["id"],
+        "url": entry["url"],
+        "connected": entry["connected"],
+        "source": entry["source"],
         # 화면이 갤러리의 "결과 가져오기" 버튼을 보여줄지 정하는 데 쓴다 — 5초마다
         # 폴링하는 이 응답에 실어 주면 설정을 바꿨을 때 저절로 따라온다.
-        "pull_outputs": bool(pod_registry.default_pod().get("pull_outputs")),
+        "pull_outputs": bool(pod.get("pull_outputs")),
         # 이 상태가 몇 초 전에 실측된 것인지(캐시라는 사실을 숨기지 않는다).
         "checked_age_sec": round(time.monotonic() - checked_at, 1) if checked_at else None,
     }
 
 
-def refresh_comfy_status() -> dict:
-    """실제로 ComfyUI를 찔러 보고 캐시를 갱신한다(블로킹).
+def refresh_pod_status(pod: dict) -> dict:
+    """실제로 그 파드를 찔러 보고 캐시를 갱신한다(블로킹).
 
     한 번 실패했다고 바로 "연결 안 됨"으로 뒤집지 않는다 — WAN에서는 패킷 하나만
     흘려도 실패로 보이는데, 그때마다 배지가 빨갛게 깜빡이면 아무도 안 믿게 된다.
     직전까지 같은 주소로 연결돼 있었다면 COMFY_STATUS_FAIL_STREAK번 연속 실패할
     때까지 "연결됨"을 유지한다(반대로 다시 붙는 건 즉시 반영한다)."""
-    url, connected = resolve_comfy_url()
-    _, source = configured_comfy_url()
+    health = driver_for(pod).health(pod)
+    url, connected, source = health["url"], health["ok"], health["source"]
     with _comfy_status_lock:
+        entry = _status_entry(pod["id"])
         if connected:
             reported, streak = True, 0
         else:
-            streak = _comfy_status_cache["fail_streak"] + 1
-            was_up = _comfy_status_cache["connected"] and _comfy_status_cache["url"] == url
+            streak = entry["fail_streak"] + 1
+            was_up = entry["connected"] and entry["url"] == url
             reported = was_up and streak < COMFY_STATUS_FAIL_STREAK
-        _comfy_status_cache.update({
+        entry.update({
             "url": url, "connected": reported, "source": source,
             "checked_at": time.monotonic(), "fail_streak": streak,
         })
-        return comfy_status_payload()
+        return pod_status_payload(pod)
 
 
-def invalidate_comfy_status_cache():
+def invalidate_comfy_status_cache(pod_id: str | None = None):
     """주소 설정이 바뀌었을 때 — 다음 조회가 옛 주소의 결과를 그대로 쓰지 않게 한다."""
     with _comfy_status_lock:
-        _comfy_status_cache.update({"checked_at": 0.0, "fail_streak": 0})
+        targets = [pod_id] if pod_id else list(_comfy_status_cache)
+        for pid in targets:
+            _comfy_status_cache.pop(pid, None)
 
 
-def _refresh_comfy_status_bg():
-    global _comfy_status_refreshing
+def _refresh_pod_status_bg(pod: dict):
     try:
-        refresh_comfy_status()
+        refresh_pod_status(pod)
     finally:
         with _comfy_status_lock:
-            _comfy_status_refreshing = False
+            _comfy_status_refreshing.discard(pod["id"])
+
+
+async def pod_status(pod: dict) -> dict:
+    """캐시된 값을 즉시 돌려주고, 오래됐으면 백그라운드로 다시 확인한다."""
+    pod_id = pod["id"]
+    with _comfy_status_lock:
+        entry = _status_entry(pod_id)
+        first_time = not entry["checked_at"]
+        stale = first_time or (time.monotonic() - entry["checked_at"]) >= COMFY_STATUS_TTL_SEC
+        should_refresh = stale and pod_id not in _comfy_status_refreshing
+        if should_refresh:
+            _comfy_status_refreshing.add(pod_id)
+
+    if first_time and should_refresh:
+        # 기동 직후 그 파드의 첫 조회. 여기서만 실제 확인이 끝날 때까지 기다린다 —
+        # 첫 화면에 근거 없는 "연결 안 됨"이 떴다가 5초 뒤에 바뀌는 것보다 낫다.
+        try:
+            return await asyncio.to_thread(refresh_pod_status, pod)
+        finally:
+            with _comfy_status_lock:
+                _comfy_status_refreshing.discard(pod_id)
+
+    if should_refresh:
+        threading.Thread(target=_refresh_pod_status_bg, args=(pod,), daemon=True).start()
+    with _comfy_status_lock:
+        return pod_status_payload(pod)
 
 
 @app.get("/api/comfy-status")
 async def comfy_status():
-    global _comfy_status_refreshing
-    with _comfy_status_lock:
-        first_time = not _comfy_status_cache["checked_at"]
-        stale = first_time or (time.monotonic() - _comfy_status_cache["checked_at"]) >= COMFY_STATUS_TTL_SEC
-        should_refresh = stale and not _comfy_status_refreshing
-        if should_refresh:
-            _comfy_status_refreshing = True
-
-    if first_time and should_refresh:
-        # 서버 기동 직후 첫 요청. 여기서만 실제 확인이 끝날 때까지 기다린다 —
-        # 첫 화면에 근거 없는 "연결 안 됨"이 떴다가 5초 뒤에 바뀌는 것보다 낫다.
-        try:
-            return await asyncio.to_thread(refresh_comfy_status)
-        finally:
-            with _comfy_status_lock:
-                _comfy_status_refreshing = False
-
-    if should_refresh:
-        threading.Thread(target=_refresh_comfy_status_bg, daemon=True).start()
-    with _comfy_status_lock:
-        return comfy_status_payload()
+    """헤더 배지가 5초마다 물어보는 "지금 기본으로 쓰는 워커"의 연결 상태."""
+    return await pod_status(pod_registry.default_pod())
 
 
 def comfy_endpoint_payload() -> dict:
@@ -1104,9 +1235,11 @@ def list_pods_api():
 async def create_pod_api(request: Request):
     data = await read_json_object(request, allow_empty=False)
     try:
-        return pod_payload(pod_registry.create_pod(data))
+        pod = pod_registry.create_pod(data)
     except pod_registry.PodError as e:
         raise HTTPException(400, str(e))
+    ensure_runtime(pod)   # 큐와 워커 스레드를 바로 준비한다
+    return pod_payload(pod)
 
 
 @app.put("/api/pods/{pod_id}")
@@ -1119,19 +1252,85 @@ async def update_pod_api(pod_id: str, request: Request):
         raise HTTPException(400 if "없는 파드" not in str(e) else 404, str(e))
     # 주소나 종류가 바뀌었으면 그 파드에 대해 캐싱해 둔 것들은 더 이상 유효하지 않다.
     ComfyUIDriver.invalidate_capabilities(pod_id)
-    invalidate_comfy_status_cache()
+    invalidate_comfy_status_cache(pod_id)
+    ensure_runtime(pod)   # max_concurrent를 늘렸으면 워커 스레드를 더 띄운다
     return pod_payload(pod)
 
 
 @app.delete("/api/pods/{pod_id}")
 def delete_pod_api(pod_id: str):
+    # 돌고 있는 작업이 있으면 막는다 — 지우는 순간 그 작업이 어디에도 속하지 않게 되고,
+    # 서브프로세스만 남아 결과를 아무도 회수하지 않는다. 먼저 멈추게 한다.
+    with lock:
+        rt = pod_runtimes.get(pod_id)
+        busy = list(rt.running) if rt else []
+    if busy:
+        raise HTTPException(400, f"이 파드에서 작업 {len(busy)}개가 실행 중이에요. 먼저 멈춰주세요.")
     try:
         removed = pod_registry.delete_pod(pod_id)
     except pod_registry.PodError as e:
         raise HTTPException(404 if "없는 파드" in str(e) else 400, str(e))
+
+    # 이 파드에 배정돼 있던(아직 안 끝난) 작업은 기본 파드로 되돌린다 — 갈 곳 없는
+    # 작업이 영영 안 도는 상태로 남으면 안 되므로.
+    fallback = pod_registry.default_pod()
+    with lock:
+        moved = []
+        for job in jobs.values():
+            if job.get("pod_id") == pod_id and job["status"] in ("pending", "queued"):
+                job["pod_id"] = fallback["id"]
+                if job["status"] == "queued":
+                    job["status"] = "pending"   # 이 파드의 큐와 함께 사라졌으므로
+                    set_comfy_wait_flag(job, False)
+                moved.append(job["id"])
+    if moved:
+        save_state()
     ComfyUIDriver.invalidate_capabilities(pod_id)
-    invalidate_comfy_status_cache()
-    return {"deleted": removed["id"], "name": removed["name"]}
+    invalidate_comfy_status_cache(pod_id)
+    sync_runtimes()
+    return {"deleted": removed["id"], "name": removed["name"],
+            "moved_jobs": len(moved), "moved_to": fallback["id"]}
+
+
+@app.get("/api/pods/summary")
+async def pods_summary():
+    """대시보드가 폴링할 파드별 요약 — 레코드 + 연결 상태(캐시) + 큐/실행 상태 +
+    오늘 만든 이미지 수. 값싼 것만 담는다: `/system_stats` 같은 파드별 추가 조회는
+    캐시를 따로 붙여 대시보드 화면(P2)에서 넣는다."""
+    pods = pod_registry.list_pods()
+    statuses = {}
+    for pod in pods:
+        statuses[pod["id"]] = await pod_status(pod)
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    with lock:
+        rows = []
+        for pod in pods:
+            rt = pod_runtimes.get(pod["id"])
+            pod_jobs = [j for j in jobs.values()
+                        if j.get("pod_id") == pod["id"] and not j.get("deleted")]
+            running_jobs = [
+                {"id": j["id"], "template_label": j.get("template_label"),
+                 "progress": j.get("progress"), "started_at": j.get("started_at")}
+                for j in pod_jobs if j["status"] == "running"
+            ]
+            waiting = sum(1 for j in pod_jobs if j.get("waiting_for_comfy"))
+            done_today = sum(
+                (j.get("progress") or {}).get("done") or 0
+                for j in pod_jobs
+                if (j.get("finished_at") or "").startswith(today)
+            )
+            rows.append({
+                **pod,
+                "status": statuses[pod["id"]],
+                "auto_run": bool(rt and rt.auto_run),
+                "queue_len": rt.queue.qsize() if rt else 0,
+                "running_jobs": running_jobs,
+                "waiting_for_pod": waiting,
+                "pending_count": sum(1 for j in pod_jobs if j["status"] == "pending"),
+                "images_today": done_today,
+            })
+    return {"pods": rows, "default_pod_id": pod_registry.default_pod()["id"]}
 
 
 @app.post("/api/pods/{pod_id}/test")
@@ -1952,11 +2151,22 @@ async def create_job(
     csv_bytes: bytes | None,
     csv_filename: str | None,
     raw_options: dict,
+    pod_id: str | None = None,
 ) -> dict:
     # POST /api/upload(사람이 브라우저에서 파일 첨부)와 POST /api/jobs(LLM 등
     # 프로그램이 JSON으로 호출)가 공유하는 실제 잡 생성 로직 — 두 경로 모두
     # 워크플로우/CSV를 이미 bytes로, 옵션을 이미 {name: 원본 문자열} 형태로
     # 만들어서 넘겨준다. 그 앞단(멀티파트 폼 파싱 vs JSON 파싱)만 다르다.
+    # 어느 파드에서 돌릴지. 지정이 없으면 기본 파드로 간다(파드가 하나뿐이면 늘 그것).
+    if pod_id:
+        pod = pod_registry.get_pod(pod_id)
+        if pod is None:
+            raise HTTPException(400, "없는 파드예요.")
+        if not pod.get("enabled"):
+            raise HTTPException(400, f"'{pod['name']}' 파드는 지금 사용 안 함 상태예요.")
+    else:
+        pod = pod_registry.default_pod()
+
     with lock:
         active_count = sum(
             1 for j in jobs.values()
@@ -2051,16 +2261,18 @@ async def create_job(
             "progress": None,
             "deleted": False,
             "deleted_at": None,
+            "pod_id": pod["id"],
         }
         # 자동 실행 모드("▶ 시작"이 켜져 있는 동안)면 대기 목록에 머무르지 않고
-        # 바로 실행 큐에 넣는다 — 그래야 켜놓은 동안 새로 추가하는 작업이 계속
-        # 이어서 처리된다.
-        auto_queued = auto_run
+        # 바로 그 파드의 실행 큐에 넣는다 — 그래야 켜놓은 동안 새로 추가하는 작업이
+        # 계속 이어서 처리된다. 자동 실행은 파드마다 따로 켜고 끈다.
+        rt = pod_runtimes.get(pod["id"])
+        auto_queued = bool(rt and rt.auto_run)
         if auto_queued:
             jobs[job_id]["status"] = "queued"
     save_state()
     if auto_queued:
-        job_queue.put(job_id)
+        dispatch_job(job_id, pod["id"])
     return jobs[job_id]
 
 
@@ -2089,6 +2301,7 @@ async def upload(request: Request):
         value = form.get(option["name"])
         raw_options[option["name"]] = value if isinstance(value, str) else None
 
+    pod_id = form.get("pod_id")
     return await create_job(
         template,
         workflow_bytes,
@@ -2096,6 +2309,7 @@ async def upload(request: Request):
         csv_bytes,
         csv_file.filename if requires_csv else None,
         raw_options,
+        pod_id if isinstance(pod_id, str) and pod_id.strip() else None,
     )
 
 
@@ -2141,17 +2355,24 @@ async def create_job_from_json(request: Request):
         raise HTTPException(400, "options는 JSON 객체여야 해요.")
     raw_options = {k: (None if v is None else str(v)) for k, v in raw_options_in.items()}
 
-    return await create_job(template, workflow_bytes, workflow_filename, csv_bytes, csv_filename, raw_options)
+    pod_id = body.get("pod_id")
+    return await create_job(template, workflow_bytes, workflow_filename, csv_bytes, csv_filename,
+                            raw_options, pod_id if isinstance(pod_id, str) and pod_id.strip() else None)
 
 
-@app.post("/api/queue/start")
-def start_queue():
-    # 자동 실행 모드를 켠다 — 지금 대기 중인 작업을 전부 큐에 넣는 것은 물론,
-    # 켜져 있는 동안 POST /api/upload로 새로 추가되는 작업도 (auto_run 체크를
-    # 통해) 계속 이어서 큐에 들어간다. "⏸ 정지"를 누르기 전까지는 계속 켜져 있다.
-    global auto_run
+def start_pods(pod_ids: list[str]) -> int:
+    """그 파드들의 자동 실행 모드를 켜고, 그 파드로 배정된 대기 작업을 전부 큐에 넣는다.
+    배정된 파드가 사라졌거나 꺼져 있는 작업은 켜는 파드 중 첫 번째로 되돌린다 —
+    큐에 못 들어가 영영 안 도는 작업이 생기면 안 되므로."""
+    targets = set(pod_ids)
+    if not targets:
+        return 0
+    fallback = pod_ids[0]
     with lock:
-        auto_run = True
+        for pod_id in targets:
+            rt = pod_runtimes.get(pod_id)
+            if rt is not None:
+                rt.auto_run = True
         # deleted도 함께 확인해야 한다 — delete_job()은 소프트 삭제라 status를
         # "pending"으로 그대로 둔 채 deleted=True만 표시하므로, 이 필터가 없으면
         # 삭제된(그래서 화면에는 안 보이는) 작업이 여기서 다시 주워져 실행 큐에
@@ -2160,28 +2381,72 @@ def start_queue():
             (j for j in jobs.values() if j["status"] == "pending" and not j.get("deleted")),
             key=lambda j: j["queued_at"],
         )
+        started = []
         for job in pending:
+            assigned = job.get("pod_id")
+            if assigned not in targets:
+                if len(targets) > 1:
+                    continue          # 다른 파드 몫이다 — 그 파드를 켤 때 돈다
+                assigned = fallback   # 파드 하나만 켜는 경우엔 그쪽으로 끌어온다
+                job["pod_id"] = assigned
             job["status"] = "queued"
+            started.append((job["id"], assigned))
     save_state()
-    for job in pending:
-        job_queue.put(job["id"])
-    return {"running": True, "started": len(pending)}
+    for job_id, pod_id in started:
+        dispatch_job(job_id, pod_id)
+    return len(started)
+
+
+@app.post("/api/queue/start")
+def start_queue():
+    # 자동 실행 모드를 켠다 — 지금 대기 중인 작업을 전부 큐에 넣는 것은 물론,
+    # 켜져 있는 동안 POST /api/upload로 새로 추가되는 작업도 계속 이어서 큐에
+    # 들어간다. "⏸ 정지"를 누르기 전까지는 계속 켜져 있다.
+    # 파드가 여러 개면 **사용 중인 파드 전부**를 켠다(화면의 "▶ 시작" 버튼 하나가
+    # 전체를 켜는 것과 같다). 하나만 켜고 끄려면 /api/pods/{id}/queue/start를 쓴다.
+    pod_ids = [p["id"] for p in pod_registry.list_pods() if p.get("enabled")]
+    started = start_pods(pod_ids)
+    return {"running": True, "started": started, "pods": pod_ids}
 
 
 @app.post("/api/queue/stop")
 def stop_queue():
-    # 자동 실행 모드를 끈다 — 이후 POST /api/upload로 추가되는 작업은 다시
-    # "▶ 시작"을 누르기 전까지 pending 상태로 대기 목록에만 쌓인다. 이미 큐에
-    # 들어가 있지만 아직 안 돈 작업(queued)은 그대로 대기 상태로 남고(다음
-    # "▶ 시작" 때 이어서 돎), 지금 실행 중인(running) 작업 하나는
-    # stop_current_job()으로 즉시 종료 요청한다 — 완전히 죽을 때까지 몇 초
-    # 걸릴 수 있으니 job 상태가 "interrupted"로 바뀌는 건 GET /api/jobs로
-    # 잠시 후 확인해야 한다.
-    global auto_run
+    # 자동 실행 모드를 끈다 — 이후 새로 추가되는 작업은 다시 "▶ 시작"을 누르기
+    # 전까지 pending 상태로 대기 목록에만 쌓인다. 이미 큐에 들어가 있지만 아직 안 돈
+    # 작업(queued)은 그대로 대기 상태로 남고(다음 "▶ 시작" 때 이어서 돎), 지금
+    # 실행 중인(running) 작업들은 즉시 종료 요청한다 — 완전히 죽을 때까지 몇 초
+    # 걸릴 수 있으니 job 상태가 "interrupted"로 바뀌는 건 GET /api/jobs로 잠시 후
+    # 확인해야 한다.
     with lock:
-        auto_run = False
-    stopped_job_id = stop_current_job()
-    return {"running": False, "stopped_job_id": stopped_job_id}
+        for rt in pod_runtimes.values():
+            rt.auto_run = False
+    stopped = stop_all_jobs()
+    return {"running": False, "stopped_job_ids": stopped,
+            "stopped_job_id": stopped[0] if stopped else None}
+
+
+@app.post("/api/pods/{pod_id}/queue/start")
+def start_pod_queue(pod_id: str):
+    """이 파드만 켠다 — 파드가 여러 대일 때 한 대씩 굴리기 위한 것."""
+    pod = pod_registry.get_pod(pod_id)
+    if pod is None:
+        raise HTTPException(404, "없는 파드예요.")
+    if not pod.get("enabled"):
+        raise HTTPException(400, f"'{pod['name']}' 파드는 지금 사용 안 함 상태예요.")
+    ensure_runtime(pod)
+    return {"pod_id": pod_id, "running": True, "started": start_pods([pod_id])}
+
+
+@app.post("/api/pods/{pod_id}/queue/stop")
+def stop_pod_queue(pod_id: str):
+    """이 파드만 멈춘다. 다른 파드는 계속 돈다."""
+    if pod_registry.get_pod(pod_id) is None:
+        raise HTTPException(404, "없는 파드예요.")
+    with lock:
+        rt = pod_runtimes.get(pod_id)
+        if rt is not None:
+            rt.auto_run = False
+    return {"pod_id": pod_id, "running": False, "stopped_job_ids": stop_pod_jobs(pod_id)}
 
 
 @app.post("/api/jobs/clear-completed")
@@ -2209,9 +2474,16 @@ def list_jobs():
             key=lambda j: j["queued_at"],
             reverse=True,
         )
-        running = auto_run
-    pending_ids = list(job_queue.queue)
-    return {"jobs": ordered, "pending_count": len(pending_ids), "running": running}
+        # 화면의 "▶ 시작/⏸ 정지" 버튼 하나는 "하나라도 돌고 있으면 켜진 것"으로 본다.
+        running = any(rt.auto_run for rt in pod_runtimes.values())
+        pending_count = sum(rt.queue.qsize() for rt in pod_runtimes.values())
+        per_pod = {
+            pid: {"running": rt.auto_run, "pending_count": rt.queue.qsize(),
+                  "running_jobs": list(rt.running)}
+            for pid, rt in pod_runtimes.items()
+        }
+    return {"jobs": ordered, "pending_count": pending_count, "running": running,
+            "pods": per_pod}
 
 
 @app.get("/api/jobs/deleted")
@@ -2358,7 +2630,48 @@ def retry_job(job_id: str):
         job["returncode"] = None
         job["progress"] = None
     save_state()
-    job_queue.put(job_id)
+    dispatch_job(job_id)
+    return jobs[job_id]
+
+
+@app.post("/api/jobs/{job_id}/move")
+async def move_job(job_id: str, request: Request):
+    """작업을 다른 파드로 옮긴다.
+
+    파드마다 큐가 따로 도는 구조라, 파드 하나가 죽으면 그 큐만 멈춘다(옆 파드가 놀아도
+    자동으로 안 넘어간다). 그때 손으로 풀 수 있는 탈출구다.
+
+    이미 큐에 들어간(queued) 작업도 옮길 수 있다 — 파이썬 큐에서 꺼내 빼는 건 불가능하지만,
+    워커가 작업을 꺼낼 때 "이 작업이 아직 내 것인가"를 확인하고 아니면 원래 주인에게
+    다시 배차하기 때문이다(pod_worker_loop/wait_for_pod). 실행 중인 작업은 옮길 수 없다."""
+    data = await read_json_object(request, allow_empty=False)
+    target_id = (data.get("pod_id") or "").strip()
+    if not target_id:
+        raise HTTPException(400, "옮길 파드(pod_id)를 지정해주세요.")
+    target = pod_registry.get_pod(target_id)
+    if target is None:
+        raise HTTPException(404, "없는 파드예요.")
+    if not target.get("enabled"):
+        raise HTTPException(400, f"'{target['name']}' 파드는 지금 사용 안 함 상태예요.")
+
+    with lock:
+        job = jobs.get(job_id)
+        if not job or job.get("deleted"):
+            raise HTTPException(404, "없는 작업이에요.")
+        if job["status"] == "running":
+            raise HTTPException(400, "실행 중인 작업은 옮길 수 없어요. 먼저 멈춰주세요.")
+        if job["status"] not in ("pending", "queued", "interrupted"):
+            raise HTTPException(400, "대기 중이거나 중단된 작업만 옮길 수 있어요.")
+        if job.get("pod_id") == target_id:
+            return job
+        job["pod_id"] = target_id
+        requeue = job["status"] == "queued"
+        if requeue:
+            # 옛 파드의 큐에 남은 항목은 그 파드 워커가 꺼낼 때 버려진다(소유권 확인).
+            set_comfy_wait_flag(job, False)
+    save_state()
+    if requeue:
+        dispatch_job(job_id, target_id)
     return jobs[job_id]
 
 
