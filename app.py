@@ -46,6 +46,16 @@ from starlette.datastructures import UploadFile
 from PIL import Image
 
 from comfy_outputs import OutputSyncError, forget_downloaded, sync_outputs, sync_state_summary
+from drivers import DriverError, driver_for, driver_kinds
+from drivers.comfyui import (
+    CANDIDATE_URLS,
+    CHECK_TIMEOUT,
+    CHECK_TIMEOUT_INTERACTIVE,
+    CHECK_TIMEOUT_LOCAL,
+    ComfyUIDriver,
+    check_url,
+)
+import pod_registry
 from email_sender import EmailSendError, find_image_files, send_output_images
 from workflow_builder import WorkflowBuildError, build_workflow
 from output_images import (
@@ -288,28 +298,18 @@ def save_base_model_families():
             json.dump(base_model_families, f, indent=2, ensure_ascii=False)
 
 
-# ComfyUI 접속 주소는 세 곳에서 올 수 있고, 아래 순서로 먼저 정해지는 것을 쓴다
-# (configured_comfy_url/resolve_comfy_url 참고):
+# nightshift가 작업을 보낼 워커는 이제 "파드"로 관리한다(pod_registry.py). 파드마다
+# 종류(kind)가 있고, 그 종류를 어떻게 다루는지는 드라이버가 안다(drivers/). ComfyUI
+# 접속 주소를 찾는 우선순위(파드에 저장한 주소 > COMFY_URL 환경변수 > 127.0.0.1 자동
+# 탐지)와 연결 확인 타임아웃도 전부 comfyui 드라이버로 옮겼다 — 아래는 이 파일 곳곳에서
+# 쓰던 이름을 그대로 유지하기 위한 별칭이다(값의 출처만 바뀌었다).
 #
-#   1. comfy_endpoint.json에 저장된 값 — 화면(헤더의 연결 상태 배지 클릭)에서
-#      언제든 바꿀 수 있고 서버 재시작이 필요 없다. nightshift를 홈서버에 상시
-#      띄워두고 ComfyUI만 원격 pod에서 도는 구성에서는 pod를 새로 만들 때마다
-#      주소가 바뀌므로, "런타임에 바꿀 수 있는 설정"이 기본 경로다.
-#   2. COMFY_URL 환경변수 — 배포 시점에 고정해두는 기본값(위 설정이 비어 있을 때만).
-#   3. 자동 탐지 — 같은 머신에서 도는 경우를 위한 폴백. 후보들을 순서대로 짧은
-#      타임아웃으로 찔러보고 처음 응답하는 곳을 채택한다.
-COMFY_ENDPOINT_FILE = BASE_DIR / "comfy_endpoint.json"
-COMFY_CANDIDATE_URLS = ["http://127.0.0.1:8188", "http://127.0.0.1:8000"]
-# 연결 확인 타임아웃은 "어디를 찌르는지"에 따라 다르게 잡는다.
-#   - 자동 탐지 후보는 정의상 전부 127.0.0.1이라 응답이 없으면 즉시 실패한다.
-#     여기에 긴 타임아웃을 쓰면 ComfyUI가 없는 머신에서 후보 수만큼 초를 버린다.
-#   - 반대로 명시적으로 지정된 주소는 원격 pod일 수 있다. WAN 왕복 + TLS 핸드셰이크가
-#     붙으면 2초는 쉽게 넘고, 그러면 멀쩡히 떠 있는 pod가 "연결 안 됨"으로 깜빡인다.
-COMFY_CHECK_TIMEOUT_LOCAL = 2
-COMFY_CHECK_TIMEOUT = float(os.environ.get("NIGHTSHIFT_COMFY_TIMEOUT_SEC", "5"))
-# 사용자가 "연결 테스트"/"저장"으로 명시적으로 확인할 때는 더 넉넉하게 기다린다 —
-# 사람이 버튼을 누르고 결과를 기다리는 중이므로 몇 초 더 쓰는 편이 낫다.
-COMFY_CHECK_TIMEOUT_INTERACTIVE = 8
+# 파드가 여러 대가 되기 전(P1)까지, "어느 파드인지 지정되지 않은 일"은 전부 기본
+# 파드(pod_registry.default_pod)를 쓴다. 파드가 하나뿐이면 예전과 동작이 같다.
+COMFY_CANDIDATE_URLS = CANDIDATE_URLS
+COMFY_CHECK_TIMEOUT_LOCAL = CHECK_TIMEOUT_LOCAL
+COMFY_CHECK_TIMEOUT = CHECK_TIMEOUT
+COMFY_CHECK_TIMEOUT_INTERACTIVE = CHECK_TIMEOUT_INTERACTIVE
 
 # 헤더의 연결 상태 배지는 5초마다 /api/comfy-status를 폴링한다. 그 요청이 매번
 # 원격 pod까지 왕복하면 (a) 탭 수만큼 pod를 찌르게 되고 (b) 응답이 느린 날에는
@@ -329,40 +329,6 @@ COMFY_STATUS_FAIL_STREAK = 2
 COMFY_WAIT_RETRY_SEC = float(os.environ.get("NIGHTSHIFT_COMFY_WAIT_RETRY_SEC", "15"))
 # 기다리는 동안에도 "⏸ 정지"에는 빨리 반응해야 하니 위 간격을 이 단위로 쪼개 잔다.
 COMFY_WAIT_TICK_SEC = 1.0
-
-# pull_outputs: ComfyUI가 원격에 있어서 결과 이미지를 로컬 출력 폴더로 HTTP로
-# 끌어와야 하는지(comfy_outputs.py). 같은 머신에서 도는 구성에서는 출력 폴더가 곧
-# ComfyUI의 출력 폴더라 켤 필요가 없다 — 그래서 기본값은 꺼짐이고, 화면의 접속 주소
-# 설정에서 켠다.
-comfy_endpoint: dict = {"url": "", "updated_at": None, "pull_outputs": False}
-
-
-def load_comfy_endpoint():
-    if COMFY_ENDPOINT_FILE.exists():
-        with open(COMFY_ENDPOINT_FILE) as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            comfy_endpoint["url"] = str(data.get("url") or "")
-            comfy_endpoint["updated_at"] = data.get("updated_at")
-            comfy_endpoint["pull_outputs"] = bool(data.get("pull_outputs"))
-
-
-def save_comfy_endpoint():
-    with lock:
-        with open(COMFY_ENDPOINT_FILE, "w") as f:
-            json.dump(comfy_endpoint, f, indent=2, ensure_ascii=False)
-
-
-def normalize_comfy_url(raw: str) -> str:
-    """입력받은 주소를 저장 형태로 다듬는다(뒤 슬래시 제거). 빈 값은 "자동 탐지로
-    되돌리기"를 뜻하므로 그대로 통과시키고, 형식이 틀리면 ValueError."""
-    url = (raw or "").strip().rstrip("/")
-    if not url:
-        return ""
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise ValueError("http:// 또는 https:// 로 시작하는 주소여야 해요.")
-    return url
 
 # 템플릿 스크립트가 자기 자신의 진행 상황(PUT /api/jobs/{job_id}/progress)을
 # 보고할 때 쓰는, nightshift 자신의 주소. 예전에는 8000으로 박아뒀는데, 홈서버로
@@ -462,36 +428,24 @@ def load_templates_map() -> dict[str, dict]:
     return {t["id"]: t for t in load_templates_list()}
 
 
+# 아래 세 함수는 "기본 파드"에 대한 얇은 껍데기다. 실제 로직은 전부 드라이버에 있고,
+# 이 이름들을 남겨 두는 이유는 이 파일의 열두 곳이 이미 이 이름으로 부르고 있기 때문이다
+# (파드를 골라 쓰는 것은 파드별 큐를 만드는 P1에서 한꺼번에 정리한다).
 def check_comfy_url(url: str, timeout: float = COMFY_CHECK_TIMEOUT) -> bool:
-    try:
-        req = urllib.request.Request(f"{url.rstrip('/')}/system_stats")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status == 200
-    except Exception:
-        return False
+    return check_url(url, timeout)
 
 
 def configured_comfy_url() -> tuple[str | None, str]:
     """명시적으로 지정된 ComfyUI 주소와 그 출처("setting"/"env"). 어느 쪽에도
     지정돼 있지 않으면 (None, "auto") — 이때만 자동 탐지로 넘어간다."""
-    saved = (comfy_endpoint.get("url") or "").strip()
-    if saved:
-        return saved, "setting"
-    env_url = (os.environ.get("COMFY_URL") or "").strip()
-    if env_url:
-        return env_url, "env"
-    return None, "auto"
+    return ComfyUIDriver.configured(pod_registry.default_pod())
 
 
 def resolve_comfy_url() -> tuple[str | None, bool]:
-    """(지금 쓸 ComfyUI 주소, 연결 가능 여부). 우선순위는 COMFY_ENDPOINT_FILE 설명 참고."""
-    url, _source = configured_comfy_url()
-    if url:
-        return url, check_comfy_url(url)
-    for candidate in COMFY_CANDIDATE_URLS:
-        if check_comfy_url(candidate, COMFY_CHECK_TIMEOUT_LOCAL):
-            return candidate, True
-    return None, False
+    """(지금 쓸 주소, 연결 가능 여부) — 기본 파드 기준."""
+    pod = pod_registry.default_pod()
+    health = driver_for(pod).health(pod)
+    return health["url"], health["ok"]
 
 
 # ---- ComfyUI 노드/모델 목록 조회 ----------------------------------------------
@@ -502,9 +456,6 @@ def resolve_comfy_url() -> tuple[str | None, bool]:
 # 커스텀 노드가 많이 깔린 서버에서는 응답이 수 MB까지 커지고 모델 폴더를 훑느라
 # 느리기도 해서 짧게 캐싱한다 — 모델을 새로 설치하는 일은 드물고, 필요하면
 # refresh=true로 강제로 다시 받아온다.
-COMFY_OBJECT_INFO_TTL_SEC = 120
-_object_info_cache: dict = {"url": None, "data": None, "fetched_at": 0.0}
-
 # ComfyUI에 "설치된 모델 목록" 전용 API는 없어서, 각 종류를 대표하는 로더 노드의
 # 입력 선택지를 그대로 읽어 쓴다(그 노드가 없는 서버면 빈 목록).
 MODEL_LIST_SOURCES = {
@@ -518,23 +469,10 @@ MODEL_LIST_SOURCES = {
 
 
 def fetch_comfy_object_info(force: bool = False) -> tuple[str | None, dict | None]:
-    """(comfy_url, object_info) — ComfyUI가 안 떠 있으면 (url, None)."""
-    comfy_url, connected = resolve_comfy_url()
-    if not connected or not comfy_url:
-        return comfy_url, None
-    now = time.time()
-    if (
-        not force
-        and _object_info_cache["data"] is not None
-        and _object_info_cache["url"] == comfy_url
-        and now - _object_info_cache["fetched_at"] < COMFY_OBJECT_INFO_TTL_SEC
-    ):
-        return comfy_url, _object_info_cache["data"]
-    req = urllib.request.Request(f"{comfy_url.rstrip('/')}/object_info")
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    _object_info_cache.update({"url": comfy_url, "data": data, "fetched_at": now})
-    return comfy_url, data
+    """(주소, object_info) — 기본 파드가 안 떠 있으면 (주소, None). 캐싱은 드라이버가
+    파드별로 한다(파드마다 설치된 노드/모델이 다를 수 있으므로)."""
+    pod = pod_registry.default_pod()
+    return driver_for(pod).capabilities(pod, force)
 
 
 def combo_choices(object_info: dict, class_type: str, field: str) -> list[str]:
@@ -798,13 +736,14 @@ def pull_job_outputs(job_id: str, comfy_url: str, log_path: Path):
     이미지는 원격에 그대로 남아 있고 갤러리 탭에서 수동으로 다시 가져올 수 있으므로,
     이미 끝난 작업을 실패로 뒤집을 이유가 없다. 대신 무슨 일이 있었는지 그 작업의
     로그 끝에 덧붙여, 이미지가 안 보일 때 이유를 찾을 수 있게 한다."""
-    if not comfy_endpoint.get("pull_outputs"):
-        return
+    pod = pod_registry.default_pod()
     try:
-        result = sync_outputs(comfy_url, only_subfolder=job_id)
+        result = driver_for(pod).collect(pod, comfy_url, job_id)
     except OutputSyncError as e:
         note = f"[출력 동기화] 실패: {e}"
     else:
+        if result is None:
+            return
         note = (
             f"[출력 동기화] {len(result['downloaded'])}장 가져옴 "
             f"(확인 {result['checked']}장, 이미 있음 {result['skipped_existing']}장, "
@@ -844,7 +783,11 @@ def worker_loop():
         log_path = LOGS_DIR / f"{job_id}.log"
         script_path = TEMPLATES_DIR / job["script_filename"]
 
-        extra_env = {"COMFY_URL": comfy_url, "JOB_ID": job_id, "NIGHTSHIFT_URL": SELF_URL}
+        # 파드 종류마다 작업에 실어 보낼 환경변수가 다르다(ComfyUI는 COMFY_URL).
+        # JOB_ID/NIGHTSHIFT_URL은 워커 종류와 무관하게 항상 필요한 것들이다.
+        pod = pod_registry.default_pod()
+        extra_env = {"JOB_ID": job_id, "NIGHTSHIFT_URL": SELF_URL,
+                     **driver_for(pod).job_env(pod, comfy_url)}
         if job.get("workflow_filename"):
             extra_env["WORKFLOW_PATH"] = str((JOBS_DIR / job["workflow_filename"]).resolve())
         if job.get("csv_filename"):
@@ -896,7 +839,7 @@ async def lifespan(app: FastAPI):
     load_danbooru_state()
     load_lora_triggers()
     load_base_model_families()
-    load_comfy_endpoint()
+    pod_registry.load()
     # 재시작 전에 running/queued 상태로 남아있던 기록은 재실행되지 않으므로 상태만 정리.
     # ComfyUI 연결을 기다리던 중이었다는 표시(waiting_for_comfy)도 함께 지운다 — 그
     # 대기는 worker_loop 안에서만 살아 있는 상태라 재시작하면 남아 있을 이유가 없다.
@@ -972,7 +915,7 @@ def comfy_status_payload() -> dict:
         "source": _comfy_status_cache["source"],
         # 화면이 갤러리의 "결과 가져오기" 버튼을 보여줄지 정하는 데 쓴다 — 5초마다
         # 폴링하는 이 응답에 실어 주면 설정을 바꿨을 때 저절로 따라온다.
-        "pull_outputs": bool(comfy_endpoint.get("pull_outputs")),
+        "pull_outputs": bool(pod_registry.default_pod().get("pull_outputs")),
         # 이 상태가 몇 초 전에 실측된 것인지(캐시라는 사실을 숨기지 않는다).
         "checked_age_sec": round(time.monotonic() - checked_at, 1) if checked_at else None,
     }
@@ -1042,16 +985,21 @@ async def comfy_status():
 
 
 def comfy_endpoint_payload() -> dict:
-    """설정 화면이 쓰는 현재 상태 — 저장된 값, 실제로 쓰이는 값과 그 출처."""
-    effective_url, source = configured_comfy_url()
+    """접속 주소 설정 화면이 쓰는 현재 상태 — 기본 파드의 저장된 값, 실제로 쓰이는 값과
+    그 출처. 다중 파드로 넘어간 뒤에도 이 화면(헤더의 연결 상태 배지)은 "지금 기본으로
+    쓰는 워커"를 보여주는 자리로 남으므로, 응답 형식을 그대로 유지한다."""
+    pod = pod_registry.default_pod()
+    effective_url, source = ComfyUIDriver.configured(pod)
     return {
-        "url": comfy_endpoint.get("url") or "",          # 저장된 설정값(비어 있으면 미설정)
+        "pod_id": pod["id"],                              # 어느 파드의 설정인지
+        "pod_name": pod["name"],
+        "url": pod.get("url") or "",                      # 저장된 설정값(비어 있으면 미설정)
         "effective_url": effective_url,                   # 설정/환경변수로 정해진 주소(자동 탐지면 null)
         "source": source,                                 # "setting" | "env" | "auto"
         "env_url": (os.environ.get("COMFY_URL") or ""),   # 참고용 — 설정을 비웠을 때 쓰일 값
         "candidates": COMFY_CANDIDATE_URLS,               # 자동 탐지가 훑는 후보들
-        "updated_at": comfy_endpoint.get("updated_at"),
-        "pull_outputs": bool(comfy_endpoint.get("pull_outputs")),  # 결과 이미지를 HTTP로 끌어올지
+        "updated_at": pod.get("updated_at"),
+        "pull_outputs": bool(pod.get("pull_outputs")),    # 결과 이미지를 HTTP로 끌어올지
         "output_dir": OUTPUT_DIR,                         # 끌어온 이미지가 쌓이는 로컬 폴더
         "output_sync": sync_state_summary(),              # {"last_sync", "known"}
     }
@@ -1075,22 +1023,21 @@ async def put_comfy_endpoint(request: Request):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
     if not isinstance(data, dict):
         raise HTTPException(400, '{"url": "..."} 형태의 객체여야 해요.')
-    try:
-        url = normalize_comfy_url(data.get("url", ""))
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-
-    comfy_endpoint["url"] = url
-    comfy_endpoint["updated_at"] = now_iso()
+    # 이 엔드포인트는 "기본 파드의 주소를 바꾼다"는 뜻이다.
+    pod = pod_registry.default_pod()
+    patch = {"url": data.get("url", "")}
     # pull_outputs를 아예 안 보내면 지금 설정을 유지한다 — 주소만 바꾸려는 요청이
     # 조용히 "가져오기 끄기"로 동작하면 안 되므로.
     if "pull_outputs" in data:
-        comfy_endpoint["pull_outputs"] = bool(data.get("pull_outputs"))
-    save_comfy_endpoint()
-    # 주소가 바뀌면 이전 서버에서 받아둔 모델/노드 목록은 더 이상 그 서버의 것이
+        patch["pull_outputs"] = bool(data.get("pull_outputs"))
+    try:
+        pod_registry.update_pod(pod["id"], patch)
+    except pod_registry.PodError as e:
+        raise HTTPException(400, str(e))
+    # 주소가 바뀌면 이전 서버에서 받아둔 모델/노드 목록은 더 이상 그 파드의 것이
     # 아니다. 캐시 키에 url이 들어 있어 자연히 미스가 나지만, 명시적으로 비워서
     # "바꾼 직후 잠깐 옛 목록이 보이는" 창을 없앤다.
-    _object_info_cache.update({"url": None, "data": None, "fetched_at": 0.0})
+    ComfyUIDriver.invalidate_capabilities(pod["id"])
     invalidate_comfy_status_cache()
 
     payload = comfy_endpoint_payload()
@@ -1116,8 +1063,8 @@ async def test_comfy_endpoint(request: Request):
     if not isinstance(data, dict):
         raise HTTPException(400, '{"url": "..."} 형태의 객체여야 해요.')
     try:
-        url = normalize_comfy_url(data.get("url", ""))
-    except ValueError as e:
+        url = pod_registry.normalize_pod_url(data.get("url", ""))
+    except pod_registry.PodError as e:
         raise HTTPException(400, str(e))
 
     if not url:
@@ -1126,6 +1073,80 @@ async def test_comfy_endpoint(request: Request):
             return {"url": None, "connected": False, "detail": "확인할 주소가 없어요(자동 탐지도 실패)."}
     connected = await asyncio.to_thread(check_comfy_url, url, COMFY_CHECK_TIMEOUT_INTERACTIVE)
     return {"url": url, "connected": connected}
+
+
+# ---- 파드(워커) 관리 ----------------------------------------------------------
+# nightshift가 작업을 보낼 워커들의 목록(pod_registry.py). 지금은 파드 1개를 전제로
+# 나머지 코드가 돌아가지만(기본 파드), 여기서 여러 개를 등록해 둘 수 있고 파드별 큐로
+# 실제로 나눠 돌리는 것은 다음 단계다(multipod_plan.md의 P1).
+
+def pod_payload(pod: dict) -> dict:
+    """레코드 + 화면이 바로 쓸 수 있는 파생 정보(드라이버 이름, 실제로 쓰일 주소)."""
+    try:
+        driver = driver_for(pod)
+    except DriverError:
+        return {**pod, "kind_label": pod.get("kind"), "effective_url": None, "url_source": "unknown"}
+    url, source = driver.resolve(pod)
+    return {**pod, "kind_label": driver.label, "effective_url": url, "url_source": source}
+
+
+@app.get("/api/pods")
+def list_pods_api():
+    pods = pod_registry.list_pods()
+    return {
+        "pods": [pod_payload(p) for p in pods],
+        "default_pod_id": pod_registry.default_pod()["id"],
+        "kinds": driver_kinds(),
+    }
+
+
+@app.post("/api/pods")
+async def create_pod_api(request: Request):
+    data = await read_json_object(request, allow_empty=False)
+    try:
+        return pod_payload(pod_registry.create_pod(data))
+    except pod_registry.PodError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.put("/api/pods/{pod_id}")
+async def update_pod_api(pod_id: str, request: Request):
+    # 부분 수정 — 보낸 필드만 바뀐다(이름만 바꾸려는 요청이 주소를 지우면 안 되므로).
+    data = await read_json_object(request, allow_empty=False)
+    try:
+        pod = pod_registry.update_pod(pod_id, data)
+    except pod_registry.PodError as e:
+        raise HTTPException(400 if "없는 파드" not in str(e) else 404, str(e))
+    # 주소나 종류가 바뀌었으면 그 파드에 대해 캐싱해 둔 것들은 더 이상 유효하지 않다.
+    ComfyUIDriver.invalidate_capabilities(pod_id)
+    invalidate_comfy_status_cache()
+    return pod_payload(pod)
+
+
+@app.delete("/api/pods/{pod_id}")
+def delete_pod_api(pod_id: str):
+    try:
+        removed = pod_registry.delete_pod(pod_id)
+    except pod_registry.PodError as e:
+        raise HTTPException(404 if "없는 파드" in str(e) else 400, str(e))
+    ComfyUIDriver.invalidate_capabilities(pod_id)
+    invalidate_comfy_status_cache()
+    return {"deleted": removed["id"], "name": removed["name"]}
+
+
+@app.post("/api/pods/{pod_id}/test")
+async def test_pod_api(pod_id: str):
+    """저장된 그대로의 파드가 실제로 응답하는지 확인한다(설정은 건드리지 않음).
+    사람이 버튼을 누르고 기다리는 중이므로 폴링보다 넉넉한 타임아웃을 쓴다."""
+    pod = pod_registry.get_pod(pod_id)
+    if pod is None:
+        raise HTTPException(404, "없는 파드예요.")
+    try:
+        driver = driver_for(pod)
+    except DriverError as e:
+        raise HTTPException(400, str(e))
+    health = await asyncio.to_thread(driver.health, pod, COMFY_CHECK_TIMEOUT_INTERACTIVE)
+    return {"pod_id": pod_id, **health}
 
 
 @app.get("/api/comfy-object-info")
