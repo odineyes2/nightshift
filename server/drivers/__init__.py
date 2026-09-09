@@ -1,20 +1,22 @@
 """
 파드 드라이버 모음 — 파드 레코드의 kind로 "이 워커를 어떻게 다루는가"를 고른다.
 
-지금은 comfyui(이미지 생성)와 shell(임의 명령 실행) 둘이다. 성격이 완전히 다른 이 둘이
-같은 레지스트리·같은 큐·같은 대시보드에서 나란히 도는 것이, 앞으로 글 쓰는 워커나 지도
-그리는 워커를 붙일 수 있다는 증거다. 새 종류를 붙일 때는 여기 모듈을 하나 더 만들고
-DRIVERS에 등록하면 되고, 나머지(레지스트리·큐·화면)는 그대로 쓴다. 자세한 배경은
-base.py와 multipod_plan.md 참고.
+comfyui(이미지 생성)·shell(임의 명령 실행)·claude_writer(Claude API로 글쓰기) 셋이다.
+성격이 완전히 다른 이 셋이 같은 레지스트리·같은 큐·같은 대시보드에서 나란히 도는 것이,
+이미지가 아닌 다른 일을 하는 워커를 계속 붙일 수 있다는 증거다. 새 종류를 붙일 때는
+여기 모듈을 하나 더 만들고 DRIVERS에 등록하면 되고, 나머지(레지스트리·큐·화면)는
+그대로 쓴다. 자세한 배경은 base.py와 multipod_plan.md 참고.
 """
 
 from .base import DriverError, PodDriver
+from .claude_writer import ClaudeWriterDriver
 from .comfyui import ComfyUIDriver
 from .shell import ShellDriver
 
 DRIVERS: dict[str, type[PodDriver]] = {
     ComfyUIDriver.kind: ComfyUIDriver,
     ShellDriver.kind: ShellDriver,
+    ClaudeWriterDriver.kind: ClaudeWriterDriver,
 }
 
 
@@ -36,4 +38,4 @@ def driver_kinds() -> list[dict]:
 
 
 __all__ = ["DRIVERS", "DriverError", "PodDriver", "ComfyUIDriver", "ShellDriver",
-           "get_driver", "driver_for", "driver_kinds"]
+           "ClaudeWriterDriver", "get_driver", "driver_for", "driver_kinds"]

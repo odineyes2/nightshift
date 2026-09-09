@@ -898,6 +898,28 @@
   .dash-card-actions{ display:flex; flex-wrap:wrap; gap:6px; margin-top:auto; padding-top:4px; }
   .dash-card.disabled{ opacity:0.62; }
 
+  /* Claude 글쓰기 파드의 "📝 결과" 탭 — 이미지가 아니라 글이라 갤러리(썸네일 격자)
+     대신 이 목록을 쓴다. 행을 누르면 그 자리에서 펼쳐지고(별도 라이트박스 없음),
+     펼친 순간에만 서버에서 전문을 받아온다(resultTextCache로 재요청 방지). */
+  .results-list{ display:flex; flex-direction:column; gap:6px; }
+  .result-row{
+    border:1px solid var(--border); border-radius:8px; padding:8px 12px;
+    cursor:pointer; background:var(--panel);
+  }
+  .result-row:hover{ border-color:var(--queued); }
+  .result-row.open{ cursor:default; }
+  .result-row-head{ display:flex; align-items:center; gap:10px; }
+  .result-prompt{
+    flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    font-size:13px; color:var(--text);
+  }
+  .result-time{ flex:none; font-size:11px; color:var(--text-dim); font-family:var(--mono); }
+  .result-full{
+    margin-top:8px; padding-top:8px; border-top:1px solid var(--border);
+    font-size:13px; line-height:1.6; color:var(--text); white-space:pre-wrap;
+    cursor:text;
+  }
+
   /* 작업이 어느 파드(워커)에서 도는지 — 파드가 둘 이상일 때만 나타난다. */
   .pod-badge{
     display:inline-flex; align-items:center;
@@ -2124,6 +2146,21 @@
   </div>
 </main>
 
+<main id="tab-results" style="display:none;">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label">📝 결과</div>
+      <div class="panel-header-actions">
+        <button class="load-btn" id="results-refresh-btn" type="button" title="새로고침">🔄</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="results-list" id="results-list"></div>
+      <div class="empty" id="results-empty" style="display:none;">이 파드가 아직 만든 글이 없어요</div>
+    </div>
+  </div>
+</main>
+
 <main id="tab-danbooru" style="display:none;">
   <div class="panel">
     <div class="panel-header">
@@ -2820,6 +2857,9 @@ let lastJobs = [];
 
 function render(jobs, pendingCount, running, perPod){
   lastJobs = jobs;
+  // "📝 결과" 탭이 열려 있는 동안 새 작업이 끝나면 목록에 바로 반영되게, 작업
+  // 폴링(2초)에 얹어 같이 새로고침한다 — 별도 폴링 루프를 안 둔다.
+  if(currentTab === 'results') renderResultsList();
   // 작업 목록은 언제나 지금 들어와 있는 파드 것만 보여준다(파드 스코프 바 참고).
   if(jobPodFilter) jobs = jobs.filter(j => j.pod_id === jobPodFilter);
   // 그래서 "▶ 시작/⏸ 정지"도 그 파드의 큐만 켜고 끈다 — 화면에 안 보이는 다른
@@ -5938,12 +5978,17 @@ const POD_SPEC_LINE = {
     const disk = card.disk_total ? `여유 ${fmtDiskSize(card.disk_free)}/${fmtDiskSize(card.disk_total)}` : '';
     return `${escapeHtml(target)}${card.workdir ? ` · ${escapeHtml(card.workdir)}` : ''}${disk ? ` · ${disk}` : ''}`;
   },
+  claude_writer(p){
+    // 이 파드는 원격 주소가 없다 — 카드에 실을 것도 "지금 쓰는 모델" 정도뿐이다.
+    const model = (p.card || {}).model;
+    return `Claude API (Anthropic)${model ? ` · ${escapeHtml(model)}` : ''}`;
+  },
 };
 
 // "오늘 만든 것"의 단위도 워커 종류마다 다르다 — 이미지 워커는 장수지만, 셸 워커에게
-// 같은 숫자는 "명령을 몇 번 돌렸는가"다. 서버는 진행률(progress.done)의 합만 주므로
-// 이름은 화면이 붙인다.
-const POD_TODAY_UNIT = { comfyui: '장', shell: '회' };
+// 같은 숫자는 "명령을 몇 번 돌렸는가"고, 글쓰기 워커에게는 "몇 편 썼는가"다. 서버는
+// 진행률(progress.done)의 합만 주므로 이름은 화면이 붙인다.
+const POD_TODAY_UNIT = { comfyui: '장', shell: '회', claude_writer: '편' };
 
 function podTodayText(p){
   return `${p.images_today}${POD_TODAY_UNIT[p.kind] || '건'}`;
@@ -6311,19 +6356,86 @@ const TAB_MAINS = {
   // "이름"이 아니라 "실제 화면 요소" 기준으로 처리한다(그래야 pgallery로 보여준
   // 요소를 gallery 키가 다시 숨기는 일이 없다).
   pgallery: document.getElementById('tab-gallery'),
+  // Claude 글쓰기 파드의 결과는 이미지가 아니라 글이라 갤러리(썸네일 격자)로 못
+  // 보여준다 — pgallery와 달리 이건 전용 DOM(#tab-results)과 전용 렌더러
+  // (renderResultsList)를 쓰는 완전히 별개의 화면이다.
+  results: document.getElementById('tab-results'),
 };
 
-const POD_TABS = ['jobs', 'builder', 'lora', 'pgallery'];
-const POD_TAB_LABEL = { jobs: '🗂 작업', builder: '🧩 워크플로우', lora: '🎛 모델', pgallery: '🖼 갤러리' };
+const POD_TABS = ['jobs', 'builder', 'lora', 'pgallery', 'results'];
+const POD_TAB_LABEL = { jobs: '🗂 작업', builder: '🧩 워크플로우', lora: '🎛 모델', pgallery: '🖼 갤러리', results: '📝 결과' };
 // 파드 종류가 서브탭 구성을 정한다 — 셸 파드에는 워크플로우도 설치된 모델도 없다.
 // (예전에는 셸 파드만 등록해도 상단에 🧩·🎛 탭이 그대로 보였고, 눌러봐야 빈
 // 목록이었다.) 새 종류의 워커를 붙일 때 여기 한 줄이 그 워커의 화면 구성이 된다.
-// pgallery는 모든 종류에 둔다 — 셸 파드는 결과가 이미지가 아니라 갤러리가 항상
-// 비어 보이겠지만, 그 자체가 "이 파드는 이미지가 아니라 이런 걸 만든다"는 정직한
-// 신호이기도 해서 굳이 숨기지 않는다.
-const POD_SUBTABS = { comfyui: ['jobs', 'builder', 'lora', 'pgallery'], shell: ['jobs', 'pgallery'] };
+// pgallery는 이미지를 만드는 종류에만 둔다 — Claude 글쓰기는 같은 자리에 결과가
+// 이미지가 아니라 글이라는 걸 정직하게 반영해 results 탭을 대신 쓴다.
+const POD_SUBTABS = {
+  comfyui: ['jobs', 'builder', 'lora', 'pgallery'],
+  shell: ['jobs', 'pgallery'],
+  claude_writer: ['jobs', 'results'],
+};
 
 function podSubtabs(pod){ return POD_SUBTABS[(pod || {}).kind] || ['jobs']; }
+
+// ---- "📝 결과" 탭 (Claude 글쓰기 파드) ----
+// 이미지 갤러리와 달리 별도 폴링/캐시 API가 없다 — 목록 자체는 이미 2초마다 도는
+// 작업 폴링(lastJobs)에서 그대로 걸러 쓰고, 전문(全文)만 펼칠 때 한 번 받아온다.
+let expandedResultId = null;
+const resultTextCache = {};   // job_id -> 받아온 전문(못 받아왔으면 안내 문구)
+
+function claudeResultsForPod(podId){
+  return lastJobs
+    .filter(j => j.pod_id === podId && j.template_id === 'claude_write' && !j.deleted)
+    .sort((a, b) => (b.finished_at || b.queued_at || '').localeCompare(a.finished_at || a.queued_at || ''));
+}
+
+function renderResultsList(){
+  const list = document.getElementById('results-list');
+  const empty = document.getElementById('results-empty');
+  if(!list || !currentPodId){ if(list) list.innerHTML = ''; return; }
+  const rows = claudeResultsForPod(currentPodId);
+  empty.style.display = rows.length ? 'none' : '';
+  list.innerHTML = rows.map(j => {
+    const prompt = (j.options && j.options.prompt) || '(프롬프트 없음)';
+    const isOpen = expandedResultId === j.id;
+    const bodyHtml = isOpen
+      ? `<div class="result-full">${
+          resultTextCache[j.id] != null ? escapeHtml(resultTextCache[j.id]) : '불러오는 중…'
+        }</div>`
+      : '';
+    return `
+      <div class="result-row${isOpen ? ' open' : ''}" data-result-id="${escapeHtml(j.id)}">
+        <div class="result-row-head">
+          <span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span>
+          <span class="result-prompt" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</span>
+          <span class="result-time">${fmtGalleryDateTime(j.finished_at || j.queued_at)}</span>
+        </div>
+        ${bodyHtml}
+      </div>`;
+  }).join('');
+}
+
+async function toggleResultRow(jobId){
+  expandedResultId = (expandedResultId === jobId) ? null : jobId;
+  if(expandedResultId && resultTextCache[jobId] == null){
+    renderResultsList();   // "불러오는 중…"을 먼저 보여준 뒤 받아온다
+    try{
+      const res = await fetch(`/api/jobs/${jobId}/text-result`);
+      const data = await res.json().catch(() => ({}));
+      resultTextCache[jobId] = data.text || '(아직 결과가 없어요 — 작업 로그를 확인해보세요.)';
+    }catch(e){
+      resultTextCache[jobId] = '(불러오지 못했어요.)';
+    }
+  }
+  renderResultsList();
+}
+
+document.getElementById('results-list').addEventListener('click', (e) => {
+  const row = e.target.closest('.result-row');
+  if(row) toggleResultRow(row.dataset.resultId);
+});
+
+document.getElementById('results-refresh-btn').addEventListener('click', fetchJobs);
 
 // 어느 파드로 들어갈지 정한다. 없는 id로 들어오면(파드를 지웠거나 옛 링크) 마지막에
 // 보던 파드 → 기본 파드 순으로 떨어진다. 파드가 하나도 없으면 null(=갈 곳이 없음).
@@ -6392,6 +6504,7 @@ function showTab(tab, { podId = null } = {}){
   if(tab === 'builder') initBuilderTab();
   if(tab === 'lora') initLoraTab();
   if(tab === 'jobs') fetchJobs();
+  if(tab === 'results') renderResultsList();
 
   const want = scopedPodId ? `#pod/${scopedPodId}/${tab}` : `#${tab}`;
   if(location.hash !== want) history.replaceState(null, '', want);

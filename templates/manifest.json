@@ -192,5 +192,17 @@
       { "name": "repeat", "label": "반복 횟수", "type": "number", "default": 1 },
       { "name": "timeout_sec", "label": "회차별 제한 시간(초)", "type": "number", "default": 600 }
     ]
+  },
+  {
+    "id": "claude_write",
+    "label": "Claude 글쓰기",
+    "script_filename": "claude_write.py",
+    "requires_csv": false,
+    "requires_workflow": false,
+    "pod_kinds": ["claude_writer"],
+    "options": [
+      { "name": "prompt", "label": "프롬프트", "type": "textarea", "default": "", "required": true, "placeholder": "예: SF 단편소설을 800자 이내로 써줘" },
+      { "name": "max_tokens", "label": "최대 출력 토큰", "type": "number", "default": 16000 }
+    ]
   }
 ]
