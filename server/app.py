@@ -2686,6 +2686,18 @@ def job_log(job_id: str, tail: int = 200):
     return {"log": "\n".join(lines[-tail:])}
 
 
+@app.get("/api/jobs/{job_id}/text-result")
+def job_text_result(job_id: str):
+    """이미지가 아니라 글을 만드는 워커(claude_writer)의 결과 — 템플릿이 직접
+    NIGHTSHIFT_OUTPUT_DIR/<job_id>/output.md에 써 둔 것을 그대로 읽어 돌려준다.
+    파드 화면의 "📝 결과" 탭이 이걸 부른다. 파일이 없으면(아직 실행 전/실패)
+    빈 문자열 — 로그(job_log)를 보라고 굳이 에러를 내지 않는다."""
+    path = Path(OUTPUT_DIR) / job_id / "output.md"
+    if not path.is_file():
+        return {"text": ""}
+    return {"text": path.read_text(encoding="utf-8", errors="replace")}
+
+
 @app.put("/api/jobs/{job_id}/progress")
 async def update_job_progress(job_id: str, request: Request):
     # 실행 중인 템플릿 스크립트가 자기 진행 상황(전체/완료 이미지 수)을 스스로 보고하는
