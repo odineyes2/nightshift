@@ -269,9 +269,12 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
   아래에 RunPod가 자동으로 붙인 파드 이름(nightshift에서 지은 이름과는 별개), GPU 종류, 시간당
   비용, 생성 일시, 최근 시작 일시가 표시됩니다(`server/runpod_api.py`). 이 조회는 pod가 꺼져
   있어도 되고(주소만 있으면 됨), 키가 없으면 그냥 이 줄 자체가 안 보일 뿐 카드의 나머지 정보에는
-  영향이 없습니다. RunPod의 실제 API 응답을 이 환경에서 직접 검증하지는 못했으므로, 필드가 하나도
-  안 뜨거나 값이 이상하면 `RUNPOD_API_KEY`가 유효한지, 파드 주소가 정말 프록시 주소 형태인지부터
-  확인해주세요.
+  영향이 없습니다.
+  - **GPU 모델명은 REST API 하나만으로는 못 얻습니다** — `GET /v1/pods/{id}`의 `machine` 필드가
+    빈 객체로 오는 게 실측으로 확인돼서(`gpuCount`만 있고 모델명은 없음), 그럴 때만 레거시
+    GraphQL API(`pod.machine.gpuDisplayName`)로 한 번 더 물어봅니다. 이것도 실패하면 GPU 종류
+    줄만 조용히 빠지고 이름·비용·일시는 그대로 뜹니다. **VRAM은 이 연동과 무관하게 이미 ComfyUI
+    자체의 `/system_stats`에서 가져와 표시하고 있습니다**(카드의 주소 옆 숫자, 예: `0.1/15.6GB`).
   - **언제 갱신되는가**: 대시보드가 4초마다 폴링하는 `/api/pods/summary`가 파드 카드 정보를
     돌려줄 때, 그 정보가 20초(`POD_CARD_TTL_SEC`)보다 오래됐으면 백그라운드로 다시 조회합니다
     (`app.py`의 `pod_card_data()`). RunPod API 응답 자체도 120초(`CACHE_TTL_SEC`) 동안 따로
