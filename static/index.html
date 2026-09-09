@@ -188,6 +188,35 @@
   }
   .tab-btn:hover{ color:var(--text); }
   .tab-btn.active{ color:var(--queued); border-bottom-color:var(--queued); }
+  .tab-bar-sep{ width:1px; height:16px; align-self:center; background:var(--border); margin:0 8px; }
+
+  /* 파드 스코프 바 — 전역 탭바 아래에 한 줄 더 붙는다. 바탕색을 본문과 같게 해서
+     "여기부터는 이 파드 안"이라는 게 탭바와 눈으로 구분되게 한다. */
+  .pod-bar{ background:var(--bg); border-bottom:1px solid var(--border); }
+  .pod-bar-inner{
+    max-width:1180px; margin:0 auto; padding:9px 28px;
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  }
+  .pod-bar-back{
+    background:none; border:1px solid var(--border); border-radius:6px;
+    color:var(--text-dim); font-family:var(--mono); font-size:13px;
+    padding:4px 9px; cursor:pointer; flex:none;
+  }
+  .pod-bar-back:hover{ color:var(--queued); border-color:var(--queued); }
+  .pod-bar-select{
+    background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); font-family:var(--mono); font-size:13px; font-weight:600;
+    padding:4px 8px; cursor:pointer; max-width:260px;
+  }
+  .pod-bar-kind{ font-size:10.5px; color:var(--text-dim); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
+  .pod-bar-subtabs{ display:flex; gap:4px; margin-left:auto; }
+  .pod-subtab-btn{
+    background:none; border:1px solid transparent; border-radius:6px;
+    color:var(--text-dim); font-family:var(--mono); font-size:13px; font-weight:600;
+    padding:5px 10px; cursor:pointer;
+  }
+  .pod-subtab-btn:hover{ color:var(--text); }
+  .pod-subtab-btn.active{ color:var(--queued); border-color:var(--queued); background:rgba(var(--queued-rgb),0.08); }
 
   main{
     max-width:1180px;
@@ -804,6 +833,16 @@
   .dash-stat-label{ font-size:10.5px; color:var(--text-dim); }
   .dash-stat-value{ font-family:var(--mono); font-size:14px; color:var(--text); }
   .dash-thumbs{ display:flex; gap:6px; }
+  /* 최근 작업 카드 — 작업 목록이 파드 안으로 들어가면서 "전체 작업을 한 화면에서"가
+     사라지는데, 그 자리를 대신한다. 행을 누르면 그 작업이 있는 파드로 들어간다. */
+  .dash-jobs{ display:flex; flex-direction:column; gap:1px; }
+  .dash-job-row{
+    display:flex; align-items:center; gap:8px;
+    padding:4px 6px; border-radius:6px; cursor:pointer; font-size:12px; color:var(--text);
+  }
+  .dash-job-row:hover{ background:rgba(var(--queued-rgb),0.06); }
+  .dash-job-name{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dash-job-pod{ flex:none; font-size:10.5px; color:var(--text-dim); }
   .dash-thumb{ width:54px; height:54px; object-fit:cover; border-radius:6px; border:1px solid var(--border); }
   .dash-card-actions{ display:flex; flex-wrap:wrap; gap:6px; margin-top:auto; padding-top:4px; }
   .dash-card.disabled{ opacity:0.62; }
@@ -1755,14 +1794,29 @@
   </div>
 </header>
 
+<!-- 전역 탭 — 어느 파드와도 무관한 화면만 남는다. 작업/워크플로우/모델은 "그 파드에
+     무엇이 설치돼 있는가"에 종속되므로 파드 스코프(아래 pod-bar) 안으로 들어갔다.
+     Danbooru는 태그를 조립할 뿐 파드를 쓰지 않아 전역에 남되, 도구라는 뜻으로
+     구분선 뒤에 둔다. -->
 <div class="tab-bar">
   <div class="tab-bar-inner">
     <button class="tab-btn active" data-tab="dashboard" type="button" title="파드(워커) 대시보드">📊 대시보드</button>
-    <button class="tab-btn" data-tab="jobs" type="button">🗂 작업 관리</button>
-    <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트">🏷 Danbooru</button>
-    <button class="tab-btn" data-tab="builder" type="button" title="업로드 없이 워크플로우 만들기">🧩 워크플로우</button>
-    <button class="tab-btn" data-tab="lora" type="button" title="베이스 모델/LoRA/ControlNet 프리셋 관리">🎛 모델</button>
     <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
+    <span class="tab-bar-sep"></span>
+    <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 파드와 무관한 프롬프트 작업대">🏷 Danbooru</button>
+  </div>
+</div>
+
+<!-- 파드 스코프 바 — #pod/{id}로 들어왔을 때만 보인다. 어느 파드 안에 있는지와,
+     그 파드에서 무엇을 할 수 있는지(서브탭 구성은 파드 종류가 정한다)를 한 줄에 담는다. -->
+<div class="pod-bar" id="pod-bar" style="display:none;">
+  <div class="pod-bar-inner">
+    <button class="pod-bar-back" id="pod-bar-back" type="button" title="대시보드로 돌아가기">← 대시보드</button>
+    <span class="dash-dot" id="pod-bar-dot"></span>
+    <select class="pod-bar-select" id="pod-bar-select" title="다른 파드로 이동"></select>
+    <span class="pod-bar-kind" id="pod-bar-kind"></span>
+    <button class="load-btn" id="pod-bar-settings" type="button" title="이 파드 설정">⚙</button>
+    <div class="pod-bar-subtabs" id="pod-bar-subtabs"></div>
   </div>
 </div>
 
@@ -1817,10 +1871,6 @@
       </div>
 
       <div class="upload-form">
-        <div class="field" id="pod-select-field" style="display:none;">
-          <label class="field-label" for="pod-select">실행할 파드</label>
-          <select id="pod-select"></select>
-        </div>
         <div class="field">
           <label class="field-label" for="template-select">템플릿</label>
           <select id="template-select"></select>
@@ -1873,8 +1923,6 @@
       </div>
     </div>
     <div class="panel-body">
-      <!-- 대시보드에서 "작업 보기"로 넘어오면 그 파드 것만 보여준다는 안내 -->
-      <div class="gallery-toolbar" id="job-pod-filter" style="display:none;"></div>
       <div class="table-scroll">
         <table>
           <thead>
@@ -2555,6 +2603,14 @@ let podKinds = [];      // 등록할 수 있는 파드 종류(드라이버) 목�
 let allTemplates = [];  // 서버가 준 템플릿 전체(고른 파드 종류에 맞는 것만 드롭다운에 넣는다)
 // 작업 목록을 한 파드 것만 보고 있을 때 그 파드 id. null이면 전체.
 let jobPodFilter = null;
+// 지금 열려 있는 파드 스코프(#pod/{id}/...). 전역 화면(대시보드·갤러리·Danbooru)에
+// 있으면 null이다.
+let currentPodId = null;
+// 전역 화면으로 나가도 기억하는 "마지막에 보던 파드". Danbooru에서 프롬프트를
+// 만들어 작업 폼으로 보낼 때처럼, 파드 밖에 있으면서 파드를 골라야 하는 경로가
+// 엉뚱한 파드로 떨어지지 않게 하는 용도다.
+let lastPodId = null;
+let currentTab = 'dashboard';
 
 function multiPod(){ return podsCache.length > 1; }
 function podName(podId){ return (podsById[podId] || {}).name || ''; }
@@ -2569,23 +2625,8 @@ async function fetchPods(){
     podsCache = [];
   }
   podsById = Object.fromEntries(podsCache.map(p => [p.id, p]));
-
-  const field = document.getElementById('pod-select-field');
-  const select = document.getElementById('pod-select');
-  if(field && select){
-    field.style.display = multiPod() ? '' : 'none';
-    const prev = select.value;
-    select.innerHTML = podsCache
-      .filter(p => p.enabled)
-      .map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.effective_url ? ` (${escapeHtml(p.effective_url)})` : ''}</option>`)
-      .join('');
-    if(prev && podsById[prev]) select.value = prev;
-    if(!select.dataset.bound){
-      select.dataset.bound = '1';
-      // 파드를 바꾸면 그 종류에서 쓸 수 있는 템플릿만 남긴다.
-      select.addEventListener('change', () => { renderTemplateOptions(); });
-    }
-  }
+  // 이름이 바뀌거나 파드가 늘고 줄면 스코프 바의 파드 선택도 따라와야 한다.
+  if(typeof renderPodBar === 'function') renderPodBar();
   return podsCache;
 }
 
@@ -2689,7 +2730,7 @@ async function fetchJobs(){
   // 알려주므로, 여기서는 2초 뒤 다음 폴링 때 다시 시도하기만 하면 된다.
   if(!res.ok) return;
   const data = await res.json();
-  render(data.jobs, data.pending_count, data.running);
+  render(data.jobs, data.pending_count, data.running, data.pods || {});
 }
 
 let queueRunning = false; // 서버의 자동 실행 모드(auto_run)를 그대로 반영 — "▶ 시작"/"⏸ 정지" 토글에 쓴다.
@@ -2697,11 +2738,14 @@ let queueRunning = false; // 서버의 자동 실행 모드(auto_run)를 그대�
 // 모달처럼 나중에 열리는 화면도 작업 정보를 봐야 해서 여기 남겨둔다.
 let lastJobs = [];
 
-function render(jobs, pendingCount, running){
+function render(jobs, pendingCount, running, perPod){
   lastJobs = jobs;
-  // 대시보드에서 파드를 하나 골라 들어온 경우 그 파드의 작업만 보여준다.
+  // 작업 목록은 언제나 지금 들어와 있는 파드 것만 보여준다(파드 스코프 바 참고).
   if(jobPodFilter) jobs = jobs.filter(j => j.pod_id === jobPodFilter);
-  queueRunning = !!running;
+  // 그래서 "▶ 시작/⏸ 정지"도 그 파드의 큐만 켜고 끈다 — 화면에 안 보이는 다른
+  // 파드까지 같이 움직이면 버튼이 거짓말을 하는 셈이 된다.
+  const podRuntime = (perPod || {})[jobPodFilter] || null;
+  queueRunning = podRuntime ? !!podRuntime.running : !!running;
   document.getElementById('pending-count').textContent = pendingCount;
   const tbody = document.getElementById('job-rows');
   const emptyMsg = document.getElementById('empty-msg');
@@ -3733,8 +3777,7 @@ function templateAllowedOnPod(template, podKind){
 }
 
 async function renderTemplateOptions(){
-  const podSel = document.getElementById('pod-select');
-  const podKind = (podsById[podSel && podSel.value] || {}).kind
+  const podKind = (podsById[formPodId()] || {}).kind
     || (podsCache.find(p => p.enabled) || {}).kind || 'comfyui';
   const prev = templateSelect.value;
   templatesById = {};
@@ -3964,9 +4007,10 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
 
   const form = new FormData();
   form.append('template_id', templateId);
-  // 파드가 하나뿐이면 선택 자체가 안 보이고, 서버가 기본 파드로 보낸다.
-  const podSel = document.getElementById('pod-select');
-  if(podSel && podSel.value) form.append('pod_id', podSel.value);
+  // 새 작업은 지금 열려 있는 파드로 간다 — 파드 스코프 바가 그 파드를 말해준다.
+  // (비어 있으면 서버가 기본 파드로 보낸다.)
+  const podId = formPodId();
+  if(podId) form.append('pod_id', podId);
   if(needsWorkflow) form.append('workflow', selectedFiles.workflow);
   if(template && template.requires_csv) form.append('csv', selectedFiles.csv);
   optionsFields.querySelectorAll('.option-input').forEach(input => {
@@ -3991,14 +4035,18 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
 });
 
 document.getElementById('start-queue-btn').addEventListener('click', async () => {
-  const endpoint = queueRunning ? '/api/queue/stop' : '/api/queue/start';
+  const action = queueRunning ? 'stop' : 'start';
+  // 파드 스코프 안에서는 그 파드의 큐만 — 전역 시작은 파드가 하나뿐일 때의 폴백이다.
+  const endpoint = jobPodFilter ? `/api/pods/${jobPodFilter}/queue/${action}` : `/api/queue/${action}`;
   await fetch(endpoint, { method: 'POST' });
   fetchJobs();
 });
 
 document.getElementById('clear-completed-btn').addEventListener('click', async () => {
   // 소프트 삭제라 "삭제된 작업 설정 불러오기"에서 되돌릴 수 있으므로 확인창 없이 바로 지운다.
-  await fetch('/api/jobs/clear-completed', { method: 'POST' });
+  // 보고 있는 파드 것만 지운다 — 화면에 없는 다른 파드의 작업까지 사라지면 안 된다.
+  const q = jobPodFilter ? `?pod_id=${encodeURIComponent(jobPodFilter)}` : '';
+  await fetch(`/api/jobs/clear-completed${q}`, { method: 'POST' });
   fetchJobs();
   fetchDeletedJobs();
 });
@@ -4335,15 +4383,29 @@ document.getElementById('comfy-endpoint-auto-btn').addEventListener('click', () 
 // 실제로 쓸 수 있는 게 뭔지"를 화면에서 그대로 다룰 수 있다. 지금은 (a) 헤더의
 // "📋 모델" 목록 보기와 (b) 업로드한 워크플로우 호환성 검사에 쓴다.
 let comfyObjectInfoCache = null;
+// 위 캐시가 어느 파드 것인지. 파드마다 설치된 노드·모델이 다르므로, 다른 파드로
+// 옮겨가면(파드 스코프 바에서 파드 전환) 캐시를 버리고 다시 받아야 한다.
+let comfyObjectInfoPodId = null;
+// 워크플로우/모델 화면이 물어볼 파드를 쿼리로 붙인다 — 안 붙이면 서버가 기본 파드를
+// 보므로, 파드 B 안에서 파드 A의 노드 목록을 보는 거짓말이 된다.
+function podQuery(extra){
+  const params = new URLSearchParams(extra || {});
+  const podId = formPodId();
+  if(podId) params.set('pod_id', podId);
+  const q = params.toString();
+  return q ? `?${q}` : '';
+}
 
 async function fetchComfyObjectInfo(force){
-  if(comfyObjectInfoCache && !force) return comfyObjectInfoCache;
-  const res = await fetch(`/api/comfy-object-info${force ? '?refresh=true' : ''}`);
+  const podId = formPodId();
+  if(comfyObjectInfoCache && !force && comfyObjectInfoPodId === podId) return comfyObjectInfoCache;
+  const res = await fetch(`/api/comfy-object-info${podQuery(force ? { refresh: 'true' } : null)}`);
   if(!res.ok){
     const data = await res.json().catch(() => ({}));
     throw new Error(data.detail || '모델 목록을 가져오지 못했어요.');
   }
   comfyObjectInfoCache = await res.json();
+  comfyObjectInfoPodId = podId;
   return comfyObjectInfoCache;
 }
 
@@ -5169,7 +5231,7 @@ document.getElementById('wizard-apply-btn').addEventListener('click', async () =
       };
       if(wizard.post.hires_fix) spec.hires_fix = { enabled: true };
       if(wizard.post.usdu) spec.usdu = { enabled: true, upscale_by: 2.0 };
-      const res = await fetch('/api/build-workflow', {
+      const res = await fetch(`/api/build-workflow${podQuery()}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec),
       });
       const data = await res.json().catch(() => ({}));
@@ -5256,7 +5318,7 @@ async function checkWorkflowCompatibility(file){
   }
   let data;
   try{
-    const res = await fetch('/api/validate-workflow', {
+    const res = await fetch(`/api/validate-workflow${podQuery()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: text,
@@ -5732,12 +5794,38 @@ function renderPodCard(p){
         ${p.auto_run
           ? `<button class="del-btn" data-pod-stop="${escapeHtml(p.id)}">⏸ 정지</button>`
           : `<button class="load-btn" data-pod-start="${escapeHtml(p.id)}"${p.enabled ? '' : ' disabled'}>▶ 시작</button>`}
-        <button class="load-btn" data-pod-jobs="${escapeHtml(p.id)}">🗂 작업 보기</button>
+        <button class="load-btn" data-pod-jobs="${escapeHtml(p.id)}">🗂 열기</button>
       </div>
     </div>`;
 }
 
-const CARD_RENDERERS = { pod: renderPodCard };
+// 작업 목록이 파드 안으로 들어가면서 "모든 파드의 작업을 한 화면에서" 보던 자리가
+// 비었다. 이 카드가 그 자리를 대신한다 — 파드를 가리지 않고 최근 작업만 훑어보고,
+// 행을 누르면 그 작업이 있는 파드의 작업 화면으로 들어간다.
+const RECENT_JOB_LIMIT = 8;
+
+function renderRecentJobsCard(){
+  const rows = lastJobs.slice(0, RECENT_JOB_LIMIT).map(j => {
+    const label = j.template_label || j.template_id;
+    return `
+      <div class="dash-job-row" data-job-pod="${escapeHtml(j.pod_id || '')}" title="${escapeHtml(label)}">
+        <span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span>
+        <span class="dash-job-name">${escapeHtml(label)}</span>
+        <span class="dash-job-pod">${escapeHtml(podName(j.pod_id) || '')}</span>
+      </div>`;
+  }).join('');
+  return `
+    <div class="dash-card" data-card-type="recent-jobs" data-span="2">
+      <div class="dash-card-head">
+        <span class="dash-card-name">최근 작업</span>
+        <span class="dash-card-kind">모든 파드</span>
+      </div>
+      ${rows ? `<div class="dash-jobs">${rows}</div>`
+             : '<div class="dash-card-job"><span class="dim">아직 작업이 없어요</span></div>'}
+    </div>`;
+}
+
+const CARD_RENDERERS = { pod: renderPodCard, 'recent-jobs': renderRecentJobsCard };
 
 function renderDashboard(){
   const totals = dashSummary.totals || {};
@@ -5755,8 +5843,10 @@ function renderDashboard(){
       <span class="dash-total-value">${escapeHtml(String(value))}</span>
     </div>`).join('');
 
-  // 카드 목록 — 지금은 파드마다 카드 하나. 나중에 다른 타입의 카드를 여기 섞는다.
+  // 카드 목록 — 파드마다 카드 하나에, 파드를 가로지르는 카드(최근 작업)를 덧붙인다.
+  // 나중에 통계나 산출물 카드도 같은 자리에 섞으면 된다.
   const cards = (dashSummary.pods || []).map(p => ({ type: 'pod', data: p }));
+  cards.push({ type: 'recent-jobs' });
   const canvas = document.getElementById('dash-canvas');
   document.getElementById('dash-empty').style.display = cards.length ? 'none' : '';
   canvas.innerHTML = cards.map(c => (CARD_RENDERERS[c.type] || (() => ''))(c.data)).join('');
@@ -5773,7 +5863,10 @@ function renderDashboard(){
     openPodEditModal(btn.dataset.podEdit);
   }));
   canvas.querySelectorAll('[data-pod-jobs]').forEach(btn => btn.addEventListener('click', () => {
-    location.hash = `#pod/${btn.dataset.podJobs}`;
+    showTab('jobs', { podId: btn.dataset.podJobs });
+  }));
+  canvas.querySelectorAll('[data-job-pod]').forEach(row => row.addEventListener('click', () => {
+    showTab('jobs', { podId: row.dataset.jobPod });
   }));
 }
 
@@ -5786,6 +5879,7 @@ async function fetchDashboard(){
     return;
   }
   renderDashboard();
+  updatePodBarStatus();
 }
 
 document.getElementById('dash-refresh-btn').addEventListener('click', fetchDashboard);
@@ -5889,14 +5983,27 @@ document.getElementById('pod-edit-delete').addEventListener('click', async () =>
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || '지우지 못했어요.');
     closePodEditModal();
+    const wasInside = currentPodId === podEditId;
     await fetchPods();
-    fetchDashboard();
+    // 방금 지운 파드 안에 서 있었으면 갈 곳이 없다 — 대시보드로 내보낸다.
+    if(wasInside) showTab('dashboard'); else fetchDashboard();
   }catch(e){
     errorEl.textContent = e.message || '지우지 못했어요.';
   }
 });
 
-// ---- 탭 전환 (작업 관리 / 갤러리 / Danbooru 프롬프트) ----
+// ---- 화면 전환 ----
+// 화면은 두 층이다.
+//     전역   #dashboard · #gallery · #danbooru      어느 파드와도 무관한 화면
+//     파드   #pod/{id}/{sub}   (sub: jobs · builder · lora)
+// 작업·워크플로우·모델을 파드 안에 넣은 이유는 이 셋이 전부 "그 파드가 무엇을 갖고
+// 있는가"를 읽어서 그리기 때문이다 — 워크플로우와 모델은 그 파드의 /object_info를,
+// 작업 목록은 그 파드의 큐를 본다. 전역 탭으로 두면 파드가 여럿일 때 화면이 어느
+// 파드 이야기를 하는지 말해주지 못한다(그래서 예전엔 늘 기본 파드만 봤다).
+// 반대로 Danbooru는 태그를 조립할 뿐 파드를 쓰지 않으므로 전역에 남는다.
+//
+// 주소창 해시로 화면을 기억한다. 서버 라우트를 늘리지 않고도 새로고침·뒤로가기·링크
+// 공유가 되는 가장 가벼운 방법이라 해시를 쓴다.
 const TAB_MAINS = {
   dashboard: document.getElementById('tab-dashboard'),
   jobs: document.getElementById('tab-jobs'),
@@ -5906,19 +6013,65 @@ const TAB_MAINS = {
   lora: document.getElementById('tab-lora'),
 };
 
-// 주소창 해시로 화면을 기억한다("#gallery", "#pod/abc123"). 서버 라우트를 늘리지
-// 않고도 새로고침·뒤로가기·링크 공유가 되는 가장 가벼운 방법이라 해시를 쓴다.
-function showTab(tab, { podId = null, updateHash = true } = {}){
+const POD_TABS = ['jobs', 'builder', 'lora'];
+const POD_TAB_LABEL = { jobs: '🗂 작업', builder: '🧩 워크플로우', lora: '🎛 모델' };
+// 파드 종류가 서브탭 구성을 정한다 — 셸 파드에는 워크플로우도 설치된 모델도 없다.
+// (예전에는 셸 파드만 등록해도 상단에 🧩·🎛 탭이 그대로 보였고, 눌러봐야 빈
+// 목록이었다.) 새 종류의 워커를 붙일 때 여기 한 줄이 그 워커의 화면 구성이 된다.
+const POD_SUBTABS = { comfyui: ['jobs', 'builder', 'lora'], shell: ['jobs'] };
+
+function podSubtabs(pod){ return POD_SUBTABS[(pod || {}).kind] || ['jobs']; }
+
+// 어느 파드로 들어갈지 정한다. 없는 id로 들어오면(파드를 지웠거나 옛 링크) 마지막에
+// 보던 파드 → 기본 파드 순으로 떨어진다. 파드가 하나도 없으면 null(=갈 곳이 없음).
+function resolvePodId(podId){
+  if(podId && podsById[podId]) return podId;
+  if(lastPodId && podsById[lastPodId]) return lastPodId;
+  const fallback = podsCache.find(p => p.enabled) || podsCache[0];
+  return fallback ? fallback.id : null;
+}
+
+// "지금 새 작업을 만들면 어느 파드로 가는가". 새 작업 폼은 파드 스코프 안에만 있어서
+// 보통 currentPodId와 같지만, Danbooru → "메인 프롬프트로 보내기"처럼 파드 밖에서
+// 폼을 건드리는 경로가 있어서 별도 함수로 둔다.
+function formPodId(){ return resolvePodId(currentPodId); }
+
+function showTab(tab, { podId = null } = {}){
   if(!TAB_MAINS[tab]) tab = 'dashboard';
-  jobPodFilter = podId;
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  // 지금 "새 작업 추가" 폼이 겨냥하고 있는 파드의 종류. currentPodId가 아니라
+  // formPodId()로 재는 이유는, 전역 화면(Danbooru 등)에서는 currentPodId가 null이라
+  // 종류가 바뀐 것처럼 보여서 아래에서 폼을 괜히 다시 그리기 때문이다 —
+  // 그러면 Danbooru에서 보낸 프롬프트가 도착하자마자 지워진다.
+  const prevKind = (podsById[formPodId()] || {}).kind;
+
+  let scopedPodId = null;
+  if(POD_TABS.includes(tab)){
+    scopedPodId = resolvePodId(podId || currentPodId);
+    // 파드 목록을 아직 못 읽었으면(첫 로드가 401이었다든지) 갈 곳이 없다.
+    if(!scopedPodId) tab = 'dashboard';
+    else if(!podSubtabs(podsById[scopedPodId]).includes(tab)) tab = 'jobs';
+  }
+  currentPodId = scopedPodId;
+  if(scopedPodId) lastPodId = scopedPodId;
+  currentTab = tab;
+  // 작업 목록은 언제나 지금 들어와 있는 파드 것만 보여준다.
+  jobPodFilter = (tab === 'jobs') ? scopedPodId : null;
+
+  document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   for(const [name, el] of Object.entries(TAB_MAINS)){
     el.style.display = (name === tab) ? '' : 'none';
   }
+  renderPodBar();
 
-  // 대시보드가 보이는 동안에만 폴링한다 — 안 보이는 화면 때문에 파드를 계속 찌를
-  // 이유가 없다(파드가 늘수록 그 비용이 커진다).
-  if(tab === 'dashboard'){
+  // 파드 종류가 바뀌면 그 종류에서 쓸 수 있는 템플릿만 남긴다. 종류가 그대로면
+  // (ComfyUI 파드에서 다른 ComfyUI 파드로) 목록이 같으므로 손대지 않는다 — 여기서
+  // 다시 그리면 사용자가 채워둔 옵션이 날아간다.
+  const nextKind = (podsById[formPodId()] || {}).kind;
+  if(allTemplates.length && prevKind !== nextKind) renderTemplateOptions();
+
+  // 파드 상태 폴링 — 대시보드 카드와 파드 스코프 바가 같은 데이터로 점을 그린다.
+  // 둘 다 안 보이는 화면(갤러리·Danbooru)에서는 멈춘다.
+  if(tab === 'dashboard' || scopedPodId){
     fetchDashboard();
     if(!dashTimer) dashTimer = setInterval(fetchDashboard, 4000);
   }else if(dashTimer){
@@ -5929,36 +6082,69 @@ function showTab(tab, { podId = null, updateHash = true } = {}){
   if(tab === 'gallery') fetchGalleryImages();
   if(tab === 'builder') initBuilderTab();
   if(tab === 'lora') initLoraTab();
-  if(tab === 'jobs'){ renderPodFilterBanner(); fetchJobs(); }
+  if(tab === 'jobs') fetchJobs();
 
-  if(updateHash){
-    const want = podId ? `#pod/${podId}` : `#${tab}`;
-    if(location.hash !== want) history.replaceState(null, '', want);
-  }
+  const want = scopedPodId ? `#pod/${scopedPodId}/${tab}` : `#${tab}`;
+  if(location.hash !== want) history.replaceState(null, '', want);
 }
 
-function renderPodFilterBanner(){
-  const el = document.getElementById('job-pod-filter');
-  if(!el) return;
-  if(!jobPodFilter){ el.style.display = 'none'; return; }
-  el.style.display = '';
-  el.innerHTML = `<span>‘${escapeHtml(podName(jobPodFilter) || jobPodFilter)}’ 파드의 작업만 보는 중</span>
-    <button class="modal-btn-secondary" id="job-pod-filter-clear" type="button">✕ 전체 보기</button>`;
-  document.getElementById('job-pod-filter-clear').addEventListener('click', () => {
-    location.hash = '#jobs';
-    applyHashRoute();
-  });
+// 파드 스코프 바를 통째로 다시 그린다(이동했을 때 · 파드 목록이 바뀌었을 때).
+function renderPodBar(){
+  const bar = document.getElementById('pod-bar');
+  if(!bar) return;
+  if(!currentPodId){ bar.style.display = 'none'; return; }
+  bar.style.display = '';
+  const pod = podsById[currentPodId] || {};
+
+  const select = document.getElementById('pod-bar-select');
+  // 꺼둔 파드도 목록에 남긴다 — 그 파드의 지난 작업을 보러 들어갈 수 있어야 한다.
+  select.innerHTML = podsCache.map(p =>
+    `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.enabled ? '' : ' (사용 안 함)'}</option>`).join('');
+  select.value = currentPodId;
+  document.getElementById('pod-bar-kind').textContent = pod.kind_label || pod.kind || '';
+
+  document.getElementById('pod-bar-subtabs').innerHTML = podSubtabs(pod).map(t =>
+    `<button class="pod-subtab-btn${t === currentTab ? ' active' : ''}" data-pod-tab="${t}" type="button">${POD_TAB_LABEL[t]}</button>`).join('');
+
+  updatePodBarStatus();
+}
+
+// 연결 상태 점만 갱신한다. 4초마다 바를 통째로 다시 그리면 열어둔 파드 드롭다운이
+// 닫혀버리므로 폴링에서는 이쪽만 부른다.
+function updatePodBarStatus(){
+  const dot = document.getElementById('pod-bar-dot');
+  if(!dot || !currentPodId) return;
+  const row = (dashSummary.pods || []).find(p => p.id === currentPodId);
+  const state = POD_STATE[row ? podState(row) : 'offline'];
+  dot.className = `dash-dot ${state.cls}`;
+  dot.title = state.label;
 }
 
 function applyHashRoute(){
   const raw = (location.hash || '').replace(/^#/, '');
-  const podMatch = raw.match(/^pod\/(.+)$/);
-  if(podMatch) showTab('jobs', { podId: podMatch[1], updateHash: false });
-  else showTab(raw || 'dashboard', { updateHash: false });
+  const podMatch = raw.match(/^pod\/([^/]+)(?:\/([^/]+))?$/);
+  if(podMatch) showTab(podMatch[2] || 'jobs', { podId: podMatch[1] });
+  // 파드 안으로 옮겨간 옛 링크(#jobs · #builder · #lora)는 마지막/기본 파드의 같은
+  // 화면으로 보낸다 — showTab이 주소도 새 형태로 고쳐 쓴다.
+  else showTab(raw || 'dashboard');
 }
 
-document.querySelectorAll('.tab-btn').forEach(btn => {
+document.querySelectorAll('.tab-bar .tab-btn').forEach(btn => {
   btn.addEventListener('click', () => showTab(btn.dataset.tab));
+});
+document.getElementById('pod-bar-back').addEventListener('click', () => showTab('dashboard'));
+document.getElementById('pod-bar-settings').addEventListener('click', () => {
+  if(currentPodId) openPodEditModal(currentPodId);
+});
+document.getElementById('pod-bar-subtabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-pod-tab]');
+  if(btn) showTab(btn.dataset.podTab, { podId: currentPodId });
+});
+// 파드를 바꾸면 같은 서브탭을 그 파드에서 연다. "새 작업 추가" 폼은 그대로 두므로,
+// 프롬프트와 옵션을 다 채운 뒤에 어디서 돌릴지 정하는 순서도 그대로 살아 있다
+// (파드 종류가 바뀌는 경우에만 템플릿 목록이 다시 그려진다).
+document.getElementById('pod-bar-select').addEventListener('change', (e) => {
+  showTab(currentTab, { podId: e.target.value });
 });
 window.addEventListener('hashchange', applyHashRoute);
 
@@ -6641,7 +6827,9 @@ document.getElementById('gallery-lightbox-load-job-btn').addEventListener('click
     return;
   }
   closeLightbox();
-  document.querySelector('.tab-btn[data-tab="jobs"]').click();
+  // 그 작업을 돌렸던 파드로 들어간다(그 파드가 사라졌으면 resolvePodId가 기본 파드로
+  // 떨어뜨린다) — 같은 설정을 다른 종류의 파드에서 열면 템플릿부터 맞지 않는다.
+  showTab('jobs', { podId: job.pod_id });
   await loadJobSettings(job);
   document.getElementById('new-job-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
@@ -7476,7 +7664,9 @@ function danbooruSendToMainPrompt(){
   statusEl.textContent = '메인 프롬프트로 보냈어요.';
   statusEl.classList.remove('error');
   statusEl.classList.add('success');
-  document.querySelector('.tab-btn[data-tab="jobs"]').click();
+  // Danbooru는 파드 밖 화면이라 "어느 파드의 작업 폼인지"를 정해줘야 한다 —
+  // 마지막에 보던 파드(없으면 기본 파드)로 들어간다.
+  showTab('jobs');
   raw.scrollIntoView({ behavior: 'smooth', block: 'center' });
   raw.focus();
 }
@@ -7496,7 +7686,7 @@ function danbooruSendTextToExtra(text){
   const newTags = trimmed.split(',').map(t => t.trim()).filter(Boolean);
   danbooruState.selections.extra = danbooruDedupe([...(danbooruState.selections.extra || []), ...newTags]);
   danbooruUpdateAll();
-  document.querySelector('.tab-btn[data-tab="danbooru"]').click();
+  showTab('danbooru');
   document.getElementById('danbooru-prompt-text').scrollIntoView({ behavior: 'smooth', block: 'center' });
   return true;
 }
@@ -7702,7 +7892,7 @@ async function requestBuiltWorkflow(){
   errorEl.textContent = '';
   noticeEl.textContent = '';
   try{
-    const res = await fetch('/api/build-workflow', {
+    const res = await fetch(`/api/build-workflow${podQuery()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(collectBuilderSpec()),
@@ -7764,14 +7954,16 @@ document.getElementById('builder-send-btn').addEventListener('click', async () =
   const text = JSON.stringify(workflow, null, 2);
   const filename = builtWorkflowFilename();
   setWorkflowFile(new File([text], filename, { type: 'application/json' }));
-  document.querySelector('.tab-btn[data-tab="jobs"]').click();
+  // 빌더 자체가 파드 안에 있으므로, 만든 워크플로우는 그 파드의 작업 폼으로 간다.
+  showTab('jobs', { podId: currentPodId });
   document.getElementById('load-notice').textContent = `만든 워크플로우(${filename})를 채웠어요 — 템플릿/옵션을 확인하고 "추가"를 누르세요.`;
   document.getElementById('workflow-slot').scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
 
-fetchTemplates();
-// 파드 목록을 먼저 받아야 대시보드 카드의 이름/종류가 제대로 나온다.
-fetchPods().then(applyHashRoute);
+// 파드 목록 → 첫 화면 → 템플릿 목록 순서를 지킨다. 템플릿 목록은 "어느 파드에
+// 들어와 있는가"에 따라 달라지므로(셸 파드면 셸 명령만), 파드와 주소가 정해지기
+// 전에 먼저 받아버리면 잘못된 목록을 그린 뒤 다시 그리는 경합이 생긴다.
+fetchPods().then(applyHashRoute).then(fetchTemplates);
 fetchJobs();
 fetchDeletedJobs();
 fetchComfyStatus();
