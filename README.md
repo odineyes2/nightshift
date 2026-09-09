@@ -12,12 +12,16 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 
 ## 주요 기능
 
+- **접속하면 파드(워커) 대시보드가 먼저 보이고, 작업·워크플로우·모델 화면은 각 파드 안에 있음**
+  — 이 셋은 "그 파드에 무엇이 설치돼 있고 그 파드 큐에 무엇이 들어 있나"를 읽어서 그리므로,
+  주소(`#pod/{id}/jobs`)가 곧 어느 파드 이야기인지를 정함. 서브탭 구성은 파드 종류가 정해서
+  셸 파드에는 "작업"만 보임. 전역에는 대시보드·갤러리와, 파드를 쓰지 않는 Danbooru만 남음
 - `templates/manifest.json`에 등록된 스크립트 템플릿을 웹 UI 드롭다운에서 선택해 작업 등록
   (매번 `.py`를 업로드할 필요 없이, 정해진 실행 로직을 재사용)
 - 템플릿마다 정의된 옵션(숫자/텍스트/드롭다운/포즈 세트 선택)을 선택 즉시 입력 폼으로 보여주고, 기본값을 미리 채워줌
 - 템플릿마다 워크플로우(`.json`, 항상 필수)와 CSV(템플릿이 요구하는 경우에만 필수)를 첨부
 - **업로드해도 바로 실행되지 않음** — "대기중" 상태로 목록에 쌓이기만 하고, 개별 작업이 아니라 **"작업 목록" 패널의
-  "▶ 시작" 버튼**을 눌러야 그 시점에 대기 중인 작업 전체가 한꺼번에 실행 큐에 들어감. 이 버튼은 토글이라, 누르면
+  "▶ 시작" 버튼**을 눌러야 그 시점에 (보고 있는 파드의) 대기 중인 작업 전체가 한꺼번에 실행 큐에 들어감. 이 버튼은 토글이라, 누르면
   "⏸ 정지"로 바뀌면서 자동 실행 모드가 켜지고, 켜져 있는 동안에는 그 뒤에 새로 "큐에 추가"하는 작업도 대기 상태를
   거치지 않고 바로 이어서 실행 큐에 들어감. 다시 눌러 정지하면 이미 큐에 들어갔거나 실행 중인 작업은 끝까지
   진행되고, 그 이후 추가하는 작업만 다시 대기중 상태로 쌓임
@@ -146,7 +150,7 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 ## 사용 방법
 
-1. 브라우저에서 서버 주소(`http://<host>:8000`)에 접속합니다. 상단에 **"작업 관리"**/**"갤러리"** 탭이 있습니다 — 아래 2~14번은 "작업 관리" 탭 기준이고, 갤러리는 맨 아래 별도 절에서 설명합니다.
+1. 브라우저에서 서버 주소(`http://<host>:8000`)에 접속하면 **대시보드**가 먼저 보입니다. 작업을 등록하려면 **파드 카드의 "🗂 열기"**를 눌러 그 파드 안으로 들어갑니다 — 아래 2~14번은 그 안의 **"🗂 작업"** 화면 기준입니다(화면 구조는 아래 "화면 구조 — 전역과 파드 스코프" 절, 갤러리는 별도 절 참고).
 2. "새 작업 추가"에서 **템플릿**을 드롭다운으로 선택합니다. 스크립트는 템플릿에 이미 정해져 있으므로 `.py`를 올릴 필요가 없습니다.
 3. 템플릿을 선택하면 그 템플릿에 정의된 **옵션 입력 필드**가 바로 아래 나타나며, 기본값이 미리 채워집니다. 필요하면 값을 바꿉니다.
 4. **워크플로우(.json)**는 어떤 템플릿이든 항상 필수로 첨부해야 합니다.
@@ -256,14 +260,47 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
   구조로 뒀습니다(카드가 `data-span`으로 자기 폭을 정합니다).
 - **드라이버가 카드 내용을 정합니다** — ComfyUI 카드는 GPU/VRAM을 보여주고, 앞으로 다른 종류의
   워커가 붙으면 그 워커에 맞는 값을 보여줍니다(`drivers/`의 `card()`).
-- **"🗂 작업 보기"**를 누르면 작업 관리 탭으로 넘어가면서 **그 파드의 작업만** 걸러 보여줍니다
-  (상단 배너의 "✕ 전체 보기"로 해제).
-- **주소창 해시로 화면을 기억합니다** — `#dashboard`, `#jobs`, `#gallery`, `#pod/{id}`.
-  새로고침·뒤로가기·링크 공유가 되고, 서버 라우트를 늘리지 않아도 됩니다.
-- 대시보드가 **보이는 동안에만** 4초마다 폴링합니다(안 보이는 화면 때문에 파드를 계속 찌를
-  이유가 없고, 파드가 늘수록 그 비용이 커지므로).
+- **"🗂 열기"**를 누르면 그 파드 안으로 들어갑니다(아래 "화면 구조" 절).
+- **"최근 작업" 카드**: 파드를 가리지 않고 최근 작업 8건을 상태·템플릿·파드 이름으로 보여줍니다.
+  작업 목록 자체는 파드 안으로 들어갔으므로, "지금 전체적으로 뭐가 도는가"는 이 카드가 답합니다.
+  행을 누르면 그 작업이 있는 파드의 작업 화면으로 들어갑니다.
+- **주소창 해시로 화면을 기억합니다** — `#dashboard`, `#gallery`, `#danbooru`,
+  `#pod/{id}/{jobs|builder|lora}`. 새로고침·뒤로가기·링크 공유가 되고, 서버 라우트를 늘리지
+  않아도 됩니다.
+- 대시보드나 파드 스코프가 **보이는 동안에만** 4초마다 폴링합니다(둘 다 파드 상태 점을 이
+  데이터로 그립니다 — 갤러리·Danbooru에서는 멈춥니다).
 - **파드 추가·편집·삭제**도 이 화면에서 합니다(카드의 ⚙ 또는 "➕ 파드 추가"). 이름·종류·주소·
   동시 실행 수·결과 가져오기·사용 여부를 정하고, 저장한 파드는 "🔌 연결 테스트"로 확인합니다.
+
+### 화면 구조 — 전역과 파드 스코프
+
+화면은 두 층입니다.
+
+| 층 | 화면 | 주소 |
+|---|---|---|
+| 전역 | 📊 대시보드 · 🖼 갤러리 · 🏷 Danbooru | `#dashboard` · `#gallery` · `#danbooru` |
+| 파드 | 🗂 작업 · 🧩 워크플로우 · 🎛 모델 | `#pod/{id}/jobs` · `.../builder` · `.../lora` |
+
+**작업·워크플로우·모델이 파드 안에 있는 이유**는 이 셋이 전부 "그 파드가 무엇을 갖고 있는가"를
+읽어서 그리기 때문입니다 — 워크플로우 빌더와 모델 목록은 그 파드의 `/object_info`를, 작업
+목록은 그 파드의 큐를 봅니다. 전역 탭으로 두면 파드가 여럿일 때 화면이 어느 파드 이야기를
+하는지 말해주지 못합니다(예전에는 늘 기본 파드만 봤습니다). 반대로 **Danbooru는 태그를 조립할
+뿐 파드를 쓰지 않으므로** 전역에 남아 있습니다.
+
+- **파드 스코프 바**: 파드 안에 있을 때 상단 탭바 아래에 한 줄 더 붙습니다 — 대시보드로 돌아가는
+  버튼, 연결 상태 점, **파드 전환 드롭다운**, 종류 배지, 설정(⚙), 그리고 서브탭.
+- **서브탭 구성은 파드 종류가 정합니다.** ComfyUI 파드는 작업·워크플로우·모델 셋, 셸 파드는
+  작업 하나뿐입니다(셸 워커에는 워크플로우도 설치된 모델도 없습니다). 새 종류의 워커를 붙일 때
+  `POD_SUBTABS`에 한 줄 추가하는 것이 그 워커의 화면 구성이 됩니다.
+- **파드를 바꿔도 "새 작업 추가" 폼은 그대로 남습니다** — 프롬프트와 옵션을 다 채운 뒤에 어디서
+  돌릴지 정하는 순서도 살아 있습니다. 파드 **종류**가 바뀔 때만 템플릿 목록이 다시 그려집니다
+  (그때는 쓸 수 있는 템플릿 자체가 달라지므로).
+- **화면 사이의 넘김도 파드를 따라갑니다** — Danbooru의 "메인 프롬프트로 보내기"는 마지막에
+  보던 파드의 작업 폼으로, 워크플로우 빌더의 "작업 폼에 채우기"는 그 빌더가 속한 파드로,
+  갤러리 라이트박스의 "설정 불러오기"는 그 작업을 돌렸던 파드로 들어갑니다.
+- **옛 링크는 자동으로 옮겨집니다** — `#jobs`/`#builder`/`#lora`로 들어오면 마지막(없으면 기본)
+  파드의 같은 화면으로 보내고 주소도 새 형태로 고쳐 씁니다. 없는 파드 id도 같은 규칙으로
+  떨어집니다.
 
 ### 파드(워커) 레지스트리
 
@@ -284,9 +321,12 @@ nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_regi
 **파드마다 큐와 워커 스레드가 따로 돕니다.** 작업에는 `pod_id`가 붙고 그 파드의 큐에만 들어가며,
 파드 하나가 멈춰도 다른 파드는 그대로 돕니다. 파드가 하나뿐이면 예전과 동작이 완전히 같습니다.
 
-- **자동 실행("▶ 시작"/"⏸ 정지")도 파드별**입니다. 화면의 버튼 하나는 편의상 **사용 중인 파드
-  전부**를 켜고 끕니다(`/api/queue/start`·`/api/queue/stop`). 한 대씩 굴리려면
-  `/api/pods/{id}/queue/start`·`stop`을 씁니다.
+- **자동 실행("▶ 시작"/"⏸ 정지")도 파드별**입니다. 작업 화면은 늘 파드 하나 안에 있으므로 그
+  버튼은 **그 파드의 큐만** 켜고 끕니다(`/api/pods/{id}/queue/start`·`stop`). 사용 중인 파드
+  전부를 한 번에 켜는 `/api/queue/start`·`stop`은 API로 남아 있습니다.
+- 파드 하나를 켤 때, **다른 파드에 배정된 대기 작업은 건드리지 않습니다.** 배정된 파드가
+  사라졌거나 꺼져 있어서 영영 안 돌 작업만 켜는 파드로 되돌리고, 그때도 **워커 종류가 맞을
+  때만** 옮깁니다(셸 작업이 ComfyUI 파드로 끌려가면 조용히 엉뚱하게 돕니다).
 - **`max_concurrent`**만큼 그 파드에서 작업이 동시에 돕니다(기본 1 — 예전과 같은 순차 실행).
 - **파드가 죽으면 그 큐만 멈춥니다.** 옆 파드가 놀아도 자동으로 넘어가지 않습니다(자동 배분은
   일부러 넣지 않았습니다 — `multipod_plan.md`의 "지금 하지 않을 것" 참고). 대신 작업 행의
@@ -296,8 +336,11 @@ nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_regi
 - 이미 큐에 들어간 작업도 옮길 수 있습니다. 파이썬 큐에서 항목을 빼는 건 불가능하지만, 워커가
   작업을 꺼낼 때 **"이 작업이 아직 내 것인가"를 확인하고 아니면 그냥 버리기** 때문입니다
   (옮긴 쪽이 이미 새 파드 큐에 넣었으므로, 여기서 또 넣으면 같은 작업이 두 번 돕니다).
-- **화면은 파드가 둘 이상일 때만 파드 이야기를 꺼냅니다** — "새 작업 추가"의 "실행할 파드"
-  선택, 작업 행의 파드 배지, "➡ 파드 이동" 버튼이 그때 나타납니다.
+- **새 작업은 지금 열려 있는 파드로 갑니다**(주소가 곧 파드입니다 — 별도의 "실행할 파드"
+  드롭다운은 없앴고, 파드 스코프 바의 파드 전환이 그 자리를 대신합니다). 작업 행의 파드 배지와
+  "➡ 파드 이동" 버튼은 파드가 둘 이상일 때만 나타납니다.
+- **"🗑 완료 삭제"도 보고 있는 파드 것만** 지웁니다(`POST /api/jobs/clear-completed?pod_id=...`)
+  — 화면에 보이지도 않는 다른 파드의 작업이 같이 사라지면 안 되므로.
 - 파드를 지우면 그 파드에 배정돼 있던 미완료 작업은 기본 파드로 되돌아갑니다(`queued`였다면
   `pending`으로). 실행 중인 작업이 있는 파드는 지울 수 없습니다.
 
@@ -670,14 +713,14 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `PUT` | `/api/pods/{pod_id}` | 파드를 **부분 수정**한다 — 보낸 필드만 바뀐다(이름만 바꾸려는 요청이 주소를 지우면 안 되므로). 주소가 바뀌면 그 파드의 노드/모델 목록 캐시를 비운다. 없는 파드면 404 |
 | `DELETE` | `/api/pods/{pod_id}` | 파드를 지운다. 마지막 하나는 지울 수 없음(400) — 쓰지 않으려면 `enabled: false` |
 | `GET` | `/api/pods/summary` | 대시보드가 폴링할 파드별 요약 — 레코드(+`kind_label`/`effective_url`) + 연결 상태(캐시) + `auto_run`/`queue_len`/`running_jobs`/`waiting_for_pod`/`pending_count`/`images_today` + `card`(드라이버가 주는 카드 정보, ComfyUI는 GPU/VRAM — 20초 캐시에 백그라운드 갱신) + `recent_images`(최근 결과 3장의 상대 경로) + 전체 합계 `totals`. 파드 폴더만 들여다보므로 출력 폴더 전체를 훑지 않는다 |
-| `POST` | `/api/pods/{pod_id}/queue/start` | **그 파드만** 자동 실행을 켜고, 그 파드로 배정된 대기 작업을 큐에 넣음. 응답 `{"pod_id", "running": true, "started": N}` |
+| `POST` | `/api/pods/{pod_id}/queue/start` | **그 파드만** 자동 실행을 켜고, 그 파드로 배정된 대기 작업을 큐에 넣음(작업 화면의 "▶ 시작"이 부르는 것). 다른 파드에 배정된 작업은 건드리지 않고, 배정된 파드가 사라졌거나 꺼진 작업만 — 그것도 워커 종류가 맞을 때만 — 이 파드로 되돌림. 응답 `{"pod_id", "running": true, "started": N}` |
 | `POST` | `/api/pods/{pod_id}/queue/stop` | **그 파드만** 멈춤(다른 파드는 계속 돎). 그 파드에서 실행 중인 작업에 종료 요청. 응답 `{"pod_id", "running": false, "stopped_job_ids": [...]}` |
 | `POST` | `/api/jobs/{job_id}/move` | 작업을 다른 파드로 옮김(요청 본문 `{"pod_id": "..."}`). `pending`/`queued`/`interrupted`만 가능하고 실행 중이면 400, 없는 파드면 404, 사용 안 함 파드면 400 |
 | `POST` | `/api/pods/{pod_id}/test` | 저장된 그대로의 파드가 응답하는지 확인(설정은 안 건드림). 응답 `{"pod_id", "ok", "url", "source", "detail"}`. 사람이 기다리는 동작이라 폴링보다 넉넉한 타임아웃(8초)을 씀 |
 | `POST` | `/api/comfy-outputs/sync` | 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(요청 본문 `{"job_id": "..."(선택, 그 작업 것만), "force": bool(선택)}`). 응답 `{"url", "checked", "downloaded": [...], "skipped_known", "skipped_existing", "skipped_invalid", "errors", "last_sync"}`. **한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않는다**(`comfy_output_sync.json`) — 정말 다시 받고 싶으면 `force: true`. 로컬에 이미 있는 파일은 어느 경우에도 덮어쓰지 않는다. ComfyUI에 연결이 안 되면 503, 히스토리 조회에 실패하면 502 |
 | `POST` | `/api/comfy-outputs/forget` | "이미 받아왔다"는 기록을 지운다(요청 본문 `{"job_id": "..."}`를 주면 그 작업 것만, 없으면 전부). 응답 `{"forgotten": N, "last_sync", "known"}`. 한 번만 다시 받으면 되는 경우라면 위의 `force: true`가 더 간단하다 |
 | `POST` | `/api/comfy-endpoint/test` | 저장하지 않고 주소만 확인한다(요청 본문 `{"url": "..."}`, 비워 보내면 지금 적용 중인 주소를 확인). 응답 `{"url", "connected"}`. 폴링(2초)보다 넉넉한 타임아웃(8초)을 써서 원격 pod의 첫 TLS 핸드셰이크까지 기다린다 |
-| `GET` | `/api/comfy-object-info?refresh=false` | 지금 연결된 ComfyUI에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
+| `GET` | `/api/comfy-object-info?refresh=false&pod_id=` | **그 파드**(생략하면 기본 파드, ComfyUI 파드가 아니면 기본 파드로 폴백)에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
 | `GET` | `/api/lora-triggers` | LoRA 파일명 → `{trigger, families}` 매핑을 반환(설정 안 한 LoRA는 키 자체가 없음). `families`는 이 LoRA가 호환되는 베이스 모델 family id 목록 — 빈 배열이면 모든 family와 호환되는 것으로 취급 |
 | `PUT` | `/api/lora-triggers` | 매핑 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "🎛 모델" 탭이 입력/체크할 때마다 부름. `trigger`가 빈 문자열이고 `families`도 빈 배열이면 그 키를 저장하지 않음(지움). 객체가 아니거나 각 값이 `{trigger: string, families: string[]}` 형태가 아니면 400. 예전 스키마(`{lora_filename: "트리거 문자열"}`)로 저장돼 있던 파일은 서버가 시작할 때 자동으로 이 형태로 이관함(`families: []`) |
 | `GET` | `/api/base-model-families` | 베이스 모델 family 정의를 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}`로 반환 — "새 작업 추가" 마법사 1단계와 LoRA/프리셋 호환성 필터링의 기준이 됨 |
@@ -688,15 +731,15 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/workflow-presets/{family_id}/{type_id}` | 그 조합의 프리셋 워크플로우 JSON을 그대로 반환. 없으면 404 |
 | `PUT` | `/api/workflow-presets/{family_id}/{type_id}` | 워크플로우 JSON을 통째로 올려 그 조합에 저장(요청 본문 = 워크플로우 JSON 또는 `{"workflow": {...}}`) — "🎛 모델" 탭의 ControlNet 프리셋 업로드가 부름. 검증 없이 그대로 저장되므로, 실제로 돌아가는지는 `POST /api/validate-workflow`로 따로 확인할 것 |
 | `DELETE` | `/api/workflow-presets/{family_id}/{type_id}` | 그 조합의 프리셋을 삭제. 없으면 404 |
-| `POST` | `/api/build-workflow` | 요청 본문의 스펙(`base`: `"txt2img"`(기본)/`"img2img"`, `checkpoint`, `loras: [{name, strength_model, strength_clip}]`, `positive`, `negative`, `seed`, `steps`, `cfg`, `sampler_name`, `scheduler`, `vae`, `width`/`height`/`batch_size`(`base="txt2img"` 전용), `denoise`(`base="img2img"` 전용), `hires_fix: {enabled, scale_by, denoise, steps}`(선택, 베이스 뒤에 이어 붙임), `usdu: {enabled, upscale_by, upscale_method, denoise}`(선택, `hires_fix`보다 뒤·VAEDecode 다음에 이어 붙임 — 커스텀 노드 `UltimateSDUpscaleNoUpscale` 필요))으로 ComfyUI API 형식 워크플로우를 조립해 `{"workflow": {...}}`로 반환(`workflow_builder.py`). `hires_fix`/`usdu`는 몇 개를 켜도(둘 다 켜도) 되고, 켜진 순서와 무관하게 항상 `hires_fix` → `usdu` 순으로 체이닝됨(위 "워크플로우 유형의 조합 규칙" 참고). `base="img2img"`는 제목이 `"input_image"`인 `LoadImage` 노드가 포함되며 실제 파일명은 실행 시점에 템플릿이 덮어씀. ComfyUI가 떠 있으면 고른 모델/샘플러가 실제로 설치·지원되는지 먼저 검증하고 아니면 400, 꺼져 있으면 검증을 건너뜀. 체크포인트나 긍정 프롬프트가 비어 있거나 `base` 값이 둘 중 하나가 아니면 400. 큐에 넣지는 않음 — 만들어진 JSON을 화면이 워크플로우 슬롯에 채워 기존 업로드 경로를 타게 함 |
-| `POST` | `/api/validate-workflow` | 요청 본문에 워크플로우 JSON(또는 `{"workflow": {...}}`)을 담아 보내면 지금 연결된 ComfyUI 기준으로 검사해서 `{"connected", "ok", "missing_nodes": [노드 타입...], "missing_values": [{"node_id", "class_type", "field", "value"}...], "checked_nodes"}` 반환. 이 서버에 없는 노드와, 목록에서 고르는 입력(`ckpt_name`/`lora_name`/`sampler_name` 등)에 없는 값을 짚어줌. ComfyUI가 안 떠 있으면 `connected: false`(= "문제 없음"이 아니라 "확인 못 함"). JSON이 아니거나 노드 맵 형식이 아니면 400 |
+| `POST` | `/api/build-workflow?pod_id=` | 요청 본문의 스펙(`base`: `"txt2img"`(기본)/`"img2img"`, `checkpoint`, `loras: [{name, strength_model, strength_clip}]`, `positive`, `negative`, `seed`, `steps`, `cfg`, `sampler_name`, `scheduler`, `vae`, `width`/`height`/`batch_size`(`base="txt2img"` 전용), `denoise`(`base="img2img"` 전용), `hires_fix: {enabled, scale_by, denoise, steps}`(선택, 베이스 뒤에 이어 붙임), `usdu: {enabled, upscale_by, upscale_method, denoise}`(선택, `hires_fix`보다 뒤·VAEDecode 다음에 이어 붙임 — 커스텀 노드 `UltimateSDUpscaleNoUpscale` 필요))으로 ComfyUI API 형식 워크플로우를 조립해 `{"workflow": {...}}`로 반환(`workflow_builder.py`). `hires_fix`/`usdu`는 몇 개를 켜도(둘 다 켜도) 되고, 켜진 순서와 무관하게 항상 `hires_fix` → `usdu` 순으로 체이닝됨(위 "워크플로우 유형의 조합 규칙" 참고). `base="img2img"`는 제목이 `"input_image"`인 `LoadImage` 노드가 포함되며 실제 파일명은 실행 시점에 템플릿이 덮어씀. ComfyUI가 떠 있으면 고른 모델/샘플러가 실제로 설치·지원되는지 먼저 검증하고 아니면 400, 꺼져 있으면 검증을 건너뜀. 체크포인트나 긍정 프롬프트가 비어 있거나 `base` 값이 둘 중 하나가 아니면 400. 큐에 넣지는 않음 — 만들어진 JSON을 화면이 워크플로우 슬롯에 채워 기존 업로드 경로를 타게 함 |
+| `POST` | `/api/validate-workflow?pod_id=` | 요청 본문에 워크플로우 JSON(또는 `{"workflow": {...}}`)을 담아 보내면 **그 파드**(생략하면 기본 파드) 기준으로 검사해서 `{"connected", "ok", "missing_nodes": [노드 타입...], "missing_values": [{"node_id", "class_type", "field", "value"}...], "checked_nodes"}` 반환. 이 서버에 없는 노드와, 목록에서 고르는 입력(`ckpt_name`/`lora_name`/`sampler_name` 등)에 없는 값을 짚어줌. ComfyUI가 안 떠 있으면 `connected: false`(= "문제 없음"이 아니라 "확인 못 함"). JSON이 아니거나 노드 맵 형식이 아니면 400 |
 | `GET` | `/api/assets?kind=pose` | `kind`(`pose`/`depth`/`lineart`, 기본 `pose`)가 가리키는 종류의 루트 아래 char_no별 참조 세트 폴더 목록과 각 폴더의 이미지 개수를 `{"char_nos": [{"name": char_no, "pose_sets": [{"name", "count"}, ...]}, ...]}`로 반환(응답 키는 하위호환으로 `kind`와 무관하게 항상 `"pose_sets"`). 업로드 폼의 "인물 수"/"참조 세트" 캐스케이딩 드롭다운을 채우는 용도, 매 호출마다 다시 스캔함. 알 수 없는 `kind`는 400 |
 | `POST` | `/api/assets/import-from-output` | 출력 폴더의 결과 이미지를 참조 세트에 사본으로 추가(원본은 그대로 둠) — 갤러리의 "참조 세트로 보내기". 요청 본문 `{"names": [파일명...], "kind": "pose", "char_no": "1", "set_name": "새_세트"}` (`kind`는 `pose`/`depth`/`lineart`, 없으면 `"pose"`). 존재하지 않는 char_no/세트 이름은 그 자리에서 새로 만듦. 응답 `{"added": N, "skipped": [{"name", "reason"}, ...]}` — 그 사이 지워진 이미지 등은 건너뛰고 이유를 담아 반환 |
 | `POST` | `/api/upload` | 작업을 `pending`(대기중) 상태로 등록만 함 — 아직 실행 큐에 들어가지 않음 (multipart form). 필드: `template_id`(필수 — 등록된 템플릿 id), `workflow`(필수, `.json`), `csv`(선택한 템플릿의 `requires_csv`가 `true`일 때만 필수, `.csv`), 그리고 템플릿의 `options`마다 하나씩 `name=값` 필드 (예: `seed_count=20`; 비어 있거나 생략하면 해당 옵션의 `default`가 사용됨). `template_id`가 `pose_csv_batch`/`depth_csv_batch`/`lineart_csv_batch`면 CSV의 주 참조 컬럼(`pose`/`depth`/`lineart`) 값을 전부 미리 해석해보고, 실패하는 행이 있으면 400으로 거부함(`secondary_kind` 필드가 `"none"`이 아니면 CSV의 `secondary_ref`/`secondary_char_no` 컬럼도 같이 검증함) |
 | `POST` | `/api/jobs` | `/api/upload`와 완전히 같은 파이프라인(검증/큐 등록)을 파일 첨부 없이 JSON 바디로 쓸 수 있게 한 것 — curl이나 LLM처럼 프로그램으로 호출하는 쪽엔 multipart/form-data보다 다루기 쉽다. 요청 본문: `{"template_id", "workflow": {...}(JSON 객체, 필수), "workflow_filename"(선택, 기본 "workflow.json"), "csv"(CSV 원문 문자열, requires_csv 템플릿이면 필수), "csv_filename"(선택, 기본 "data.csv"), "options": {name: 값, ...}}`. 워크플로우는 `POST /api/build-workflow`로 만든 걸 그대로 넣어도 되고, 미리 점검하려면 `POST /api/validate-workflow`를 먼저 불러볼 것. 나머지 검증/에러 규칙과 응답 형식은 `/api/upload`와 동일 |
-| `POST` | `/api/queue/start` | 자동 실행 모드를 켬 — 그 시점에 `pending`인 작업 **전체**를 대기 등록 순서대로 실행 큐에 넣고(상태를 `queued`로 일괄 전환), 이후 자동 실행 모드가 꺼지기 전까지는 `POST /api/upload`로 새로 추가되는 작업도 `pending`을 거치지 않고 바로 `queued`로 등록됨. 응답 `{"running": true, "started": N}`(`N`은 이번 호출로 큐에 들어간 기존 대기 작업 수). 파드가 여러 개면 **사용 중인 파드 전부**를 켠다(응답에 `pods`로 어느 파드들을 켰는지 담김) |
+| `POST` | `/api/queue/start` | **사용 중인 파드 전부**의 자동 실행 모드를 켬 — 그 시점에 `pending`인 작업을 대기 등록 순서대로 각자의 파드 큐에 넣고(상태를 `queued`로 일괄 전환), 이후 자동 실행 모드가 꺼지기 전까지는 `POST /api/upload`로 새로 추가되는 작업도 `pending`을 거치지 않고 바로 `queued`로 등록됨. 응답 `{"running": true, "started": N}`(`N`은 이번 호출로 큐에 들어간 기존 대기 작업 수). 파드가 여러 개면 **사용 중인 파드 전부**를 켠다(응답에 `pods`로 어느 파드들을 켰는지 담김) |
 | `POST` | `/api/queue/stop` | 자동 실행 모드를 끔 — 이후 새로 추가되는 작업은 다시 `pending`으로 쌓이고, 이미 큐에 들어갔지만 아직 안 돈 작업(`queued`)은 그대로 대기하다 다음 `queue/start` 때 이어서 돎. ComfyUI 연결을 기다리며 붙잡혀 있던 작업(`waiting_for_comfy`)은 이때 `pending`으로 풀려남(로그에 되돌린 이유가 남음). **지금 실행 중인(`running`) 작업이 있으면 그 서브프로세스를 즉시 종료 요청**해서 상태를 `interrupted`로 만듦(완전히 죽기까지 몇 초 걸릴 수 있음 — `GET /api/jobs`로 확인). `interrupted` 작업은 `POST /api/jobs/{job_id}/retry`로 다시 큐에 올릴 수 있음. 응답 `{"running": false, "stopped_job_id": string|null}`(중단시킨 작업이 없었으면 `null`) |
-| `POST` | `/api/jobs/clear-completed` | 그 시점에 `done`/`failed`/`interrupted`인 작업 **전체**를 한꺼번에 소프트 삭제("작업 목록" 패널의 "🗑 완료 삭제" 버튼). `pending`/`queued`/`running`은 건드리지 않음. `DELETE /api/jobs/{job_id}`와 동일하게 소프트 삭제라 "삭제된 작업 설정 불러오기"에서 개별적으로 되돌릴 수 있음. 응답 `{"cleared": N}` |
+| `POST` | `/api/jobs/clear-completed?pod_id=` | 그 시점에 `done`/`failed`/`interrupted`인 작업을 한꺼번에 소프트 삭제("작업 목록" 패널의 "🗑 완료 삭제" 버튼). `pod_id`를 주면 **그 파드 것만**(화면은 늘 파드 하나를 보고 있으므로 버튼은 이 형태로 부름), 생략하면 전체. `pending`/`queued`/`running`은 건드리지 않음. `DELETE /api/jobs/{job_id}`와 동일하게 소프트 삭제라 "삭제된 작업 설정 불러오기"에서 개별적으로 되돌릴 수 있음. 응답 `{"cleared": N}` |
 | `GET` | `/api/jobs` | 삭제되지 않은 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수, 자동 실행 모드 상태(`running`)를 조회. 응답 `{"jobs": [...], "pending_count": N, "running": bool, "pods": {pod_id: {running, pending_count, running_jobs}}}`(`pending_count`/`running`은 모든 파드를 합친 값 — 화면의 버튼 하나가 쓰는 값이라 형식을 그대로 뒀다). 워커가 ComfyUI 연결을 기다리며 붙잡고 있는 작업은 `status`가 `queued`인 채 `waiting_for_comfy: true`와 `waiting_since`가 붙음(화면에는 `GPU 대기` 배지) |
 | `GET` | `/api/jobs/deleted` | 소프트 삭제된(아래 `DELETE /api/jobs/{job_id}` 참고) 작업 목록을 최근 삭제순으로 반환. "삭제된 작업 설정 불러오기" 드롭다운을 채우는 용도. `{"jobs": [...], "retention": N}` — `retention`은 `NIGHTSHIFT_DELETED_JOBS_RETENTION`(기본 30) |
 | `GET` | `/api/jobs/{job_id}/log?tail=200` | 특정 작업의 로그 조회 (기본 마지막 200줄) |
