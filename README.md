@@ -245,9 +245,30 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 셸 파드가 남기는 `shell_<n>.txt`는 다른 템플릿의 결과 이미지와 **같은 `job_id` 폴더**에 쌓입니다.
 확인해 본 결과 **갤러리는 깨지지 않고 그냥 무시합니다** — `output_images.py`가 확장자로 이미지만
 훑기 때문에 목록에 안 뜨고, 대시보드 카드의 썸네일에도 안 잡히며, 에러도 나지 않습니다. 즉
-현재 상태는 "안전하지만 보이지 않음"입니다. 이미지가 아닌 산출물을 화면에서 다루려면 갤러리를
-"산출물(artifact) + 타입별 뷰어"로 일반화해야 하고, 그건 그런 워커가 실제로 필요해질 때 합니다
-(`docs/multipod_plan.md`의 "지금 하지 않을 것" 참고).
+"안전하지만 보이지 않음"입니다(셸 명령의 출력은 작업 로그를 펼쳐서 봅니다). 갤러리 자체를
+"산출물(artifact) + 타입별 뷰어"로 일반화하는 대신, 텍스트를 만드는 워커(아래 Claude 글쓰기
+파드)에는 그 자리에 완전히 별개의 전용 탭을 붙였습니다 — 이미지 갤러리 코드를 텍스트도
+다루도록 늘리는 것보다, 워커 종류마다 맞는 뷰어를 따로 붙이는 쪽이 더 정직합니다.
+
+### Claude 글쓰기 파드 — Claude API로 글을 쓰는 워커
+
+`claude_writer` 종류의 파드는 **Claude API(Anthropic)로 텍스트를 생성하는 워커**입니다
+(`drivers/claude_writer.py`, `templates/claude_write.py`). ComfyUI/셸 파드와 또 다르게,
+이 워커는 원격 엔드포인트가 아예 없습니다 — nightshift 프로세스 자신이 API를 호출하므로
+파드의 **주소(url) 필드는 의미가 없고, 뭘 입력해도 조용히 무시됩니다.**
+
+- **켜는 법**: `.env`에 `ANTHROPIC_API_KEY`를 설정해야만 "파드 종류" 선택지에 나타납니다
+  (RunPod API 연동과 같은 방식 — 키가 없으면 선택지 자체가 안 보입니다. 발급은
+  [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)).
+- **모델**은 지금은 `claude-opus-5`로 고정입니다(고를 수 있게 해달라는 요청이 오면
+  드라이버의 `CLAUDE_MODEL` 자리를 파드별 설정으로 넓히면 됩니다).
+- **`claude_write` 템플릿**: `prompt`(필수) 하나를 API로 보내고, 응답을
+  `NIGHTSHIFT_OUTPUT_DIR/<job_id>/output.md`에 저장합니다. 인증 실패·요청 한도 초과·모델의
+  거절(`stop_reason: "refusal"`)은 각각 구분해서 작업 로그에 남기고 작업을 `failed`로 표시합니다.
+- **결과를 보는 곳**: 파드 스코프의 **"📝 결과"** 탭이 `pgallery`(이미지 갤러리) 자리를 대신합니다
+  — 그 파드가 만든 글을 프롬프트 미리보기 + 시간순 목록으로 보여주고, 행을 누르면 그 자리에서
+  전문이 펼쳐집니다(`GET /api/jobs/{id}/text-result`). 별도 폴링 없이 이미 2초마다 도는 작업
+  목록(`lastJobs`)을 그대로 걸러 쓰고, 전문만 펼칠 때 한 번 받아옵니다.
 
 ### 대시보드 (첫 화면)
 
@@ -313,7 +334,7 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 | 층 | 화면 | 주소 |
 |---|---|---|
 | 전역 | 📊 대시보드 · 🖼 갤러리 · 🏷 Danbooru | `#dashboard` · `#gallery` · `#danbooru` |
-| 파드 | 🗂 작업 · 🧩 워크플로우 · 🎛 모델 · 🖼 갤러리 | `#pod/{id}/jobs` · `.../builder` · `.../lora` · `.../pgallery` |
+| 파드 | 🗂 작업 · 🧩 워크플로우 · 🎛 모델 · 🖼 갤러리(comfyui/shell) 또는 📝 결과(claude_writer) | `#pod/{id}/jobs` · `.../builder` · `.../lora` · `.../pgallery` 또는 `.../results` |
 
 **작업·워크플로우·모델이 파드 안에 있는 이유**는 이 셋이 전부 "그 파드가 무엇을 갖고 있는가"를
 읽어서 그리기 때문입니다 — 워크플로우 빌더와 모델 목록은 그 파드의 `/object_info`를, 작업
@@ -351,8 +372,10 @@ nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_regi
 파드는 "ComfyUI 한 대"가 아니라 **드라이버가 붙은 엔드포인트**입니다 — 레코드의 `kind`가 어떤
 드라이버로 그 파드를 다룰지 정하고(`drivers/`), 드라이버가 "살아 있나 / 뭘 할 수 있나 / 작업에
 어떤 환경변수를 실어 보내나 / 결과물을 어떻게 회수하나 / 대시보드 카드에 뭘 보여주나"를 압니다.
-지금은 `comfyui` 드라이버 하나뿐이지만, 앞으로 이미지가 아닌 다른 일을 하는 워커가 같은 목록에
-나란히 등록됩니다(계획 전체는 `docs/multipod_plan.md` 참고).
+지금은 `comfyui`(이미지 생성) · `shell`(임의 명령 실행) · `claude_writer`(Claude API 글쓰기)
+셋입니다(계획 전체는 `docs/multipod_plan.md` 참고). 새 종류의 워커를 붙이는 데 필요한 코드는
+`drivers/`에 모듈 하나, `DRIVERS`에 한 줄 등록, 필요하면 `templates/`에 실행 스크립트
+하나뿐이고, 레지스트리·큐·대시보드·로봇 아바타는 그대로 재사용됩니다.
 
 - 파드 레코드: `{id, name, kind, url, enabled, tags, max_concurrent, pull_outputs, note}`
 - **기존 설정은 자동으로 이관됩니다** — `comfy_endpoint.json`이 있고 `pods.json`이 없으면 첫
@@ -812,6 +835,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/jobs` | 삭제되지 않은 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수, 자동 실행 모드 상태(`running`)를 조회. 응답 `{"jobs": [...], "pending_count": N, "running": bool, "pods": {pod_id: {running, pending_count, running_jobs}}}`(`pending_count`/`running`은 모든 파드를 합친 값 — 화면의 버튼 하나가 쓰는 값이라 형식을 그대로 뒀다). 워커가 ComfyUI 연결을 기다리며 붙잡고 있는 작업은 `status`가 `queued`인 채 `waiting_for_comfy: true`와 `waiting_since`가 붙음(화면에는 `GPU 대기` 배지) |
 | `GET` | `/api/jobs/deleted` | 소프트 삭제된(아래 `DELETE /api/jobs/{job_id}` 참고) 작업 목록을 최근 삭제순으로 반환. "삭제된 작업 설정 불러오기" 드롭다운을 채우는 용도. `{"jobs": [...], "retention": N}` — `retention`은 `NIGHTSHIFT_DELETED_JOBS_RETENTION`(기본 30) |
 | `GET` | `/api/jobs/{job_id}/log?tail=200` | 특정 작업의 로그 조회 (기본 마지막 200줄) |
+| `GET` | `/api/jobs/{job_id}/text-result` | 이미지가 아니라 글을 만드는 워커(claude_writer)의 결과. `NIGHTSHIFT_OUTPUT_DIR/{job_id}/output.md`를 그대로 읽어 `{"text": "..."}`로 반환. 파일이 없으면(아직 실행 전/실패) 빈 문자열 |
 | `PUT` | `/api/jobs/{job_id}/progress` | 실행 중인 템플릿 스크립트가 자기 진행 상황을 스스로 보고하는 용도 (요청 본문: `{"total": N, "done": M}`, 둘 다 0 이상의 정수). 매 이미지마다 호출될 수 있어 디스크에는 쓰지 않고 메모리만 갱신함. 없는 작업 id면 404, total/done이 정수가 아니거나 음수면 400 |
 | `GET` | `/api/jobs/{job_id}/workflow` | 해당 작업의 워크플로우 JSON 원문을 그대로 반환 |
 | `PUT` | `/api/jobs/{job_id}/workflow` | 워크플로우 JSON을 덮어씀 (요청 본문 = 새 JSON 텍스트). 작업 상태가 `pending`이 아니면 400, 유효한 JSON이 아니면 400 |
@@ -890,7 +914,7 @@ nightshift/
 │   ├── pod_registry.py        # 파드(워커) 레지스트리 — data/pods.json 로드/저장/CRUD
 │   ├── comfy_outputs.py       # 원격 ComfyUI의 결과 이미지를 HTTP로 끌어오기
 │   ├── data_paths.py          # 런타임에 생기는 것들의 경로를 한 곳에서 정함 (아래 data/ 참고)
-│   ├── drivers/                # 파드 종류별 드라이버 (comfyui, shell)
+│   ├── drivers/                # 파드 종류별 드라이버 (comfyui, shell, claude_writer)
 │   ├── prompt_enhancer.json    # "Prompt Enhance" 기능이 쓰는 ComfyUI 워크플로우 (서버 리소스)
 │   ├── mcp_server.py           # app.py의 REST API를 MCP 도구로 감싸는 별도 프로세스
 │   └── mcp_smoke_test.py       # mcp_server.py 스모크 테스트 (docs/mcp_test_plan.md 참고)
@@ -912,7 +936,8 @@ nightshift/
 │   ├── input_image_csv_batch.py # 템플릿 스크립트 (img2img — CSV 행마다 다른 입력 이미지)
 │   ├── ipadapter_batch.py       # 템플릿 스크립트 (IPAdapter 프리셋 — 참조 이미지 1장 + 시드 반복)
 │   ├── ipadapter_csv_batch.py   # 템플릿 스크립트 (IPAdapter 프리셋 — CSV 행마다 다른 참조 이미지)
-│   └── shell_command.py         # 템플릿 스크립트 (셸 파드용 — 임의 명령 실행)
+│   ├── shell_command.py         # 템플릿 스크립트 (셸 파드용 — 임의 명령 실행)
+│   └── claude_write.py          # 템플릿 스크립트 (Claude 글쓰기 파드용 — Claude API로 프롬프트 전송)
 ├── scripts/                   # 독립 실행 유틸리티 — 서버가 import하지 않고, 사람이나
 │   │                          # bootstrap.sh가 직접 실행한다
 │   ├── notify_ntfy.sh          # 웹앱 접속 주소를 ntfy.sh로 폰에 알림 (bootstrap.sh가 백그라운드로 호출)
