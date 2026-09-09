@@ -58,6 +58,7 @@ from drivers.comfyui import (
     check_url,
 )
 import pod_registry
+import runpod_api
 from email_sender import EmailSendError, find_image_files, send_output_images
 from workflow_builder import WorkflowBuildError, build_workflow
 from output_images import (
@@ -1454,6 +1455,17 @@ async def test_pod_api(pod_id: str):
         raise HTTPException(400, str(e))
     health = await asyncio.to_thread(driver.health, pod, COMFY_CHECK_TIMEOUT_INTERACTIVE)
     return {"pod_id": pod_id, **health}
+
+
+@app.post("/api/pods/{pod_id}/runpod-test")
+async def test_pod_runpod_api(pod_id: str):
+    """카드에 뜨는 RunPod 메타데이터(card()의 get_runpod_info())는 실패를 전부 조용히
+    삼키므로, "왜 안 뜨는지"를 직접 확인하고 싶을 때 이 엔드포인트로 캐시 없이 다시
+    조회해 실패 이유(HTTP 코드/응답 본문/키 미설정 등)를 그대로 돌려준다."""
+    pod = pod_registry.get_pod(pod_id)
+    if pod is None:
+        raise HTTPException(404, "없는 파드예요.")
+    return await asyncio.to_thread(runpod_api.debug_probe, pod.get("url") or "")
 
 
 @app.get("/api/comfy-object-info")

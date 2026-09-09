@@ -272,6 +272,16 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
   영향이 없습니다. RunPod의 실제 API 응답을 이 환경에서 직접 검증하지는 못했으므로, 필드가 하나도
   안 뜨거나 값이 이상하면 `RUNPOD_API_KEY`가 유효한지, 파드 주소가 정말 프록시 주소 형태인지부터
   확인해주세요.
+  - **언제 갱신되는가**: 대시보드가 4초마다 폴링하는 `/api/pods/summary`가 파드 카드 정보를
+    돌려줄 때, 그 정보가 20초(`POD_CARD_TTL_SEC`)보다 오래됐으면 백그라운드로 다시 조회합니다
+    (`app.py`의 `pod_card_data()`). RunPod API 응답 자체도 120초(`CACHE_TTL_SEC`) 동안 따로
+    캐싱하므로, 파드를 추가하거나 주소를 바꾼 직후에는 새로고침 한두 번(길어도 20~30초) 뒤에
+    카드에 반영됩니다 — 첫 폴링에는 안 보이는 게 정상입니다.
+  - **명시적으로 테스트하기**: 파드 설정(⚙) 모달의 **"🛰 RunPod 정보 테스트"** 버튼을 누르면
+    캐시를 거치지 않고 즉시 RunPod API를 다시 불러, 성공하면 이름·GPU·비용 요약을, 실패하면
+    이유(키 미설정/주소 형식 불일치/HTTP 상태 코드 등)를 그대로 보여줍니다. 원본 응답 전체는
+    브라우저 콘솔(F12)에 `[runpod-test]`로 남으므로, 필드 이름이 문서와 다르게 와도 직접 확인할
+    수 있습니다. 같은 진단은 `POST /api/pods/{id}/runpod-test`로 curl에서도 바로 부를 수 있습니다.
 - **카드 자체를 누르면** 그 파드 안으로 들어갑니다(아래 "화면 구조" 절) — 설정(⚙)이나
   ▶ 시작/⏸ 정지 버튼을 누른 건 그 버튼 할 일만 하고 카드 이동은 일어나지 않습니다.
 - **"최근 작업" 카드**: 파드를 가리지 않고 최근 작업 8건을 상태·템플릿·파드 이름으로 보여줍니다.
@@ -764,6 +774,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/pods/{pod_id}/queue/stop` | **그 파드만** 멈춤(다른 파드는 계속 돎). 그 파드에서 실행 중인 작업에 종료 요청. 응답 `{"pod_id", "running": false, "stopped_job_ids": [...]}` |
 | `POST` | `/api/jobs/{job_id}/move` | 작업을 다른 파드로 옮김(요청 본문 `{"pod_id": "..."}`). `pending`/`queued`/`interrupted`만 가능하고 실행 중이면 400, 없는 파드면 404, 사용 안 함 파드면 400 |
 | `POST` | `/api/pods/{pod_id}/test` | 저장된 그대로의 파드가 응답하는지 확인(설정은 안 건드림). 응답 `{"pod_id", "ok", "url", "source", "detail"}`. 사람이 기다리는 동작이라 폴링보다 넉넉한 타임아웃(8초)을 씀 |
+| `POST` | `/api/pods/{pod_id}/runpod-test` | RunPod API 조회를 캐시 없이 즉시 다시 하고, 실패해도 이유를 그대로 돌려줌(카드의 `get_runpod_info()`는 실패를 삼키므로 이걸로 원인 확인). 응답 `{"url", "api_key_set", "extracted_pod_id", "status_code"?, "raw_response"?, "normalized"?, "error"?}` |
 | `POST` | `/api/comfy-outputs/sync` | 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(요청 본문 `{"job_id": "..."(선택, 그 작업 것만), "force": bool(선택), "pod_id": "..."(선택)}`). `pod_id`를 주면 그 파드에서 가져오고(파드 갤러리의 "⬇ 결과 가져오기"가 이렇게 부름), 생략하면 기본 파드다. 응답 `{"url", "checked", "downloaded": [...], "skipped_known", "skipped_existing", "skipped_invalid", "errors", "last_sync"}`. **한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않는다**(`comfy_output_sync.json`) — 정말 다시 받고 싶으면 `force: true`. 로컬에 이미 있는 파일은 어느 경우에도 덮어쓰지 않는다. ComfyUI에 연결이 안 되면 503, 히스토리 조회에 실패하면 502 |
 | `POST` | `/api/comfy-outputs/forget` | "이미 받아왔다"는 기록을 지운다(요청 본문 `{"job_id": "..."}`를 주면 그 작업 것만, 없으면 전부). 응답 `{"forgotten": N, "last_sync", "known"}`. 한 번만 다시 받으면 되는 경우라면 위의 `force: true`가 더 간단하다 |
 | `POST` | `/api/comfy-endpoint/test` | 저장하지 않고 주소만 확인한다(요청 본문 `{"url": "..."}`, 비워 보내면 지금 적용 중인 주소를 확인). 응답 `{"url", "connected"}`. 폴링(2초)보다 넉넉한 타임아웃(8초)을 써서 원격 pod의 첫 TLS 핸드셰이크까지 기다린다 |
