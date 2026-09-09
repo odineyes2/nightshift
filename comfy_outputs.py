@@ -24,7 +24,7 @@ zip/이메일까지 전부 한 줄도 안 고치고 그대로 동작한다. 이 
 탈출구가 force=True(그리고 forget_downloaded())다.
 
 환경변수:
-    NIGHTSHIFT_OUTPUT_SYNC_FILE  동기화 기록 파일 경로 (기본 <이 파일 옆>/comfy_output_sync.json)
+    NIGHTSHIFT_OUTPUT_SYNC_FILE  동기화 기록 파일 경로 (기본 <저장소>/data/comfy_output_sync.json)
     NIGHTSHIFT_SYNC_MAX_ITEMS    /history에서 훑어볼 최근 프롬프트 개수 (기본 500)
     NIGHTSHIFT_SYNC_TIMEOUT_SEC  ComfyUI HTTP 요청 타임아웃 (기본 60)
 """
@@ -37,11 +37,12 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from data_paths import data_path
 from output_images import IMAGE_EXTENSIONS, OUTPUT_DIR
 
 SYNC_STATE_FILE = Path(
     os.environ.get("NIGHTSHIFT_OUTPUT_SYNC_FILE")
-    or (Path(__file__).resolve().parent / "comfy_output_sync.json")
+    or data_path("comfy_output_sync.json")
 )
 # ComfyUI의 /history는 최근 것부터 max_items개를 돌려준다. 한 작업이 이미지 수만큼
 # 프롬프트를 만들기 때문에(seed_count=100이면 프롬프트도 100개) 넉넉해야 한다.

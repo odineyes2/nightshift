@@ -46,6 +46,7 @@ from starlette.datastructures import UploadFile
 from PIL import Image
 
 from comfy_outputs import OutputSyncError, forget_downloaded, sync_outputs, sync_state_summary
+from data_paths import data_dir, data_path
 from drivers import DriverError, driver_for, driver_kinds
 from drivers.comfyui import (
     CANDIDATE_URLS,
@@ -98,22 +99,22 @@ class _SuppressPollingAccessLogs(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_SuppressPollingAccessLogs())
 
+# 저장소에 커밋돼 있는 것(스크립트·정적 페이지·샘플 워크플로우)은 BASE_DIR 아래,
+# 돌면서 생기는 것(작업 기록·로그·최근 파일·설정)은 전부 data/ 아래다 — 무엇이
+# 코드고 무엇이 생성물인지 경로만 봐도 갈리게 하려는 것이다(data_paths.py 참고).
 BASE_DIR = Path(__file__).parent
-JOBS_DIR = BASE_DIR / "jobs"
-LOGS_DIR = BASE_DIR / "logs"
+JOBS_DIR = data_dir("jobs")
+LOGS_DIR = data_dir("logs")
 TEMPLATES_DIR = BASE_DIR / "templates"
 MANIFEST_PATH = TEMPLATES_DIR / "manifest.json"
-STATE_FILE = BASE_DIR / "jobs_state.json"
+STATE_FILE = data_path("jobs_state.json")
 # "새 작업 추가" 마법사의 ControlNet 계열 워크플로우 유형(openpose_cn/depth_cn/
 # lineart_cn)이 쓰는, family(베이스 모델)별로 미리 만들어 올려둔 워크플로우 JSON
 # 저장소. 이 세 유형은 체크포인트마다 ControlNet 로더/가중치 배선이 달라 워크플로우
 # 빌더가 안전하게 자동 조립할 수 없어서(잘못 배선하면 조용히 ControlNet 없이
 # 돌아가는 사고가 남), 관리자가 한 번 만들어둔 워크플로우를 family+유형 조합별로
 # 저장해뒀다가 그대로 재사용한다. 파일명 규칙은 preset_filename() 참고.
-WORKFLOW_PRESETS_DIR = BASE_DIR / "workflow_presets"
-JOBS_DIR.mkdir(exist_ok=True)
-LOGS_DIR.mkdir(exist_ok=True)
-WORKFLOW_PRESETS_DIR.mkdir(exist_ok=True)
+WORKFLOW_PRESETS_DIR = data_dir("workflow_presets")
 
 class RecentFileStore:
     """업로드된 파일 사본을 "최근 N개, 내용 중복 제거" 정책으로 관리한다. 워크플로우
@@ -190,13 +191,13 @@ class RecentFileStore:
 
 
 recent_workflows_store = RecentFileStore(
-    BASE_DIR / "recent_workflows",
-    BASE_DIR / "recent_workflows_state.json",
+    data_dir("recent_workflows"),
+    data_path("recent_workflows_state.json"),
     int(os.environ.get("NIGHTSHIFT_RECENT_WORKFLOWS_RETENTION", "30")),
 )
 recent_csvs_store = RecentFileStore(
-    BASE_DIR / "recent_csvs",
-    BASE_DIR / "recent_csvs_state.json",
+    data_dir("recent_csvs"),
+    data_path("recent_csvs_state.json"),
     int(os.environ.get("NIGHTSHIFT_RECENT_CSVS_RETENTION", "30")),
 )
 
@@ -204,8 +205,8 @@ recent_csvs_store = RecentFileStore(
 # 추가/삭제)과 조합 기록. 규칙 엔진·랜덤 조합·프롬프트 조립 자체는 클릭마다 즉시
 # 반응해야 해서 static/index.html에 선언적 데이터+로직으로 들어있고, 여기서는
 # "사용자가 편집/저장한 상태"만 그대로 보관했다 내려준다 (형태를 이해할 필요가 없음).
-DANBOORU_TAG_EDITS_FILE = BASE_DIR / "danbooru_tag_edits.json"
-DANBOORU_HISTORY_FILE = BASE_DIR / "danbooru_history.json"
+DANBOORU_TAG_EDITS_FILE = data_path("danbooru_tag_edits.json")
+DANBOORU_HISTORY_FILE = data_path("danbooru_history.json")
 DANBOORU_HISTORY_LIMIT = 40
 
 danbooru_tag_edits: dict = {}   # {categoryKey: {"added": [...], "removed": [...]}}
@@ -244,7 +245,7 @@ def save_danbooru_history():
 # 예전 스키마는 {lora_filename: "trigger_word"}(문자열)였다. load_lora_triggers()가
 # 시작할 때 문자열 값을 {trigger: 그 값, families: []}로 자동 이관하고 즉시 새
 # 형식으로 다시 저장해, 그 뒤로는 항상 새 형식만 디스크에 남는다.
-LORA_TRIGGERS_FILE = BASE_DIR / "lora_triggers.json"
+LORA_TRIGGERS_FILE = data_path("lora_triggers.json")
 lora_triggers: dict[str, dict] = {}  # {lora_filename: {"trigger": str, "families": [family_id, ...]}}
 
 
@@ -282,7 +283,7 @@ def save_lora_triggers():
 # 1단계(베이스 모델 선택)가 이 목록에서 고른다. family 하나는 서로 호환되는(같은
 # 아키텍처 계열) 체크포인트 파일 여러 개를 묶을 수 있다. LoRA/워크플로우 프리셋의
 # "호환 family" 목록이 여기 family_id를 참조한다("🎛 LoRA" 탭, workflow_presets).
-BASE_MODEL_FAMILIES_FILE = BASE_DIR / "base_model_families.json"
+BASE_MODEL_FAMILIES_FILE = data_path("base_model_families.json")
 base_model_families: dict[str, dict] = {}  # {family_id: {"label": str, "checkpoints": [ckpt_filename, ...]}}
 
 
