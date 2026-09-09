@@ -2503,7 +2503,7 @@
 <div class="modal-overlay" id="pod-edit-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
-      <div class="modal-title" id="pod-edit-title">파드 추가</div>
+      <div class="modal-title" id="pod-edit-title">➕ 파드 추가</div>
       <button class="modal-close" id="pod-edit-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
@@ -6141,7 +6141,7 @@ function updatePodNameSuggest(runpodName){
 function openPodEditModal(podId){
   podEditId = podId || null;
   const pod = podId ? (podsById[podId] || {}) : {};
-  document.getElementById('pod-edit-title').textContent = podId ? '파드 설정' : '파드 추가';
+  document.getElementById('pod-edit-title').textContent = podId ? '⚙ 파드 설정' : '➕ 파드 추가';
   document.getElementById('pod-edit-name').value = pod.name || '';
   document.getElementById('pod-edit-url').value = pod.url || '';
   document.getElementById('pod-edit-concurrent').value = pod.max_concurrent || 1;
