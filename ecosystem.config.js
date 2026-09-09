@@ -56,17 +56,24 @@ function resolvePython3() {
   return "python3";
 }
 
+// app.py가 뜰 포트. .env의 NIGHTSHIFT_PORT를 그대로 쓴다 — 예전에는 여기 8000이
+// 박혀 있고 .env에도 같은 값을 따로 적어야 했는데, 둘이 어긋나면 (a) 접속 포트와
+// (b) 템플릿이 진행 상황을 보고하는 주소(app.py의 SELF_URL)가 서로 달라져서
+// 진행률 바가 조용히 안 움직인다. 한 곳에서만 정하게 한다.
+const dotEnv = loadDotEnv();
+const nightshiftPort = (dotEnv.NIGHTSHIFT_PORT || "8000").trim() || "8000";
+
 module.exports = {
   apps: [
     {
       name: "nightshift",
       script: resolvePython3(),
-      args: "-m uvicorn app:app --host 0.0.0.0 --port 8000 --reload",
+      args: `-m uvicorn app:app --host 0.0.0.0 --port ${nightshiftPort} --reload`,
       interpreter: "none",
       cwd: __dirname,
       env: {
         PYTHONUNBUFFERED: "1", // print() 출력이 버퍼링 없이 바로 pm2 로그에 찍히게 함
-        ...loadDotEnv(), // .env의 NIGHTSHIFT_API_KEY 등을 app.py 프로세스로 전달
+        ...dotEnv, // .env의 NIGHTSHIFT_API_KEY/NIGHTSHIFT_PORT 등을 app.py 프로세스로 전달
       },
       autorestart: true,
       max_restarts: 10,
@@ -88,7 +95,7 @@ module.exports = {
       cwd: __dirname,
       env: {
         PYTHONUNBUFFERED: "1",
-        ...loadDotEnv(), // .env의 JOB_QUEUE_BASE_URL/JOB_QUEUE_API_KEY/MCP_SERVER_PORT 전달
+        ...dotEnv, // .env의 JOB_QUEUE_BASE_URL/JOB_QUEUE_API_KEY/MCP_SERVER_PORT 전달
       },
       autorestart: true,
       max_restarts: 10,
