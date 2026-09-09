@@ -479,10 +479,25 @@ MODEL_LIST_SOURCES = {
 }
 
 
-def fetch_comfy_object_info(force: bool = False) -> tuple[str | None, dict | None]:
-    """(주소, object_info) — 기본 파드가 안 떠 있으면 (주소, None). 캐싱은 드라이버가
-    파드별로 한다(파드마다 설치된 노드/모델이 다를 수 있으므로)."""
-    pod = pod_registry.default_pod()
+def object_info_pod(pod_id: str | None) -> dict:
+    """object_info를 물어볼 파드를 고른다.
+
+    화면이 파드 안으로 들어간 뒤로("#pod/{id}/builder", "#pod/{id}/lora") "이 파드에
+    무엇이 설치돼 있나"를 묻는 것이 정상이라, 부르는 쪽이 파드를 지정한다. 지정이
+    없거나 ComfyUI 파드가 아니면 기본 파드로 떨어진다 — 셸 파드처럼 노드 목록이라는
+    개념 자체가 없는 워커에 물어봐야 의미가 없기 때문이다."""
+    if pod_id:
+        pod = pod_registry.get_pod(pod_id)
+        if pod is not None and pod.get("kind") == pod_registry.DEFAULT_KIND:
+            return pod
+    return pod_registry.default_pod()
+
+
+def fetch_comfy_object_info(force: bool = False, pod: dict | None = None) -> tuple[str | None, dict | None]:
+    """(주소, object_info) — 그 파드가 안 떠 있으면 (주소, None). 캐싱은 드라이버가
+    파드별로 한다(파드마다 설치된 노드/모델이 다를 수 있으므로).
+    pod를 주지 않으면 기본 파드를 본다."""
+    pod = pod or pod_registry.default_pod()
     return driver_for(pod).capabilities(pod, force)
 
 
@@ -1431,13 +1446,14 @@ async def test_pod_api(pod_id: str):
 
 
 @app.get("/api/comfy-object-info")
-async def comfy_object_info(refresh: bool = False):
+async def comfy_object_info(refresh: bool = False, pod_id: str | None = None):
     # 지금 연결된 ComfyUI에 설치된 노드 타입 이름들과 종류별 모델 목록만 추려서
     # 돌려준다(원본 /object_info는 입력 스펙까지 들어있어 수 MB가 되기도 해서
     # 그대로 브라우저로 넘기지 않는다). ComfyUI가 안 떠 있어도 에러가 아니라
     # connected=false + 빈 목록 — 화면에서 "연결 안 됨"으로 안내만 하면 되니까.
     try:
-        comfy_url, object_info = await asyncio.to_thread(fetch_comfy_object_info, refresh)
+        comfy_url, object_info = await asyncio.to_thread(
+            fetch_comfy_object_info, refresh, object_info_pod(pod_id))
     except Exception as e:
         raise HTTPException(502, f"ComfyUI 노드 목록을 가져오지 못했어요: {e}")
     if object_info is None:
@@ -1661,7 +1677,7 @@ def delete_workflow_preset(family_id: str, type_id: str):
 
 
 @app.post("/api/build-workflow")
-async def build_workflow_api(request: Request):
+async def build_workflow_api(request: Request, pod_id: str | None = None):
     # "워크플로우 빌더" 탭 — 업로드 없이 스펙(체크포인트/LoRA/프롬프트/샘플러/해상도)
     # 만으로 워크플로우 JSON을 만들어 돌려준다. 만들어진 JSON은 화면에서 작업 관리
     # 탭의 워크플로우 슬롯에 그대로 채워지고, 그다음은 업로드한 파일과 완전히 같은
@@ -1675,7 +1691,8 @@ async def build_workflow_api(request: Request):
         raise HTTPException(400, "스펙이 JSON 객체가 아니에요.")
 
     try:
-        _, object_info = await asyncio.to_thread(fetch_comfy_object_info, False)
+        _, object_info = await asyncio.to_thread(
+            fetch_comfy_object_info, False, object_info_pod(pod_id))
     except Exception:
         object_info = None
 
@@ -1711,7 +1728,7 @@ async def build_workflow_api(request: Request):
 
 
 @app.post("/api/validate-workflow")
-async def validate_workflow(request: Request):
+async def validate_workflow(request: Request, pod_id: str | None = None):
     # 업로드하려는 워크플로우가 이 서버에서 돌아갈 수 있는지 미리 확인한다 —
     # 다른 ComfyUI 설치본에서 만든 워크플로우는 여기 없는 커스텀 노드를 쓰거나
     # 없는 체크포인트/LoRA 파일을 가리키기 쉬운데, 지금은 그걸 배치가 한참
@@ -1726,7 +1743,8 @@ async def validate_workflow(request: Request):
         raise HTTPException(400, "워크플로우 JSON(노드 id → 노드) 형식이 아니에요.")
 
     try:
-        comfy_url, object_info = await asyncio.to_thread(fetch_comfy_object_info, False)
+        comfy_url, object_info = await asyncio.to_thread(
+            fetch_comfy_object_info, False, object_info_pod(pod_id))
     except Exception as e:
         raise HTTPException(502, f"ComfyUI 노드 목록을 가져오지 못했어요: {e}")
     if object_info is None:
@@ -1870,7 +1888,7 @@ def resolve_option_kind(option: dict, options_so_far: dict) -> str:
     return "pose"
 
 
-def coerce_option(option: dict, raw: str | None, options_so_far: dict):
+def coerce_option(option: dict, raw: str | None, options_so_far: dict, pod: dict | None = None):
     if raw is None or raw == "":
         raw = option.get("default")
     # 비면 그 작업이 애초에 성공할 수 없는 옵션(예: 셸 명령의 "명령")은 큐에 넣기 전에
@@ -1915,7 +1933,9 @@ def coerce_option(option: dict, raw: str | None, options_so_far: dict):
         if source is None:
             raise HTTPException(400, f"'{option['label']}' 옵션의 model_kind 설정이 올바르지 않아요.")
         try:
-            _, object_info = fetch_comfy_object_info(False)
+            # 그 작업이 실제로 갈 파드의 설치 목록으로 검증한다 — 다른 파드에만
+            # 있는 체크포인트를 통과시키면 실행 직전에야 실패한다.
+            _, object_info = fetch_comfy_object_info(False, pod)
         except Exception:
             object_info = None
         # ComfyUI가 꺼져 있으면 검증할 기준 자체가 없다. 이 앱은 ComfyUI가 안 떠 있는
@@ -2322,14 +2342,14 @@ async def create_job(
     # 못 받아오면(꺼져 있음 등) coerce_option이 검증을 건너뛴다.
     if any(o.get("type") == "comfy_model" for o in template.get("options", [])):
         try:
-            await asyncio.to_thread(fetch_comfy_object_info, False)
+            await asyncio.to_thread(fetch_comfy_object_info, False, pod)
         except Exception:
             pass
 
     options = {}
     for option in template.get("options", []):
         raw = raw_options.get(option["name"])
-        options[option["name"]] = coerce_option(option, raw, options)
+        options[option["name"]] = coerce_option(option, raw, options, pod)
 
     job_id = str(uuid.uuid4())[:8]
 
@@ -2475,12 +2495,20 @@ async def create_job_from_json(request: Request):
 
 def start_pods(pod_ids: list[str]) -> int:
     """그 파드들의 자동 실행 모드를 켜고, 그 파드로 배정된 대기 작업을 전부 큐에 넣는다.
-    배정된 파드가 사라졌거나 꺼져 있는 작업은 켜는 파드 중 첫 번째로 되돌린다 —
-    큐에 못 들어가 영영 안 도는 작업이 생기면 안 되므로."""
+
+    배정된 파드가 **사라졌거나 꺼져 있는** 작업만 켜는 파드 중 첫 번째로 되돌린다 —
+    큐에 못 들어가 영영 안 도는 작업이 생기면 안 되므로. 반대로 배정된 파드가 멀쩡히
+    살아 있으면 그건 남의 몫이라 손대지 않는다. 예전에는 "파드를 하나만 켤 때"를
+    "다른 파드는 안 쓴다는 뜻"으로 읽고 전부 끌어왔는데, 작업 화면이 파드 안으로
+    들어가면서 그 화면의 ▶ 시작이 늘 파드 하나만 켜게 됐다 — 그 규칙이 남아 있으면
+    파드 A의 작업 화면에서 시작을 눌렀을 뿐인데 파드 B의 대기 작업이 A로 끌려온다.
+    """
     targets = set(pod_ids)
     if not targets:
         return 0
     fallback = pod_ids[0]
+    fallback_kind = (pod_registry.get_pod(fallback) or {}).get("kind")
+    templates = load_templates_map()
     with lock:
         for pod_id in targets:
             rt = pod_runtimes.get(pod_id)
@@ -2498,9 +2526,16 @@ def start_pods(pod_ids: list[str]) -> int:
         for job in pending:
             assigned = job.get("pod_id")
             if assigned not in targets:
-                if len(targets) > 1:
-                    continue          # 다른 파드 몫이다 — 그 파드를 켤 때 돈다
-                assigned = fallback   # 파드 하나만 켜는 경우엔 그쪽으로 끌어온다
+                owner = pod_registry.get_pod(assigned) if assigned else None
+                if owner is not None and owner.get("enabled"):
+                    continue   # 그 파드가 살아 있다 — 그쪽을 켤 때 돈다
+                # 갈 곳이 없어진 작업. 되돌릴 파드의 종류가 맞을 때만 옮긴다 —
+                # 셸 작업을 ComfyUI 파드에 넣으면(그 반대도) 조용히 엉뚱하게 돈다.
+                allowed = (templates.get(job["template_id"], {}).get("pod_kinds")
+                           or [pod_registry.DEFAULT_KIND])
+                if fallback_kind not in allowed:
+                    continue
+                assigned = fallback
                 job["pod_id"] = assigned
             job["status"] = "queued"
             started.append((job["id"], assigned))
@@ -2563,13 +2598,19 @@ def stop_pod_queue(pod_id: str):
 
 
 @app.post("/api/jobs/clear-completed")
-def clear_completed_jobs():
+def clear_completed_jobs(pod_id: str | None = None):
     # 다 끝난 작업(성공/실패/중단)을 목록에서 한꺼번에 치우고 싶을 때 쓴다 —
     # delete_job()과 같은 소프트 삭제라 "삭제된 작업 설정 불러오기"로 실수로
     # 지운 작업도 되돌릴 수 있다. pending/queued/running은 여기서 건드리지
     # 않는다 — 아직 시작 안 했거나 진행 중인 작업까지 같이 지우면 안 되므로.
+    #
+    # pod_id를 주면 그 파드의 작업만 치운다. 화면의 작업 목록이 파드 하나 것만
+    # 보여주므로("#pod/{id}/jobs"), 거기 있는 "완료 삭제"가 화면에 보이지도 않는
+    # 다른 파드의 작업까지 지워버리면 안 된다.
     with lock:
-        completed = [j for j in jobs.values() if j["status"] in ("done", "failed", "interrupted") and not j.get("deleted")]
+        completed = [j for j in jobs.values()
+                     if j["status"] in ("done", "failed", "interrupted") and not j.get("deleted")
+                     and (pod_id is None or j.get("pod_id") == pod_id)]
         now = now_iso()
         for job in completed:
             job["deleted"] = True
