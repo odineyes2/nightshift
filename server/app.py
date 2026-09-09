@@ -99,13 +99,19 @@ class _SuppressPollingAccessLogs(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_SuppressPollingAccessLogs())
 
-# 저장소에 커밋돼 있는 것(스크립트·정적 페이지·샘플 워크플로우)은 BASE_DIR 아래,
-# 돌면서 생기는 것(작업 기록·로그·최근 파일·설정)은 전부 data/ 아래다 — 무엇이
-# 코드고 무엇이 생성물인지 경로만 봐도 갈리게 하려는 것이다(data_paths.py 참고).
+# 이 파일이 사는 server/ 아래에는 이 서버가 "가지고 도는" 파이썬 모듈과, 서버
+# 자신이 쓰는 리소스(prompt_enhancer.json)가 있다. templates/(작업 스크립트)와
+# static/(프론트엔드)는 서버 코드가 아니라 저장소 루트에 나란히 있는 별개
+# 산출물이라 REPO_ROOT로 따로 가리킨다 — templates/*.py는 서버가 import하는
+# 모듈이 아니라 서브프로세스로 실행되는 독립 프로그램이고, 원격 pod에서 돌 수도
+# 있다. 돌면서 생기는 것(작업 기록·로그·최근 파일·설정)은 전부 data/ 아래다 —
+# 무엇이 코드고 무엇이 생성물인지 경로만 봐도 갈리게 하려는 것이다
+# (data_paths.py 참고).
 BASE_DIR = Path(__file__).parent
+REPO_ROOT = BASE_DIR.parent
 JOBS_DIR = data_dir("jobs")
 LOGS_DIR = data_dir("logs")
-TEMPLATES_DIR = BASE_DIR / "templates"
+TEMPLATES_DIR = REPO_ROOT / "templates"
 MANIFEST_PATH = TEMPLATES_DIR / "manifest.json"
 STATE_FILE = data_path("jobs_state.json")
 # "새 작업 추가" 마법사의 ControlNet 계열 워크플로우 유형(openpose_cn/depth_cn/
@@ -348,7 +354,7 @@ SELF_URL = (os.environ.get("NIGHTSHIFT_SELF_URL", "").strip().rstrip("/")
 # isDanbooru_sys? 라는 제목의 ComfySwitchNode가 "자연어로 다듬기(7번 노드)" /
 # "그 결과를 다시 Danbooru 태그로 변환(13번 노드)" 두 경로를 고르므로, 요청받은
 # 모드(자연어/Danbooru)에 맞춰 이 스위치 노드의 switch 입력을 켜고 끈다.
-ENHANCER_WORKFLOW_PATH = BASE_DIR / "prompt_enhancer.json"
+ENHANCER_WORKFLOW_PATH = BASE_DIR / "prompt_enhancer.json"  # server/ 자신의 리소스
 ENHANCER_INPUT_NODE_TITLE = "user_prompt"
 ENHANCER_OUTPUT_NODE_TITLE = os.environ.get("NIGHTSHIFT_ENHANCER_OUTPUT_NODE_TITLE", "미리보기")
 ENHANCER_MODE_NODE_TITLE = os.environ.get("NIGHTSHIFT_ENHANCER_MODE_NODE_TITLE", "isDanbooru_sys")
@@ -3275,7 +3281,7 @@ def delete_danbooru_history(entry_id: str):
     return {"ok": True}
 
 
-app.mount("/", StaticFiles(directory=str(BASE_DIR / "static"), html=True), name="static")
+app.mount("/", StaticFiles(directory=str(REPO_ROOT / "static"), html=True), name="static")
 
 
 if __name__ == "__main__":
