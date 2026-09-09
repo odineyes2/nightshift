@@ -848,6 +848,8 @@
   .dash-dot.busy{ background:var(--running); animation:pulse-run 1.2s infinite; }
   .dash-dot.disabled{ background:var(--text-dim); opacity:0.5; }
   .dash-card-url{ font-family:var(--mono); font-size:11px; color:var(--text-dim); word-break:break-all; }
+  .dash-card-runpod{ display:flex; flex-wrap:wrap; gap:4px 10px; font-size:10.5px; color:var(--text-dim); }
+  .dash-card-runpod b{ color:var(--text); font-weight:500; }
   .dash-card-job{ font-size:12px; color:var(--text); }
   .dash-card-job .dim{ color:var(--text-dim); }
   .dash-card-stats{ display:flex; flex-wrap:wrap; gap:14px; }
@@ -5822,6 +5824,21 @@ function fmtDiskSize(n){
   return gb >= 1 ? `${gb.toFixed(1)}GB` : `${(n / (1024 ** 2)).toFixed(0)}MB`;
 }
 
+// RunPod API가 붙어 있는 파드(url이 RunPod 프록시 주소이고 서버에 RUNPOD_API_KEY가
+// 설정된 경우)라면 card.runpod에 이름/GPU/비용/일시가 실려 온다. 하나도 없으면(키
+// 미설정 등) 조용히 빈 줄을 돌려준다 — 카드에 그 부분만 안 보이면 될 뿐.
+function renderRunpodLine(info){
+  if(!info) return '';
+  const parts = [];
+  if(info.pod_name) parts.push(`RunPod 이름 <b>${escapeHtml(info.pod_name)}</b>`);
+  if(info.gpu_type) parts.push(escapeHtml(info.gpu_type));
+  if(info.cost_per_hr != null) parts.push(`$${Number(info.cost_per_hr).toFixed(2)}/hr`);
+  if(info.created_at) parts.push(`생성 ${fmtGalleryDateTime(info.created_at)}`);
+  if(info.last_started_at) parts.push(`최근 시작 ${fmtGalleryDateTime(info.last_started_at)}`);
+  if(!parts.length) return '';
+  return `<div class="dash-card-runpod">${parts.map(p => `<span>${p}</span>`).join('')}</div>`;
+}
+
 // 카드의 "사양" 줄은 워커 종류마다 다르다 — ComfyUI는 주소와 VRAM, 셸 파드는 어디서
 // 무슨 폴더에서 도는지와 디스크 여유. 드라이버의 card()가 준 값을 여기서 읽는다.
 const POD_SPEC_LINE = {
@@ -5865,12 +5882,13 @@ function renderPodCard(p){
       <div class="dash-card-head">
         <span class="dash-dot ${state.cls}" title="${state.label}"></span>
         <span class="dash-card-name">${escapeHtml(p.name)}</span>
-        <span class="dash-card-kind">${escapeHtml(p.kind_label || p.kind)}</span>
+        <span class="dash-card-kind">${escapeHtml((p.card && p.card.runpod) ? 'RunPod 이미지 생성 모델' : (p.kind_label || p.kind))}</span>
         <div class="dash-card-head-right">
           <button class="load-btn" data-pod-edit="${escapeHtml(p.id)}" title="파드 설정">⚙</button>
         </div>
       </div>
       <div class="dash-card-url">${podSpecLine(p)}</div>
+      ${renderRunpodLine(p.card && p.card.runpod)}
       <div class="dash-card-job">
         ${job
           ? `<b>${escapeHtml(job.template_label || '작업')}</b>${prog ? `

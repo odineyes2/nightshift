@@ -21,6 +21,7 @@ import time
 import urllib.request
 
 from comfy_outputs import OutputSyncError, sync_outputs
+from runpod_api import get_runpod_info
 
 from .base import PodDriver
 
@@ -162,24 +163,30 @@ class ComfyUIDriver(PodDriver):
 
     @staticmethod
     def card(pod: dict) -> dict:
-        """대시보드 카드에 실을 ComfyUI 고유 정보 — 지금은 GPU/VRAM. 못 읽어도 카드
-        자체는 떠야 하므로 실패는 조용히 빈 dict로 돌려준다."""
+        """대시보드 카드에 실을 ComfyUI 고유 정보 — GPU/VRAM(살아 있을 때만)과, url이
+        RunPod 프록시 주소면 RunPod API로 보충한 메타데이터(파드가 꺼져 있어도 조회
+        가능 — health와 무관하게 pod.url에서 바로 pod id를 뽑는다). 못 읽어도 카드
+        자체는 떠야 하므로 각 조회의 실패는 조용히 빈 값으로 돌려준다."""
+        card: dict = {}
         health = ComfyUIDriver.health(pod)
-        if not health["ok"] or not health["url"]:
-            return {}
-        try:
-            stats = _fetch_json(health["url"], "/system_stats", timeout=CHECK_TIMEOUT)
-        except Exception:
-            return {}
-        devices = stats.get("devices") or []
-        if not isinstance(devices, list) or not devices:
-            return {}
-        dev = devices[0] if isinstance(devices[0], dict) else {}
-        return {
-            "device": dev.get("name"),
-            "vram_total": dev.get("vram_total"),
-            "vram_free": dev.get("vram_free"),
-        }
+        if health["ok"] and health["url"]:
+            try:
+                stats = _fetch_json(health["url"], "/system_stats", timeout=CHECK_TIMEOUT)
+                devices = stats.get("devices") or []
+                if isinstance(devices, list) and devices:
+                    dev = devices[0] if isinstance(devices[0], dict) else {}
+                    card.update({
+                        "device": dev.get("name"),
+                        "vram_total": dev.get("vram_total"),
+                        "vram_free": dev.get("vram_free"),
+                    })
+            except Exception:
+                pass
+
+        runpod_info = get_runpod_info(pod.get("url") or health.get("url") or "")
+        if runpod_info:
+            card["runpod"] = runpod_info
+        return card
 
 
 __all__ = ["ComfyUIDriver", "OutputSyncError", "check_url",
