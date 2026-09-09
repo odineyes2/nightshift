@@ -761,6 +761,10 @@
   .badge.done{ color:var(--done); background:rgba(var(--done-rgb),0.10); }
   .badge.failed{ color:var(--failed); background:rgba(var(--failed-rgb),0.10); }
   .badge.interrupted{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.10); }
+  /* ComfyUI(GPU)에 연결될 때까지 큐에서 붙잡혀 있는 작업 — 실패가 아니라 대기다.
+     "대기중"(queued)과 눈에 띄게 구분돼야 사용자가 "왜 안 도나"를 바로 안다. */
+  .badge.waiting{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.12); }
+  .badge.waiting .bdot{ animation: pulse-run 1.6s infinite; }
   .badge .bdot{ width:5px; height:5px; border-radius:50%; background:currentColor; }
   .badge.running .bdot{ animation: pulse-run 1.2s infinite; }
   @keyframes pulse-run{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
@@ -1906,6 +1910,8 @@
           <button class="enhance-mode-btn" type="button" data-display="details" title="탐색기처럼 파일명·해상도·용량 등 정보 위주로 한 줄씩 보기">📋 자세히</button>
         </div>
         <button class="load-btn" id="gallery-select-all-btn" type="button" disabled title="전체 선택">☑ 전체선택</button>
+        <button class="load-btn" id="gallery-pull-btn" type="button" style="display:none;"
+                title="원격 ComfyUI가 만든 결과 이미지를 이 서버로 가져와요. 작업이 끝날 때마다 자동으로도 가져오지만, pod를 껐다 켠 뒤 밀린 것을 한꺼번에 받을 때 쓰세요.">⬇ 결과 가져오기</button>
         <button class="load-btn" id="gallery-refresh-btn" type="button" title="새로고침">🔄</button>
       </div>
     </div>
@@ -2316,6 +2322,15 @@
         <input type="text" class="option-input" id="comfy-endpoint-input"
                placeholder="예: https://abc123-8188.proxy.runpod.net" autocomplete="off" spellcheck="false" style="max-width:100%;">
       </div>
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer;">
+          <input type="checkbox" id="comfy-endpoint-pull" style="accent-color:var(--queued); cursor:pointer;">
+          결과 이미지를 이 서버로 가져오기
+        </label>
+        <div class="email-hint" id="comfy-endpoint-pull-hint">ComfyUI가 원격에 있으면 결과 이미지도 그쪽 디스크에만 쌓여서 갤러리가 비어 보여요.
+          켜두면 작업이 끝날 때마다 그 작업의 이미지를 이 서버의 출력 폴더로 자동으로 받아옵니다
+          (한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않아요). ComfyUI가 같은 머신에서 돌고 있다면 켤 필요 없어요.</div>
+      </div>
       <div class="enhance-status" id="comfy-endpoint-status" style="text-align:left; max-width:none;"></div>
       <div class="upload-error" id="comfy-endpoint-error"></div>
     </div>
@@ -2528,6 +2543,8 @@ function render(jobs, pendingCount, running){
     const progress = j.progress;
     const progressPct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
     const est = estimateJob(j);
+    // 서버가 ComfyUI 연결을 기다리며 붙잡아 둔 작업(app.py의 wait_for_comfy).
+    const waitingForComfy = !!j.waiting_for_comfy;
     let rows = `
       <tr data-id="${j.id}" class="job-row">
         <td>${isOpen ? '▾' : '▸'}</td>
@@ -2536,7 +2553,7 @@ function render(jobs, pendingCount, running){
         <td class="fname${j.workflow_original_name ? '' : ' dim'}" title="${escapeHtml(workflowText)}">${escapeHtml(workflowText)}</td>
         <td class="fname${j.csv_original_name ? '' : ' dim'}" title="${escapeHtml(csvText)}">${escapeHtml(csvText)}</td>
         <td>
-          <span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span>
+          <span class="badge ${waitingForComfy ? 'waiting' : j.status}"${waitingForComfy ? ' title="ComfyUI(GPU) 서버에 연결되면 자동으로 이어서 시작해요. 헤더의 연결 상태를 눌러 주소를 확인할 수 있어요."' : ''}><span class="bdot"></span>${waitingForComfy ? 'GPU 대기' : (STATUS_LABEL[j.status] || j.status)}</span>
           ${progress ? `
             <div class="progress-wrap">
               <div class="progress-track"><div class="progress-fill ${j.status}" style="width:${progressPct}%"></div></div>
@@ -3876,6 +3893,10 @@ async function fetchComfyStatus(){
   }catch(e){
     data = { url: null, connected: false };
   }
+  if(data.pull_outputs !== undefined){
+    comfyPullOutputs = !!data.pull_outputs;
+    applyPullOutputsVisibility();
+  }
   el.classList.remove('connected', 'disconnected');
   if(data.connected){
     el.classList.add('connected');
@@ -3910,7 +3931,20 @@ function renderComfyEndpointCurrent(info, connected){
   if(connected !== undefined && connected !== null){
     lines.push(connected ? '연결 상태: <b>연결됨</b>' : '연결 상태: <b>응답 없음</b>');
   }
+  if(info.pull_outputs){
+    const sync = info.output_sync || {};
+    const when = sync.last_sync ? fmtTime(sync.last_sync) : '아직 없음';
+    lines.push(`결과 가져오기: <b>켜짐</b> → ${escapeHtml(info.output_dir || '')} (마지막 동기화 ${when}, 받아둔 ${sync.known || 0}장)`);
+  }
   el.innerHTML = lines.join('<br>');
+}
+
+// 갤러리의 "⬇ 결과 가져오기" 버튼은 원격에서 끌어올 게 있을 때만 의미가 있으므로
+// pull_outputs가 켜져 있을 때만 보여준다. 설정 모달을 열거나 저장할 때 갱신된다.
+let comfyPullOutputs = false;
+function applyPullOutputsVisibility(){
+  const btn = document.getElementById('gallery-pull-btn');
+  if(btn) btn.style.display = comfyPullOutputs ? '' : 'none';
 }
 
 async function openComfyEndpointModal(){
@@ -3925,6 +3959,9 @@ async function openComfyEndpointModal(){
     if(!res.ok) throw new Error('설정을 불러오지 못했어요.');
     const info = await res.json();
     document.getElementById('comfy-endpoint-input').value = info.url || '';
+    document.getElementById('comfy-endpoint-pull').checked = !!info.pull_outputs;
+    comfyPullOutputs = !!info.pull_outputs;
+    applyPullOutputsVisibility();
     renderComfyEndpointCurrent(info);
   }catch(e){
     errorEl.textContent = e.message || '설정을 불러오지 못했어요.';
@@ -3972,11 +4009,14 @@ async function saveComfyEndpoint(url){
     const res = await fetch('/api/comfy-endpoint', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, pull_outputs: document.getElementById('comfy-endpoint-pull').checked }),
     });
     const info = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(info.detail || '저장하지 못했어요.');
     document.getElementById('comfy-endpoint-input').value = info.url || '';
+    document.getElementById('comfy-endpoint-pull').checked = !!info.pull_outputs;
+    comfyPullOutputs = !!info.pull_outputs;
+    applyPullOutputsVisibility();
     renderComfyEndpointCurrent(info, info.connected);
     statusEl.textContent = info.connected ? '저장했어요 — 연결 확인됨.' : '저장했어요 — 다만 지금은 응답이 없어요.';
     // 서버가 바뀌었으면 설치된 모델/노드 목록도 그 서버의 것으로 다시 받아야 한다.
@@ -5742,6 +5782,38 @@ async function fetchGalleryImages(){
 }
 
 document.getElementById('gallery-refresh-btn').addEventListener('click', fetchGalleryImages);
+
+// 원격 ComfyUI에서 결과 이미지를 끌어온다. 작업이 끝날 때마다 서버가 자동으로도
+// 가져오지만(접속 주소 설정의 "결과 이미지를 이 서버로 가져오기"), pod를 껐다 켠 뒤
+// 밀린 것을 한꺼번에 받거나 설정을 뒤늦게 켠 경우를 위해 수동 버튼도 둔다.
+document.getElementById('gallery-pull-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('gallery-pull-btn');
+  const errorEl = document.getElementById('gallery-error');
+  errorEl.textContent = '';
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ 가져오는 중…';
+  try{
+    const res = await fetch('/api/comfy-outputs/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '가져오지 못했어요.');
+    const got = (data.downloaded || []).length;
+    const failed = (data.errors || []).length;
+    errorEl.textContent = failed
+      ? `${got}장 가져왔어요 (실패 ${failed}건: ${data.errors.slice(0, 2).join('; ')})`
+      : (got ? '' : '새로 가져올 이미지가 없어요.');
+    if(got) await fetchGalleryImages();
+  }catch(e){
+    errorEl.textContent = e.message || '가져오지 못했어요.';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
 document.getElementById('gallery-select-all-btn').addEventListener('click', () => {
   for(const img of galleryImages) selectedGalleryNames.add(img.name);
   document.querySelectorAll('.gallery-item').forEach(el => el.classList.add('selected'));
