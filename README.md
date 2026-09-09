@@ -366,6 +366,25 @@ nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_regi
 배치를 시작한 시점(또는 자동 실행 모드가 켜진 상태에서 새 작업이 큐에 들어간 시점)에도 ComfyUI가 떠 있지 않아도
 정상 진행됩니다.
 
+#### RunPod pod가 브라우저로는 열리는데 "연결 안 됨"으로만 뜬다면
+
+RunPod의 프록시 주소(`https://{POD_ID}-{PORT}.proxy.runpod.net/`)는 **Cloudflare가 앞단에 있습니다.**
+Cloudflare의 봇 차단이 파이썬 `urllib`의 기본 User-Agent(`Python-urllib/3.x`)를 감지해 403으로 막는데,
+브라우저나 `curl`은 정상적인 UA라 그대로 통과합니다 — 그래서 **내 PC 브라우저·`curl`로는 멀쩡히 열리는 pod가
+nightshift(파이썬)에서만 계속 "연결 안 됨"으로 뜨는** 증상이 나타납니다. `check_url()`이 모든 예외를 뭉뚱그려
+`false`로 돌려주다 보니 화면에 "응답이 없어요"로만 보이고 403이라는 사실 자체가 드러나지 않아서, 코드스페이스나
+다른 네트워크 원인(방화벽 등)으로 오해하기 쉽습니다.
+
+ComfyUI로 나가는 모든 요청(`server/drivers/comfyui.py`·`server/app.py`·`server/comfy_outputs.py`·
+`templates/*.py`)에 브라우저 User-Agent를 실어 보내도록 고쳐뒀으니, 이 버전을 쓰고 있다면 이미 해결돼 있습니다.
+혹시 예전 버전을 쓰고 있거나 같은 증상이 다른 원인으로 재발하면, 코드스페이스/서버 터미널에서 직접 다음 두
+명령으로 원인을 가려낼 수 있습니다:
+
+```bash
+curl -v --max-time 8 https://<pod-id>-<port>.proxy.runpod.net/system_stats   # 이건 되는데
+python3 -c "import urllib.request; urllib.request.urlopen('https://<pod-id>-<port>.proxy.runpod.net/system_stats', timeout=8)"  # 이게 403이면 바로 이 문제
+```
+
 #### ComfyUI가 꺼져 있을 때: 실패시키지 않고 붙잡아 둔다
 
 워커가 작업을 실행하려는 순간 ComfyUI에 연결되지 않으면, 그 작업을 실패시키지 않고 **`queued` 상태 그대로
