@@ -34,7 +34,32 @@ class PodDriver:
     kind = "base"
     label = "알 수 없음"
 
+    # ---- 등록 가능 여부 -------------------------------------------------------
+    @staticmethod
+    def available() -> bool:
+        """이 종류의 파드를 지금 등록해도 되는가. 기본은 항상 가능. 셸 파드처럼
+        위험해서 명시적으로 켜야 하는 종류가 이걸 덮어쓴다."""
+        return True
+
+    @staticmethod
+    def unavailable_reason() -> str:
+        return "이 종류의 파드는 지금 쓸 수 없어요."
+
     # ---- 주소 ---------------------------------------------------------------
+    @staticmethod
+    def normalize_url(raw: str) -> str:
+        """주소를 저장 형태로 다듬는다. 무엇이 올바른 주소인지는 워커 종류마다 다르므로
+        (HTTP 엔드포인트일 수도, ssh 대상일 수도 있다) 드라이버가 정한다. 빈 값은
+        "기본값에 맡긴다"는 뜻이라 어느 종류든 허용한다. 틀리면 ValueError."""
+        import urllib.parse
+        url = (raw or "").strip().rstrip("/")
+        if not url:
+            return ""
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("http:// 또는 https:// 로 시작하는 주소여야 해요.")
+        return url
+
     @staticmethod
     def resolve(pod: dict) -> tuple[str | None, str]:
         """(지금 쓸 주소, 출처). 출처는 화면에 "이 주소가 어디서 왔는지"를 보여주는 용도."""

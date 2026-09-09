@@ -179,5 +179,18 @@
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
       { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
     ]
+  },
+  {
+    "id": "shell_command",
+    "label": "셸 명령 실행",
+    "script_filename": "shell_command.py",
+    "requires_csv": false,
+    "requires_workflow": false,
+    "pod_kinds": ["shell"],
+    "options": [
+      { "name": "command", "label": "명령", "type": "textarea", "default": "", "required": true, "placeholder": "예: python3 scripts/postprocess.py --all" },
+      { "name": "repeat", "label": "반복 횟수", "type": "number", "default": 1 },
+      { "name": "timeout_sec", "label": "회차별 제한 시간(초)", "type": "number", "default": 600 }
+    ]
   }
 ]

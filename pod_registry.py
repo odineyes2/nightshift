@@ -58,16 +58,19 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def normalize_pod_url(raw: str) -> str:
-    """주소를 저장 형태로 다듬는다(뒤 슬래시 제거). 빈 값은 "환경변수/자동 탐지에
-    맡긴다"는 뜻이므로 그대로 통과시키고, 형식이 틀리면 PodError."""
-    url = (raw or "").strip().rstrip("/")
-    if not url:
-        return ""
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise PodError("http:// 또는 https:// 로 시작하는 주소여야 해요.")
-    return url
+def normalize_pod_url(raw: str, kind: str = DEFAULT_KIND) -> str:
+    """주소를 저장 형태로 다듬는다. **무엇이 올바른 주소인지는 워커 종류마다 다르므로**
+    (ComfyUI는 http 엔드포인트, 셸 파드는 ssh 대상) 판단은 드라이버에 맡긴다.
+    빈 값은 "기본값에 맡긴다"는 뜻이라 어느 종류든 통과시킨다. 형식이 틀리면 PodError."""
+    from drivers import DriverError, get_driver   # 순환 import를 피해 여기서 가져온다
+    try:
+        driver = get_driver(kind)
+    except DriverError as e:
+        raise PodError(str(e))
+    try:
+        return driver.normalize_url(raw)
+    except ValueError as e:
+        raise PodError(str(e))
 
 
 def normalize_pod(raw: dict) -> dict:
@@ -101,7 +104,7 @@ def normalize_pod(raw: dict) -> dict:
         "id": str(raw.get("id") or "").strip() or str(uuid.uuid4())[:8],
         "name": name,
         "kind": kind,
-        "url": normalize_pod_url(raw.get("url", "")),
+        "url": normalize_pod_url(raw.get("url", ""), kind),
         "enabled": bool(raw.get("enabled", True)),
         "tags": [t.strip() for t in tags if t.strip()],
         "max_concurrent": max_concurrent,
