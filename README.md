@@ -207,6 +207,29 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 어떤 경로가 실제로 적용 중인지는 접속 주소 모달과 `GET /api/comfy-status`의 `source`(`setting`/`env`/`auto`)로
 확인할 수 있습니다. 주소를 저장하면 이전 서버에서 받아둔 모델/노드 목록 캐시는 즉시 비워집니다.
 
+### 파드(워커) 레지스트리
+
+nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_registry.py`, 저장 위치는 `pods.json`).
+파드는 "ComfyUI 한 대"가 아니라 **드라이버가 붙은 엔드포인트**입니다 — 레코드의 `kind`가 어떤
+드라이버로 그 파드를 다룰지 정하고(`drivers/`), 드라이버가 "살아 있나 / 뭘 할 수 있나 / 작업에
+어떤 환경변수를 실어 보내나 / 결과물을 어떻게 회수하나 / 대시보드 카드에 뭘 보여주나"를 압니다.
+지금은 `comfyui` 드라이버 하나뿐이지만, 앞으로 이미지가 아닌 다른 일을 하는 워커가 같은 목록에
+나란히 등록됩니다(계획 전체는 `multipod_plan.md` 참고).
+
+- 파드 레코드: `{id, name, kind, url, enabled, tags, max_concurrent, pull_outputs, note}`
+- **기존 설정은 자동으로 이관됩니다** — `comfy_endpoint.json`이 있고 `pods.json`이 없으면 첫
+  실행 때 파드 1개짜리 목록으로 옮겨 담습니다(주소와 "결과 가져오기" 설정 그대로).
+- 파드 목록은 절대 비지 않습니다. 하나도 없으면 url이 빈 기본 파드를 하나 만들고, 마지막 파드는
+  삭제할 수 없습니다(쓰지 않을 파드는 `enabled: false`로 둡니다).
+- **아직 작업을 파드별로 나눠 돌리지는 않습니다.** 여러 개를 등록해 둘 수는 있지만, 실행은
+  여전히 "기본 파드"(`enabled`인 첫 파드) 하나로만 갑니다 — 파드별 큐는 다음 단계입니다.
+  파드가 하나뿐이면 예전과 동작이 완전히 같습니다.
+
+`GET/PUT /api/comfy-endpoint`(헤더의 연결 상태 배지가 여는 설정 화면)는 그대로 남아 있고,
+**기본 파드의 주소·가져오기 설정을 읽고 씁니다**.
+
+### ComfyUI 접속 주소 감지
+
 화면 상단의 인디케이터가 5초마다 `/api/comfy-status`를 폴링해 연결 상태(연결됨/연결 안 됨)와 감지된 주소를 보여줍니다.
 이 응답은 **서버가 캐시해 두고 즉시 돌려줍니다**(4초보다 오래됐으면 백그라운드로 다시 확인) — 폴링이 매번 원격 pod까지
 왕복하면 열어둔 탭 수만큼 pod를 찌르게 되고, 응답이 느린 날에는 요청 자체가 몇 초씩 걸리기 때문입니다. 언제 실측한
@@ -566,6 +589,11 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/comfy-status` | 지금 쓰이는 ComfyUI 주소(`url`), 연결 가능 여부(`connected`), 그 주소가 어디서 왔는지(`source`: `setting`/`env`/`auto`), 결과 이미지 가져오기 설정(`pull_outputs`), 이 상태를 몇 초 전에 실측했는지(`checked_age_sec`)를 조회. **서버가 캐시한 값을 즉시 돌려주고**(4초보다 오래됐으면 백그라운드로 다시 확인) 연속 2회 실패해야 `connected: false`로 뒤집으므로, 화면이 5초마다 폴링해도 원격 pod의 응답 지연이 요청 시간에 실리지 않음. 서버 기동 후 첫 호출만 실측이 끝날 때까지 기다림 |
 | `GET` | `/api/comfy-endpoint` | 접속 주소 설정 상태를 `{"url"(저장된 설정값, 없으면 ""), "effective_url"(설정/환경변수로 정해진 주소, 자동 탐지면 null), "source", "env_url", "candidates", "updated_at", "pull_outputs"(결과 이미지를 HTTP로 끌어올지), "output_dir"(끌어온 이미지가 쌓이는 로컬 폴더), "output_sync": {"last_sync", "known"}}`로 반환 |
 | `PUT` | `/api/comfy-endpoint` | 접속 주소를 저장한다(요청 본문 `{"url": "...", "pull_outputs": bool(선택)}` — `pull_outputs`를 아예 안 보내면 지금 설정을 그대로 유지한다). **서버 재시작 없이 즉시 반영되고**, 이전 서버의 모델/노드 목록 캐시를 비운다. 빈 문자열을 보내면 설정을 지우고 환경변수/자동 탐지로 되돌린다. `http://`/`https://`로 시작하지 않으면 400. 응답은 GET과 같은 형태 + 저장 직후 실측한 `connected` |
+| `GET` | `/api/pods` | 등록된 파드 목록을 `{"pods": [...], "default_pod_id", "kinds"}`로 반환. 각 파드에는 레코드 + `kind_label`(드라이버 이름), `effective_url`(실제로 쓰일 주소), `url_source`(`setting`/`env`/`auto`)가 붙음 |
+| `POST` | `/api/pods` | 파드를 추가한다(요청 본문 = 파드 레코드, `name`만 필수). 이름이 비었거나 주소 형식이 틀리거나 `max_concurrent`가 1 미만이면 400 |
+| `PUT` | `/api/pods/{pod_id}` | 파드를 **부분 수정**한다 — 보낸 필드만 바뀐다(이름만 바꾸려는 요청이 주소를 지우면 안 되므로). 주소가 바뀌면 그 파드의 노드/모델 목록 캐시를 비운다. 없는 파드면 404 |
+| `DELETE` | `/api/pods/{pod_id}` | 파드를 지운다. 마지막 하나는 지울 수 없음(400) — 쓰지 않으려면 `enabled: false` |
+| `POST` | `/api/pods/{pod_id}/test` | 저장된 그대로의 파드가 응답하는지 확인(설정은 안 건드림). 응답 `{"pod_id", "ok", "url", "source", "detail"}`. 사람이 기다리는 동작이라 폴링보다 넉넉한 타임아웃(8초)을 씀 |
 | `POST` | `/api/comfy-outputs/sync` | 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(요청 본문 `{"job_id": "..."(선택, 그 작업 것만), "force": bool(선택)}`). 응답 `{"url", "checked", "downloaded": [...], "skipped_known", "skipped_existing", "skipped_invalid", "errors", "last_sync"}`. **한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않는다**(`comfy_output_sync.json`) — 정말 다시 받고 싶으면 `force: true`. 로컬에 이미 있는 파일은 어느 경우에도 덮어쓰지 않는다. ComfyUI에 연결이 안 되면 503, 히스토리 조회에 실패하면 502 |
 | `POST` | `/api/comfy-outputs/forget` | "이미 받아왔다"는 기록을 지운다(요청 본문 `{"job_id": "..."}`를 주면 그 작업 것만, 없으면 전부). 응답 `{"forgotten": N, "last_sync", "known"}`. 한 번만 다시 받으면 되는 경우라면 위의 `force: true`가 더 간단하다 |
 | `POST` | `/api/comfy-endpoint/test` | 저장하지 않고 주소만 확인한다(요청 본문 `{"url": "..."}`, 비워 보내면 지금 적용 중인 주소를 확인). 응답 `{"url", "connected"}`. 폴링(2초)보다 넉넉한 타임아웃(8초)을 써서 원격 pod의 첫 TLS 핸드셰이크까지 기다린다 |

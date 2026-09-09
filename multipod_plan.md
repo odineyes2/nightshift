@@ -81,11 +81,12 @@ Enhance, 워커 실행, 출력 동기화 등). 이 함수들이 전부 **"어느
 class PodDriver:
     kind = "comfyui"                        # "shell", "llm-writer", ...
 
-    def health(pod)        -> {"ok": bool, "latency": float, "detail": str}
-    def capabilities(pod)  -> dict          # 모델/노드/도구 목록 (파드별 캐시)
-    def run(pod, job, log) -> int           # 블로킹 실행, 종료코드 반환
-    def collect(pod, job)  -> dict          # 산출물 회수 요약
-    def card(pod)          -> dict          # 대시보드 카드에 실을 요약
+    def resolve(pod)          -> (url, source)  # 이 파드가 가리키는 주소와 그 출처
+    def health(pod, timeout)  -> {"ok", "url", "source", "detail"}
+    def capabilities(pod, force) -> (url, 능력)  # 모델/노드/도구 목록 (파드별 캐시)
+    def job_env(pod, url)     -> dict           # 작업에 실어 보낼 환경변수
+    def collect(pod, url, job_id) -> dict|None  # 산출물 회수 요약
+    def card(pod)             -> dict           # 대시보드 카드에 실을 요약
 ```
 
 `card()`를 드라이버에 두는 것이 핵심이다. ComfyUI 카드는 VRAM·생성 장수·썸네일을 보여주고,
@@ -98,7 +99,7 @@ class PodDriver:
 |---|---|
 | `health` | `check_comfy_url()` |
 | `capabilities` | `fetch_object_info()` |
-| `run` | `worker_loop()`의 서브프로세스 실행 블록 |
+| `job_env` | `worker_loop()`이 만들던 `COMFY_URL` 환경변수 |
 | `collect` | `comfy_outputs.sync_outputs()` |
 | `card` | (신규) `/system_stats` + 작업 통계 |
 
@@ -160,13 +161,20 @@ class PodDriver:
 
 **목표: 화면은 전혀 안 바뀌고, 파드 1개일 때 지금과 100% 동일하게 동작한다.**
 
-- [ ] `pod_registry.py` — `pods.json` 로드/저장, CRUD, id 발급
-- [ ] `drivers/` — `PodDriver` 베이스 + `comfyui` 드라이버(기존 코드 이식)
-- [ ] `comfy_endpoint.json` → `pods.json` 자동 이관 (기존 설정 보존)
-- [ ] `GET/POST/PUT/DELETE /api/pods`, `POST /api/pods/{id}/test`
-- [ ] `resolve_comfy_url()` 호출 12곳을 "기본 파드"를 거치도록 정리
-- [ ] `.gitignore`에 `pods.json`
-- [ ] 검증: 기존 기능 전부 회귀 테스트 (작업 등록→실행→갤러리→출력 동기화)
+- [x] `pod_registry.py` — `pods.json` 로드/저장, CRUD, id 발급
+- [x] `drivers/` — `PodDriver` 베이스 + `comfyui` 드라이버(기존 코드 이식)
+- [x] `comfy_endpoint.json` → `pods.json` 자동 이관 (기존 설정 보존)
+- [x] `GET/POST/PUT/DELETE /api/pods`, `POST /api/pods/{id}/test`
+- [x] `resolve_comfy_url()` 호출 12곳을 "기본 파드"를 거치도록 정리
+- [x] `.gitignore`에 `pods.json`
+- [x] 검증: 기존 기능 전부 회귀 테스트 (작업 등록→실행→갤러리→출력 동기화)
+
+**드라이버 인터페이스 조정**: 계획서 초안의 `run(pod, job, log)`은 P0에서 만들지 않았다.
+작업을 실제로 실행하는 부분(서브프로세스 띄우고 로그 받고 중단 요청 처리)은 워커 종류와
+무관한 "일반 실행기"라 드라이버로 내릴 이유가 없었고, 대신 드라이버는 `job_env(pod, url)`로
+"이 파드에 작업을 보낼 때 필요한 환경변수"만 기여한다(ComfyUI는 `COMFY_URL`). 완전히 다른
+방식으로 작업을 실행하는 워커를 위한 `run()` 훅은 worker_loop을 파드별로 다시 쓰는 P1에서
+연다 — 그때가 그 코드를 어차피 손대는 시점이라 위험이 가장 낮다.
 
 ### P1 — 파드별 큐/워커/상태
 
