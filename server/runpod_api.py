@@ -114,6 +114,61 @@ def _normalize(raw: dict) -> dict:
     return {k: v for k, v in info.items() if v is not None}
 
 
+def debug_probe(url: str) -> dict:
+    """진단 전용 — 캐시를 타지 않고 매번 새로 조회하며, get_runpod_info()와 달리
+    실패 이유를 삼키지 않고 그대로 드러낸다(HTTP 상태 코드, 응답 본문, 키 미설정,
+    주소 형식 불일치 등). "카드에 정보가 안 뜨는데 왜 안 뜨는지 직접 확인하고
+    싶다"는 요청에 답하기 위한 것 — 화면의 "RunPod 정보 테스트" 버튼이 이걸 부른다."""
+    pod_id = extract_pod_id(url)
+    result: dict = {
+        "url": url,
+        "api_key_set": bool(RUNPOD_API_KEY),
+        "extracted_pod_id": pod_id,
+    }
+    if not RUNPOD_API_KEY:
+        result["error"] = "RUNPOD_API_KEY가 설정되지 않았어요."
+        return result
+    if not pod_id:
+        result["error"] = (
+            "이 주소는 RunPod 프록시 주소 형식이 아니에요 "
+            "(https://{POD_ID}-{PORT}.proxy.runpod.net/)."
+        )
+        return result
+
+    req = urllib.request.Request(
+        f"{RUNPOD_API_BASE}/pods/{pod_id}",
+        headers={
+            "Authorization": f"Bearer {RUNPOD_API_KEY}",
+            "User-Agent": RUNPOD_USER_AGENT,
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SEC) as resp:
+            body = resp.read().decode("utf-8")
+            result["status_code"] = resp.status
+            try:
+                raw = json.loads(body)
+            except json.JSONDecodeError:
+                result["error"] = "응답이 JSON이 아니에요."
+                result["raw_body"] = body[:2000]
+                return result
+            result["raw_response"] = raw
+            result["normalized"] = _normalize(raw)
+    except urllib.error.HTTPError as e:
+        result["status_code"] = e.code
+        try:
+            result["raw_body"] = e.read().decode("utf-8")[:2000]
+        except Exception:
+            pass
+        result["error"] = f"HTTP {e.code} {e.reason}"
+    except urllib.error.URLError as e:
+        result["error"] = f"연결 실패: {e.reason}"
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+    return result
+
+
 def get_runpod_info(url: str) -> dict | None:
     """url이 RunPod 프록시 주소이고 RUNPOD_API_KEY가 설정돼 있으면 그 파드의 RunPod
     메타데이터를, 아니면 None을 돌려준다. 실패(키 없음/네트워크/파싱)는 전부 조용히
@@ -135,4 +190,4 @@ def get_runpod_info(url: str) -> dict | None:
     return data
 
 
-__all__ = ["get_runpod_info", "extract_pod_id", "RUNPOD_API_KEY"]
+__all__ = ["get_runpod_info", "debug_probe", "extract_pod_id", "RUNPOD_API_KEY"]
