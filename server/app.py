@@ -53,6 +53,7 @@ from drivers.comfyui import (
     CHECK_TIMEOUT,
     CHECK_TIMEOUT_INTERACTIVE,
     CHECK_TIMEOUT_LOCAL,
+    COMFY_USER_AGENT,
     ComfyUIDriver,
     check_url,
 )
@@ -624,7 +625,9 @@ def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
     req = urllib.request.Request(
         f"{comfy_url}/prompt",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        # User-Agent가 필요한 이유는 drivers/comfyui.py의 COMFY_USER_AGENT 주석 참고
+        # — Cloudflare가 앞단에 있는 RunPod pod는 기본 urllib UA를 403으로 막는다.
+        headers={"Content-Type": "application/json", "User-Agent": COMFY_USER_AGENT},
         method="POST",
     )
     try:
@@ -639,7 +642,8 @@ def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
     deadline = time.time() + ENHANCE_TIMEOUT_SEC
     while time.time() < deadline:
         try:
-            hist_req = urllib.request.Request(f"{comfy_url}/history/{prompt_id}")
+            hist_req = urllib.request.Request(
+                f"{comfy_url}/history/{prompt_id}", headers={"User-Agent": COMFY_USER_AGENT})
             with urllib.request.urlopen(hist_req, timeout=30) as resp:
                 history = json.loads(resp.read().decode("utf-8"))
         except urllib.error.URLError as e:
@@ -2953,8 +2957,18 @@ async def sync_comfy_outputs(request: Request):
     data = await read_json_object(request)
     job_id = (data.get("job_id") or "").strip() or None
     force = bool(data.get("force"))
+    pod_id = (data.get("pod_id") or "").strip() or None
 
-    url, connected = await asyncio.to_thread(resolve_comfy_url)
+    # pod_id를 주면 그 파드에서 가져온다(파드 갤러리의 "⬇ 결과 가져오기") — 안 주면
+    # 예전처럼 기본 파드([헤더의 연결 상태 배지]·전역 갤러리가 여기 해당한다).
+    if pod_id:
+        pod = pod_registry.get_pod(pod_id)
+        if pod is None:
+            raise HTTPException(404, "없는 파드예요.")
+        health = await asyncio.to_thread(driver_for(pod).health, pod)
+        url, connected = health["url"], health["ok"]
+    else:
+        url, connected = await asyncio.to_thread(resolve_comfy_url)
     if not url or not connected:
         raise HTTPException(503, "ComfyUI에 연결할 수 없어 결과 이미지를 가져올 수 없어요.")
     try:
