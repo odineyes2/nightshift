@@ -944,6 +944,7 @@
     background:var(--bg);
     padding:0;
   }
+  .log-toolbar{ display:flex; justify-content:flex-end; padding:8px 16px 0; }
   pre.log{
     margin:0;
     padding:16px;
@@ -2798,6 +2799,11 @@ let queueRunning = false; // 서버의 자동 실행 모드(auto_run)를 그대�
 // 마지막으로 그린 작업 목록. render()의 지역 변수 jobs는 그 함수 밖에서는 못 보는데,
 // 모달처럼 나중에 열리는 화면도 작업 정보를 봐야 해서 여기 남겨둔다.
 let lastJobs = [];
+// 작업 목록은 2초마다 폴링되는데, 매번 tbody.innerHTML을 통째로 다시 그리면 로그를
+// 펼쳐서 에러 메시지를 드래그로 선택/복사하려는 순간 DOM이 갈아끼워져서 선택이
+// 풀려버린다(내용이 하나도 안 바뀌었어도). 그래서 "보이는 내용이 실제로 바뀌었을
+// 때만" 다시 그린다 — 바뀐 게 없으면 이번 tick은 손대지 않고 그대로 둔다.
+let lastJobsRowsSignature = null;
 
 function render(jobs, pendingCount, running, perPod){
   lastJobs = jobs;
@@ -2836,9 +2842,19 @@ function render(jobs, pendingCount, running, perPod){
   if(jobs.length === 0){
     tbody.innerHTML = '';
     emptyMsg.style.display = 'block';
+    lastJobsRowsSignature = null;
     return;
   }
   emptyMsg.style.display = 'none';
+
+  // 화면에 실제로 영향을 주는 값만 서명에 넣는다 — template_label/options 같은
+  // 것들은 작업이 생성될 때 정해지고 이후 안 바뀌므로 뺐다.
+  const rowsSignature = JSON.stringify(jobs.map(j => [
+    j.id, j.status, j.waiting_for_comfy, j.pod_id, j.started_at, j.finished_at,
+    j.progress && j.progress.done, j.progress && j.progress.total,
+  ])) + '|' + expandedId;
+  if(rowsSignature === lastJobsRowsSignature) return;
+  lastJobsRowsSignature = rowsSignature;
 
   tbody.innerHTML = jobs.map(j => {
     const isOpen = expandedId === j.id;
@@ -2888,7 +2904,10 @@ function render(jobs, pendingCount, running, perPod){
         </td>
       </tr>`;
     if(isOpen){
-      rows += `<tr class="log-row"><td colspan="11"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
+      rows += `<tr class="log-row"><td colspan="11">
+        <div class="log-toolbar"><button type="button" class="load-btn log-copy-btn" data-copyid="${j.id}" title="로그 전체를 클립보드로 복사">📋 로그 복사</button></div>
+        <pre class="log" id="log-${j.id}">불러오는 중…</pre>
+      </td></tr>`;
     }
     return rows;
   }).join('');
@@ -3000,8 +3019,35 @@ async function loadLog(id){
   if(!res.ok) return;
   const data = await res.json();
   const el = document.getElementById('log-' + id);
-  if(el) el.textContent = data.log || '(아직 출력이 없어요)';
+  if(!el) return;
+  const text = data.log || '(아직 출력이 없어요)';
+  // 내용이 실제로 같으면 손대지 않는다 — textContent를 다시 대입하면 문자열이
+  // 같아도 DOM 텍스트 노드가 새로 생겨서, 그 안의 텍스트를 드래그로 선택해
+  // 복사하려던 게 풀려버린다(끝난 작업의 에러 메시지를 복사하기 불편하다는
+  // 문제의 원인 중 하나였다 — 나머지 원인은 render()의 tbody 재생성이었다).
+  if(el.textContent !== text) el.textContent = text;
 }
+
+// 로그 전체를 클립보드로 복사 — 실행 중인 로그는 계속 늘어나서 드래그로 끝까지
+// 선택하기 번거롭고, 끝난 작업의 에러 메시지도 선택 중 화면이 갱신되면 풀리기
+// 쉬우니 버튼 한 번으로 지금 보이는 전체를 복사한다. tbody가 통째로 다시
+// 그려져도(위 lastJobsRowsSignature 가드로 어차피 드물다) 델리게이션이라
+// 다시 붙일 필요가 없다.
+document.getElementById('job-rows').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.log-copy-btn');
+  if(!btn) return;
+  e.stopPropagation();
+  const el = document.getElementById('log-' + btn.dataset.copyid);
+  const text = el ? el.textContent : '';
+  const original = btn.textContent;
+  try{
+    await navigator.clipboard.writeText(text);
+    btn.textContent = '✅ 복사됨';
+  }catch(err){
+    btn.textContent = '⚠ 복사 실패 — 직접 드래그해서 복사해주세요';
+  }
+  setTimeout(() => { btn.textContent = original; }, 1500);
+});
 
 let templatesById = {};
 let selectedFiles = { workflow: null, csv: null };
