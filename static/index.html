@@ -763,6 +763,51 @@
   .badge.interrupted{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.10); }
   /* ComfyUI(GPU)에 연결될 때까지 큐에서 붙잡혀 있는 작업 — 실패가 아니라 대기다.
      "대기중"(queued)과 눈에 띄게 구분돼야 사용자가 "왜 안 도나"를 바로 안다. */
+  /* ---- 대시보드 (파드 카드 캔버스) ---------------------------------------- */
+  .dash-totals{
+    display:flex; flex-wrap:wrap; gap:18px;
+    padding:14px 18px; margin-bottom:12px;
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+  }
+  .dash-total{ display:flex; flex-direction:column; gap:2px; }
+  .dash-total-label{ font-size:11px; color:var(--text-dim); }
+  .dash-total-value{ font-family:var(--mono); font-size:19px; color:var(--text); }
+  .dash-total-value.dim{ color:var(--text-dim); }
+  .dash-actions{ display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+
+  /* 카드마다 원하는 폭을 정할 수 있게 열 개수 기반 그리드를 쓴다(카드가 span으로 차지). */
+  .card-canvas{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));
+    gap:12px;
+  }
+  .dash-card{
+    display:flex; flex-direction:column; gap:10px;
+    padding:14px 16px;
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+  }
+  .dash-card[data-span="2"]{ grid-column:span 2; }
+  .dash-card-head{ display:flex; align-items:center; gap:8px; }
+  .dash-card-name{ font-family:var(--mono); font-size:14px; color:var(--text); }
+  .dash-card-kind{ font-size:10.5px; color:var(--text-dim); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
+  .dash-card-head-right{ margin-left:auto; display:flex; gap:6px; align-items:center; }
+  .dash-dot{ width:8px; height:8px; border-radius:50%; flex:none; background:var(--text-dim); }
+  .dash-dot.online{ background:var(--done); }
+  .dash-dot.offline{ background:var(--failed); }
+  .dash-dot.busy{ background:var(--running); animation:pulse-run 1.2s infinite; }
+  .dash-dot.disabled{ background:var(--text-dim); opacity:0.5; }
+  .dash-card-url{ font-family:var(--mono); font-size:11px; color:var(--text-dim); word-break:break-all; }
+  .dash-card-job{ font-size:12px; color:var(--text); }
+  .dash-card-job .dim{ color:var(--text-dim); }
+  .dash-card-stats{ display:flex; flex-wrap:wrap; gap:14px; }
+  .dash-stat{ display:flex; flex-direction:column; }
+  .dash-stat-label{ font-size:10.5px; color:var(--text-dim); }
+  .dash-stat-value{ font-family:var(--mono); font-size:14px; color:var(--text); }
+  .dash-thumbs{ display:flex; gap:6px; }
+  .dash-thumb{ width:54px; height:54px; object-fit:cover; border-radius:6px; border:1px solid var(--border); }
+  .dash-card-actions{ display:flex; flex-wrap:wrap; gap:6px; margin-top:auto; padding-top:4px; }
+  .dash-card.disabled{ opacity:0.62; }
+
   /* 작업이 어느 파드(워커)에서 도는지 — 파드가 둘 이상일 때만 나타난다. */
   .pod-badge{
     display:inline-flex; align-items:center;
@@ -1712,7 +1757,8 @@
 
 <div class="tab-bar">
   <div class="tab-bar-inner">
-    <button class="tab-btn active" data-tab="jobs" type="button">🗂 작업 관리</button>
+    <button class="tab-btn active" data-tab="dashboard" type="button" title="파드(워커) 대시보드">📊 대시보드</button>
+    <button class="tab-btn" data-tab="jobs" type="button">🗂 작업 관리</button>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트">🏷 Danbooru</button>
     <button class="tab-btn" data-tab="builder" type="button" title="업로드 없이 워크플로우 만들기">🧩 워크플로우</button>
     <button class="tab-btn" data-tab="lora" type="button" title="베이스 모델/LoRA/ControlNet 프리셋 관리">🎛 모델</button>
@@ -1720,7 +1766,22 @@
   </div>
 </div>
 
-<main id="tab-jobs">
+<main id="tab-dashboard">
+  <div class="dash-totals" id="dash-totals"></div>
+
+  <div class="dash-actions">
+    <button class="submit-btn" id="pod-add-btn" type="button">➕ 파드 추가</button>
+    <button class="load-btn" id="dash-refresh-btn" type="button" title="새로고침">🔄</button>
+  </div>
+
+  <!-- 카드 캔버스 — 카드마다 타입(data-card-type)이 있고 타입별 렌더러가 그린다.
+       지금은 파드 카드 하나뿐이지만, 통계·최근 산출물·메모 같은 카드를 나중에 같은
+       그리드에 얹을 수 있게 이 구조로 둔다. -->
+  <div class="card-canvas" id="dash-canvas"></div>
+  <div class="empty" id="dash-empty" style="display:none;">등록된 파드가 없어요</div>
+</main>
+
+<main id="tab-jobs" style="display:none;">
 
   <div class="panel" id="new-job-panel">
     <div class="panel-header">
@@ -1812,6 +1873,8 @@
       </div>
     </div>
     <div class="panel-body">
+      <!-- 대시보드에서 "작업 보기"로 넘어오면 그 파드 것만 보여준다는 안내 -->
+      <div class="gallery-toolbar" id="job-pod-filter" style="display:none;"></div>
       <div class="table-scroll">
         <table>
           <thead>
@@ -2318,6 +2381,57 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="pod-edit-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title" id="pod-edit-title">파드 추가</div>
+      <button class="modal-close" id="pod-edit-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint">파드는 nightshift가 작업을 보낼 워커예요. 종류(kind)가 그 워커를 어떻게 다룰지 정합니다.
+        주소를 비워두면 <code>COMFY_URL</code> 환경변수 → <code>127.0.0.1</code> 자동 탐지 순으로 찾아요.</div>
+      <div class="field">
+        <label class="field-label" for="pod-edit-name">이름</label>
+        <input type="text" class="option-input" id="pod-edit-name" placeholder="예: a100-1" autocomplete="off" style="max-width:100%;">
+      </div>
+      <div class="field">
+        <label class="field-label" for="pod-edit-kind">종류</label>
+        <select id="pod-edit-kind"></select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="pod-edit-url">주소</label>
+        <input type="text" class="option-input" id="pod-edit-url" placeholder="예: https://abc123-8188.proxy.runpod.net" autocomplete="off" spellcheck="false" style="max-width:100%;">
+      </div>
+      <div class="field">
+        <label class="field-label" for="pod-edit-concurrent">동시 실행 수</label>
+        <input type="number" class="option-input" id="pod-edit-concurrent" min="1" value="1" style="max-width:120px;">
+        <div class="email-hint">이 파드에서 한 번에 몇 개까지 돌릴지. GPU 한 장이면 1이 보통이에요.</div>
+      </div>
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer;">
+          <input type="checkbox" id="pod-edit-pull" style="accent-color:var(--queued); cursor:pointer;">
+          결과 이미지를 이 서버로 가져오기
+        </label>
+      </div>
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer;">
+          <input type="checkbox" id="pod-edit-enabled" checked style="accent-color:var(--queued); cursor:pointer;">
+          사용함
+        </label>
+        <div class="email-hint">끄면 새 작업을 보낼 수 없어요(기록은 남습니다). 파드를 잠시 쉬게 할 때 씁니다.</div>
+      </div>
+      <div class="enhance-status" id="pod-edit-status" style="text-align:left; max-width:none;"></div>
+      <div class="upload-error" id="pod-edit-error"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="del-btn" id="pod-edit-delete" type="button" style="margin-right:auto;">🗑 삭제</button>
+      <button class="modal-btn-secondary" id="pod-edit-test" type="button">🔌 연결 테스트</button>
+      <button class="modal-btn-secondary" id="pod-edit-cancel" type="button">✕ 취소</button>
+      <button class="submit-btn" id="pod-edit-save" type="button">💾 저장</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="job-move-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
@@ -2437,6 +2551,9 @@
 // 두 개 이상일 때만 업로드 폼의 "실행할 파드" 선택과 작업 행의 파드 배지가 나타난다.
 let podsCache = [];
 let podsById = {};
+let podKinds = [];      // 등록할 수 있는 파드 종류(드라이버) 목록
+// 작업 목록을 한 파드 것만 보고 있을 때 그 파드 id. null이면 전체.
+let jobPodFilter = null;
 
 function multiPod(){ return podsCache.length > 1; }
 function podName(podId){ return (podsById[podId] || {}).name || ''; }
@@ -2446,6 +2563,7 @@ async function fetchPods(){
     const res = await fetch('/api/pods');
     const data = await res.json();
     podsCache = data.pods || [];
+    podKinds = data.kinds || [];
   }catch(e){
     podsCache = [];
   }
@@ -2575,6 +2693,8 @@ let lastJobs = [];
 
 function render(jobs, pendingCount, running){
   lastJobs = jobs;
+  // 대시보드에서 파드를 하나 골라 들어온 경우 그 파드의 작업만 보여준다.
+  if(jobPodFilter) jobs = jobs.filter(j => j.pod_id === jobPodFilter);
   queueRunning = !!running;
   document.getElementById('pending-count').textContent = pendingCount;
   const tbody = document.getElementById('job-rows');
@@ -5479,8 +5599,238 @@ window.__nightshiftOnApiAuthResult = function(authorized){
     : 'API 키가 없거나 틀렸어요 — 눌러서 입력하세요';
 };
 
+// ---- 대시보드 (파드 카드 캔버스) ----
+// 카드마다 타입이 있고, 타입별 렌더러가 그 카드의 HTML을 만든다. 지금은 파드 카드
+// 하나뿐이지만, 통계·최근 산출물·메모 같은 카드를 나중에 같은 그리드에 얹을 수 있게
+// 이 구조로 둔다(카드가 자기 크기를 span으로 정한다).
+let dashSummary = { pods: [], totals: {} };
+let dashTimer = null;
+
+const POD_STATE = {
+  disabled: { cls: 'disabled', label: '사용 안 함' },
+  busy:     { cls: 'busy',     label: '작업 중' },
+  online:   { cls: 'online',   label: '유휴' },
+  offline:  { cls: 'offline',  label: '연결 안 됨' },
+};
+
+function podState(p){
+  if(!p.enabled) return 'disabled';
+  if(!p.status || !p.status.connected) return 'offline';
+  return (p.running_jobs || []).length ? 'busy' : 'online';
+}
+
+function fmtVram(free, total){
+  if(!total) return null;
+  const gb = v => (v / (1024 ** 3)).toFixed(1);
+  return `${gb(total - (free || 0))}/${gb(total)}GB`;
+}
+
+function renderPodCard(p){
+  const state = POD_STATE[podState(p)];
+  const job = (p.running_jobs || [])[0];
+  const prog = job && job.progress;
+  const pct = prog && prog.total > 0 ? Math.min(100, Math.round((prog.done / prog.total) * 100)) : 0;
+  const url = (p.status && p.status.url) || p.effective_url || '';
+  const vram = fmtVram((p.card || {}).vram_free, (p.card || {}).vram_total);
+  const thumbs = (p.recent_images || []).map(name =>
+    `<img class="dash-thumb" src="/api/output-images/${encodeURI(name)}/thumbnail?size=120" alt="" loading="lazy">`).join('');
+
+  return `
+    <div class="dash-card${p.enabled ? '' : ' disabled'}" data-card-type="pod" data-pod-id="${escapeHtml(p.id)}">
+      <div class="dash-card-head">
+        <span class="dash-dot ${state.cls}" title="${state.label}"></span>
+        <span class="dash-card-name">${escapeHtml(p.name)}</span>
+        <span class="dash-card-kind">${escapeHtml(p.kind_label || p.kind)}</span>
+        <div class="dash-card-head-right">
+          <button class="load-btn" data-pod-edit="${escapeHtml(p.id)}" title="파드 설정">⚙</button>
+        </div>
+      </div>
+      <div class="dash-card-url">${escapeHtml(url || '(주소 없음 — 자동 탐지)')}${vram ? ` · ${vram}` : ''}</div>
+      <div class="dash-card-job">
+        ${job
+          ? `<b>${escapeHtml(job.template_label || '작업')}</b>${prog ? `
+               <div class="progress-wrap">
+                 <div class="progress-track"><div class="progress-fill running" style="width:${pct}%"></div></div>
+                 <span class="progress-text">${prog.done}/${prog.total}</span>
+               </div>` : ''}`
+          : `<span class="dim">${state.label}${p.waiting_for_pod ? ` · 연결 대기 ${p.waiting_for_pod}건` : ''}</span>`}
+      </div>
+      <div class="dash-card-stats">
+        <div class="dash-stat"><span class="dash-stat-label">큐</span><span class="dash-stat-value">${p.queue_len}</span></div>
+        <div class="dash-stat"><span class="dash-stat-label">대기</span><span class="dash-stat-value">${p.pending_count}</span></div>
+        <div class="dash-stat"><span class="dash-stat-label">오늘</span><span class="dash-stat-value">${p.images_today}장</span></div>
+        <div class="dash-stat"><span class="dash-stat-label">동시</span><span class="dash-stat-value">${p.max_concurrent}</span></div>
+      </div>
+      ${thumbs ? `<div class="dash-thumbs">${thumbs}</div>` : ''}
+      <div class="dash-card-actions">
+        ${p.auto_run
+          ? `<button class="del-btn" data-pod-stop="${escapeHtml(p.id)}">⏸ 정지</button>`
+          : `<button class="load-btn" data-pod-start="${escapeHtml(p.id)}"${p.enabled ? '' : ' disabled'}>▶ 시작</button>`}
+        <button class="load-btn" data-pod-jobs="${escapeHtml(p.id)}">🗂 작업 보기</button>
+      </div>
+    </div>`;
+}
+
+const CARD_RENDERERS = { pod: renderPodCard };
+
+function renderDashboard(){
+  const totals = dashSummary.totals || {};
+  document.getElementById('dash-totals').innerHTML = [
+    ['파드', `${totals.online ?? 0}/${totals.pods ?? 0}`, '연결된 파드 / 전체'],
+    ['실행 중', `${totals.running_jobs ?? 0}건`, ''],
+    ['큐', `${totals.queued ?? 0}건`, ''],
+    ['대기', `${totals.pending ?? 0}건`, ''],
+    ['오늘 생성', `${totals.images_today ?? 0}장`, ''],
+  ].map(([label, value, title]) => `
+    <div class="dash-total"${title ? ` title="${escapeHtml(title)}"` : ''}>
+      <span class="dash-total-label">${label}</span>
+      <span class="dash-total-value">${escapeHtml(String(value))}</span>
+    </div>`).join('');
+
+  // 카드 목록 — 지금은 파드마다 카드 하나. 나중에 다른 타입의 카드를 여기 섞는다.
+  const cards = (dashSummary.pods || []).map(p => ({ type: 'pod', data: p }));
+  const canvas = document.getElementById('dash-canvas');
+  document.getElementById('dash-empty').style.display = cards.length ? 'none' : '';
+  canvas.innerHTML = cards.map(c => (CARD_RENDERERS[c.type] || (() => ''))(c.data)).join('');
+
+  canvas.querySelectorAll('[data-pod-start]').forEach(btn => btn.addEventListener('click', async () => {
+    await fetch(`/api/pods/${btn.dataset.podStart}/queue/start`, { method: 'POST' });
+    fetchDashboard();
+  }));
+  canvas.querySelectorAll('[data-pod-stop]').forEach(btn => btn.addEventListener('click', async () => {
+    await fetch(`/api/pods/${btn.dataset.podStop}/queue/stop`, { method: 'POST' });
+    fetchDashboard();
+  }));
+  canvas.querySelectorAll('[data-pod-edit]').forEach(btn => btn.addEventListener('click', () => {
+    openPodEditModal(btn.dataset.podEdit);
+  }));
+  canvas.querySelectorAll('[data-pod-jobs]').forEach(btn => btn.addEventListener('click', () => {
+    location.hash = `#pod/${btn.dataset.podJobs}`;
+  }));
+}
+
+async function fetchDashboard(){
+  try{
+    const res = await fetch('/api/pods/summary');
+    if(!res.ok) return;
+    dashSummary = await res.json();
+  }catch(e){
+    return;
+  }
+  renderDashboard();
+}
+
+document.getElementById('dash-refresh-btn').addEventListener('click', fetchDashboard);
+
+// ---- 파드 추가/편집 ----
+let podEditId = null;   // null이면 "추가"
+
+function openPodEditModal(podId){
+  podEditId = podId || null;
+  const pod = podId ? (podsById[podId] || {}) : {};
+  document.getElementById('pod-edit-title').textContent = podId ? '파드 설정' : '파드 추가';
+  document.getElementById('pod-edit-name').value = pod.name || '';
+  document.getElementById('pod-edit-url').value = pod.url || '';
+  document.getElementById('pod-edit-concurrent').value = pod.max_concurrent || 1;
+  document.getElementById('pod-edit-pull').checked = !!pod.pull_outputs;
+  document.getElementById('pod-edit-enabled').checked = podId ? !!pod.enabled : true;
+  document.getElementById('pod-edit-status').textContent = '';
+  document.getElementById('pod-edit-error').textContent = '';
+  document.getElementById('pod-edit-delete').style.display = podId ? '' : 'none';
+  const kindSel = document.getElementById('pod-edit-kind');
+  kindSel.innerHTML = (podKinds.length ? podKinds : [{ kind: 'comfyui', label: 'ComfyUI' }])
+    .map(k => `<option value="${escapeHtml(k.kind)}">${escapeHtml(k.label)}</option>`).join('');
+  if(pod.kind) kindSel.value = pod.kind;
+  document.getElementById('pod-edit-modal').style.display = 'flex';
+}
+
+function closePodEditModal(){
+  document.getElementById('pod-edit-modal').style.display = 'none';
+  podEditId = null;
+}
+
+function podEditPayload(){
+  return {
+    name: document.getElementById('pod-edit-name').value.trim(),
+    kind: document.getElementById('pod-edit-kind').value,
+    url: document.getElementById('pod-edit-url').value.trim(),
+    max_concurrent: Number(document.getElementById('pod-edit-concurrent').value || 1),
+    pull_outputs: document.getElementById('pod-edit-pull').checked,
+    enabled: document.getElementById('pod-edit-enabled').checked,
+  };
+}
+
+document.getElementById('pod-add-btn').addEventListener('click', () => openPodEditModal(null));
+document.getElementById('pod-edit-close').addEventListener('click', closePodEditModal);
+document.getElementById('pod-edit-cancel').addEventListener('click', closePodEditModal);
+document.getElementById('pod-edit-modal').addEventListener('click', (e) => {
+  if(e.target === document.getElementById('pod-edit-modal')) closePodEditModal();
+});
+
+document.getElementById('pod-edit-save').addEventListener('click', async () => {
+  const errorEl = document.getElementById('pod-edit-error');
+  errorEl.textContent = '';
+  try{
+    const url = podEditId ? `/api/pods/${podEditId}` : '/api/pods';
+    const res = await fetch(url, {
+      method: podEditId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(podEditPayload()),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '저장하지 못했어요.');
+    closePodEditModal();
+    await fetchPods();
+    fetchDashboard();
+    fetchComfyStatus();
+  }catch(e){
+    errorEl.textContent = e.message || '저장하지 못했어요.';
+  }
+});
+
+document.getElementById('pod-edit-test').addEventListener('click', async () => {
+  const statusEl = document.getElementById('pod-edit-status');
+  const errorEl = document.getElementById('pod-edit-error');
+  errorEl.textContent = '';
+  if(!podEditId){
+    statusEl.textContent = '';
+    errorEl.textContent = '먼저 저장한 뒤에 연결을 확인할 수 있어요.';
+    return;
+  }
+  statusEl.textContent = '확인 중…';
+  try{
+    const res = await fetch(`/api/pods/${podEditId}/test`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '확인하지 못했어요.');
+    statusEl.textContent = data.ok
+      ? `✅ 응답했어요 — ${data.url}`
+      : `⚠ ${data.detail || '응답이 없어요.'}${data.url ? ` (${data.url})` : ''}`;
+  }catch(e){
+    statusEl.textContent = '';
+    errorEl.textContent = e.message || '확인하지 못했어요.';
+  }
+});
+
+document.getElementById('pod-edit-delete').addEventListener('click', async () => {
+  if(!podEditId) return;
+  const pod = podsById[podEditId] || {};
+  if(!confirm(`'${pod.name || podEditId}' 파드를 지울까요? 이 파드에 배정된 대기 작업은 기본 파드로 옮겨져요.`)) return;
+  const errorEl = document.getElementById('pod-edit-error');
+  try{
+    const res = await fetch(`/api/pods/${podEditId}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '지우지 못했어요.');
+    closePodEditModal();
+    await fetchPods();
+    fetchDashboard();
+  }catch(e){
+    errorEl.textContent = e.message || '지우지 못했어요.';
+  }
+});
+
 // ---- 탭 전환 (작업 관리 / 갤러리 / Danbooru 프롬프트) ----
 const TAB_MAINS = {
+  dashboard: document.getElementById('tab-dashboard'),
   jobs: document.getElementById('tab-jobs'),
   gallery: document.getElementById('tab-gallery'),
   danbooru: document.getElementById('tab-danbooru'),
@@ -5488,19 +5838,61 @@ const TAB_MAINS = {
   lora: document.getElementById('tab-lora'),
 };
 
-document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    const tab = btn.dataset.tab;
-    for(const [name, el] of Object.entries(TAB_MAINS)){
-      el.style.display = (name === tab) ? '' : 'none';
-    }
-    if(tab === 'gallery') fetchGalleryImages();
-    if(tab === 'builder') initBuilderTab();
-    if(tab === 'lora') initLoraTab();
+// 주소창 해시로 화면을 기억한다("#gallery", "#pod/abc123"). 서버 라우트를 늘리지
+// 않고도 새로고침·뒤로가기·링크 공유가 되는 가장 가벼운 방법이라 해시를 쓴다.
+function showTab(tab, { podId = null, updateHash = true } = {}){
+  if(!TAB_MAINS[tab]) tab = 'dashboard';
+  jobPodFilter = podId;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  for(const [name, el] of Object.entries(TAB_MAINS)){
+    el.style.display = (name === tab) ? '' : 'none';
+  }
+
+  // 대시보드가 보이는 동안에만 폴링한다 — 안 보이는 화면 때문에 파드를 계속 찌를
+  // 이유가 없다(파드가 늘수록 그 비용이 커진다).
+  if(tab === 'dashboard'){
+    fetchDashboard();
+    if(!dashTimer) dashTimer = setInterval(fetchDashboard, 4000);
+  }else if(dashTimer){
+    clearInterval(dashTimer);
+    dashTimer = null;
+  }
+
+  if(tab === 'gallery') fetchGalleryImages();
+  if(tab === 'builder') initBuilderTab();
+  if(tab === 'lora') initLoraTab();
+  if(tab === 'jobs'){ renderPodFilterBanner(); fetchJobs(); }
+
+  if(updateHash){
+    const want = podId ? `#pod/${podId}` : `#${tab}`;
+    if(location.hash !== want) history.replaceState(null, '', want);
+  }
+}
+
+function renderPodFilterBanner(){
+  const el = document.getElementById('job-pod-filter');
+  if(!el) return;
+  if(!jobPodFilter){ el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.innerHTML = `<span>‘${escapeHtml(podName(jobPodFilter) || jobPodFilter)}’ 파드의 작업만 보는 중</span>
+    <button class="modal-btn-secondary" id="job-pod-filter-clear" type="button">✕ 전체 보기</button>`;
+  document.getElementById('job-pod-filter-clear').addEventListener('click', () => {
+    location.hash = '#jobs';
+    applyHashRoute();
   });
+}
+
+function applyHashRoute(){
+  const raw = (location.hash || '').replace(/^#/, '');
+  const podMatch = raw.match(/^pod\/(.+)$/);
+  if(podMatch) showTab('jobs', { podId: podMatch[1], updateHash: false });
+  else showTab(raw || 'dashboard', { updateHash: false });
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => showTab(btn.dataset.tab));
 });
+window.addEventListener('hashchange', applyHashRoute);
 
 // ---- 갤러리 ----
 let galleryImages = [];
@@ -7310,7 +7702,8 @@ document.getElementById('builder-send-btn').addEventListener('click', async () =
 });
 
 fetchTemplates();
-fetchPods();
+// 파드 목록을 먼저 받아야 대시보드 카드의 이름/종류가 제대로 나온다.
+fetchPods().then(applyHashRoute);
 fetchJobs();
 fetchDeletedJobs();
 fetchComfyStatus();

@@ -1292,6 +1292,65 @@ def delete_pod_api(pod_id: str):
             "moved_jobs": len(moved), "moved_to": fallback["id"]}
 
 
+# 드라이버가 카드에 실어 주는 파드별 추가 정보(ComfyUI라면 GPU/VRAM). 연결 상태와 달리
+# 이건 매번 필요하지도 않고 왕복이 한 번 더 드니, 더 길게 캐싱하고 백그라운드로만 갱신한다.
+POD_CARD_TTL_SEC = 20
+_pod_card_cache: dict[str, dict] = {}
+_pod_card_lock = threading.Lock()
+_pod_card_refreshing: set[str] = set()
+
+
+def _refresh_pod_card_bg(pod: dict):
+    pod_id = pod["id"]
+    try:
+        data = driver_for(pod).card(pod)
+    except Exception:
+        data = {}
+    with _pod_card_lock:
+        _pod_card_cache[pod_id] = {"data": data, "at": time.monotonic()}
+        _pod_card_refreshing.discard(pod_id)
+
+
+def pod_card_data(pod: dict) -> dict:
+    """캐시된 값을 즉시 돌려주고, 오래됐으면 백그라운드로 다시 받아온다. 처음에는
+    빈 dict가 나가고 다음 폴링에서 채워진다 — 카드가 뜨는 걸 막지 않는 게 우선이다."""
+    pod_id = pod["id"]
+    with _pod_card_lock:
+        entry = _pod_card_cache.get(pod_id)
+        fresh = entry and (time.monotonic() - entry["at"]) < POD_CARD_TTL_SEC
+        if not fresh and pod_id not in _pod_card_refreshing:
+            _pod_card_refreshing.add(pod_id)
+            start = True
+        else:
+            start = False
+    if start:
+        threading.Thread(target=_refresh_pod_card_bg, args=(pod,), daemon=True).start()
+    return (entry or {}).get("data") or {}
+
+
+def recent_job_images(job_ids: list[str], limit: int = 3) -> list[str]:
+    """그 작업들이 만든 결과 이미지 중 최근 것 몇 장의 상대 경로(갤러리 썸네일 API에
+    그대로 넣을 수 있는 형태). 출력 폴더 전체를 훑지 않고 job_id 폴더만 들여다본다 —
+    대시보드는 몇 초마다 폴링하므로 값싸야 한다."""
+    base = Path(OUTPUT_DIR)
+    names: list[str] = []
+    for job_id in job_ids:
+        folder = base / job_id
+        try:
+            entries = sorted(
+                (e for e in os.scandir(folder)
+                 if e.is_file() and Path(e.name).suffix.lower() in IMAGE_EXTENSIONS),
+                key=lambda e: e.stat().st_mtime, reverse=True,
+            )
+        except OSError:
+            continue
+        for e in entries:
+            names.append(f"{job_id}/{e.name}")
+            if len(names) >= limit:
+                return names
+    return names
+
+
 @app.get("/api/pods/summary")
 async def pods_summary():
     """대시보드가 폴링할 파드별 요약 — 레코드 + 연결 상태(캐시) + 큐/실행 상태 +
@@ -1320,9 +1379,17 @@ async def pods_summary():
                 for j in pod_jobs
                 if (j.get("finished_at") or "").startswith(today)
             )
+            finished = sorted(
+                (j for j in pod_jobs if j["status"] in ("done", "failed", "interrupted")),
+                key=lambda j: j.get("finished_at") or "", reverse=True,
+            )
+            recent_job_ids = [j["id"] for j in ([*(j for j in pod_jobs if j["status"] == "running")]
+                                                + finished)[:3]]
             rows.append({
-                **pod,
+                **pod_payload(pod),   # 레코드 + kind_label/effective_url 같은 파생 정보
                 "status": statuses[pod["id"]],
+                "card": pod_card_data(pod),
+                "recent_images": recent_job_images(recent_job_ids),
                 "auto_run": bool(rt and rt.auto_run),
                 "queue_len": rt.queue.qsize() if rt else 0,
                 "running_jobs": running_jobs,
@@ -1330,7 +1397,15 @@ async def pods_summary():
                 "pending_count": sum(1 for j in pod_jobs if j["status"] == "pending"),
                 "images_today": done_today,
             })
-    return {"pods": rows, "default_pod_id": pod_registry.default_pod()["id"]}
+    totals = {
+        "pods": len(rows),
+        "online": sum(1 for r in rows if r["status"]["connected"]),
+        "running_jobs": sum(len(r["running_jobs"]) for r in rows),
+        "queued": sum(r["queue_len"] for r in rows),
+        "pending": sum(r["pending_count"] for r in rows),
+        "images_today": sum(r["images_today"] for r in rows),
+    }
+    return {"pods": rows, "default_pod_id": pod_registry.default_pod()["id"], "totals": totals}
 
 
 @app.post("/api/pods/{pod_id}/test")
