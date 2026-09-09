@@ -3905,6 +3905,12 @@ async function fetchComfyStatus(){
     el.classList.add('disconnected');
     text.textContent = data.url ? `ComfyUI 연결 안 됨 · ${data.url}` : 'ComfyUI 연결 안 됨';
   }
+  // 서버가 연결 상태를 캐시해서 돌려주므로(원격 pod까지 매번 왕복하면 느리다),
+  // 언제 실측한 값인지 툴팁으로 밝혀 둔다.
+  const age = data.checked_age_sec;
+  el.title = age == null
+    ? '눌러서 ComfyUI 접속 주소를 설정해요'
+    : `${age < 1 ? '방금' : `${Math.round(age)}초 전`} 확인한 상태 · 눌러서 접속 주소 설정`;
 }
 
 // ---- ComfyUI 접속 주소 설정 (헤더의 연결 상태 배지 클릭) ----
