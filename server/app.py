@@ -53,6 +53,7 @@ from drivers.comfyui import (
     CHECK_TIMEOUT,
     CHECK_TIMEOUT_INTERACTIVE,
     CHECK_TIMEOUT_LOCAL,
+    COMFY_USER_AGENT,
     ComfyUIDriver,
     check_url,
 )
@@ -624,7 +625,9 @@ def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
     req = urllib.request.Request(
         f"{comfy_url}/prompt",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        # User-Agent가 필요한 이유는 drivers/comfyui.py의 COMFY_USER_AGENT 주석 참고
+        # — Cloudflare가 앞단에 있는 RunPod pod는 기본 urllib UA를 403으로 막는다.
+        headers={"Content-Type": "application/json", "User-Agent": COMFY_USER_AGENT},
         method="POST",
     )
     try:
@@ -639,7 +642,8 @@ def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
     deadline = time.time() + ENHANCE_TIMEOUT_SEC
     while time.time() < deadline:
         try:
-            hist_req = urllib.request.Request(f"{comfy_url}/history/{prompt_id}")
+            hist_req = urllib.request.Request(
+                f"{comfy_url}/history/{prompt_id}", headers={"User-Agent": COMFY_USER_AGENT})
             with urllib.request.urlopen(hist_req, timeout=30) as resp:
                 history = json.loads(resp.read().decode("utf-8"))
         except urllib.error.URLError as e:
