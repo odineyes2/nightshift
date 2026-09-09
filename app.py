@@ -1234,6 +1234,13 @@ def list_pods_api():
 @app.post("/api/pods")
 async def create_pod_api(request: Request):
     data = await read_json_object(request, allow_empty=False)
+    kind = (data.get("kind") or pod_registry.DEFAULT_KIND).strip()
+    try:
+        driver = driver_for({"kind": kind})
+    except DriverError as e:
+        raise HTTPException(400, str(e))
+    if not driver.available():
+        raise HTTPException(400, driver.unavailable_reason())
     try:
         pod = pod_registry.create_pod(data)
     except pod_registry.PodError as e:
@@ -1866,6 +1873,10 @@ def resolve_option_kind(option: dict, options_so_far: dict) -> str:
 def coerce_option(option: dict, raw: str | None, options_so_far: dict):
     if raw is None or raw == "":
         raw = option.get("default")
+    # 비면 그 작업이 애초에 성공할 수 없는 옵션(예: 셸 명령의 "명령")은 큐에 넣기 전에
+    # 막는다 — 돌려봐야 실패할 작업이 대기 목록에 쌓이면 안 되므로.
+    if option.get("required") and (raw is None or str(raw).strip() == ""):
+        raise HTTPException(400, f"'{option['label']}'을(를) 입력하세요.")
     opt_type = option.get("type")
 
     if opt_type == "number":
@@ -2242,6 +2253,23 @@ async def create_job(
     else:
         pod = pod_registry.default_pod()
 
+    # 템플릿이 특정 워커 종류 전용이면(셸 명령은 셸 파드에서만 뜻이 있다) 여기서 막는다.
+    # 안 막으면 ComfyUI 파드에 셸 작업이 들어가 조용히 엉뚱하게 돈다.
+    allowed_kinds = template.get("pod_kinds")
+    if allowed_kinds and pod["kind"] not in allowed_kinds:
+        raise HTTPException(
+            400,
+            f"'{template['label']}' 템플릿은 {', '.join(allowed_kinds)} 종류의 파드에서만 쓸 수 있어요 "
+            f"(고른 파드 '{pod['name']}'는 {pod['kind']}).",
+        )
+    # 반대 방향도 막는다 — ComfyUI용 템플릿(대부분)은 셸 파드로 보낼 수 없다.
+    if not allowed_kinds and pod["kind"] != pod_registry.DEFAULT_KIND:
+        raise HTTPException(
+            400,
+            f"'{template['label']}' 템플릿은 {pod_registry.DEFAULT_KIND} 파드용이에요 "
+            f"(고른 파드 '{pod['name']}'는 {pod['kind']}).",
+        )
+
     with lock:
         active_count = sum(
             1 for j in jobs.values()
@@ -2273,7 +2301,7 @@ async def create_job(
         if secondary_kind_raw in REF_KINDS:
             validate_ref_csv_rows(csv_bytes, secondary_kind_raw, "secondary_ref", "secondary_char_no")
 
-    if primary_kind:
+    if primary_kind and workflow_bytes is not None:
         needs_ref_node = True
         if primary_csv_column:
             needs_ref_node = csv_bytes is not None and csv_has_ref_value(csv_bytes, primary_csv_column)
@@ -2281,7 +2309,7 @@ async def create_job(
             validate_workflow_has_ref_node(workflow_bytes, primary_kind)
 
     flat_image_spec = FLAT_IMAGE_TEMPLATES.get(template_id)
-    if flat_image_spec:
+    if flat_image_spec and workflow_bytes is not None:
         if csv_bytes is not None:
             validate_flat_image_csv_rows(csv_bytes, flat_image_spec["column"])
         validate_workflow_has_flat_image_node(
@@ -2305,9 +2333,12 @@ async def create_job(
 
     job_id = str(uuid.uuid4())[:8]
 
-    workflow_dest_name = f"{job_id}_{workflow_filename}"
-    (JOBS_DIR / workflow_dest_name).write_bytes(workflow_bytes)
-    recent_workflows_store.record(workflow_filename, workflow_bytes)
+    # 워크플로우가 필요 없는 템플릿도 있다(셸 명령처럼 ComfyUI를 아예 안 쓰는 것들).
+    workflow_dest_name = None
+    if workflow_bytes is not None:
+        workflow_dest_name = f"{job_id}_{workflow_filename}"
+        (JOBS_DIR / workflow_dest_name).write_bytes(workflow_bytes)
+        recent_workflows_store.record(workflow_filename, workflow_bytes)
 
     csv_dest_name = None
     csv_original_name = None
@@ -2325,7 +2356,7 @@ async def create_job(
             "script_filename": template["script_filename"],
             "options": options,
             "workflow_filename": workflow_dest_name,
-            "workflow_original_name": workflow_filename,
+            "workflow_original_name": workflow_filename if workflow_dest_name else None,
             "csv_filename": csv_dest_name,
             "csv_original_name": csv_original_name,
             "status": "pending",
@@ -2357,8 +2388,11 @@ async def upload(request: Request):
 
     template = resolve_template(form.get("template_id"))
 
+    # 워크플로우가 필요 없는 템플릿(셸 명령 등)은 첨부를 요구하지 않는다.
+    needs_workflow = template.get("requires_workflow", True)
     workflow = form.get("workflow")
-    if not isinstance(workflow, UploadFile) or not workflow.filename or not workflow.filename.endswith(".json"):
+    if needs_workflow and (not isinstance(workflow, UploadFile) or not workflow.filename
+                           or not workflow.filename.endswith(".json")):
         raise HTTPException(400, "워크플로우는 json 파일만 업로드할 수 있어요.")
 
     requires_csv = bool(template.get("requires_csv"))
@@ -2368,7 +2402,7 @@ async def upload(request: Request):
 
     # UploadFile은 한 번만 읽을 수 있으므로, 검증에도 쓰고 저장에도 쓸 수 있게
     # 여기서 미리 한 번만 읽어둔다.
-    workflow_bytes = await workflow.read()
+    workflow_bytes = await workflow.read() if needs_workflow else None
     csv_bytes = await csv_file.read() if requires_csv else None
 
     raw_options = {}
@@ -2380,7 +2414,7 @@ async def upload(request: Request):
     return await create_job(
         template,
         workflow_bytes,
-        workflow.filename,
+        workflow.filename if needs_workflow else None,
         csv_bytes,
         csv_file.filename if requires_csv else None,
         raw_options,
@@ -2406,13 +2440,17 @@ async def create_job_from_json(request: Request):
 
     template = resolve_template(body.get("template_id"))
 
+    needs_workflow = template.get("requires_workflow", True)
     workflow = body.get("workflow")
-    if not isinstance(workflow, dict):
-        raise HTTPException(400, "workflow는 JSON 객체(워크플로우 자체)여야 해요.")
-    workflow_filename = body.get("workflow_filename") or "workflow.json"
-    if not isinstance(workflow_filename, str) or not workflow_filename.endswith(".json"):
-        raise HTTPException(400, "workflow_filename은 .json으로 끝나야 해요.")
-    workflow_bytes = json.dumps(workflow).encode("utf-8")
+    workflow_filename = None
+    workflow_bytes = None
+    if needs_workflow or workflow is not None:
+        if not isinstance(workflow, dict):
+            raise HTTPException(400, "workflow는 JSON 객체(워크플로우 자체)여야 해요.")
+        workflow_filename = body.get("workflow_filename") or "workflow.json"
+        if not isinstance(workflow_filename, str) or not workflow_filename.endswith(".json"):
+            raise HTTPException(400, "workflow_filename은 .json으로 끝나야 해요.")
+        workflow_bytes = json.dumps(workflow).encode("utf-8")
 
     csv_text = body.get("csv")
     csv_bytes = None

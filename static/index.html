@@ -1831,7 +1831,7 @@
 
         <div class="options-fields" id="options-fields"></div>
 
-        <div class="field">
+        <div class="field" id="workflow-field">
           <div class="field-label-row">
             <label class="field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
             <button class="load-btn" id="recent-workflows-btn" type="button" title="최근 워크플로우">🕘 최근</button>
@@ -2552,6 +2552,7 @@
 let podsCache = [];
 let podsById = {};
 let podKinds = [];      // 등록할 수 있는 파드 종류(드라이버) 목록
+let allTemplates = [];  // 서버가 준 템플릿 전체(고른 파드 종류에 맞는 것만 드롭다운에 넣는다)
 // 작업 목록을 한 파드 것만 보고 있을 때 그 파드 id. null이면 전체.
 let jobPodFilter = null;
 
@@ -2579,6 +2580,11 @@ async function fetchPods(){
       .map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.effective_url ? ` (${escapeHtml(p.effective_url)})` : ''}</option>`)
       .join('');
     if(prev && podsById[prev]) select.value = prev;
+    if(!select.dataset.bound){
+      select.dataset.bound = '1';
+      // 파드를 바꾸면 그 종류에서 쓸 수 있는 템플릿만 남긴다.
+      select.addEventListener('change', () => { renderTemplateOptions(); });
+    }
   }
   return podsCache;
 }
@@ -3678,6 +3684,9 @@ function renderOptionFields(template){
 async function onTemplateChange(){
   const template = templatesById[templateSelect.value];
   csvField.style.display = (template && template.requires_csv) ? '' : 'none';
+  // 워크플로우가 필요 없는 템플릿(셸 명령 등)에서는 첨부 칸 자체를 숨긴다.
+  const wfField = document.getElementById('workflow-field');
+  if(wfField) wfField.style.display = (template && template.requires_workflow === false) ? 'none' : '';
   // char_no/asset_folder 옵션이 있는 템플릿을 고를 때마다 목록을 새로 받아와서, 방금
   // 서버에 새로 올려둔 포즈 세트도 페이지를 새로고침하지 않고 바로 반영되게 한다.
   const needsAssets = template && (template.options || []).some(o => o.type === 'asset_folder' || o.type === 'char_no');
@@ -3710,16 +3719,35 @@ async function fetchTemplates(){
   // 페이지를 열 때 한 번만 부르는데, 401이면(키가 아직 없거나 틀림) 템플릿
   // 목록 없이 빈 채로 두고 넘어간다 — 키를 맞게 넣은 뒤 새로고침하면 다시 시도된다.
   if(!res.ok) return;
-  const list = await res.json();
+  allTemplates = await res.json();
+  await renderTemplateOptions();
+}
+
+// 템플릿마다 어느 종류의 파드에서 쓸 수 있는지가 정해져 있다(셸 명령은 셸 파드 전용,
+// 나머지는 ComfyUI 파드용). 고른 파드에서 못 쓰는 템플릿을 목록에 남겨두면 "추가"를
+// 눌러야 400을 보게 되므로, 아예 목록에서 뺀다.
+function templateAllowedOnPod(template, podKind){
+  const kinds = template.pod_kinds;
+  if(kinds && kinds.length) return kinds.includes(podKind);
+  return podKind === 'comfyui';
+}
+
+async function renderTemplateOptions(){
+  const podSel = document.getElementById('pod-select');
+  const podKind = (podsById[podSel && podSel.value] || {}).kind
+    || (podsCache.find(p => p.enabled) || {}).kind || 'comfyui';
+  const prev = templateSelect.value;
   templatesById = {};
   templateSelect.innerHTML = '';
-  for(const t of list){
+  for(const t of allTemplates){
     templatesById[t.id] = t;
+    if(!templateAllowedOnPod(t, podKind)) continue;
     const opt = document.createElement('option');
     opt.value = t.id;
     opt.textContent = t.label;
     templateSelect.appendChild(opt);
   }
+  if(prev && selectHasOptionValue(templateSelect, prev)) templateSelect.value = prev;
   await onTemplateChange();
 }
 
@@ -3909,7 +3937,8 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   const templateId = templateSelect.value;
   const template = templatesById[templateId];
 
-  if(!selectedFiles.workflow){
+  const needsWorkflow = !(template && template.requires_workflow === false);
+  if(needsWorkflow && !selectedFiles.workflow){
     uploadError.textContent = '워크플로우(.json)는 필수예요.';
     return;
   }
@@ -3938,7 +3967,7 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   // 파드가 하나뿐이면 선택 자체가 안 보이고, 서버가 기본 파드로 보낸다.
   const podSel = document.getElementById('pod-select');
   if(podSel && podSel.value) form.append('pod_id', podSel.value);
-  form.append('workflow', selectedFiles.workflow);
+  if(needsWorkflow) form.append('workflow', selectedFiles.workflow);
   if(template && template.requires_csv) form.append('csv', selectedFiles.csv);
   optionsFields.querySelectorAll('.option-input').forEach(input => {
     form.append(input.dataset.name, input.value);
@@ -5625,13 +5654,50 @@ function fmtVram(free, total){
   return `${gb(total - (free || 0))}/${gb(total)}GB`;
 }
 
+// 디스크/VRAM처럼 큰 값을 위한 표기. 갤러리의 fmtBytes(파일 하나 크기, MB까지)와는
+// 쓰임이 다르므로 이름을 따로 둔다 — 같은 이름으로 두 번 선언하면 나중 것이 이겨서
+// 조용히 엉뚱한 단위가 나온다.
+function fmtDiskSize(n){
+  if(!n && n !== 0) return null;
+  const gb = n / (1024 ** 3);
+  return gb >= 1 ? `${gb.toFixed(1)}GB` : `${(n / (1024 ** 2)).toFixed(0)}MB`;
+}
+
+// 카드의 "사양" 줄은 워커 종류마다 다르다 — ComfyUI는 주소와 VRAM, 셸 파드는 어디서
+// 무슨 폴더에서 도는지와 디스크 여유. 드라이버의 card()가 준 값을 여기서 읽는다.
+const POD_SPEC_LINE = {
+  comfyui(p){
+    const url = (p.status && p.status.url) || p.effective_url || '';
+    const vram = fmtVram((p.card || {}).vram_free, (p.card || {}).vram_total);
+    return `${escapeHtml(url || '(주소 없음 — 자동 탐지)')}${vram ? ` · ${vram}` : ''}`;
+  },
+  shell(p){
+    const card = p.card || {};
+    const target = card.target || (p.url || '이 머신 (로컬)');
+    const disk = card.disk_total ? `여유 ${fmtDiskSize(card.disk_free)}/${fmtDiskSize(card.disk_total)}` : '';
+    return `${escapeHtml(target)}${card.workdir ? ` · ${escapeHtml(card.workdir)}` : ''}${disk ? ` · ${disk}` : ''}`;
+  },
+};
+
+// "오늘 만든 것"의 단위도 워커 종류마다 다르다 — 이미지 워커는 장수지만, 셸 워커에게
+// 같은 숫자는 "명령을 몇 번 돌렸는가"다. 서버는 진행률(progress.done)의 합만 주므로
+// 이름은 화면이 붙인다.
+const POD_TODAY_UNIT = { comfyui: '장', shell: '회' };
+
+function podTodayText(p){
+  return `${p.images_today}${POD_TODAY_UNIT[p.kind] || '건'}`;
+}
+
+function podSpecLine(p){
+  const fn = POD_SPEC_LINE[p.kind] || POD_SPEC_LINE.comfyui;
+  return fn(p);
+}
+
 function renderPodCard(p){
   const state = POD_STATE[podState(p)];
   const job = (p.running_jobs || [])[0];
   const prog = job && job.progress;
   const pct = prog && prog.total > 0 ? Math.min(100, Math.round((prog.done / prog.total) * 100)) : 0;
-  const url = (p.status && p.status.url) || p.effective_url || '';
-  const vram = fmtVram((p.card || {}).vram_free, (p.card || {}).vram_total);
   const thumbs = (p.recent_images || []).map(name =>
     `<img class="dash-thumb" src="/api/output-images/${encodeURI(name)}/thumbnail?size=120" alt="" loading="lazy">`).join('');
 
@@ -5645,7 +5711,7 @@ function renderPodCard(p){
           <button class="load-btn" data-pod-edit="${escapeHtml(p.id)}" title="파드 설정">⚙</button>
         </div>
       </div>
-      <div class="dash-card-url">${escapeHtml(url || '(주소 없음 — 자동 탐지)')}${vram ? ` · ${vram}` : ''}</div>
+      <div class="dash-card-url">${podSpecLine(p)}</div>
       <div class="dash-card-job">
         ${job
           ? `<b>${escapeHtml(job.template_label || '작업')}</b>${prog ? `
@@ -5658,7 +5724,7 @@ function renderPodCard(p){
       <div class="dash-card-stats">
         <div class="dash-stat"><span class="dash-stat-label">큐</span><span class="dash-stat-value">${p.queue_len}</span></div>
         <div class="dash-stat"><span class="dash-stat-label">대기</span><span class="dash-stat-value">${p.pending_count}</span></div>
-        <div class="dash-stat"><span class="dash-stat-label">오늘</span><span class="dash-stat-value">${p.images_today}장</span></div>
+        <div class="dash-stat"><span class="dash-stat-label">오늘</span><span class="dash-stat-value">${escapeHtml(podTodayText(p))}</span></div>
         <div class="dash-stat"><span class="dash-stat-label">동시</span><span class="dash-stat-value">${p.max_concurrent}</span></div>
       </div>
       ${thumbs ? `<div class="dash-thumbs">${thumbs}</div>` : ''}
@@ -5680,7 +5746,9 @@ function renderDashboard(){
     ['실행 중', `${totals.running_jobs ?? 0}건`, ''],
     ['큐', `${totals.queued ?? 0}건`, ''],
     ['대기', `${totals.pending ?? 0}건`, ''],
-    ['오늘 생성', `${totals.images_today ?? 0}장`, ''],
+    // 종류가 다른 워커를 합친 숫자라 "장"이라고 못 쓴다 — 이미지 워커의 장수와
+    // 셸 워커의 실행 횟수가 같이 들어오므로 중립적인 "건"으로 센다.
+    ['오늘 처리', `${totals.images_today ?? 0}건`, '파드 종류가 섞여 있으면 이미지 장수와 실행 횟수를 합친 값이에요'],
   ].map(([label, value, title]) => `
     <div class="dash-total"${title ? ` title="${escapeHtml(title)}"` : ''}>
       <span class="dash-total-label">${label}</span>
