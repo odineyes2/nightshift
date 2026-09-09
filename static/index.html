@@ -763,6 +763,14 @@
   .badge.interrupted{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.10); }
   /* ComfyUI(GPU)에 연결될 때까지 큐에서 붙잡혀 있는 작업 — 실패가 아니라 대기다.
      "대기중"(queued)과 눈에 띄게 구분돼야 사용자가 "왜 안 도나"를 바로 안다. */
+  /* 작업이 어느 파드(워커)에서 도는지 — 파드가 둘 이상일 때만 나타난다. */
+  .pod-badge{
+    display:inline-flex; align-items:center;
+    padding:1px 6px; margin-right:4px;
+    border:1px solid var(--border); border-radius:4px;
+    font-family:var(--mono); font-size:10.5px; color:var(--text-dim);
+    white-space:nowrap;
+  }
   .badge.waiting{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.12); }
   .badge.waiting .bdot{ animation: pulse-run 1.6s infinite; }
   .badge .bdot{ width:5px; height:5px; border-radius:50%; background:currentColor; }
@@ -1748,6 +1756,10 @@
       </div>
 
       <div class="upload-form">
+        <div class="field" id="pod-select-field" style="display:none;">
+          <label class="field-label" for="pod-select">실행할 파드</label>
+          <select id="pod-select"></select>
+        </div>
         <div class="field">
           <label class="field-label" for="template-select">템플릿</label>
           <select id="template-select"></select>
@@ -2306,6 +2318,29 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="job-move-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">다른 파드로 옮기기</div>
+      <button class="modal-close" id="job-move-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint">파드마다 큐가 따로 돌아서, 파드 하나가 멈추면 그 큐만 멈춰요.
+        아직 시작하지 않은 작업은 다른 파드로 옮겨 이어서 돌릴 수 있어요(실행 중인 작업은 먼저 멈춰야 해요).</div>
+      <div class="comfy-endpoint-current" id="job-move-current"></div>
+      <div class="field">
+        <label class="field-label" for="job-move-select">옮길 파드</label>
+        <select id="job-move-select"></select>
+      </div>
+      <div class="upload-error" id="job-move-error"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="job-move-cancel" type="button">✕ 취소</button>
+      <button class="submit-btn" id="job-move-confirm" type="button">➡ 옮기기</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="comfy-endpoint-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
@@ -2397,6 +2432,39 @@
 </div>
 
 <script>
+// ---- 파드(워커) 목록 ----
+// 파드가 하나뿐이면 화면에 파드 이야기를 아예 꺼내지 않는다(예전과 똑같이 보인다).
+// 두 개 이상일 때만 업로드 폼의 "실행할 파드" 선택과 작업 행의 파드 배지가 나타난다.
+let podsCache = [];
+let podsById = {};
+
+function multiPod(){ return podsCache.length > 1; }
+function podName(podId){ return (podsById[podId] || {}).name || ''; }
+
+async function fetchPods(){
+  try{
+    const res = await fetch('/api/pods');
+    const data = await res.json();
+    podsCache = data.pods || [];
+  }catch(e){
+    podsCache = [];
+  }
+  podsById = Object.fromEntries(podsCache.map(p => [p.id, p]));
+
+  const field = document.getElementById('pod-select-field');
+  const select = document.getElementById('pod-select');
+  if(field && select){
+    field.style.display = multiPod() ? '' : 'none';
+    const prev = select.value;
+    select.innerHTML = podsCache
+      .filter(p => p.enabled)
+      .map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.effective_url ? ` (${escapeHtml(p.effective_url)})` : ''}</option>`)
+      .join('');
+    if(prev && podsById[prev]) select.value = prev;
+  }
+  return podsCache;
+}
+
 const STATUS_LABEL = {
   pending: "대기중", queued: "대기중", running: "실행중", done: "완료",
   failed: "실패", interrupted: "중단됨"
@@ -2501,8 +2569,12 @@ async function fetchJobs(){
 }
 
 let queueRunning = false; // 서버의 자동 실행 모드(auto_run)를 그대로 반영 — "▶ 시작"/"⏸ 정지" 토글에 쓴다.
+// 마지막으로 그린 작업 목록. render()의 지역 변수 jobs는 그 함수 밖에서는 못 보는데,
+// 모달처럼 나중에 열리는 화면도 작업 정보를 봐야 해서 여기 남겨둔다.
+let lastJobs = [];
 
 function render(jobs, pendingCount, running){
+  lastJobs = jobs;
   queueRunning = !!running;
   document.getElementById('pending-count').textContent = pendingCount;
   const tbody = document.getElementById('job-rows');
@@ -2545,6 +2617,11 @@ function render(jobs, pendingCount, running){
     const est = estimateJob(j);
     // 서버가 ComfyUI 연결을 기다리며 붙잡아 둔 작업(app.py의 wait_for_comfy).
     const waitingForComfy = !!j.waiting_for_comfy;
+    // 파드가 둘 이상일 때만 "어느 워커에서 도는지"를 보여준다.
+    const podBadge = multiPod() && j.pod_id
+      ? `<span class="pod-badge" title="이 작업이 배정된 파드">${escapeHtml(podName(j.pod_id) || j.pod_id)}</span>`
+      : '';
+    const movable = multiPod() && ['pending', 'queued', 'interrupted'].includes(j.status);
     let rows = `
       <tr data-id="${j.id}" class="job-row">
         <td>${isOpen ? '▾' : '▸'}</td>
@@ -2553,6 +2630,7 @@ function render(jobs, pendingCount, running){
         <td class="fname${j.workflow_original_name ? '' : ' dim'}" title="${escapeHtml(workflowText)}">${escapeHtml(workflowText)}</td>
         <td class="fname${j.csv_original_name ? '' : ' dim'}" title="${escapeHtml(csvText)}">${escapeHtml(csvText)}</td>
         <td>
+          ${podBadge}
           <span class="badge ${waitingForComfy ? 'waiting' : j.status}"${waitingForComfy ? ' title="ComfyUI(GPU) 서버에 연결되면 자동으로 이어서 시작해요. 헤더의 연결 상태를 눌러 주소를 확인할 수 있어요."' : ''}><span class="bdot"></span>${waitingForComfy ? 'GPU 대기' : (STATUS_LABEL[j.status] || j.status)}</span>
           ${progress ? `
             <div class="progress-wrap">
@@ -2570,6 +2648,7 @@ function render(jobs, pendingCount, running){
             ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}" title="워크플로우 수정">✎ 워크플로우</button>` : ''}
             ${j.status === 'pending' && j.csv_filename ? `<button class="edit-btn" data-editkind="csv" data-editid="${j.id}" title="CSV 수정">✎ CSV</button>` : ''}
             ${j.status === 'interrupted' ? `<button class="retry-btn" data-retry="${j.id}" title="서버 재시작으로 중단된 작업을 다시 큐에 올려요">🔁 재시작</button>` : ''}
+            ${movable ? `<button class="load-btn move-btn" data-move="${j.id}" title="이 작업을 다른 파드로 옮겨요">➡ 파드 이동</button>` : ''}
             ${j.status !== 'running' && j.status !== 'queued' ? `<button class="del-btn" data-del="${j.id}" title="삭제">🗑 삭제</button>` : ''}
           </div>
         </td>
@@ -2615,13 +2694,70 @@ function render(jobs, pendingCount, running){
   });
 
   tbody.querySelectorAll('.load-btn').forEach(btn => {
+    if(!btn.dataset.loadid) return;   // "파드 이동" 버튼도 같은 클래스로 스타일을 쓴다
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const job = jobs.find(j => j.id === btn.dataset.loadid);
       if(job) loadJobSettings(job);
     });
   });
+
+  tbody.querySelectorAll('.move-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openJobMoveModal(btn.dataset.move);
+    });
+  });
 }
+
+// ---- 작업을 다른 파드로 옮기기 ----
+// 파드마다 큐가 따로 돌기 때문에 파드 하나가 죽으면 그 큐만 멈춘다(옆 파드가 놀아도
+// 자동으로 안 넘어간다). 그때 손으로 푸는 탈출구다.
+let jobMoveTargetId = null;
+
+function openJobMoveModal(jobId){
+  const job = lastJobs.find(j => j.id === jobId);
+  if(!job) return;
+  jobMoveTargetId = jobId;
+  document.getElementById('job-move-error').textContent = '';
+  document.getElementById('job-move-current').textContent =
+    `${job.template_label || job.template_id} · 지금 파드: ${podName(job.pod_id) || '(없음)'}`;
+  const select = document.getElementById('job-move-select');
+  select.innerHTML = podsCache
+    .filter(p => p.enabled && p.id !== job.pod_id)
+    .map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`)
+    .join('');
+  document.getElementById('job-move-modal').style.display = 'flex';
+}
+
+function closeJobMoveModal(){
+  document.getElementById('job-move-modal').style.display = 'none';
+  jobMoveTargetId = null;
+}
+
+document.getElementById('job-move-modal-close').addEventListener('click', closeJobMoveModal);
+document.getElementById('job-move-cancel').addEventListener('click', closeJobMoveModal);
+document.getElementById('job-move-modal').addEventListener('click', (e) => {
+  if(e.target === document.getElementById('job-move-modal')) closeJobMoveModal();
+});
+document.getElementById('job-move-confirm').addEventListener('click', async () => {
+  const podId = document.getElementById('job-move-select').value;
+  const errorEl = document.getElementById('job-move-error');
+  if(!jobMoveTargetId || !podId){ errorEl.textContent = '옮길 파드를 골라주세요.'; return; }
+  try{
+    const res = await fetch(`/api/jobs/${jobMoveTargetId}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pod_id: podId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '옮기지 못했어요.');
+    closeJobMoveModal();
+    fetchJobs();
+  }catch(e){
+    errorEl.textContent = e.message || '옮기지 못했어요.';
+  }
+});
 
 async function loadLog(id){
   const res = await fetch(`/api/jobs/${id}/log`);
@@ -3679,6 +3815,9 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
 
   const form = new FormData();
   form.append('template_id', templateId);
+  // 파드가 하나뿐이면 선택 자체가 안 보이고, 서버가 기본 파드로 보낸다.
+  const podSel = document.getElementById('pod-select');
+  if(podSel && podSel.value) form.append('pod_id', podSel.value);
   form.append('workflow', selectedFiles.workflow);
   if(template && template.requires_csv) form.append('csv', selectedFiles.csv);
   optionsFields.querySelectorAll('.option-input').forEach(input => {
@@ -7171,6 +7310,7 @@ document.getElementById('builder-send-btn').addEventListener('click', async () =
 });
 
 fetchTemplates();
+fetchPods();
 fetchJobs();
 fetchDeletedJobs();
 fetchComfyStatus();
@@ -7178,6 +7318,7 @@ fetchLoraTriggers();
 fetchBaseModelFamilies();
 initDanbooru();
 setInterval(fetchJobs, 2000);
+setInterval(fetchPods, 15000);
 setInterval(() => { if(expandedId) loadLog(expandedId); }, 2000);
 setInterval(fetchComfyStatus, 5000);
 // 갤러리 탭이 보이는 동안에는 새 이미지가 생겨도 자동으로 반영되게 주기적으로 새로 받아온다.
