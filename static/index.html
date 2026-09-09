@@ -655,6 +655,18 @@
     min-height:1em;
   }
   .email-hint{ font-size:12.5px; color:var(--text-dim); margin:-4px 0 12px; }
+  /* RunPod에서 가져온 이름을 nightshift 이름 입력칸에 한 번에 채워주는 제안 줄
+     — 자동으로 덮어쓰지는 않는다(사용자가 일부러 지은 이름을 조용히 바꾸면
+     안 되므로), 눌러야만 채워지는 링크 버튼으로만 둔다. */
+  .pod-name-suggest{ font-size:12px; color:var(--text-dim); }
+  .pod-name-suggest button{
+    background:none; border:none; padding:0; margin-left:4px;
+    color:var(--queued); font-size:12px; cursor:pointer; text-decoration:underline;
+  }
+  .runpod-info-box{ background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .runpod-info-grid{ display:grid; grid-template-columns:auto 1fr; gap:5px 12px; font-size:12.5px; }
+  .runpod-info-grid .ri-k{ color:var(--text-dim); }
+  .runpod-info-grid .ri-v{ color:var(--text); font-family:var(--mono); }
   input.email-input{ max-width:320px; }
   .email-result{ color:var(--done); font-size:12.5px; font-family:var(--mono); min-height:1em; }
   .output-actions{ display:flex; gap:var(--gap-lg); flex-wrap:wrap; }
@@ -838,6 +850,21 @@
     background:rgba(var(--running-rgb),0.05);
   }
   .dash-card[data-pod-state="disabled"]{ border-left-color:var(--border); }
+  .dash-card-top{ display:flex; gap:10px; align-items:flex-start; }
+  .dash-card-top-info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:6px; }
+  /* 카드마다 하나씩 있는 "일꾼 로봇" — 몸통 색은 파드별로 고정(hashToIndex),
+     표정/애니메이션은 상태를 따라간다. transform-box를 fill-box로 줘야 SVG
+     자체의 bounding box 기준으로 회전/이동해서, 뷰포트 원점 기준으로 어색하게
+     튀지 않는다. */
+  .dash-robot{ flex:none; width:36px; height:36px; }
+  .dash-robot-svg{ display:block; transform-box:fill-box; transform-origin:50% 50%; }
+  .dash-robot-online{ animation:robot-bob 2.6s ease-in-out infinite; }
+  .dash-robot-busy{ animation:robot-shake 0.5s ease-in-out infinite; }
+  .dash-robot-offline{ opacity:0.55; }
+  .dash-robot-disabled{ filter:grayscale(1); opacity:0.5; }
+  .dash-robot-busy .dash-robot-light{ animation:pulse-run 0.6s infinite; }
+  @keyframes robot-bob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-2px); } }
+  @keyframes robot-shake{ 0%,100%{ transform:rotate(0deg); } 25%{ transform:rotate(-3deg); } 75%{ transform:rotate(3deg); } }
   .dash-card-head{ display:flex; align-items:center; gap:8px; }
   .dash-card-name{ font-family:var(--mono); font-size:14px; color:var(--text); }
   .dash-card-kind{ font-size:10.5px; color:var(--text-dim); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
@@ -2485,6 +2512,7 @@
       <div class="field">
         <label class="field-label" for="pod-edit-name">이름</label>
         <input type="text" class="option-input" id="pod-edit-name" placeholder="예: a100-1" autocomplete="off" style="max-width:100%;">
+        <div class="pod-name-suggest" id="pod-edit-name-suggest" style="display:none;"></div>
       </div>
       <div class="field">
         <label class="field-label" for="pod-edit-kind">종류</label>
@@ -2511,6 +2539,10 @@
           사용함
         </label>
         <div class="email-hint">끄면 새 작업을 보낼 수 없어요(기록은 남습니다). 파드를 잠시 쉬게 할 때 씁니다.</div>
+      </div>
+      <div class="field runpod-info-box" id="pod-edit-runpod-box" style="display:none;">
+        <label class="field-label">🛰 RunPod 정보</label>
+        <div class="runpod-info-grid" id="pod-edit-runpod-fields"></div>
       </div>
       <div class="enhance-status" id="pod-edit-status" style="text-align:left; max-width:none;"></div>
       <div class="upload-error" id="pod-edit-error"></div>
@@ -5810,6 +5842,58 @@ function podState(p){
   return (p.running_jobs || []).length ? 'busy' : 'online';
 }
 
+// 파드 카드를 "일꾼 로봇"처럼 보이게 하는 아바타. 몸통 색은 파드 id를 해시해 고정
+// 팔레트에서 고르므로(같은 파드는 새로고침해도 항상 같은 색), 카드가 여럿이어도
+// 서로 구분이 된다. 표정/애니메이션은 podState()를 그대로 따라간다 — 상태를 두 번
+// 정의하고 싶지 않아서 dash-dot과 같은 값을 쓴다.
+const ROBOT_BODY_COLORS = ['#7c9cff', '#ff9f7c', '#7cd9a8', '#ffd27c', '#c495ff', '#7cd3f0', '#ff8fb3', '#a8d86f'];
+
+function hashToIndex(str, mod){
+  let h = 0;
+  for(let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h % mod;
+}
+
+function renderPodRobot(p){
+  const state = podState(p);
+  const body = ROBOT_BODY_COLORS[hashToIndex(p.id || '', ROBOT_BODY_COLORS.length)];
+  const lightColor = { online: 'var(--done)', busy: 'var(--running)', offline: 'var(--failed)', disabled: '#9aa0a6' }[state];
+
+  let face;
+  if(state === 'offline'){
+    // 연결이 끊긴 로봇 — 눈을 X로, 입은 옅게.
+    face = `
+      <path d="M12 19l6 6M18 19l-6 6" stroke="#22262b" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
+      <path d="M22 19l6 6M28 19l-6 6" stroke="#22262b" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
+      <rect x="14" y="28" width="12" height="2" rx="1" fill="#22262b" opacity="0.35"/>`;
+  }else if(state === 'disabled'){
+    // 꺼둔 로봇 — 눈을 감고 잠들어 있다.
+    face = `
+      <rect x="12" y="21" width="6" height="2" rx="1" fill="#22262b" opacity="0.45"/>
+      <rect x="22" y="21" width="6" height="2" rx="1" fill="#22262b" opacity="0.45"/>
+      <rect x="16" y="28" width="8" height="1.6" rx="0.8" fill="#22262b" opacity="0.3"/>`;
+  }else{
+    // 유휴/작업 중 — 눈을 뜨고 있고, 작업 중일 때만 입이 일자(집중)로 바뀐다.
+    const mouth = state === 'busy'
+      ? `<rect x="15" y="28" width="10" height="2.4" rx="1.2" fill="#22262b" opacity="0.55"/>`
+      : `<path d="M15 28.5 Q20 31.5 25 28.5" stroke="#22262b" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.55"/>`;
+    face = `
+      <circle cx="15" cy="22" r="3.2" fill="#fff"/><circle cx="25" cy="22" r="3.2" fill="#fff"/>
+      <circle cx="15" cy="22" r="1.5" fill="#22262b"/><circle cx="25" cy="22" r="1.5" fill="#22262b"/>
+      ${mouth}`;
+  }
+
+  return `
+    <svg class="dash-robot-svg dash-robot-${state}" width="36" height="36" viewBox="0 0 40 40" aria-hidden="true">
+      <line x1="20" y1="4" x2="20" y2="10" stroke="#8a8f98" stroke-width="2" stroke-linecap="round"/>
+      <circle class="dash-robot-light" cx="20" cy="4" r="2.6" fill="${lightColor}"/>
+      <rect x="6" y="10" width="28" height="24" rx="8" fill="${body}" stroke="rgba(0,0,0,0.12)"/>
+      <circle cx="6" cy="22" r="2" fill="rgba(0,0,0,0.15)"/>
+      <circle cx="34" cy="22" r="2" fill="rgba(0,0,0,0.15)"/>
+      ${face}
+    </svg>`;
+}
+
 function fmtVram(free, total){
   if(!total) return null;
   const gb = v => (v / (1024 ** 3)).toFixed(1);
@@ -5880,16 +5964,21 @@ function renderPodCard(p){
 
   return `
     <div class="dash-card dash-card-clickable${p.enabled ? '' : ' disabled'}" data-card-type="pod" data-pod-id="${escapeHtml(p.id)}" data-pod-open="${escapeHtml(p.id)}" data-pod-state="${state.cls}">
-      <div class="dash-card-head">
-        <span class="dash-dot ${state.cls}" title="${state.label}"></span>
-        <span class="dash-card-name">${escapeHtml(p.name)}</span>
-        <span class="dash-card-kind">${escapeHtml((p.card && p.card.runpod) ? 'RunPod 이미지 생성 모델' : (p.kind_label || p.kind))}</span>
-        <div class="dash-card-head-right">
-          <button class="load-btn" data-pod-edit="${escapeHtml(p.id)}" title="파드 설정">⚙</button>
+      <div class="dash-card-top">
+        <div class="dash-robot" title="${state.label}">${renderPodRobot(p)}</div>
+        <div class="dash-card-top-info">
+          <div class="dash-card-head">
+            <span class="dash-dot ${state.cls}" title="${state.label}"></span>
+            <span class="dash-card-name">${escapeHtml(p.name)}</span>
+            <span class="dash-card-kind">${escapeHtml((p.card && p.card.runpod) ? 'RunPod 이미지 생성 모델' : (p.kind_label || p.kind))}</span>
+            <div class="dash-card-head-right">
+              <button class="load-btn" data-pod-edit="${escapeHtml(p.id)}" title="파드 설정">⚙</button>
+            </div>
+          </div>
+          <div class="dash-card-url">${podSpecLine(p)}</div>
+          ${renderRunpodLine(p.card && p.card.runpod)}
         </div>
       </div>
-      <div class="dash-card-url">${podSpecLine(p)}</div>
-      ${renderRunpodLine(p.card && p.card.runpod)}
       <div class="dash-card-job">
         ${job
           ? `<b>${escapeHtml(job.template_label || '작업')}</b>${prog ? `
@@ -6003,6 +6092,52 @@ document.getElementById('dash-refresh-btn').addEventListener('click', fetchDashb
 // ---- 파드 추가/편집 ----
 let podEditId = null;   // null이면 "추가"
 
+// RunPod 정보(card.runpod)는 대시보드가 4초마다 폴링해둔 dashSummary.pods에 이미
+// 있다 — 설정 모달은 늘 대시보드 카드에서 열리므로, 추가 요청 없이 이걸 그대로
+// 재사용한다("RunPod 정보 테스트" 버튼을 눌러야만 새로 조회한다).
+function runpodInfoFromDashboard(podId){
+  const row = (dashSummary.pods || []).find(r => r.id === podId);
+  return (row && row.card && row.card.runpod) || null;
+}
+
+function renderRunpodInfoBox(info){
+  const box = document.getElementById('pod-edit-runpod-box');
+  const grid = document.getElementById('pod-edit-runpod-fields');
+  const rows = [];
+  if(info){
+    if(info.pod_name) rows.push(['RunPod 이름', info.pod_name]);
+    if(info.gpu_type) rows.push(['GPU', info.gpu_type]);
+    if(info.cost_per_hr != null) rows.push(['비용', `$${Number(info.cost_per_hr).toFixed(2)}/hr`]);
+    if(info.created_at) rows.push(['생성', fmtGalleryDateTime(info.created_at)]);
+    if(info.last_started_at) rows.push(['최근 시작', fmtGalleryDateTime(info.last_started_at)]);
+  }
+  grid.innerHTML = rows.map(([k, v]) =>
+    `<span class="ri-k">${escapeHtml(k)}</span><span class="ri-v">${escapeHtml(String(v))}</span>`).join('');
+  box.style.display = rows.length ? '' : 'none';
+}
+
+// RunPod가 자동으로 붙인 이름을 nightshift 이름 입력칸에 채워주는 제안 — 사용자가
+// 일부러 지은 이름을 조용히 덮어쓰면 안 되므로 버튼을 눌러야만 채워진다.
+function updatePodNameSuggest(runpodName){
+  const el = document.getElementById('pod-edit-name-suggest');
+  const nameInput = document.getElementById('pod-edit-name');
+  if(!runpodName || runpodName === nameInput.value.trim()){
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.style.display = '';
+  el.innerHTML = `RunPod 이름: <b>${escapeHtml(runpodName)}</b>`;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = '이 이름 쓰기';
+  btn.addEventListener('click', () => {
+    nameInput.value = runpodName;
+    el.style.display = 'none';
+  });
+  el.appendChild(btn);
+}
+
 function openPodEditModal(podId){
   podEditId = podId || null;
   const pod = podId ? (podsById[podId] || {}) : {};
@@ -6019,6 +6154,9 @@ function openPodEditModal(podId){
   kindSel.innerHTML = (podKinds.length ? podKinds : [{ kind: 'comfyui', label: 'ComfyUI' }])
     .map(k => `<option value="${escapeHtml(k.kind)}">${escapeHtml(k.label)}</option>`).join('');
   if(pod.kind) kindSel.value = pod.kind;
+  const runpodInfo = podId ? runpodInfoFromDashboard(podId) : null;
+  renderRunpodInfoBox(runpodInfo);
+  updatePodNameSuggest(runpodInfo && runpodInfo.pod_name);
   document.getElementById('pod-edit-modal').style.display = 'flex';
 }
 
@@ -6119,6 +6257,8 @@ document.getElementById('pod-edit-runpod-test').addEventListener('click', async 
       statusEl.textContent = parts.length
         ? `✅ ${parts.join(' · ')} — 원본 응답은 콘솔(F12)에 남겨뒀어요.`
         : '⚠ 응답은 받았지만 알아본 필드가 없어요 — 콘솔(F12)의 원본 응답을 확인해주세요.';
+      renderRunpodInfoBox(n);
+      updatePodNameSuggest(n.pod_name);
     }
   }catch(e){
     statusEl.textContent = '';
