@@ -4,7 +4,7 @@
 붙은 환경**(RunPod 파드)에서 정상 동작하는지 확인하기 위한 절차입니다.
 
 이 문서에 있는 절차 중 TC-02~TC-04, TC-11, TC-12는 GPU 없는 환경에서도 이미
-검증됐습니다(격리된 사본 + fastmcp in-process 클라이언트, 실제 `jobs_state.json`은
+검증됐습니다(격리된 사본 + fastmcp in-process 클라이언트, 실제 `data/jobs_state.json`은
 건드리지 않음). **TC-05~TC-10(실제 이미지 생성)과 TC-16~TC-18(claude.ai 커넥터
 등록)은 GPU/ComfyUI/인터넷 노출이 필요해 이 저장소를 만든 세션에서는 검증하지
 못했습니다** — 이 문서는 그 나머지를 실제 파드에서 확인하기 위한 것입니다.
@@ -29,16 +29,16 @@
 출력합니다. 파드에서 실행:
 
 ```bash
-cd /workspace/nightshift
+cd /workspace/nightshift/server
 python3 mcp_smoke_test.py
 ```
 
 - ComfyUI가 연결돼 있고 체크포인트가 설치돼 있으면 TC-05~10(실제 생성)까지 자동으로
   이어서 실행되고, 마지막에 생성된 이미지 하나를 실제로 받아와 봅니다(수십 초~수 분
   소요 — 워크플로우/GPU 성능에 따라 다름).
-- 연결/에러 처리만 빠르게 확인하고 싶으면 `python3 mcp_smoke_test.py --skip-generation`.
+- 연결/에러 처리만 빠르게 확인하고 싶으면 `python3 mcp_smoke_test.py --skip-generation`(`server/` 안에서).
 - `mcp_server.py`를 실제로 띄운 상태에서 HTTP 경로(streamable-http, claude.ai
-  커넥터와 같은 경로)까지 확인하려면: `python3 mcp_smoke_test.py --mcp-url http://127.0.0.1:8001/mcp`
+  커넥터와 같은 경로)까지 확인하려면(`server/` 안에서): `python3 mcp_smoke_test.py --mcp-url http://127.0.0.1:8001/mcp`
 - 체크포인트/프롬프트/해상도를 바꾸고 싶으면 `--checkpoint`, `--positive`, `--negative`,
   `--width`, `--height`, `--steps`, `--job-timeout`(기본 180초) 참고 (`--help`로 전체 옵션 확인).
 

@@ -32,7 +32,7 @@ npx pm2 delete nightshift >/dev/null 2>&1 || true
 
 # 웹앱 접속 주소(RunPod 프록시 URL)를 ntfy.sh로 폰에 알림 — 자체적으로 서버가 뜰
 # 때까지 기다렸다가 보내므로 여기서 백그라운드로 먼저 띄워두기만 하면 된다
-# (NTFY_TOPIC이 없으면 조용히 건너뜀, notify_ntfy.sh 참고).
-./notify_ntfy.sh &
+# (NTFY_TOPIC이 없으면 조용히 건너뜀, scripts/notify_ntfy.sh 참고).
+./scripts/notify_ntfy.sh &
 
 npm start
