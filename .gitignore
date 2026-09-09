@@ -9,6 +9,10 @@ workflow_presets/*
 # 배포 환경마다 다른 런타임 설정 — 화면에서 저장하면 생긴다(pod 주소 등이 들어가므로 커밋하지 않는다)
 comfy_endpoint.json
 
+# 파드(워커) 목록 — 배포 환경마다 다르고 pod 주소가 들어가므로 커밋하지 않는다.
+# comfy_endpoint.json이 있으면 첫 실행 때 파드 1개짜리 목록으로 자동 이관된다.
+pods.json
+
 # 원격 ComfyUI에서 결과 이미지를 어디까지 받아왔는지의 기록(comfy_outputs.py) —
 # 배포 환경마다 다르고 지운 이미지가 되살아나지 않게 하는 용도라 커밋하지 않는다.
 comfy_output_sync.json

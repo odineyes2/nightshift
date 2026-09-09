@@ -25,8 +25,11 @@ LoadImage 노드에 주입한 뒤, 워크플로우 하나를 image_count번 반�
 
 ComfyUI로의 이미지 주입 방식:
     pose_batch.py와 동일 — nightshift와 ComfyUI가 파일시스템을 공유한다는 보장이
-    없으므로, 매번 ComfyUI의 POST /upload/image API로 업로드하고 응답으로 받은
+    없으므로, ComfyUI의 POST /upload/image API로 업로드하고 응답으로 받은
     파일명을 LoadImage 노드의 image 입력에 그대로 넣는다.
+
+    같은 파일은 이 실행 안에서 한 번만 올리고, 이후에는 그때 받은 파일명을 재사용한다
+    (ComfyUI가 원격 pod에 있으면 이 차이가 그대로 실행 시간이 된다).
 
 메인 프롬프트(MAIN_PROMPT):
     비워두면(기본값) 업로드한 워크플로우 JSON에 이미 들어있는 프롬프트를 그대로
@@ -158,7 +161,25 @@ def input_images_dir():
 
 # ComfyUI 연동 ----------------------------------------------------------------
 
+# ComfyUI에 이미 올린 이미지의 (키 -> ComfyUI가 돌려준 파일명) 캐시.
+# 프로세스 하나가 작업 하나를 처리하고 끝나므로 실행 단위 캐시로 충분하다.
+_uploaded_image_cache = {}
+
+
 def upload_image_to_comfy(comfy_url, image_path):
+    # 같은 이미지를 몇 번이고 다시 올리지 않는다. 이 템플릿은 이미지를 한 장 만들
+    # 때마다 이 함수를 부르는데, 올리는 파일은 대개 실행 내내 같다(IMAGE_COUNT=50이면
+    # 같은 파일을 50번 올린다). ComfyUI가 같은 머신에 있을 때는 눈에 안 띄었지만
+    # 원격 pod에서는 그게 그대로 업로드 시간이 된다. 실행 중에 파일이 바뀌는 드문
+    # 경우까지 감안해 크기/수정시각도 키에 넣는다.
+    try:
+        stat = image_path.stat()
+        cache_key = (comfy_url, str(image_path.resolve()), stat.st_size, stat.st_mtime_ns)
+    except OSError:
+        cache_key = None
+    if cache_key is not None and cache_key in _uploaded_image_cache:
+        return _uploaded_image_cache[cache_key]
+
     boundary = uuid.uuid4().hex
     with open(image_path, "rb") as f:
         file_bytes = f.read()
@@ -186,7 +207,10 @@ def upload_image_to_comfy(comfy_url, image_path):
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
         result = json.loads(resp.read().decode("utf-8"))
-    return result["name"]
+    uploaded_name = result["name"]
+    if cache_key is not None:
+        _uploaded_image_cache[cache_key] = uploaded_name
+    return uploaded_name
 
 
 PRIMITIVE_VALUE_FIELDS = {

@@ -207,6 +207,29 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 어떤 경로가 실제로 적용 중인지는 접속 주소 모달과 `GET /api/comfy-status`의 `source`(`setting`/`env`/`auto`)로
 확인할 수 있습니다. 주소를 저장하면 이전 서버에서 받아둔 모델/노드 목록 캐시는 즉시 비워집니다.
 
+### 파드(워커) 레지스트리
+
+nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_registry.py`, 저장 위치는 `pods.json`).
+파드는 "ComfyUI 한 대"가 아니라 **드라이버가 붙은 엔드포인트**입니다 — 레코드의 `kind`가 어떤
+드라이버로 그 파드를 다룰지 정하고(`drivers/`), 드라이버가 "살아 있나 / 뭘 할 수 있나 / 작업에
+어떤 환경변수를 실어 보내나 / 결과물을 어떻게 회수하나 / 대시보드 카드에 뭘 보여주나"를 압니다.
+지금은 `comfyui` 드라이버 하나뿐이지만, 앞으로 이미지가 아닌 다른 일을 하는 워커가 같은 목록에
+나란히 등록됩니다(계획 전체는 `multipod_plan.md` 참고).
+
+- 파드 레코드: `{id, name, kind, url, enabled, tags, max_concurrent, pull_outputs, note}`
+- **기존 설정은 자동으로 이관됩니다** — `comfy_endpoint.json`이 있고 `pods.json`이 없으면 첫
+  실행 때 파드 1개짜리 목록으로 옮겨 담습니다(주소와 "결과 가져오기" 설정 그대로).
+- 파드 목록은 절대 비지 않습니다. 하나도 없으면 url이 빈 기본 파드를 하나 만들고, 마지막 파드는
+  삭제할 수 없습니다(쓰지 않을 파드는 `enabled: false`로 둡니다).
+- **아직 작업을 파드별로 나눠 돌리지는 않습니다.** 여러 개를 등록해 둘 수는 있지만, 실행은
+  여전히 "기본 파드"(`enabled`인 첫 파드) 하나로만 갑니다 — 파드별 큐는 다음 단계입니다.
+  파드가 하나뿐이면 예전과 동작이 완전히 같습니다.
+
+`GET/PUT /api/comfy-endpoint`(헤더의 연결 상태 배지가 여는 설정 화면)는 그대로 남아 있고,
+**기본 파드의 주소·가져오기 설정을 읽고 씁니다**.
+
+### ComfyUI 접속 주소 감지
+
 화면 상단의 인디케이터가 5초마다 `/api/comfy-status`를 폴링해 연결 상태(연결됨/연결 안 됨)와 감지된 주소를 보여줍니다.
 이 응답은 **서버가 캐시해 두고 즉시 돌려줍니다**(4초보다 오래됐으면 백그라운드로 다시 확인) — 폴링이 매번 원격 pod까지
 왕복하면 열어둔 탭 수만큼 pod를 찌르게 되고, 응답이 느린 날에는 요청 자체가 몇 초씩 걸리기 때문입니다. 언제 실측한
@@ -443,7 +466,7 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 **메인 프롬프트(`main_prompt`)**: 업로드 폼의 여러 줄 입력란입니다. 비워두면(기본값) 업로드한 워크플로우 JSON에 이미 들어있는 프롬프트를 그대로 쓰고, 값을 채우면 워크플로우에서 제목에 `"main_prompt"`가 포함된 CLIPTextEncode 노드 하나를 찾아 그 텍스트를 덮어씁니다. 그런 노드를 못 찾으면(제목이 다르거나 CLIPTextEncode가 아예 없으면) 경고만 남기고 워크플로우는 건드리지 않습니다 — 트리거/퀄리티/네거티브처럼 다른 프롬프트 노드가 여러 개 있을 수 있으므로, 제목이 정확히 일치하지 않으면 엉뚱한 노드를 덮어쓰지 않기 위함입니다(`csv_batch`의 프롬프트 노드 매칭과 같은 방식). `seed_batch` 템플릿도 같은 옵션을 지원합니다.
 
-**ComfyUI로의 이미지 주입 방식**: LoadImage 노드가 참조하는 파일은 ComfyUI 자신의 input 폴더에 있어야 합니다. nightshift와 ComfyUI가 파일시스템을 공유한다는 보장이 없으므로(다른 컨테이너/파드로 분리될 수 있음), 파일을 직접 복사하지 않고 매번 ComfyUI의 `POST /upload/image` API로 업로드한 뒤 응답으로 받은 파일명을 LoadImage 노드의 `image` 입력에 넣습니다. 이미지마다 HTTP 업로드가 한 번씩 더 들어가 느리지만, 파일시스템 공유 여부와 무관하게 항상 동작합니다. 어느 노드에 주입할지는 다른 템플릿과 동일하게 `_meta.title`로 찾습니다(`POSE_NODE_TITLE`, 기본 `"Load"`) — 일치하는 제목이 없으면 워크플로우에 LoadImage 노드가 하나뿐일 때 그 노드를 대신 씁니다.
+**ComfyUI로의 이미지 주입 방식**: LoadImage 노드가 참조하는 파일은 ComfyUI 자신의 input 폴더에 있어야 합니다. nightshift와 ComfyUI가 파일시스템을 공유한다는 보장이 없으므로(다른 컨테이너/파드로 분리될 수 있음), 파일을 직접 복사하지 않고 ComfyUI의 `POST /upload/image` API로 업로드한 뒤 응답으로 받은 파일명을 LoadImage 노드의 `image` 입력에 넣습니다. 파일시스템 공유 여부와 무관하게 항상 동작하는 대신 HTTP 업로드가 한 번씩 더 들어가므로, **같은 파일은 한 실행 안에서 한 번만 올리고 이후에는 그때 받은 파일명을 재사용합니다** — `image_count`가 50이어도 입력 이미지가 하나면 업로드는 한 번이고, CSV 배치라면 그 실행에 등장하는 고유 이미지 수만큼만 올라갑니다. ComfyUI가 원격 GPU pod에 있으면 이 차이가 그대로 실행 시간이 됩니다(파일이 실행 중에 바뀌면 크기/수정시각이 달라져 자동으로 다시 올립니다). 어느 노드에 주입할지는 다른 템플릿과 동일하게 `_meta.title`로 찾습니다(`POSE_NODE_TITLE`, 기본 `"Load"`) — 일치하는 제목이 없으면 워크플로우에 LoadImage 노드가 하나뿐일 때 그 노드를 대신 씁니다.
 
 **업로드 시점 LoadImage 노드 검증**: 워크플로우를 잘못 골라 올려서(예: 포즈용이 아닌 워크플로우) LoadImage 노드가 아예 없으면, 실행 스크립트는 stderr에 경고만 남기고 포즈 참조 없이 이미지 생성을 계속 진행합니다 — 이 사고를 큐에 올리기 전에 막기 위해, `POST /api/upload`가 스크립트와 정확히 같은 알고리즘으로 "실행 시점에 실제로 어떤 노드가 선택될지"를 미리 계산해서 그 노드가 없거나 `LoadImage`가 아니면(예: `_meta.title`이 우연히 `"Load"`를 포함하는 다른 노드, 흔히 `"Load Checkpoint"` — 가 먼저 골라지는 경우도 포함) 업로드 자체를 400으로 거부합니다. `pose_csv_batch`는 CSV의 모든 행에서 `pose`가 비어 있으면(=모든 행이 의도적으로 ControlNet 없이 생성) 이 검사를 건너뜁니다 — LoadImage 노드가 필요 없기 때문입니다. `pose_batch`는 항상 포즈 참조가 필요하므로 예외 없이 검사합니다. 이 검증은 "주(main) 참조"에만 적용됩니다 — 아래 "보조 참조"는 노드가 없어도 업로드를 막지 않고 실행 시점에 경고만 남깁니다.
 
@@ -499,7 +522,7 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 **입력 이미지 폴더**: `NIGHTSHIFT_INPUT_IMAGES_DIR`(기본 `NIGHTSHIFT_ASSETS_DIR/input`, 그 기본값은 `/workspace/dataset/assets/input`) 바로 아래에 png/jpg/jpeg/webp 파일을 평평하게 올려두면, `GET /api/input-images`가 목록으로 나열합니다. 세트를 옮기는 별도 업로드 API는 없습니다(다른 참조 이미지 폴더들과 마찬가지로 서버 밖에서 파일을 직접 옮겨두는 걸 전제로 함) — 웹 UI의 "새 작업 추가" 마법사와 개별 옵션 폼의 "입력 이미지" 드롭다운이 이 목록에서 고릅니다. 같은 폴더를 아래 IPAdapter 템플릿의 참조 이미지와도 공유합니다.
 
-- `input_image_batch` — 입력 이미지 하나(`input_image` 옵션)를 골라, `image_count`개의 시드로 반복 생성합니다(예: 그림 한 장으로 여러 스타일 변형을 뽑을 때). `seed_batch`/`pose_batch`와 같은 방식(워크플로우 노드 찾기/제출/폴링/진행률 보고)이며, 매 반복 시드와 함께 같은 입력 이미지를 ComfyUI의 `POST /upload/image`로 매번 업로드해 LoadImage 노드에 주입합니다.
+- `input_image_batch` — 입력 이미지 하나(`input_image` 옵션)를 골라, `image_count`개의 시드로 반복 생성합니다(예: 그림 한 장으로 여러 스타일 변형을 뽑을 때). `seed_batch`/`pose_batch`와 같은 방식(워크플로우 노드 찾기/제출/폴링/진행률 보고)이며, 매 반복 시드를 바꿔가며 같은 입력 이미지를 LoadImage 노드에 주입합니다(이미지 업로드 자체는 실행당 한 번 — 위 "ComfyUI로의 이미지 주입 방식" 참고).
 - `input_image_csv_batch` — CSV 행마다 `input_image`(필수, 다른 참조 템플릿과 달리 비워둘 수 없음 — img2img는 입력 이미지 없이는 성립하지 않으므로) 컬럼으로 서로 다른 입력 이미지를 지정합니다. 나머지 컬럼(`title`/`trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`/`prompt`/`seed`)은 `csv_batch`와 같습니다. `width`/`height`/`resolution` 컬럼은 없습니다(아래 참고).
 
 두 템플릿 모두 `width`/`height` 옵션이 없습니다 — `workflow_builder.py`가 `base="img2img"`로 만드는 워크플로우에는 애초에 `EmptyLatentImage` 노드가 없어서(이미지 크기가 입력 이미지 자체를 따름) 해상도를 주입할 대상이 없기 때문입니다. 워크플로우에서 입력 이미지를 주입할 `LoadImage` 노드는 제목이 `"input_image"`인 노드를 찾습니다(`INPUT_IMAGE_NODE_TITLE` 환경변수로 조정 가능, 기본값 그대로면 `workflow_builder.py`가 만든 워크플로우와 정확히 맞음). `POST /api/upload`/`POST /api/jobs`로 이 두 템플릿에 워크플로우를 올릴 때, 그 노드가 없으면(제목이 다르거나 LoadImage가 아예 없으면) 업로드 자체를 400으로 거부합니다 — 다른 참조 배치 템플릿의 "업로드 시점 LoadImage 노드 검증"과 같은 안전장치입니다.
@@ -566,6 +589,11 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/comfy-status` | 지금 쓰이는 ComfyUI 주소(`url`), 연결 가능 여부(`connected`), 그 주소가 어디서 왔는지(`source`: `setting`/`env`/`auto`), 결과 이미지 가져오기 설정(`pull_outputs`), 이 상태를 몇 초 전에 실측했는지(`checked_age_sec`)를 조회. **서버가 캐시한 값을 즉시 돌려주고**(4초보다 오래됐으면 백그라운드로 다시 확인) 연속 2회 실패해야 `connected: false`로 뒤집으므로, 화면이 5초마다 폴링해도 원격 pod의 응답 지연이 요청 시간에 실리지 않음. 서버 기동 후 첫 호출만 실측이 끝날 때까지 기다림 |
 | `GET` | `/api/comfy-endpoint` | 접속 주소 설정 상태를 `{"url"(저장된 설정값, 없으면 ""), "effective_url"(설정/환경변수로 정해진 주소, 자동 탐지면 null), "source", "env_url", "candidates", "updated_at", "pull_outputs"(결과 이미지를 HTTP로 끌어올지), "output_dir"(끌어온 이미지가 쌓이는 로컬 폴더), "output_sync": {"last_sync", "known"}}`로 반환 |
 | `PUT` | `/api/comfy-endpoint` | 접속 주소를 저장한다(요청 본문 `{"url": "...", "pull_outputs": bool(선택)}` — `pull_outputs`를 아예 안 보내면 지금 설정을 그대로 유지한다). **서버 재시작 없이 즉시 반영되고**, 이전 서버의 모델/노드 목록 캐시를 비운다. 빈 문자열을 보내면 설정을 지우고 환경변수/자동 탐지로 되돌린다. `http://`/`https://`로 시작하지 않으면 400. 응답은 GET과 같은 형태 + 저장 직후 실측한 `connected` |
+| `GET` | `/api/pods` | 등록된 파드 목록을 `{"pods": [...], "default_pod_id", "kinds"}`로 반환. 각 파드에는 레코드 + `kind_label`(드라이버 이름), `effective_url`(실제로 쓰일 주소), `url_source`(`setting`/`env`/`auto`)가 붙음 |
+| `POST` | `/api/pods` | 파드를 추가한다(요청 본문 = 파드 레코드, `name`만 필수). 이름이 비었거나 주소 형식이 틀리거나 `max_concurrent`가 1 미만이면 400 |
+| `PUT` | `/api/pods/{pod_id}` | 파드를 **부분 수정**한다 — 보낸 필드만 바뀐다(이름만 바꾸려는 요청이 주소를 지우면 안 되므로). 주소가 바뀌면 그 파드의 노드/모델 목록 캐시를 비운다. 없는 파드면 404 |
+| `DELETE` | `/api/pods/{pod_id}` | 파드를 지운다. 마지막 하나는 지울 수 없음(400) — 쓰지 않으려면 `enabled: false` |
+| `POST` | `/api/pods/{pod_id}/test` | 저장된 그대로의 파드가 응답하는지 확인(설정은 안 건드림). 응답 `{"pod_id", "ok", "url", "source", "detail"}`. 사람이 기다리는 동작이라 폴링보다 넉넉한 타임아웃(8초)을 씀 |
 | `POST` | `/api/comfy-outputs/sync` | 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(요청 본문 `{"job_id": "..."(선택, 그 작업 것만), "force": bool(선택)}`). 응답 `{"url", "checked", "downloaded": [...], "skipped_known", "skipped_existing", "skipped_invalid", "errors", "last_sync"}`. **한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않는다**(`comfy_output_sync.json`) — 정말 다시 받고 싶으면 `force: true`. 로컬에 이미 있는 파일은 어느 경우에도 덮어쓰지 않는다. ComfyUI에 연결이 안 되면 503, 히스토리 조회에 실패하면 502 |
 | `POST` | `/api/comfy-outputs/forget` | "이미 받아왔다"는 기록을 지운다(요청 본문 `{"job_id": "..."}`를 주면 그 작업 것만, 없으면 전부). 응답 `{"forgotten": N, "last_sync", "known"}`. 한 번만 다시 받으면 되는 경우라면 위의 `force: true`가 더 간단하다 |
 | `POST` | `/api/comfy-endpoint/test` | 저장하지 않고 주소만 확인한다(요청 본문 `{"url": "..."}`, 비워 보내면 지금 적용 중인 주소를 확인). 응답 `{"url", "connected"}`. 폴링(2초)보다 넉넉한 타임아웃(8초)을 써서 원격 pod의 첫 TLS 핸드셰이크까지 기다린다 |
