@@ -23,3 +23,10 @@ jobs_state.json
 recent_csvs_state.json
 recent_workflows_state.json
 .ipynb_checkpoints/
+jobs/
+logs/
+pods.json
+recent_csvs/
+recent_workflows/
+danbooru_history.json
+danbooru_tag_edits.json
