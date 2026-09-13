@@ -27,7 +27,7 @@ comfyui 파드의 url이 비어 있으면 "COMFY_URL 환경변수 → 127.0.0.1 
                note, created_at, updated_at}, ...]}
 
 환경변수:
-    NIGHTSHIFT_PODS_FILE  레지스트리 파일 경로 (기본 <이 파일 옆>/pods.json)
+    NIGHTSHIFT_PODS_FILE  레지스트리 파일 경로 (기본 <저장소>/data/pods.json)
 """
 
 import json
@@ -38,10 +38,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-PODS_FILE = Path(os.environ.get("NIGHTSHIFT_PODS_FILE") or (BASE_DIR / "pods.json"))
+from data_paths import data_path
+
+PODS_FILE = Path(os.environ.get("NIGHTSHIFT_PODS_FILE") or data_path("pods.json"))
 # 이 파일이 있고 pods.json이 없으면, 그 설정을 파드 1개짜리 레지스트리로 옮겨 담는다.
-LEGACY_ENDPOINT_FILE = BASE_DIR / "comfy_endpoint.json"
+LEGACY_ENDPOINT_FILE = data_path("comfy_endpoint.json")
 
 DEFAULT_KIND = "comfyui"
 DEFAULT_POD_NAME = "기본 파드"

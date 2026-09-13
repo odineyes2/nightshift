@@ -6,3 +6,6 @@ Pillow
 # mcp_server.py (nightshift 잡 큐를 MCP 도구로 감싸는 별도 프로세스)가 쓴다.
 fastmcp
 httpx
+
+# templates/claude_write.py(claude_writer 드라이버)가 Claude API를 부르는 데 쓴다.
+anthropic

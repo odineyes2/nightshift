@@ -88,7 +88,7 @@ RunPod 같은 pod는 보통 네트워크 볼륨을 `/workspace`에만 마운트�
 
 #### 웹앱 접속 주소를 폰으로 받기 (ntfy.sh, RunPod)
 
-RunPod는 pod를 재시작할 때마다 프록시 주소(`https://{POD_ID}-{PORT}.proxy.runpod.net/`)가 바뀝니다. `bootstrap.sh`는 서버를 띄우기 직전에 `notify_ntfy.sh`를 백그라운드로 실행해서, 서버가 완전히 뜬 걸 확인(최대 30초 헬스체크)한 뒤 그 주소를 [ntfy.sh](https://ntfy.sh/) 토픽으로 push합니다 — 폰에 ntfy 앱을 깔고 같은 토픽을 구독해두면 pod를 재시작할 때마다 알림을 탭해서 바로 접속할 수 있습니다.
+RunPod는 pod를 재시작할 때마다 프록시 주소(`https://{POD_ID}-{PORT}.proxy.runpod.net/`)가 바뀝니다. `bootstrap.sh`는 서버를 띄우기 직전에 `scripts/notify_ntfy.sh`를 백그라운드로 실행해서, 서버가 완전히 뜬 걸 확인(최대 30초 헬스체크)한 뒤 그 주소를 [ntfy.sh](https://ntfy.sh/) 토픽으로 push합니다 — 폰에 ntfy 앱을 깔고 같은 토픽을 구독해두면 pod를 재시작할 때마다 알림을 탭해서 바로 접속할 수 있습니다.
 
 설정 방법:
 
@@ -97,7 +97,7 @@ cp .env.example .env
 vi .env   # NTFY_TOPIC=아무나-추측하기-어려운-이름 을 채운다
 ```
 
-`NTFY_TOPIC`을 비워두면(=`.env`를 안 만들면) 알림 없이 조용히 건너뛰므로, 이 기능은 순수 선택 사항입니다. 포트는 `.env`의 `NIGHTSHIFT_PORT` 한 곳에서만 정하면 됩니다 — `ecosystem.config.js`가 그 값으로 `--port`를 넘기고, 템플릿이 진행 상황을 보고할 주소(`app.py`의 `SELF_URL`)도 같은 값에서 유도됩니다(리버스 프록시 뒤처럼 그것도 안 맞는 배치라면 `NIGHTSHIFT_SELF_URL`로 통째로 덮어쓸 수 있습니다). 헬스체크가 타임아웃돼도(서버가 예상보다 늦게 뜨는 경우) 알림은 그대로 보내되 `logs/notify_ntfy.log`에 경고를 남기고, ntfy 전송 자체가 실패해도 한 번 재시도한 뒤 로그만 남기고 넘어가서 웹앱 실행 자체를 막지 않습니다. 수동 재전송 등 테스트 방법은 `notify_ntfy.sh` 상단 주석에 정리돼 있습니다.
+`NTFY_TOPIC`을 비워두면(=`.env`를 안 만들면) 알림 없이 조용히 건너뛰므로, 이 기능은 순수 선택 사항입니다. 포트는 `.env`의 `NIGHTSHIFT_PORT` 한 곳에서만 정하면 됩니다 — `ecosystem.config.js`가 그 값으로 `--port`를 넘기고, 템플릿이 진행 상황을 보고할 주소(`app.py`의 `SELF_URL`)도 같은 값에서 유도됩니다(리버스 프록시 뒤처럼 그것도 안 맞는 배치라면 `NIGHTSHIFT_SELF_URL`로 통째로 덮어쓸 수 있습니다). 헬스체크가 타임아웃돼도(서버가 예상보다 늦게 뜨는 경우) 알림은 그대로 보내되 `data/logs/notify_ntfy.log`에 경고를 남기고, ntfy 전송 자체가 실패해도 한 번 재시도한 뒤 로그만 남기고 넘어가서 웹앱 실행 자체를 막지 않습니다. 수동 재전송 등 테스트 방법은 `scripts/notify_ntfy.sh` 상단 주석에 정리돼 있습니다.
 
 ### pm2로 실행 (같은 세션에서 다시 시작할 때)
 
@@ -107,10 +107,10 @@ vi .env   # NTFY_TOPIC=아무나-추측하기-어려운-이름 을 채운다
 npm start
 ```
 
-`python3 app.py`를 터미널에 붙잡아두는 대신, [pm2](https://pm2.keymetrics.io/)가 서버를 백그라운드 프로세스로 띄우고 감독합니다.
+`cd server && python3 app.py`를 터미널에 붙잡아두는 대신, [pm2](https://pm2.keymetrics.io/)가 서버를 백그라운드 프로세스로 띄우고 감독합니다.
 
 - **터미널을 닫거나 `Ctrl+C`를 눌러도 서버는 계속 돌아갑니다** — `npm start`는 서버를 띄운 뒤 로그를 그 자리에서 이어 보여주는(`pm2 logs`) 것뿐이라, 로그 보기를 그만둬도(`Ctrl+C`) 서버 프로세스 자체는 안 죽습니다. 아래 `npm run stop`을 실행해야 실제로 멈춥니다.
-- **코드를 고치면 자동으로 반영됩니다** — 내부적으로 `uvicorn --reload`로 띄우므로, `app.py`/`templates/`/`static/` 등을 저장하는 순간 감지해서 그 부분만 다시 로드합니다. 서버를 껐다 켤 필요가 없습니다.
+- **코드를 고치면 자동으로 반영됩니다** — 내부적으로 `uvicorn --reload`로 띄우므로, `server/`(app.py 등)나 `templates/`/`static/`을 저장하는 순간 감지해서 그 부분만 다시 로드합니다. 서버를 껐다 켤 필요가 없습니다.
 - **로그가 지저분하게 쌓이지 않습니다** — pm2가 로그를 파일로 관리하고(`~/.pm2/logs/nightshift-*.log`), `npm run logs`로 필요할 때만 깔끔하게 tail해서 봅니다. 프론트엔드가 몇 초마다 자동으로 폴링하는 `GET /api/jobs`/`GET /api/comfy-status` 요청은 애초에 access log에 남기지 않도록 걸러뒀습니다(`app.py`) — 업로드/삭제/에러 같은 실제로 봐야 할 로그가 폴링 요청에 묻히지 않게 하기 위함입니다. 이건 pm2 여부와 무관하게 항상 적용됩니다.
 
 자주 쓰는 명령:
@@ -119,25 +119,27 @@ npm start
 |---|---|
 | `npm start` | 서버 시작(이미 떠 있으면 재시작) + 로그 tail 시작 |
 | `npm run stop` | 서버 완전히 중지 |
-| `npm run restart` | 서버 재시작 (코드 변경은 자동 반영되므로 보통 필요 없음 — 환경변수를 바꿨을 때 등에 사용) |
+| `npm run restart` | 서버 재시작 (코드 변경은 자동 반영되므로 보통 필요 없음 — `.env`를 바꿨을 때 등에 사용). `ecosystem.config.js --update-env`로 재시작해 `.env`를 다시 읽습니다 — `pm2 restart nightshift`나 `pm2 restart all`처럼 **이름으로** 재시작하면 pm2가 맨 처음 떴을 때 읽은 옛 환경변수를 그대로 재사용해서 `.env`를 고쳐도 반영되지 않으니 주의하세요 |
 | `npm run status` | 지금 떠 있는지, PID/메모리/재시작 횟수 등을 표로 확인 (`pm2 status`) |
 | `npm run logs` | 로그만 따로 열어보기 (`Ctrl+C`로 빠져나와도 서버는 안 멈춤) |
 
-내부적으로는 `ecosystem.config.js`에 정의된 pm2 앱 설정(`python3 -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload`)을 그대로 실행합니다 — 필요하면 이 파일에서 포트나 옵션을 직접 조정할 수 있습니다.
+내부적으로는 `ecosystem.config.js`에 정의된 pm2 앱 설정(`server/` 안에서 `python3 -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload`)을 그대로 실행합니다 — 필요하면 이 파일에서 포트나 옵션을 직접 조정할 수 있습니다.
 
-> **conda/venv를 쓴다면**: `ecosystem.config.js`는 `npm start`를 실행한 그 셸에서 `which python3`가 가리키는 인터프리터를 그대로 사용합니다. RunPod 등에서 conda/venv가 `~/.bashrc`에서만 활성화되도록 돼 있으면, pm2가 자식 프로세스를 로그인 셸이 아닌 방식으로 띄우면서 그 활성화가 빠져 `/usr/bin/python3: No module named uvicorn` 같은 에러가 로그에 쌓일 수 있습니다. 그런 경우엔 (1) `python3 app.py`가 정상 동작하는 바로 그 셸에서 `npm start`를 실행하고 (2) 예전에 다른 환경에서 이미 `pm2 start`를 한 적이 있다면 `npx pm2 delete nightshift`(또는 `npx pm2 kill`로 데몬 자체를 리셋)한 뒤 `npm start`를 다시 실행하세요 — pm2 데몬이 예전에 잘못 잡은 인터프리터 경로를 계속 재사용하기 때문입니다.
+> **conda/venv를 쓴다면**: `ecosystem.config.js`는 `npm start`를 실행한 그 셸에서 `which python3`가 가리키는 인터프리터를 그대로 사용합니다. RunPod 등에서 conda/venv가 `~/.bashrc`에서만 활성화되도록 돼 있으면, pm2가 자식 프로세스를 로그인 셸이 아닌 방식으로 띄우면서 그 활성화가 빠져 `/usr/bin/python3: No module named uvicorn` 같은 에러가 로그에 쌓일 수 있습니다. 그런 경우엔 (1) `cd server && python3 app.py`가 정상 동작하는 바로 그 셸에서 `npm start`를 실행하고 (2) 예전에 다른 환경에서 이미 `pm2 start`를 한 적이 있다면 `npx pm2 delete nightshift`(또는 `npx pm2 kill`로 데몬 자체를 리셋)한 뒤 `npm start`를 다시 실행하세요 — pm2 데몬이 예전에 잘못 잡은 인터프리터 경로를 계속 재사용하기 때문입니다.
 
 ### python3로 직접 실행
 
-Node.js가 없거나 pm2 없이 단순하게 실행하고 싶다면:
+Node.js가 없거나 pm2 없이 단순하게 실행하고 싶다면 (서버 코드는 `server/` 안에 있으므로 먼저 그 폴더로 들어갑니다):
 
 ```bash
+cd server
 python3 app.py
 ```
 
 이 경우 터미널을 닫으면 서버도 같이 종료되고, 코드를 고친 뒤에는 직접 재시작해야 합니다. 자동 리로드만 필요하다면 uvicorn을 직접 실행할 수도 있습니다.
 
 ```bash
+cd server
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -194,22 +196,23 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 화면은 2초마다 자동으로 갱신되며, 로그를 펼쳐둔 상태에서도 2초마다 갱신됩니다.
 
-### ComfyUI 접속 주소 (설정 / 환경변수 / 자동 감지)
+### ComfyUI 접속 주소 (설정 / 환경변수 / 자동 감지) — 레거시, 파드가 여럿이면 각 파드 설정을 쓰세요
 
-서버 시작 여부와 상관없이 매번 다음 순서로 ComfyUI 주소를 판별합니다.
+파드가 여럿인 지금은 **주소는 각 파드 설정(⚙)에서 관리합니다** — 카드가 이미 그 파드의 연결 상태를
+정확히 보여주므로, 예전에 헤더에 있던 전역 "ComfyUI 연결 상태" 배지와 그 주소 설정 모달은
+없앴습니다(파드가 여럿이면 그 배지 하나로는 "어느 파드 얘기인지" 알 수 없어서 오히려 부정확했습니다).
 
-1. **화면에서 저장한 설정값**(`comfy_endpoint.json`)이 있으면 그 값을 씁니다. 헤더의 연결 상태 배지를 클릭하면
-   주소를 입력·저장할 수 있고, **서버를 재시작하지 않아도 즉시 반영됩니다**. nightshift를 홈서버에 상시 띄워두고
-   ComfyUI만 원격 GPU pod에서 돌리는 구성처럼 **pod를 새로 만들 때마다 주소가 바뀌는 상황**을 위한 기본 경로입니다.
-   저장하기 전에 "🔌 연결 테스트"로 그 주소가 실제로 응답하는지 먼저 확인할 수 있고, "↺ 자동 탐지로"를 누르면
-   설정을 지우고 아래 2~3번으로 되돌립니다.
-2. 설정이 비어 있고 **`COMFY_URL` 환경변수가 설정돼 있으면** 그 값을 씁니다 (배포 시점에 고정해두는 기본값).
+다만 파드와 무관하게 동작하는 몇몇 기능(Danbooru의 Prompt Enhance 등)은 여전히 "기본 파드"
+하나를 봅니다. 그 기본 파드가 볼 주소는 서버 시작 여부와 상관없이 다음 순서로 판별됩니다.
+
+1. **기본 파드의 url**(`data/pods.json`)이 있으면 그 값을 씁니다.
+2. 비어 있고 **`COMFY_URL` 환경변수가 설정돼 있으면** 그 값을 씁니다 (배포 시점에 고정해두는 기본값).
 3. 둘 다 없으면 후보 주소 `http://127.0.0.1:8188`, `http://127.0.0.1:8000`을 순서대로 `GET /system_stats`로
    2초 타임아웃으로 찔러보고, 200을 응답하는 첫 번째 주소를 채택합니다 (같은 머신에서 함께 도는 구성용 폴백).
 4. 어디에도 없으면 "감지되지 않음"으로 처리됩니다.
 
-어떤 경로가 실제로 적용 중인지는 접속 주소 모달과 `GET /api/comfy-status`의 `source`(`setting`/`env`/`auto`)로
-확인할 수 있습니다. 주소를 저장하면 이전 서버에서 받아둔 모델/노드 목록 캐시는 즉시 비워집니다.
+`GET/PUT /api/comfy-endpoint`, `GET /api/comfy-status`는 이 레거시 경로를 다루는 API로 그대로 남아 있습니다
+(MCP 도구(`comfy_status`)와 curl 진단에서 여전히 씁니다) — 화면에는 더 이상 진입점이 없을 뿐입니다.
 
 ### 셸 파드 — ComfyUI가 아닌 워커
 
@@ -243,9 +246,33 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 셸 파드가 남기는 `shell_<n>.txt`는 다른 템플릿의 결과 이미지와 **같은 `job_id` 폴더**에 쌓입니다.
 확인해 본 결과 **갤러리는 깨지지 않고 그냥 무시합니다** — `output_images.py`가 확장자로 이미지만
 훑기 때문에 목록에 안 뜨고, 대시보드 카드의 썸네일에도 안 잡히며, 에러도 나지 않습니다. 즉
-현재 상태는 "안전하지만 보이지 않음"입니다. 이미지가 아닌 산출물을 화면에서 다루려면 갤러리를
-"산출물(artifact) + 타입별 뷰어"로 일반화해야 하고, 그건 그런 워커가 실제로 필요해질 때 합니다
-(`multipod_plan.md`의 "지금 하지 않을 것" 참고).
+"안전하지만 보이지 않음"입니다(셸 명령의 출력은 작업 로그를 펼쳐서 봅니다). 갤러리 자체를
+"산출물(artifact) + 타입별 뷰어"로 일반화하는 대신, 텍스트를 만드는 워커(아래 Claude 글쓰기
+파드)에는 그 자리에 완전히 별개의 전용 탭을 붙였습니다 — 이미지 갤러리 코드를 텍스트도
+다루도록 늘리는 것보다, 워커 종류마다 맞는 뷰어를 따로 붙이는 쪽이 더 정직합니다.
+
+### Claude 글쓰기 파드 — Claude API로 글을 쓰는 워커
+
+`claude_writer` 종류의 파드는 **Claude API(Anthropic)로 텍스트를 생성하는 워커**입니다
+(`drivers/claude_writer.py`, `templates/claude_write.py`). ComfyUI/셸 파드와 또 다르게,
+이 워커는 원격 엔드포인트가 아예 없습니다 — nightshift 프로세스 자신이 API를 호출하므로
+파드의 **주소(url) 필드는 의미가 없고, 뭘 입력해도 조용히 무시됩니다.**
+
+- **켜는 법**: `.env`에 `ANTHROPIC_API_KEY`를 설정해야만 "파드 종류" 선택지에 나타납니다
+  (RunPod API 연동과 같은 방식 — 키가 없으면 선택지 자체가 안 보입니다. 발급은
+  [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)).
+- **`claude_write` 템플릿**: 작업 화면은 **프롬프트 입력창 + 모델 선택창 + 최대 출력 토큰**
+  세 칸뿐인 단순한 폼입니다 — ComfyUI 전용인 "새 작업 마법사"(베이스 모델/워크플로우 유형/LoRA/
+  실행 방식)와 "결과 이미지 관리"/"결과 이미지 이메일 전송" 패널은 이 파드에서 아무 의미가
+  없으므로 숨깁니다(`renderTemplateOptions()`가 파드 종류로 판단 — comfyui가 아니면 숨김,
+  셸 파드도 마찬가지). 모델은 `claude-opus-5`/`claude-sonnet-5`/`claude-haiku-4-5` 중 고르고
+  기본값은 `claude-opus-5`입니다. 제출하면 `prompt`를 API로 보내고, 응답을
+  `NIGHTSHIFT_OUTPUT_DIR/<job_id>/output.md`에 저장합니다. 인증 실패·요청 한도 초과·모델의
+  거절(`stop_reason: "refusal"`)은 각각 구분해서 작업 로그에 남기고 작업을 `failed`로 표시합니다.
+- **결과를 보는 곳**: 파드 스코프의 **"📝 결과"** 탭이 `pgallery`(이미지 갤러리) 자리를 대신합니다
+  — 그 파드가 만든 글을 프롬프트 미리보기 + 시간순 목록으로 보여주고, 행을 누르면 그 자리에서
+  전문이 펼쳐집니다(`GET /api/jobs/{id}/text-result`). 별도 폴링 없이 이미 2초마다 도는 작업
+  목록(`lastJobs`)을 그대로 걸러 쓰고, 전문만 펼칠 때 한 번 받아옵니다.
 
 ### 대시보드 (첫 화면)
 
@@ -254,13 +281,45 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 - **파드 카드**: 상태 점(유휴/작업 중/연결 안 됨/사용 안 함), 주소와 GPU·VRAM, 지금 도는 작업과
   진행률 바, 큐·대기·오늘 생성·동시 실행 수, 최근 결과 이미지 썸네일, 그리고 **그 파드만**
-  시작/정지하는 버튼과 설정(⚙) 버튼.
+  시작/정지하는 버튼과 설정(⚙) 버튼. 카드 왼쪽 띠 색·배경 톤도 상태를 따라갑니다(초록=유휴,
+  주황=작업 중, 빨강=연결 안 됨, 회색=사용 안 함) — 점 색깔 하나로는 카드가 여러 개일 때
+  눈에 잘 안 들어와서, 카드를 훑기만 해도 상태가 보이게 했습니다.
 - **카드 캔버스**: 카드마다 타입(`data-card-type`)이 있고 타입별 렌더러가 그립니다. 지금은
   `pod` 카드 하나뿐이지만, 통계·최근 산출물·메모 같은 카드를 같은 그리드에 얹을 수 있게 이
   구조로 뒀습니다(카드가 `data-span`으로 자기 폭을 정합니다).
 - **드라이버가 카드 내용을 정합니다** — ComfyUI 카드는 GPU/VRAM을 보여주고, 앞으로 다른 종류의
   워커가 붙으면 그 워커에 맞는 값을 보여줍니다(`drivers/`의 `card()`).
-- **"🗂 열기"**를 누르면 그 파드 안으로 들어갑니다(아래 "화면 구조" 절).
+- **RunPod API 연동(선택)** — 파드의 주소가 RunPod 프록시 주소(`https://{POD_ID}-{PORT}.proxy.runpod.net/`)이고
+  `.env`에 `RUNPOD_API_KEY`를 설정해뒀다면, 카드 종류가 "RunPod 이미지 생성 모델"로 바뀌고 그
+  아래에 RunPod가 자동으로 붙인 파드 이름(nightshift에서 지은 이름과는 별개), GPU 종류, 시간당
+  비용, 생성 일시, 최근 시작 일시가 표시됩니다(`server/runpod_api.py`). 이 조회는 pod가 꺼져
+  있어도 되고(주소만 있으면 됨), 키가 없으면 그냥 이 줄 자체가 안 보일 뿐 카드의 나머지 정보에는
+  영향이 없습니다.
+  - **GPU 모델명은 REST API 하나만으로는 못 얻습니다** — `GET /v1/pods/{id}`의 `machine` 필드가
+    빈 객체로 오는 게 실측으로 확인돼서(`gpuCount`만 있고 모델명은 없음), 그럴 때만 레거시
+    GraphQL API(`pod.machine.gpuDisplayName`)로 한 번 더 물어봅니다. 이것도 실패하면 GPU 종류
+    줄만 조용히 빠지고 이름·비용·일시는 그대로 뜹니다. **VRAM은 이 연동과 무관하게 이미 ComfyUI
+    자체의 `/system_stats`에서 가져와 표시하고 있습니다**(카드의 주소 옆 숫자, 예: `0.1/15.6GB`).
+  - **언제 갱신되는가**: 대시보드가 4초마다 폴링하는 `/api/pods/summary`가 파드 카드 정보를
+    돌려줄 때, 그 정보가 20초(`POD_CARD_TTL_SEC`)보다 오래됐으면 백그라운드로 다시 조회합니다
+    (`app.py`의 `pod_card_data()`). RunPod API 응답 자체도 120초(`CACHE_TTL_SEC`) 동안 따로
+    캐싱하므로, 파드를 추가하거나 주소를 바꾼 직후에는 새로고침 한두 번(길어도 20~30초) 뒤에
+    카드에 반영됩니다 — 첫 폴링에는 안 보이는 게 정상입니다.
+  - **명시적으로 테스트하기**: 파드 설정(⚙) 모달의 **"🛰 RunPod 정보 테스트"** 버튼을 누르면
+    캐시를 거치지 않고 즉시 RunPod API를 다시 불러, 성공하면 이름·GPU·비용 요약을, 실패하면
+    이유(키 미설정/주소 형식 불일치/HTTP 상태 코드 등)를 그대로 보여줍니다. 원본 응답 전체는
+    브라우저 콘솔(F12)에 `[runpod-test]`로 남으므로, 필드 이름이 문서와 다르게 와도 직접 확인할
+    수 있습니다. 같은 진단은 `POST /api/pods/{id}/runpod-test`로 curl에서도 바로 부를 수 있습니다.
+  - **파드 설정 모달에서도 확인할 수 있습니다** — RunPod 정보가 있으면(대시보드가 이미 폴링해둔
+    값을 그대로 씀, 추가 요청 없음) 모달 안에 이름/GPU/비용/일시 박스가 뜨고, nightshift에 지어둔
+    이름과 RunPod 자체 이름이 다르면 이름 입력칸 아래 "이 이름 쓰기" 버튼으로 한 번에 바꿔 넣을 수
+    있습니다(자동으로 덮어쓰지는 않습니다 — 일부러 지은 이름을 조용히 바꾸면 안 되므로).
+- **각 파드 카드에는 작은 로봇 아바타가 있습니다** — 몸통 색은 파드 id로 정해져 고정되고(같은
+  파드는 항상 같은 색), 표정과 애니메이션이 카드 상태를 따라갑니다: 유휴는 웃는 얼굴로 살짝
+  까딱이고, 작업 중엔 입을 다물고 살짝 흔들리며 안테나 불이 깜빡이고, 연결 안 됨은 눈이 X로
+  바뀌고, 사용 안 함은 눈을 감고 흑백으로 바뀝니다. 순전히 인라인 SVG라 이미지 파일이 없습니다.
+- **카드 자체를 누르면** 그 파드 안으로 들어갑니다(아래 "화면 구조" 절) — 설정(⚙)이나
+  ▶ 시작/⏸ 정지 버튼을 누른 건 그 버튼 할 일만 하고 카드 이동은 일어나지 않습니다.
 - **"최근 작업" 카드**: 파드를 가리지 않고 최근 작업 8건을 상태·템플릿·파드 이름으로 보여줍니다.
   작업 목록 자체는 파드 안으로 들어갔으므로, "지금 전체적으로 뭐가 도는가"는 이 카드가 답합니다.
   행을 누르면 그 작업이 있는 파드의 작업 화면으로 들어갑니다.
@@ -278,8 +337,8 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 | 층 | 화면 | 주소 |
 |---|---|---|
-| 전역 | 📊 대시보드 · 🖼 갤러리 · 🏷 Danbooru | `#dashboard` · `#gallery` · `#danbooru` |
-| 파드 | 🗂 작업 · 🧩 워크플로우 · 🎛 모델 | `#pod/{id}/jobs` · `.../builder` · `.../lora` |
+| 전역 | 🏠 Home · 🖼 갤러리 · 🏷 Danbooru | `#dashboard` · `#gallery` · `#danbooru` |
+| 파드 | 🗂 작업 · 🧩 워크플로우 · 🎛 모델 · 🖼 갤러리(comfyui/shell) 또는 📝 결과(claude_writer) | `#pod/{id}/jobs` · `.../builder` · `.../lora` · `.../pgallery` 또는 `.../results` |
 
 **작업·워크플로우·모델이 파드 안에 있는 이유**는 이 셋이 전부 "그 파드가 무엇을 갖고 있는가"를
 읽어서 그리기 때문입니다 — 워크플로우 빌더와 모델 목록은 그 파드의 `/object_info`를, 작업
@@ -287,11 +346,20 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 하는지 말해주지 못합니다(예전에는 늘 기본 파드만 봤습니다). 반대로 **Danbooru는 태그를 조립할
 뿐 파드를 쓰지 않으므로** 전역에 남아 있습니다.
 
-- **파드 스코프 바**: 파드 안에 있을 때 상단 탭바 아래에 한 줄 더 붙습니다 — 대시보드로 돌아가는
-  버튼, 연결 상태 점, **파드 전환 드롭다운**, 종류 배지, 설정(⚙), 그리고 서브탭.
-- **서브탭 구성은 파드 종류가 정합니다.** ComfyUI 파드는 작업·워크플로우·모델 셋, 셸 파드는
-  작업 하나뿐입니다(셸 워커에는 워크플로우도 설치된 모델도 없습니다). 새 종류의 워커를 붙일 때
-  `POD_SUBTABS`에 한 줄 추가하는 것이 그 워커의 화면 구성이 됩니다.
+- **파드 스코프 바**: 파드 안에 있을 때 **전역 탭바를 대신해서** 상단에 뜹니다 — 대시보드로
+  돌아가는 버튼, 연결 상태 점, **파드 전환 드롭다운**, 종류 배지, 설정(⚙), 그리고 서브탭.
+  전역 탭(대시보드·갤러리·Danbooru)은 파드 밖 개념이라 파드 안에서는 숨깁니다 — 둘 다 떠 있으면
+  지금 어느 층에 있는지 헷갈리기 때문입니다. 대시보드로는 "🏠 Home" 버튼으로 돌아갑니다.
+- **서브탭 구성은 파드 종류가 정합니다.** ComfyUI 파드는 작업·워크플로우·모델·갤러리 넷, 셸
+  파드는 작업·갤러리 둘입니다(셸 워커에는 워크플로우도 설치된 모델도 없습니다). 새 종류의
+  워커를 붙일 때 `POD_SUBTABS`에 한 줄 추가하는 것이 그 워커의 화면 구성이 됩니다.
+- **파드 안의 "🖼 갤러리"는 그 파드가 만든 결과물만 보여줍니다.** 전역 "🖼 갤러리"(모든 파드를
+  합친 것)와 완전히 같은 화면·같은 기능(격자/작업별·날짜별 보기, 선택·삭제·다운로드, 라이트박스)을
+  그대로 씁니다 — 코드를 두 벌 두는 대신, 지금 파드 스코프 안에 있는지로 목록만 걸러서 보여줄
+  뿐입니다. 어떤 이미지가 어느 파드 것인지는 그 이미지가 속한 작업의 `pod_id`로 판단하므로,
+  작업 기록이 이미 완전히 삭제된(보관 기간을 넘긴) 이미지는 소속 파드를 알 수 없어 파드
+  갤러리에는 안 뜨고 전역 갤러리에만 보입니다. "⬇ 결과 가져오기" 버튼도 지금 보고 있는
+  파드 기준으로 동작합니다(그 파드의 `pull_outputs` 설정을 보고, 그 파드에서 가져옴).
 - **파드를 바꿔도 "새 작업 추가" 폼은 그대로 남습니다** — 프롬프트와 옵션을 다 채운 뒤에 어디서
   돌릴지 정하는 순서도 살아 있습니다. 파드 **종류**가 바뀔 때만 템플릿 목록이 다시 그려집니다
   (그때는 쓸 수 있는 템플릿 자체가 달라지므로).
@@ -304,12 +372,14 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 ### 파드(워커) 레지스트리
 
-nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_registry.py`, 저장 위치는 `pods.json`).
+nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_registry.py`, 저장 위치는 `data/pods.json`).
 파드는 "ComfyUI 한 대"가 아니라 **드라이버가 붙은 엔드포인트**입니다 — 레코드의 `kind`가 어떤
 드라이버로 그 파드를 다룰지 정하고(`drivers/`), 드라이버가 "살아 있나 / 뭘 할 수 있나 / 작업에
 어떤 환경변수를 실어 보내나 / 결과물을 어떻게 회수하나 / 대시보드 카드에 뭘 보여주나"를 압니다.
-지금은 `comfyui` 드라이버 하나뿐이지만, 앞으로 이미지가 아닌 다른 일을 하는 워커가 같은 목록에
-나란히 등록됩니다(계획 전체는 `multipod_plan.md` 참고).
+지금은 `comfyui`(이미지 생성) · `shell`(임의 명령 실행) · `claude_writer`(Claude API 글쓰기)
+셋입니다(계획 전체는 `docs/multipod_plan.md` 참고). 새 종류의 워커를 붙이는 데 필요한 코드는
+`drivers/`에 모듈 하나, `DRIVERS`에 한 줄 등록, 필요하면 `templates/`에 실행 스크립트
+하나뿐이고, 레지스트리·큐·대시보드·로봇 아바타는 그대로 재사용됩니다.
 
 - 파드 레코드: `{id, name, kind, url, enabled, tags, max_concurrent, pull_outputs, note}`
 - **기존 설정은 자동으로 이관됩니다** — `comfy_endpoint.json`이 있고 `pods.json`이 없으면 첫
@@ -329,7 +399,7 @@ nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_regi
   때만** 옮깁니다(셸 작업이 ComfyUI 파드로 끌려가면 조용히 엉뚱하게 돕니다).
 - **`max_concurrent`**만큼 그 파드에서 작업이 동시에 돕니다(기본 1 — 예전과 같은 순차 실행).
 - **파드가 죽으면 그 큐만 멈춥니다.** 옆 파드가 놀아도 자동으로 넘어가지 않습니다(자동 배분은
-  일부러 넣지 않았습니다 — `multipod_plan.md`의 "지금 하지 않을 것" 참고). 대신 작업 행의
+  일부러 넣지 않았습니다 — `docs/multipod_plan.md`의 "지금 하지 않을 것" 참고). 대신 작업 행의
   **"➡ 파드 이동"** 버튼(`POST /api/jobs/{id}/move`)으로 다른 파드로 옮겨 이어서 돌릴 수
   있습니다. 아직 시작하지 않은 작업(`pending`/`queued`/`interrupted`)만 옮길 수 있고, 실행
   중인 작업은 먼저 멈춰야 합니다.
@@ -344,17 +414,17 @@ nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_regi
 - 파드를 지우면 그 파드에 배정돼 있던 미완료 작업은 기본 파드로 되돌아갑니다(`queued`였다면
   `pending`으로). 실행 중인 작업이 있는 파드는 지울 수 없습니다.
 
-`GET/PUT /api/comfy-endpoint`(헤더의 연결 상태 배지가 여는 설정 화면)는 그대로 남아 있고,
-**기본 파드의 주소·가져오기 설정을 읽고 씁니다**.
+`GET/PUT /api/comfy-endpoint`(예전에 헤더의 연결 상태 배지가 열던 설정 화면 — 화면 진입점은
+없앴지만 API는 남아 있습니다)는 **기본 파드의 주소·가져오기 설정을 읽고 씁니다**.
 
 ### ComfyUI 접속 주소 감지
 
-화면 상단의 인디케이터가 5초마다 `/api/comfy-status`를 폴링해 연결 상태(연결됨/연결 안 됨)와 감지된 주소를 보여줍니다.
-이 응답은 **서버가 캐시해 두고 즉시 돌려줍니다**(4초보다 오래됐으면 백그라운드로 다시 확인) — 폴링이 매번 원격 pod까지
-왕복하면 열어둔 탭 수만큼 pod를 찌르게 되고, 응답이 느린 날에는 요청 자체가 몇 초씩 걸리기 때문입니다. 언제 실측한
-값인지는 배지에 마우스를 올리면(그리고 응답의 `checked_age_sec`로) 확인할 수 있습니다. 또 **한 번 실패했다고 바로
-"연결 안 됨"으로 뒤집지 않고 연속 2회 실패해야 끊긴 것으로 봅니다** — WAN에서는 패킷 하나만 흘려도 실패로 보이는데,
-그때마다 배지가 빨갛게 깜빡이면 신뢰할 수 없게 되기 때문입니다(반대로 다시 붙는 것은 즉시 반영합니다).
+대시보드의 파드 카드가 4초마다 `/api/pods/summary`를 폴링해 각 파드의 연결 상태(연결됨/연결 안 됨)와
+감지된 주소를 보여줍니다. 이 응답은 **서버가 캐시해 두고 즉시 돌려줍니다**(20초보다 오래됐으면
+백그라운드로 다시 확인) — 폴링이 매번 원격 pod까지 왕복하면 열어둔 탭 수만큼 pod를 찌르게 되고, 응답이
+느린 날에는 요청 자체가 몇 초씩 걸리기 때문입니다. 또 **한 번 실패했다고 바로 "연결 안 됨"으로 뒤집지
+않고 연속 2회 실패해야 끊긴 것으로 봅니다** — WAN에서는 패킷 하나만 흘려도 실패로 보이는데, 그때마다
+카드가 빨갛게 깜빡이면 신뢰할 수 없게 되기 때문입니다(반대로 다시 붙는 것은 즉시 반영합니다).
 
 연결 확인 타임아웃은 찌르는 대상에 따라 다릅니다: 자동 탐지 후보는 정의상 전부 `127.0.0.1`이라 2초,
 명시적으로 지정된 주소는 원격일 수 있으므로 5초(`NIGHTSHIFT_COMFY_TIMEOUT_SEC`), 사용자가 "연결 테스트"/"저장"으로
@@ -363,6 +433,25 @@ nightshift가 작업을 보낼 워커는 **파드**로 관리합니다(`pod_regi
 작업은 워커가 실제로 실행하기 직전에도 다시 한번 이 감지를 수행합니다 — 업로드 시점은 물론 "▶ 시작"으로
 배치를 시작한 시점(또는 자동 실행 모드가 켜진 상태에서 새 작업이 큐에 들어간 시점)에도 ComfyUI가 떠 있지 않아도
 정상 진행됩니다.
+
+#### RunPod pod가 브라우저로는 열리는데 "연결 안 됨"으로만 뜬다면
+
+RunPod의 프록시 주소(`https://{POD_ID}-{PORT}.proxy.runpod.net/`)는 **Cloudflare가 앞단에 있습니다.**
+Cloudflare의 봇 차단이 파이썬 `urllib`의 기본 User-Agent(`Python-urllib/3.x`)를 감지해 403으로 막는데,
+브라우저나 `curl`은 정상적인 UA라 그대로 통과합니다 — 그래서 **내 PC 브라우저·`curl`로는 멀쩡히 열리는 pod가
+nightshift(파이썬)에서만 계속 "연결 안 됨"으로 뜨는** 증상이 나타납니다. `check_url()`이 모든 예외를 뭉뚱그려
+`false`로 돌려주다 보니 화면에 "응답이 없어요"로만 보이고 403이라는 사실 자체가 드러나지 않아서, 코드스페이스나
+다른 네트워크 원인(방화벽 등)으로 오해하기 쉽습니다.
+
+ComfyUI로 나가는 모든 요청(`server/drivers/comfyui.py`·`server/app.py`·`server/comfy_outputs.py`·
+`templates/*.py`)에 브라우저 User-Agent를 실어 보내도록 고쳐뒀으니, 이 버전을 쓰고 있다면 이미 해결돼 있습니다.
+혹시 예전 버전을 쓰고 있거나 같은 증상이 다른 원인으로 재발하면, 코드스페이스/서버 터미널에서 직접 다음 두
+명령으로 원인을 가려낼 수 있습니다:
+
+```bash
+curl -v --max-time 8 https://<pod-id>-<port>.proxy.runpod.net/system_stats   # 이건 되는데
+python3 -c "import urllib.request; urllib.request.urlopen('https://<pod-id>-<port>.proxy.runpod.net/system_stats', timeout=8)"  # 이게 403이면 바로 이 문제
+```
 
 #### ComfyUI가 꺼져 있을 때: 실패시키지 않고 붙잡아 둔다
 
@@ -388,7 +477,7 @@ nightshift를 홈서버에 상시 띄워두고 ComfyUI만 원격 GPU pod에서 �
 ComfyUI가 같은 머신에 있으면 그 폴더가 곧 ComfyUI의 출력 폴더라 그냥 맞아떨어지지만, ComfyUI만 원격 GPU pod에
 있으면 결과 이미지가 그쪽 디스크에만 쌓여서 갤러리가 비어 보입니다.
 
-접속 주소 모달의 **"결과 이미지를 이 서버로 가져오기"**를 켜면(`pull_outputs`), 작업이 끝날 때마다 그 작업의
+파드 설정(⚙)의 **"결과 이미지를 이 서버로 가져오기"**를 켜면(`pull_outputs`), 작업이 끝날 때마다 그 작업의
 이미지를 ComfyUI에서 HTTP로 받아 로컬 출력 폴더에 채워 넣습니다(`comfy_outputs.py`). 갤러리 탭의
 **"⬇ 결과 가져오기"** 버튼으로 밀린 것을 한꺼번에 받을 수도 있습니다(설정이 켜져 있을 때만 보입니다).
 
@@ -446,7 +535,7 @@ ComfyUI의 `GET /object_info`는 그 서버에 설치된 **모든 노드 타입*
 캐싱합니다(`?refresh=true`로 강제 갱신). ComfyUI가 꺼져 있으면 설치 목록을 알 수 없으므로 검사·검증을 건너뛰고
 그대로 통과시킵니다 — 이 앱은 ComfyUI가 안 떠 있는 동안에도 큐에 미리 쌓아두는 걸 정상 동작으로 봅니다.
 
-### 워크플로우 빌더 탭 (`workflow_builder.py`)
+### 워크플로우 빌더 탭 (`server/workflow_builder.py`)
 
 워크플로우 JSON은 결국 "노드 id → `{class_type, inputs}`" 맵일 뿐이라, 꼭 ComfyUI에서 직접 만들어 export한 파일이어야 할
 이유가 없습니다. **"🧩 워크플로우"** 탭에서는 설치된 모델 목록으로 표준 t2i 파이프라인을 폼으로 조립합니다.
@@ -539,7 +628,7 @@ CheckpointLoaderSimple → LoraLoader 체인(0개 이상) → CLIPTextEncode 긍
 
 새 템플릿을 추가하려면 `templates/`에 스크립트를 넣고 `manifest.json`에 항목을 추가하면 됩니다(서버 재시작 불필요 — `/api/templates`가 매 요청마다 파일을 다시 읽습니다).
 
-### 포즈/depth/lineart 참조 배치 (`pose_batch`/`depth_batch`/`lineart_batch`, `ref_assets.py`)
+### 포즈/depth/lineart 참조 배치 (`pose_batch`/`depth_batch`/`lineart_batch`, `server/ref_assets.py`)
 
 ControlNet(OpenPose/Depth/Lineart 등)으로 참조 이미지를 고정한 채 배치 생성할 때, 매번 다른 레퍼런스 이미지를 워크플로우의 LoadImage 노드에 넣어가며 반복 실행하는 세 템플릿입니다. `pose_batch`/`depth_batch`/`lineart_batch`는 완전히 독립된 스크립트지만(`templates/` 아래 스크립트들은 서로 import하지 않는다는 이 저장소의 관례), 종류(pose/depth/lineart)만 다를 뿐 로직은 동일합니다 — 아래 설명은 `pose_batch`를 예로 들지만 다른 두 템플릿도 이름만 바꿔 그대로 적용됩니다(`POSE_SET`→`DEPTH_SET`/`LINEART_SET`, `POSE_MODE`→`DEPTH_MODE`/`LINEART_MODE`, `POSE_NODE_TITLE`→`DEPTH_NODE_TITLE`/`LINEART_NODE_TITLE` 등).
 
@@ -635,7 +724,7 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 - **후처리**(`hires_fix`/`usdu`, 0개 이상 동시에 고를 수 있음): 베이스가 만든 결과 뒤에 이어 붙입니다. `hires_fix`는 latent를 업스케일해 2차 KSampler 패스를 한 번 더 돌리고(마법사에서 이전에 "t2i_hiresfix"라는 별도 유형이었던 것이 이제 이 토글로 통합됐습니다), `usdu`(Ultimate SD Upscale)는 디코드된 이미지를 타일 단위로 다시 샘플링해 업스케일+디테일을 보강합니다. 둘 다 켜면 `hires_fix` 다음에 `usdu`가 실행됩니다 — 예를 들어 `txt2img`+`hires_fix`, `txt2img`+`usdu`, `txt2img`+`hires_fix`+`usdu`, `img2img`+`usdu` 모두 가능한 조합입니다. **USDU는 이제 베이스가 `txt2img`여도 입력 이미지 없이 바로 쓸 수 있습니다** — 방금 생성한 이미지를 그 자리에서 업스케일하기 때문입니다(예전에는 USDU가 항상 외부 이미지를 요구하는 별도 유형이었지만, 그 경우는 이제 `img2img`(원하는 만큼 낮은 denoise로 원본을 거의 그대로 유지) + `usdu`로 표현합니다).
 - **프리셋**(ControlNet 3종 + IPAdapter, 하나만 고름): 체크포인트마다 로더/가중치 배선이 달라 이 서버가 자동으로 조립하지 못하는 유형 — family별로 관리자가 미리 만들어둔 워크플로우를 그대로 씁니다. **베이스/후처리와 동시에 쓸 수 없습니다**(마법사에서 하나를 고르면 다른 그룹은 자동으로 해제됨) — 완성된 그래프를 그대로 쓰는 것이라 이 서버가 그 안에 후처리를 추가로 끼워 넣을 수 없기 때문입니다.
 
-### 입력 이미지 배치 — img2img (`input_image_batch`/`input_image_csv_batch`, `input_assets.py`)
+### 입력 이미지 배치 — img2img (`input_image_batch`/`input_image_csv_batch`, `server/input_assets.py`)
 
 베이스가 `img2img`인 워크플로우 유형(후처리로 `hires_fix`/`usdu`를 얹었는지와 무관)에 쓰는 두 템플릿입니다. `pose_batch` 등과 달리 참조 이미지 저장소가 **세트/char_no 계층 없는 평평한(flat) 파일 목록**입니다(`ref_assets.py`가 아니라 별도의 `input_assets.py`) — img2img는 보통 "이 그림 한 장을 원본으로" 쓰는 용도라 세트 개념이 필요 없기 때문입니다. 베이스가 `txt2img`인 워크플로우에 `usdu` 후처리만 얹은 경우는 입력 이미지가 필요 없으므로 `seed_batch`/`csv_batch`를 그대로 씁니다.
 
@@ -655,6 +744,12 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 체크포인트를 `wai-illustrious`, `krea.2`처럼 서로 호환되는 계열(family)로 묶어두면, "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/프리셋을 걸러서 보여줍니다. 관리는 전부 "🎛 모델" 탭에서 합니다(구 "🎛 LoRA" 탭을 확장한 것).
 
 - **베이스 모델(family)**: `base_model_families.json`에 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}` 형태로 저장됩니다. family 하나에 체크포인트를 여러 개(같은 계열의 다른 파인튜닝 등) 묶을 수 있고, 지정된 체크포인트가 하나뿐이면 마법사에서 family를 고르는 즉시 그 체크포인트로 확정되며, 여러 개면 그중 하나를 추가로 골라야 합니다.
+  **family는 "설치된 체크포인트"와 다른 개념입니다** — ComfyUI에 체크포인트가 있어도 family로
+  한 번 등록해야 마법사 1단계에 나타납니다(family는 사람이 붙이는 이름/그룹이라 nightshift가
+  대신 만들어줄 수 없습니다). 새 파드를 처음 연결하면 마법사 1단계가 비어 있는 게 정상입니다 —
+  "🎛 모델" 탭을 열면 **그 파드에 설치돼 있지만 아직 family가 없는 체크포인트**를 안내하고
+  "+ 등록" 한 번으로 등록해 줍니다(파일명에서 family id를 자동으로 만들고, 표시 이름은 나중에
+  고쳐도 됩니다).
 - **LoRA 호환 family**: `lora_triggers.json`이 `{lora_filename: {trigger, families: [family_id, ...]}}` 형태로 트리거 워드와 함께 저장합니다. `families`가 빈 배열이면 모든 베이스 모델과 호환되는 것으로 취급되어 마법사에 항상 보이고, 채워두면 그 family를 골랐을 때만 보입니다(호환되지 않는 LoRA는 회색 처리가 아니라 목록에서 아예 숨겨집니다). 예전 스키마(`{lora_filename: "트리거 문자열"}`)로 저장돼 있던 파일은 서버가 시작할 때 `families: []`로 자동 이관됩니다.
 - **ControlNet/IPAdapter 프리셋 워크플로우**: 위 "워크플로우 유형의 조합 규칙" 절에서 설명한 프리셋 그룹(`openpose_cn`/`depth_cn`/`lineart_cn`/`ipadapter`) — family별로 미리 만들어둔 워크플로우 JSON을 `workflow_presets/<family_id>__<type_id>.json`에 업로드해두고 그대로 재사용합니다. family에 프리셋이 없는 유형은 마법사의 "워크플로우 유형" 목록에서 아예 숨겨집니다(LoRA 호환성 필터링과 같은 원칙 — 골라봤자 실행할 워크플로우가 없으므로).
 
@@ -717,7 +812,8 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/pods/{pod_id}/queue/stop` | **그 파드만** 멈춤(다른 파드는 계속 돎). 그 파드에서 실행 중인 작업에 종료 요청. 응답 `{"pod_id", "running": false, "stopped_job_ids": [...]}` |
 | `POST` | `/api/jobs/{job_id}/move` | 작업을 다른 파드로 옮김(요청 본문 `{"pod_id": "..."}`). `pending`/`queued`/`interrupted`만 가능하고 실행 중이면 400, 없는 파드면 404, 사용 안 함 파드면 400 |
 | `POST` | `/api/pods/{pod_id}/test` | 저장된 그대로의 파드가 응답하는지 확인(설정은 안 건드림). 응답 `{"pod_id", "ok", "url", "source", "detail"}`. 사람이 기다리는 동작이라 폴링보다 넉넉한 타임아웃(8초)을 씀 |
-| `POST` | `/api/comfy-outputs/sync` | 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(요청 본문 `{"job_id": "..."(선택, 그 작업 것만), "force": bool(선택)}`). 응답 `{"url", "checked", "downloaded": [...], "skipped_known", "skipped_existing", "skipped_invalid", "errors", "last_sync"}`. **한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않는다**(`comfy_output_sync.json`) — 정말 다시 받고 싶으면 `force: true`. 로컬에 이미 있는 파일은 어느 경우에도 덮어쓰지 않는다. ComfyUI에 연결이 안 되면 503, 히스토리 조회에 실패하면 502 |
+| `POST` | `/api/pods/{pod_id}/runpod-test` | RunPod API 조회를 캐시 없이 즉시 다시 하고, 실패해도 이유를 그대로 돌려줌(카드의 `get_runpod_info()`는 실패를 삼키므로 이걸로 원인 확인). 응답 `{"url", "api_key_set", "extracted_pod_id", "status_code"?, "raw_response"?, "normalized"?, "error"?}` |
+| `POST` | `/api/comfy-outputs/sync` | 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(요청 본문 `{"job_id": "..."(선택, 그 작업 것만), "force": bool(선택), "pod_id": "..."(선택)}`). `pod_id`를 주면 그 파드에서 가져오고(파드 갤러리의 "⬇ 결과 가져오기"가 이렇게 부름), 생략하면 기본 파드다. 응답 `{"url", "checked", "downloaded": [...], "skipped_known", "skipped_existing", "skipped_invalid", "errors", "last_sync"}`. **한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않는다**(`comfy_output_sync.json`) — 정말 다시 받고 싶으면 `force: true`. 로컬에 이미 있는 파일은 어느 경우에도 덮어쓰지 않는다. ComfyUI에 연결이 안 되면 503, 히스토리 조회에 실패하면 502 |
 | `POST` | `/api/comfy-outputs/forget` | "이미 받아왔다"는 기록을 지운다(요청 본문 `{"job_id": "..."}`를 주면 그 작업 것만, 없으면 전부). 응답 `{"forgotten": N, "last_sync", "known"}`. 한 번만 다시 받으면 되는 경우라면 위의 `force: true`가 더 간단하다 |
 | `POST` | `/api/comfy-endpoint/test` | 저장하지 않고 주소만 확인한다(요청 본문 `{"url": "..."}`, 비워 보내면 지금 적용 중인 주소를 확인). 응답 `{"url", "connected"}`. 폴링(2초)보다 넉넉한 타임아웃(8초)을 써서 원격 pod의 첫 TLS 핸드셰이크까지 기다린다 |
 | `GET` | `/api/comfy-object-info?refresh=false&pod_id=` | **그 파드**(생략하면 기본 파드, ComfyUI 파드가 아니면 기본 파드로 폴백)에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
@@ -743,6 +839,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/jobs` | 삭제되지 않은 작업 목록과, 실행 큐(시작된 뒤 워커 차례를 기다리는 작업)에 쌓여 있는 개수, 자동 실행 모드 상태(`running`)를 조회. 응답 `{"jobs": [...], "pending_count": N, "running": bool, "pods": {pod_id: {running, pending_count, running_jobs}}}`(`pending_count`/`running`은 모든 파드를 합친 값 — 화면의 버튼 하나가 쓰는 값이라 형식을 그대로 뒀다). 워커가 ComfyUI 연결을 기다리며 붙잡고 있는 작업은 `status`가 `queued`인 채 `waiting_for_comfy: true`와 `waiting_since`가 붙음(화면에는 `GPU 대기` 배지) |
 | `GET` | `/api/jobs/deleted` | 소프트 삭제된(아래 `DELETE /api/jobs/{job_id}` 참고) 작업 목록을 최근 삭제순으로 반환. "삭제된 작업 설정 불러오기" 드롭다운을 채우는 용도. `{"jobs": [...], "retention": N}` — `retention`은 `NIGHTSHIFT_DELETED_JOBS_RETENTION`(기본 30) |
 | `GET` | `/api/jobs/{job_id}/log?tail=200` | 특정 작업의 로그 조회 (기본 마지막 200줄) |
+| `GET` | `/api/jobs/{job_id}/text-result` | 이미지가 아니라 글을 만드는 워커(claude_writer)의 결과. `NIGHTSHIFT_OUTPUT_DIR/{job_id}/output.md`를 그대로 읽어 `{"text": "..."}`로 반환. 파일이 없으면(아직 실행 전/실패) 빈 문자열 |
 | `PUT` | `/api/jobs/{job_id}/progress` | 실행 중인 템플릿 스크립트가 자기 진행 상황을 스스로 보고하는 용도 (요청 본문: `{"total": N, "done": M}`, 둘 다 0 이상의 정수). 매 이미지마다 호출될 수 있어 디스크에는 쓰지 않고 메모리만 갱신함. 없는 작업 id면 404, total/done이 정수가 아니거나 음수면 400 |
 | `GET` | `/api/jobs/{job_id}/workflow` | 해당 작업의 워크플로우 JSON 원문을 그대로 반환 |
 | `PUT` | `/api/jobs/{job_id}/workflow` | 워크플로우 JSON을 덮어씀 (요청 본문 = 새 JSON 텍스트). 작업 상태가 `pending`이 아니면 400, 유효한 JSON이 아니면 400 |
@@ -762,17 +859,17 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/output-images/rotate-landscape` | 출력 폴더에서 가로형(1536×704와 같은 비율) 이미지를 찾아 시계 방향 90도로 회전해 같은 파일에 덮어씀. 응답 `{"total_checked", "rotated": [파일명...], "errors": [...]}`. 폴더 자체가 없으면 404 |
 | `POST` | `/api/output-images/rotate-selected` | 요청 본문 `{"names": [파일명...]}`에 담긴 이미지 중 가로형(너비 > 높이)만 시계 방향 90도로 회전해 같은 파일에 덮어씀(세로형/정사각형은 그대로 둠) — rotate-landscape처럼 1536×704 같은 특정 비율 판정까지는 하지 않음(갤러리에서 선택한 이미지를 "회전 후 다운로드"할 때 씀). 응답 `{"rotated": [파일명...], "skipped": [파일명...]}`, 잘못된 이름은 조용히 건너뛰고 유효한 이미지가 하나도 없으면 404, `names`가 비어있거나 없으면 400 |
 
-### 결과 이미지 이메일 전송 (`email_sender.py`)
+### 결과 이미지 이메일 전송 (`server/email_sender.py`)
 
 주피터랩 등에서 배치 완료 후 수동으로 돌리던 `send_images_email.py`를 웹 UI의 "결과 이미지 이메일 전송" 패널로 옮긴 기능입니다. `NIGHTSHIFT_OUTPUT_DIR`(기본 `/workspace/output`)에 있는 이미지 파일들을 찾아, 한 통당 `max_mb`(기본 20MB)를 넘지 않는 선에서 묶어 필요한 만큼 여러 통으로 나눠 보냅니다. SMTP 서버는 기본 `smtp.gmail.com:587`이며 `NIGHTSHIFT_SMTP_HOST`/`NIGHTSHIFT_SMTP_PORT`로 바꿀 수 있습니다. Gmail을 쓴다면 2단계 인증을 켠 뒤 [앱 비밀번호](https://myaccount.google.com/apppasswords)를 발급받아 비밀번호 칸에 입력하세요.
 
-**보안 참고**: 입력한 메일 계정/비밀번호/받는 주소는 그 발송 요청 처리에만 쓰이고 어디에도 저장되지 않습니다 — `jobs_state.json`처럼 git으로 버전 관리되는 파일에 남지 않도록 의도적으로 그렇게 설계했습니다. 브라우저에는(비밀번호는 제외하고) 보내는/받는 메일 주소만 `localStorage`에 남아 다음에 폼을 다시 채워줍니다. 이 앱 자체는 인증이 없으므로, 외부에 노출된 상태라면 이 엔드포인트로 다른 사람이 내 메일 계정으로 로그인을 시도할 수 있다는 점을 감안하세요(아래 "주의사항" 참고).
+**보안 참고**: 입력한 메일 계정/비밀번호/받는 주소는 그 발송 요청 처리에만 쓰이고 어디에도 저장되지 않습니다 — 작업 이력(`data/jobs_state.json`)이나 로그처럼 디스크에 남는 곳에 흘러들지 않도록 의도적으로 그렇게 설계했습니다. 브라우저에는(비밀번호는 제외하고) 보내는/받는 메일 주소만 `localStorage`에 남아 다음에 폼을 다시 채워줍니다. 이 앱 자체는 인증이 없으므로, 외부에 노출된 상태라면 이 엔드포인트로 다른 사람이 내 메일 계정으로 로그인을 시도할 수 있다는 점을 감안하세요(아래 "주의사항" 참고).
 
 ### 결과 이미지 ZIP 다운로드
 
 "결과 이미지 ZIP 다운로드" 버튼을 누르면 이메일 발송과 같은 `NIGHTSHIFT_OUTPUT_DIR` 폴더의 이미지들을 서버가 그 자리에서 zip으로 묶어 임시 파일로 만들고, 다운로드 응답으로 보낸 뒤 바로 지웁니다(디스크에 계속 남지 않음). 압축 자체는 스레드로 돌려 다른 API 요청을 막지 않습니다.
 
-### 결과 이미지 관리 (`output_images.py`)
+### 결과 이미지 관리 (`server/output_images.py`)
 
 이메일 전송/zip 다운로드가 공유하는 출력 폴더 로직(`OUTPUT_DIR`, 이미지 목록 조회)을 `output_images.py`로 모아두고, 여기에 두 가지 관리 기능을 추가했습니다.
 
@@ -781,11 +878,11 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 
 포즈/depth/lineart 참조 배치 기능(`ref_assets.py`, `templates/pose_batch.py` 등)은 위 "포즈/depth/lineart 참조 배치" 절 참고.
 
-## MCP 서버 (`mcp_server.py`)
+## MCP 서버 (`server/mcp_server.py`)
 
 `app.py`의 REST API를 [MCP](https://modelcontextprotocol.io)(Model Context Protocol) 도구로 감싸는 별도 프로세스입니다. Claude 같은 MCP 클라이언트가 curl 대신 표준화된 도구 목록으로 잡 큐를 조작할 수 있게 해주는 얇은 레이어일 뿐 — `app.py` 자체는 건드리지 않고, 기존 웹 UI와 REST API도 그대로 유지됩니다. [`fastmcp`](https://gofastmcp.com)로 만들어졌고, `streamable-http` transport로 떠서(원격에서 커넥터로 등록할 수 있도록) 별도 포트(기본 8001)에서 `app.py`(기본 8000)에 HTTP로 붙습니다.
 
-**실행**: `npm start`(pm2)로 `app.py`와 함께 자동으로 뜹니다 (`ecosystem.config.js`의 `nightshift-mcp` 앱). 따로 실행하려면 `python3 mcp_server.py`.
+**실행**: `npm start`(pm2)로 `app.py`와 함께 자동으로 뜹니다 (`ecosystem.config.js`의 `nightshift-mcp` 앱). 따로 실행하려면 `cd server && python3 mcp_server.py`.
 
 **환경변수** (`.env.example` 참고): `JOB_QUEUE_BASE_URL`(기본 `http://127.0.0.1:8000` — 같은 머신이면 RunPod 프록시 URL 대신 내부 주소를 쓰는 게 빠르고 안정적), `JOB_QUEUE_API_KEY`(`NIGHTSHIFT_API_KEY`를 설정했다면 같은 값을 `X-API-Key` 헤더로 실어 보냄), `MCP_SERVER_PORT`(기본 8001).
 
@@ -811,21 +908,24 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 
 ```
 nightshift/
-├── app.py                    # FastAPI 서버 + 큐 워커
-├── email_sender.py           # 결과 이미지 이메일 발송 로직
-├── output_images.py          # 출력 폴더 공용 로직 (목록 조회/삭제/가로형 이미지 회전)
-├── ref_assets.py              # pose/depth/lineart 참조 세트 폴더 스캔/업로드 시점 검증 로직
-├── input_assets.py            # img2img/USDU 입력 이미지(세트 없는 평평한 목록) 스캔 로직
-├── workflow_builder.py        # 워크플로우 빌더 탭 + 마법사가 쓰는 워크플로우 JSON 조립 로직
-├── requirements.txt
-├── package.json               # pm2 실행용 npm 스크립트(`npm start` 등) — 서버 코드와 무관
-├── ecosystem.config.js        # pm2 앱 설정 (uvicorn --reload를 이 설정으로 감독)
-├── bootstrap.sh                # pod 재시작 후 의존성 재설치 + 서버 시작을 한 번에 (RunPod용)
-├── notify_ntfy.sh              # 웹앱 접속 주소를 ntfy.sh로 폰에 알림 (bootstrap.sh가 백그라운드로 호출)
-├── .env.example                # notify_ntfy.sh용 환경변수 예시 (.env로 복사해서 사용, git 제외)
+├── server/                    # 백엔드 — FastAPI 서버 + 큐 워커 + MCP 래퍼
+│   ├── app.py                 # FastAPI 서버 + 큐 워커 본체
+│   ├── email_sender.py        # 결과 이미지 이메일 발송 로직
+│   ├── output_images.py       # 출력 폴더 공용 로직 (목록 조회/삭제/가로형 이미지 회전)
+│   ├── ref_assets.py          # pose/depth/lineart 참조 세트 폴더 스캔/업로드 시점 검증 로직
+│   ├── input_assets.py        # img2img/USDU 입력 이미지(세트 없는 평평한 목록) 스캔 로직
+│   ├── workflow_builder.py    # 워크플로우 빌더 탭 + 마법사가 쓰는 워크플로우 JSON 조립 로직
+│   ├── pod_registry.py        # 파드(워커) 레지스트리 — data/pods.json 로드/저장/CRUD
+│   ├── comfy_outputs.py       # 원격 ComfyUI의 결과 이미지를 HTTP로 끌어오기
+│   ├── data_paths.py          # 런타임에 생기는 것들의 경로를 한 곳에서 정함 (아래 data/ 참고)
+│   ├── drivers/                # 파드 종류별 드라이버 (comfyui, shell, claude_writer)
+│   ├── prompt_enhancer.json    # "Prompt Enhance" 기능이 쓰는 ComfyUI 워크플로우 (서버 리소스)
+│   ├── mcp_server.py           # app.py의 REST API를 MCP 도구로 감싸는 별도 프로세스
+│   └── mcp_smoke_test.py       # mcp_server.py 스모크 테스트 (docs/mcp_test_plan.md 참고)
 ├── static/
 │   └── index.html            # 프론트엔드 (단일 HTML 파일)
-├── templates/
+├── templates/                 # 작업 스크립트 — server/가 import하는 모듈이 아니라
+│   │                          # 서브프로세스로 실행되는 독립 프로그램(원격 pod에서도 돈다)
 │   ├── manifest.json         # 등록된 스크립트 템플릿 목록 (옵션 스키마 포함)
 │   ├── seed_batch.py         # 템플릿 스크립트
 │   ├── csv_batch.py          # 템플릿 스크립트 (필요에 따라 계속 추가)
@@ -839,19 +939,75 @@ nightshift/
 │   ├── input_image_batch.py     # 템플릿 스크립트 (img2img — 입력 이미지 1장 + 시드 반복)
 │   ├── input_image_csv_batch.py # 템플릿 스크립트 (img2img — CSV 행마다 다른 입력 이미지)
 │   ├── ipadapter_batch.py       # 템플릿 스크립트 (IPAdapter 프리셋 — 참조 이미지 1장 + 시드 반복)
-│   └── ipadapter_csv_batch.py   # 템플릿 스크립트 (IPAdapter 프리셋 — CSV 행마다 다른 참조 이미지)
-├── jobs/                      # 업로드된 워크플로우/CSV가 저장되는 곳 (자동 생성)
-├── logs/                      # 작업별 실행 로그 (자동 생성)
-├── workflow_presets/           # family별 ControlNet 프리셋 워크플로우 (자동 생성, git 제외)
-├── jobs_state.json            # 작업 이력 저장 파일 (자동 생성)
-├── lora_triggers.json          # LoRA 트리거 워드 + 호환 베이스 모델 (자동 생성)
-├── base_model_families.json    # 베이스 모델(family) 정의 (자동 생성)
-└── comfy_endpoint.json         # ComfyUI 접속 주소 설정 (자동 생성, 화면에서 저장할 때만 생김)
+│   ├── ipadapter_csv_batch.py   # 템플릿 스크립트 (IPAdapter 프리셋 — CSV 행마다 다른 참조 이미지)
+│   ├── shell_command.py         # 템플릿 스크립트 (셸 파드용 — 임의 명령 실행)
+│   └── claude_write.py          # 템플릿 스크립트 (Claude 글쓰기 파드용 — Claude API로 프롬프트 전송)
+├── scripts/                   # 독립 실행 유틸리티 — 서버가 import하지 않고, 사람이나
+│   │                          # bootstrap.sh가 직접 실행한다
+│   ├── notify_ntfy.sh          # 웹앱 접속 주소를 ntfy.sh로 폰에 알림 (bootstrap.sh가 백그라운드로 호출)
+│   ├── zip_output.sh           # 출력 폴더를 zip으로 압축 (수동 실행용)
+│   └── send_images_email.py    # email_sender.py 이전의 수동 이메일 발송 스크립트 (레거시)
+├── docs/                      # 설계/테스트 계획 문서
+│   ├── multipod_plan.md        # 다중 파드 전환 계획
+│   └── mcp_test_plan.md        # mcp_server.py 테스트 계획
+├── requirements.txt
+├── package.json               # pm2 실행용 npm 스크립트(`npm start` 등) — 서버 코드와 무관
+├── ecosystem.config.js        # pm2 앱 설정 (server/ 안의 app.py/mcp_server.py를 이 설정으로 감독)
+├── bootstrap.sh                # pod 재시작 후 의존성 재설치 + 서버 시작을 한 번에 (RunPod용)
+├── .env.example                # scripts/notify_ntfy.sh용 환경변수 예시 (.env로 복사해서 사용, git 제외)
+└── data/                       # 돌면서 생기는 것 전부 (자동 생성, git 제외)
+    ├── jobs/                   # 업로드된 워크플로우/CSV
+    ├── logs/                   # 작업별 실행 로그
+    ├── recent_workflows/       # "🕘 최근" 워크플로우 사본
+    ├── recent_csvs/            # "🕘 최근" CSV 사본
+    ├── workflow_presets/       # family별 ControlNet 프리셋 워크플로우
+    ├── jobs_state.json         # 작업 이력
+    ├── pods.json               # 파드(워커) 목록
+    ├── comfy_endpoint.json     # (옛 형식) ComfyUI 접속 주소 — 있으면 pods.json으로 이관됨
+    ├── comfy_output_sync.json  # 원격 ComfyUI에서 어디까지 받아왔는지의 기록
+    ├── lora_triggers.json      # LoRA 트리거 워드 + 호환 베이스 모델
+    ├── base_model_families.json # 베이스 모델(family) 정의
+    ├── danbooru_tag_edits.json # Danbooru 태그 풀 편집
+    └── danbooru_history.json   # Danbooru 프롬프트 조합 기록
 ```
 
-- 모든 작업은 `templates/{script_filename}`을 직접 실행하고, 업로드된 워크플로우/CSV만 `jobs/{job_id}_{원본파일명}` 형태로 저장됩니다.
-- 각 작업의 로그는 `logs/{job_id}.log`에 저장됩니다.
-- 워커는 단일 스레드로 동작하므로 스크립트는 항상 큐에 들어온 순서대로 **하나씩** 실행됩니다(동시 실행 없음).
+**`server/`·`static/`·`templates/`가 나뉘어 있는 이유**: 셋은 서로 다른 방식으로 실행됩니다 —
+`server/`는 uvicorn 프로세스 하나로 뜨는 파이썬 패키지, `static/`은 그 프로세스가 그대로
+서빙하는 정적 파일, `templates/`는 그 프로세스가 서브프로세스로 실행하는 독립
+프로그램(원격 pod에서 돌 수도 있음)입니다. `templates/`를 `server/` 안에 넣지 않은 것은
+의도적입니다 — import되는 모듈이 아니라는 구분을 유지하기 위함입니다.
+
+### `data/` — 소스와 생성물을 갈라놓는 곳
+
+**저장소에 커밋돼 있는 것**(스크립트·정적 페이지·샘플 워크플로우)은 저장소 루트에,
+**앱이 돌면서 만들어내는 것**은 전부 `data/` 아래에 있습니다. 경로만 봐도 무엇이 코드이고
+무엇이 생성물인지 갈리게 하려는 것으로, 경로는 `data_paths.py` 한 곳에서 정합니다.
+
+- `data/`는 통째로 `.gitignore`에 있습니다. 그래서 작업을 아무리 돌려도 워킹 트리가
+  더러워지지 않고, 홈서버에서 `git pull` 할 때 걸릴 일이 없습니다.
+- **옛 배치는 자동으로 이관됩니다** — 저장소 루트에 `jobs/`·`jobs_state.json`·`pods.json`
+  같은 것이 남아 있으면 첫 실행 때 `data/` 아래로 옮깁니다. 이미 돌고 있는 홈서버나 pod가
+  설정과 기록을 잃지 않게 하기 위한 것입니다.
+- 결과 이미지는 여기 두지 않습니다 — 보통 저장소 밖(원격 pod의 네트워크 볼륨 등)에 있고
+  `NIGHTSHIFT_OUTPUT_DIR`로 따로 정합니다.
+- 다른 위치에 두고 싶으면 `NIGHTSHIFT_DATA_DIR`로 폴더 전체를 옮길 수 있습니다.
+
+> **⚠ 이 버전으로 올릴 때 한 번만** — 이전 버전에서는 `jobs_state.json`,
+> `recent_csvs_state.json`, `recent_workflows_state.json`이 저장소에 커밋돼 있었습니다.
+> 지금은 추적하지 않으므로, 이미 돌고 있는 머신에서는 `git pull`이 "로컬 변경을 덮어쓴다"며
+> 멈춥니다. 아래를 먼저 실행한 뒤 pull 하세요(나머지 파일은 추적 대상이 아니라 pull과
+> 무관하며, 앱이 다음 시작 때 알아서 `data/`로 옮깁니다):
+>
+> ```bash
+> mkdir -p data
+> cp jobs_state.json recent_csvs_state.json recent_workflows_state.json data/ 2>/dev/null
+> git checkout -- jobs_state.json recent_csvs_state.json recent_workflows_state.json
+> git pull
+> ```
+
+- 모든 작업은 `templates/{script_filename}`을 직접 실행하고, 업로드된 워크플로우/CSV만 `data/jobs/{job_id}_{원본파일명}` 형태로 저장됩니다.
+- 각 작업의 로그는 `data/logs/{job_id}.log`에 저장됩니다.
+- 워커 스레드는 **파드마다** 따로 돌고, 한 파드 안에서는 `max_concurrent`(기본 1)만큼 동시에 실행됩니다.
 - 서버가 재시작되면 이전에 `queued`/`running` 상태였던 작업은 `interrupted`로 표시되며, 자동으로 재실행되지 않습니다.
 
 ## 주의사항

@@ -24,7 +24,7 @@ zip/이메일까지 전부 한 줄도 안 고치고 그대로 동작한다. 이 
 탈출구가 force=True(그리고 forget_downloaded())다.
 
 환경변수:
-    NIGHTSHIFT_OUTPUT_SYNC_FILE  동기화 기록 파일 경로 (기본 <이 파일 옆>/comfy_output_sync.json)
+    NIGHTSHIFT_OUTPUT_SYNC_FILE  동기화 기록 파일 경로 (기본 <저장소>/data/comfy_output_sync.json)
     NIGHTSHIFT_SYNC_MAX_ITEMS    /history에서 훑어볼 최근 프롬프트 개수 (기본 500)
     NIGHTSHIFT_SYNC_TIMEOUT_SEC  ComfyUI HTTP 요청 타임아웃 (기본 60)
 """
@@ -37,11 +37,21 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from data_paths import data_path
 from output_images import IMAGE_EXTENSIONS, OUTPUT_DIR
+
+# drivers/comfyui.py의 COMFY_USER_AGENT와 값이 같다(왜 필요한지는 그쪽 주석 참고 —
+# Cloudflare가 앞단인 RunPod pod가 파이썬 urllib 기본 UA를 403으로 막는다). 여기서
+# 다시 import하지 않고 값을 그대로 복사해 둔 이유는 drivers.comfyui가 이 모듈을
+# import하므로(순환 import가 된다).
+COMFY_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 SYNC_STATE_FILE = Path(
     os.environ.get("NIGHTSHIFT_OUTPUT_SYNC_FILE")
-    or (Path(__file__).resolve().parent / "comfy_output_sync.json")
+    or data_path("comfy_output_sync.json")
 )
 # ComfyUI의 /history는 최근 것부터 max_items개를 돌려준다. 한 작업이 이미지 수만큼
 # 프롬프트를 만들기 때문에(seed_count=100이면 프롬프트도 100개) 넉넉해야 한다.
@@ -109,7 +119,7 @@ def forget_downloaded(subfolder: str | None = None) -> int:
 
 
 def _http_get(url: str, timeout: float) -> bytes:
-    req = urllib.request.Request(url)
+    req = urllib.request.Request(url, headers={"User-Agent": COMFY_USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
 
