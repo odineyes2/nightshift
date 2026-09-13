@@ -1,10 +1,11 @@
-// pm2 프로세스 정의 — nightshift 서버(app.py)를 pm2로 백그라운드 실행/관리한다.
+// pm2 프로세스 정의 — nightshift 서버(server/app.py)를 pm2로 백그라운드 실행/관리한다.
 // `npm start`(= `pm2 start ecosystem.config.js`)로 시작하면:
 //   - 터미널을 계속 붙잡고 있지 않아도 서버가 백그라운드에서 계속 돈다
 //   - `npm run status` / `pm2 status`로 살아있는지 한눈에 확인
 //   - `npm run logs` / `pm2 logs nightshift`로 로그만 깔끔하게 tail
-//   - app.py나 templates/, static/ 안의 파일을 고치면 uvicorn --reload가 감지해서
-//     자동으로 다시 로드한다(코드 변경 시 서버를 직접 껐다 켤 필요 없음)
+//   - server/ 안의 파이썬 파일이나 templates/, static/ 안의 파일을 고치면
+//     uvicorn --reload가 감지해서 자동으로 다시 로드한다(코드 변경 시 서버를
+//     직접 껐다 켤 필요 없음)
 //
 // 서버 프로세스 자체는 여전히 uvicorn이 띄운다 — pm2는 그 프로세스를 감독만 한다
 // (죽으면 자동 재시작, 상태/로그 조회를 깔끔하게 제공).
@@ -56,6 +57,12 @@ function resolvePython3() {
   return "python3";
 }
 
+// 서버 파이썬 모듈이 사는 곳. app.py/mcp_server.py 둘 다 여기서 cwd로 띄운다 —
+// 형제 모듈 import(from data_paths import ...  등)가 상대 경로가 아니라 cwd
+// 기준으로 풀리므로, 패키지 프리픽스 없이 그대로 두려면 여기서 작업 디렉터리를
+// 맞춰줘야 한다.
+const SERVER_DIR = path.join(__dirname, "server");
+
 // app.py가 뜰 포트. .env의 NIGHTSHIFT_PORT를 그대로 쓴다 — 예전에는 여기 8000이
 // 박혀 있고 .env에도 같은 값을 따로 적어야 했는데, 둘이 어긋나면 (a) 접속 포트와
 // (b) 템플릿이 진행 상황을 보고하는 주소(app.py의 SELF_URL)가 서로 달라져서
@@ -70,7 +77,7 @@ module.exports = {
       script: resolvePython3(),
       args: `-m uvicorn app:app --host 0.0.0.0 --port ${nightshiftPort} --reload`,
       interpreter: "none",
-      cwd: __dirname,
+      cwd: SERVER_DIR,
       env: {
         PYTHONUNBUFFERED: "1", // print() 출력이 버퍼링 없이 바로 pm2 로그에 찍히게 함
         ...dotEnv, // .env의 NIGHTSHIFT_API_KEY/NIGHTSHIFT_PORT 등을 app.py 프로세스로 전달
@@ -92,7 +99,7 @@ module.exports = {
       script: resolvePython3(),
       args: "mcp_server.py",
       interpreter: "none",
-      cwd: __dirname,
+      cwd: SERVER_DIR,
       env: {
         PYTHONUNBUFFERED: "1",
         ...dotEnv, // .env의 JOB_QUEUE_BASE_URL/JOB_QUEUE_API_KEY/MCP_SERVER_PORT 전달

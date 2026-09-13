@@ -46,16 +46,19 @@ from starlette.datastructures import UploadFile
 from PIL import Image
 
 from comfy_outputs import OutputSyncError, forget_downloaded, sync_outputs, sync_state_summary
+from data_paths import data_dir, data_path
 from drivers import DriverError, driver_for, driver_kinds
 from drivers.comfyui import (
     CANDIDATE_URLS,
     CHECK_TIMEOUT,
     CHECK_TIMEOUT_INTERACTIVE,
     CHECK_TIMEOUT_LOCAL,
+    COMFY_USER_AGENT,
     ComfyUIDriver,
     check_url,
 )
 import pod_registry
+import runpod_api
 from email_sender import EmailSendError, find_image_files, send_output_images
 from workflow_builder import WorkflowBuildError, build_workflow
 from output_images import (
@@ -98,22 +101,28 @@ class _SuppressPollingAccessLogs(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_SuppressPollingAccessLogs())
 
+# 이 파일이 사는 server/ 아래에는 이 서버가 "가지고 도는" 파이썬 모듈과, 서버
+# 자신이 쓰는 리소스(prompt_enhancer.json)가 있다. templates/(작업 스크립트)와
+# static/(프론트엔드)는 서버 코드가 아니라 저장소 루트에 나란히 있는 별개
+# 산출물이라 REPO_ROOT로 따로 가리킨다 — templates/*.py는 서버가 import하는
+# 모듈이 아니라 서브프로세스로 실행되는 독립 프로그램이고, 원격 pod에서 돌 수도
+# 있다. 돌면서 생기는 것(작업 기록·로그·최근 파일·설정)은 전부 data/ 아래다 —
+# 무엇이 코드고 무엇이 생성물인지 경로만 봐도 갈리게 하려는 것이다
+# (data_paths.py 참고).
 BASE_DIR = Path(__file__).parent
-JOBS_DIR = BASE_DIR / "jobs"
-LOGS_DIR = BASE_DIR / "logs"
-TEMPLATES_DIR = BASE_DIR / "templates"
+REPO_ROOT = BASE_DIR.parent
+JOBS_DIR = data_dir("jobs")
+LOGS_DIR = data_dir("logs")
+TEMPLATES_DIR = REPO_ROOT / "templates"
 MANIFEST_PATH = TEMPLATES_DIR / "manifest.json"
-STATE_FILE = BASE_DIR / "jobs_state.json"
+STATE_FILE = data_path("jobs_state.json")
 # "새 작업 추가" 마법사의 ControlNet 계열 워크플로우 유형(openpose_cn/depth_cn/
 # lineart_cn)이 쓰는, family(베이스 모델)별로 미리 만들어 올려둔 워크플로우 JSON
 # 저장소. 이 세 유형은 체크포인트마다 ControlNet 로더/가중치 배선이 달라 워크플로우
 # 빌더가 안전하게 자동 조립할 수 없어서(잘못 배선하면 조용히 ControlNet 없이
 # 돌아가는 사고가 남), 관리자가 한 번 만들어둔 워크플로우를 family+유형 조합별로
 # 저장해뒀다가 그대로 재사용한다. 파일명 규칙은 preset_filename() 참고.
-WORKFLOW_PRESETS_DIR = BASE_DIR / "workflow_presets"
-JOBS_DIR.mkdir(exist_ok=True)
-LOGS_DIR.mkdir(exist_ok=True)
-WORKFLOW_PRESETS_DIR.mkdir(exist_ok=True)
+WORKFLOW_PRESETS_DIR = data_dir("workflow_presets")
 
 class RecentFileStore:
     """업로드된 파일 사본을 "최근 N개, 내용 중복 제거" 정책으로 관리한다. 워크플로우
@@ -190,13 +199,13 @@ class RecentFileStore:
 
 
 recent_workflows_store = RecentFileStore(
-    BASE_DIR / "recent_workflows",
-    BASE_DIR / "recent_workflows_state.json",
+    data_dir("recent_workflows"),
+    data_path("recent_workflows_state.json"),
     int(os.environ.get("NIGHTSHIFT_RECENT_WORKFLOWS_RETENTION", "30")),
 )
 recent_csvs_store = RecentFileStore(
-    BASE_DIR / "recent_csvs",
-    BASE_DIR / "recent_csvs_state.json",
+    data_dir("recent_csvs"),
+    data_path("recent_csvs_state.json"),
     int(os.environ.get("NIGHTSHIFT_RECENT_CSVS_RETENTION", "30")),
 )
 
@@ -204,8 +213,8 @@ recent_csvs_store = RecentFileStore(
 # 추가/삭제)과 조합 기록. 규칙 엔진·랜덤 조합·프롬프트 조립 자체는 클릭마다 즉시
 # 반응해야 해서 static/index.html에 선언적 데이터+로직으로 들어있고, 여기서는
 # "사용자가 편집/저장한 상태"만 그대로 보관했다 내려준다 (형태를 이해할 필요가 없음).
-DANBOORU_TAG_EDITS_FILE = BASE_DIR / "danbooru_tag_edits.json"
-DANBOORU_HISTORY_FILE = BASE_DIR / "danbooru_history.json"
+DANBOORU_TAG_EDITS_FILE = data_path("danbooru_tag_edits.json")
+DANBOORU_HISTORY_FILE = data_path("danbooru_history.json")
 DANBOORU_HISTORY_LIMIT = 40
 
 danbooru_tag_edits: dict = {}   # {categoryKey: {"added": [...], "removed": [...]}}
@@ -244,7 +253,7 @@ def save_danbooru_history():
 # 예전 스키마는 {lora_filename: "trigger_word"}(문자열)였다. load_lora_triggers()가
 # 시작할 때 문자열 값을 {trigger: 그 값, families: []}로 자동 이관하고 즉시 새
 # 형식으로 다시 저장해, 그 뒤로는 항상 새 형식만 디스크에 남는다.
-LORA_TRIGGERS_FILE = BASE_DIR / "lora_triggers.json"
+LORA_TRIGGERS_FILE = data_path("lora_triggers.json")
 lora_triggers: dict[str, dict] = {}  # {lora_filename: {"trigger": str, "families": [family_id, ...]}}
 
 
@@ -282,7 +291,7 @@ def save_lora_triggers():
 # 1단계(베이스 모델 선택)가 이 목록에서 고른다. family 하나는 서로 호환되는(같은
 # 아키텍처 계열) 체크포인트 파일 여러 개를 묶을 수 있다. LoRA/워크플로우 프리셋의
 # "호환 family" 목록이 여기 family_id를 참조한다("🎛 LoRA" 탭, workflow_presets).
-BASE_MODEL_FAMILIES_FILE = BASE_DIR / "base_model_families.json"
+BASE_MODEL_FAMILIES_FILE = data_path("base_model_families.json")
 base_model_families: dict[str, dict] = {}  # {family_id: {"label": str, "checkpoints": [ckpt_filename, ...]}}
 
 
@@ -347,7 +356,7 @@ SELF_URL = (os.environ.get("NIGHTSHIFT_SELF_URL", "").strip().rstrip("/")
 # isDanbooru_sys? 라는 제목의 ComfySwitchNode가 "자연어로 다듬기(7번 노드)" /
 # "그 결과를 다시 Danbooru 태그로 변환(13번 노드)" 두 경로를 고르므로, 요청받은
 # 모드(자연어/Danbooru)에 맞춰 이 스위치 노드의 switch 입력을 켜고 끈다.
-ENHANCER_WORKFLOW_PATH = BASE_DIR / "prompt_enhancer.json"
+ENHANCER_WORKFLOW_PATH = BASE_DIR / "prompt_enhancer.json"  # server/ 자신의 리소스
 ENHANCER_INPUT_NODE_TITLE = "user_prompt"
 ENHANCER_OUTPUT_NODE_TITLE = os.environ.get("NIGHTSHIFT_ENHANCER_OUTPUT_NODE_TITLE", "미리보기")
 ENHANCER_MODE_NODE_TITLE = os.environ.get("NIGHTSHIFT_ENHANCER_MODE_NODE_TITLE", "isDanbooru_sys")
@@ -617,7 +626,9 @@ def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
     req = urllib.request.Request(
         f"{comfy_url}/prompt",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        # User-Agent가 필요한 이유는 drivers/comfyui.py의 COMFY_USER_AGENT 주석 참고
+        # — Cloudflare가 앞단에 있는 RunPod pod는 기본 urllib UA를 403으로 막는다.
+        headers={"Content-Type": "application/json", "User-Agent": COMFY_USER_AGENT},
         method="POST",
     )
     try:
@@ -632,7 +643,8 @@ def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
     deadline = time.time() + ENHANCE_TIMEOUT_SEC
     while time.time() < deadline:
         try:
-            hist_req = urllib.request.Request(f"{comfy_url}/history/{prompt_id}")
+            hist_req = urllib.request.Request(
+                f"{comfy_url}/history/{prompt_id}", headers={"User-Agent": COMFY_USER_AGENT})
             with urllib.request.urlopen(hist_req, timeout=30) as resp:
                 history = json.loads(resp.read().decode("utf-8"))
         except urllib.error.URLError as e:
@@ -1443,6 +1455,17 @@ async def test_pod_api(pod_id: str):
         raise HTTPException(400, str(e))
     health = await asyncio.to_thread(driver.health, pod, COMFY_CHECK_TIMEOUT_INTERACTIVE)
     return {"pod_id": pod_id, **health}
+
+
+@app.post("/api/pods/{pod_id}/runpod-test")
+async def test_pod_runpod_api(pod_id: str):
+    """카드에 뜨는 RunPod 메타데이터(card()의 get_runpod_info())는 실패를 전부 조용히
+    삼키므로, "왜 안 뜨는지"를 직접 확인하고 싶을 때 이 엔드포인트로 캐시 없이 다시
+    조회해 실패 이유(HTTP 코드/응답 본문/키 미설정 등)를 그대로 돌려준다."""
+    pod = pod_registry.get_pod(pod_id)
+    if pod is None:
+        raise HTTPException(404, "없는 파드예요.")
+    return await asyncio.to_thread(runpod_api.debug_probe, pod.get("url") or "")
 
 
 @app.get("/api/comfy-object-info")
@@ -2663,6 +2686,18 @@ def job_log(job_id: str, tail: int = 200):
     return {"log": "\n".join(lines[-tail:])}
 
 
+@app.get("/api/jobs/{job_id}/text-result")
+def job_text_result(job_id: str):
+    """이미지가 아니라 글을 만드는 워커(claude_writer)의 결과 — 템플릿이 직접
+    NIGHTSHIFT_OUTPUT_DIR/<job_id>/output.md에 써 둔 것을 그대로 읽어 돌려준다.
+    파드 화면의 "📝 결과" 탭이 이걸 부른다. 파일이 없으면(아직 실행 전/실패)
+    빈 문자열 — 로그(job_log)를 보라고 굳이 에러를 내지 않는다."""
+    path = Path(OUTPUT_DIR) / job_id / "output.md"
+    if not path.is_file():
+        return {"text": ""}
+    return {"text": path.read_text(encoding="utf-8", errors="replace")}
+
+
 @app.put("/api/jobs/{job_id}/progress")
 async def update_job_progress(job_id: str, request: Request):
     # 실행 중인 템플릿 스크립트가 자기 진행 상황(전체/완료 이미지 수)을 스스로 보고하는
@@ -2946,8 +2981,18 @@ async def sync_comfy_outputs(request: Request):
     data = await read_json_object(request)
     job_id = (data.get("job_id") or "").strip() or None
     force = bool(data.get("force"))
+    pod_id = (data.get("pod_id") or "").strip() or None
 
-    url, connected = await asyncio.to_thread(resolve_comfy_url)
+    # pod_id를 주면 그 파드에서 가져온다(파드 갤러리의 "⬇ 결과 가져오기") — 안 주면
+    # 예전처럼 기본 파드([헤더의 연결 상태 배지]·전역 갤러리가 여기 해당한다).
+    if pod_id:
+        pod = pod_registry.get_pod(pod_id)
+        if pod is None:
+            raise HTTPException(404, "없는 파드예요.")
+        health = await asyncio.to_thread(driver_for(pod).health, pod)
+        url, connected = health["url"], health["ok"]
+    else:
+        url, connected = await asyncio.to_thread(resolve_comfy_url)
     if not url or not connected:
         raise HTTPException(503, "ComfyUI에 연결할 수 없어 결과 이미지를 가져올 수 없어요.")
     try:
@@ -3274,7 +3319,7 @@ def delete_danbooru_history(entry_id: str):
     return {"ok": True}
 
 
-app.mount("/", StaticFiles(directory=str(BASE_DIR / "static"), html=True), name="static")
+app.mount("/", StaticFiles(directory=str(REPO_ROOT / "static"), html=True), name="static")
 
 
 if __name__ == "__main__":

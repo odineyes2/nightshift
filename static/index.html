@@ -110,26 +110,7 @@
     align-items:center;
     gap:16px;
   }
-  .comfy-status{
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-    font-family:var(--mono);
-    font-size:11.5px;
-    font-weight:600;
-    padding:4px 10px;
-    border-radius:20px;
-    border:1px solid var(--border);
-    color:var(--text-dim);
-    /* 클릭하면 접속 주소 설정 모달이 열린다(버튼이지만 배지처럼 보이게 배경만 비운다). */
-    background:none;
-    cursor:pointer;
-  }
-  .comfy-status:hover{ border-color:var(--text-dim); }
-  .comfy-status .cdot{ width:6px; height:6px; border-radius:50%; background:currentColor; flex-shrink:0; }
-  .comfy-status.connected{ color:var(--done); border-color:currentColor; background:rgba(var(--done-rgb),0.08); }
-  .comfy-status.disconnected{ color:var(--failed); border-color:currentColor; background:rgba(var(--failed-rgb),0.08); }
-  /* 접속 주소 모달에서 "지금 무엇이 적용 중인지"를 보여주는 요약 줄. */
+  /* "지금 상태" 요약 줄 — 작업 이동 모달의 "지금 이 작업이 배정된 파드" 등에 쓴다. */
   .comfy-endpoint-current{
     font-family:var(--mono);
     font-size:11.5px;
@@ -142,7 +123,7 @@
   }
   .comfy-endpoint-current b{ color:var(--text); font-weight:600; }
 
-  /* 밤 모드/낮 모드 전환 버튼 — .comfy-status와 같은 필(pill) 형태로 헤더 톤을 맞춘다. */
+  /* 밤 모드/낮 모드 전환 버튼 — 필(pill) 형태로 헤더 톤을 맞춘다. */
   .theme-toggle-btn{
     display:inline-flex;
     align-items:center;
@@ -655,6 +636,18 @@
     min-height:1em;
   }
   .email-hint{ font-size:12.5px; color:var(--text-dim); margin:-4px 0 12px; }
+  /* RunPod에서 가져온 이름을 nightshift 이름 입력칸에 한 번에 채워주는 제안 줄
+     — 자동으로 덮어쓰지는 않는다(사용자가 일부러 지은 이름을 조용히 바꾸면
+     안 되므로), 눌러야만 채워지는 링크 버튼으로만 둔다. */
+  .pod-name-suggest{ font-size:12px; color:var(--text-dim); }
+  .pod-name-suggest button{
+    background:none; border:none; padding:0; margin-left:4px;
+    color:var(--queued); font-size:12px; cursor:pointer; text-decoration:underline;
+  }
+  .runpod-info-box{ background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .runpod-info-grid{ display:grid; grid-template-columns:auto 1fr; gap:5px 12px; font-size:12.5px; }
+  .runpod-info-grid .ri-k{ color:var(--text-dim); }
+  .runpod-info-grid .ri-v{ color:var(--text); font-family:var(--mono); }
   input.email-input{ max-width:320px; }
   .email-result{ color:var(--done); font-size:12.5px; font-family:var(--mono); min-height:1em; }
   .output-actions{ display:flex; gap:var(--gap-lg); flex-wrap:wrap; }
@@ -816,6 +809,43 @@
     background:var(--panel); border:1px solid var(--border); border-radius:10px;
   }
   .dash-card[data-span="2"]{ grid-column:span 2; }
+  /* 카드 전체가 클릭 영역이다 — 눌러도 되는 곳이라는 걸 커서와 미묘한 hover로
+     알려준다. 안쪽 버튼(⚙/▶ 시작/⏸ 정지)은 자기 cursor:pointer가 그대로 이기므로
+     구분엔 문제없다. */
+  .dash-card-clickable{ cursor:pointer; transition:border-color .12s ease, background .12s ease; }
+  .dash-card-clickable:hover{ border-color:var(--queued); background:rgba(var(--queued-rgb),0.04); }
+  /* 상태별 시각 구분 — 점 색깔 하나로는 카드가 많아지면 눈에 잘 안 들어온다.
+     왼쪽 띠 색 + 옅은 배경 톤을 더해서, 굳이 점을 찾아보지 않아도 "지금 뭐가
+     돌고 있고 뭐가 안 붙는지"가 카드를 훑기만 해도 보이게 한다. hover 시
+     border-color를 덮어쓰는 규칙보다 아래 있어야 하고(우선순위), 왼쪽 테두리는
+     hover와 무관하게 그 파드의 상태를 계속 보여줘야 하므로 border-left만 별도로
+     둔다. */
+  .dash-card[data-pod-state]{ border-left-width:3px; border-left-style:solid; }
+  .dash-card[data-pod-state="online"]{ border-left-color:var(--done); }
+  .dash-card[data-pod-state="offline"]{
+    border-left-color:var(--failed);
+    background:rgba(var(--failed-rgb),0.045);
+  }
+  .dash-card[data-pod-state="busy"]{
+    border-left-color:var(--running);
+    background:rgba(var(--running-rgb),0.05);
+  }
+  .dash-card[data-pod-state="disabled"]{ border-left-color:var(--border); }
+  .dash-card-top{ display:flex; gap:10px; align-items:flex-start; }
+  .dash-card-top-info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:6px; }
+  /* 카드마다 하나씩 있는 "일꾼 로봇" — 몸통 색은 파드별로 고정(hashToIndex),
+     표정/애니메이션은 상태를 따라간다. transform-box를 fill-box로 줘야 SVG
+     자체의 bounding box 기준으로 회전/이동해서, 뷰포트 원점 기준으로 어색하게
+     튀지 않는다. */
+  .dash-robot{ flex:none; width:36px; height:36px; }
+  .dash-robot-svg{ display:block; transform-box:fill-box; transform-origin:50% 50%; }
+  .dash-robot-online{ animation:robot-bob 2.6s ease-in-out infinite; }
+  .dash-robot-busy{ animation:robot-shake 0.5s ease-in-out infinite; }
+  .dash-robot-offline{ opacity:0.55; }
+  .dash-robot-disabled{ filter:grayscale(1); opacity:0.5; }
+  .dash-robot-busy .dash-robot-light{ animation:pulse-run 0.6s infinite; }
+  @keyframes robot-bob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-2px); } }
+  @keyframes robot-shake{ 0%,100%{ transform:rotate(0deg); } 25%{ transform:rotate(-3deg); } 75%{ transform:rotate(3deg); } }
   .dash-card-head{ display:flex; align-items:center; gap:8px; }
   .dash-card-name{ font-family:var(--mono); font-size:14px; color:var(--text); }
   .dash-card-kind{ font-size:10.5px; color:var(--text-dim); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
@@ -826,6 +856,8 @@
   .dash-dot.busy{ background:var(--running); animation:pulse-run 1.2s infinite; }
   .dash-dot.disabled{ background:var(--text-dim); opacity:0.5; }
   .dash-card-url{ font-family:var(--mono); font-size:11px; color:var(--text-dim); word-break:break-all; }
+  .dash-card-runpod{ display:flex; flex-wrap:wrap; gap:4px 10px; font-size:10.5px; color:var(--text-dim); }
+  .dash-card-runpod b{ color:var(--text); font-weight:500; }
   .dash-card-job{ font-size:12px; color:var(--text); }
   .dash-card-job .dim{ color:var(--text-dim); }
   .dash-card-stats{ display:flex; flex-wrap:wrap; gap:14px; }
@@ -846,6 +878,28 @@
   .dash-thumb{ width:54px; height:54px; object-fit:cover; border-radius:6px; border:1px solid var(--border); }
   .dash-card-actions{ display:flex; flex-wrap:wrap; gap:6px; margin-top:auto; padding-top:4px; }
   .dash-card.disabled{ opacity:0.62; }
+
+  /* Claude 글쓰기 파드의 "📝 결과" 탭 — 이미지가 아니라 글이라 갤러리(썸네일 격자)
+     대신 이 목록을 쓴다. 행을 누르면 그 자리에서 펼쳐지고(별도 라이트박스 없음),
+     펼친 순간에만 서버에서 전문을 받아온다(resultTextCache로 재요청 방지). */
+  .results-list{ display:flex; flex-direction:column; gap:6px; }
+  .result-row{
+    border:1px solid var(--border); border-radius:8px; padding:8px 12px;
+    cursor:pointer; background:var(--panel);
+  }
+  .result-row:hover{ border-color:var(--queued); }
+  .result-row.open{ cursor:default; }
+  .result-row-head{ display:flex; align-items:center; gap:10px; }
+  .result-prompt{
+    flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    font-size:13px; color:var(--text);
+  }
+  .result-time{ flex:none; font-size:11px; color:var(--text-dim); font-family:var(--mono); }
+  .result-full{
+    margin-top:8px; padding-top:8px; border-top:1px solid var(--border);
+    font-size:13px; line-height:1.6; color:var(--text); white-space:pre-wrap;
+    cursor:text;
+  }
 
   /* 작업이 어느 파드(워커)에서 도는지 — 파드가 둘 이상일 때만 나타난다. */
   .pod-badge{
@@ -890,6 +944,7 @@
     background:var(--bg);
     padding:0;
   }
+  .log-toolbar{ display:flex; justify-content:flex-end; padding:8px 16px 0; }
   pre.log{
     margin:0;
     padding:16px;
@@ -1035,6 +1090,25 @@
   }
   .lora-tab-family-chip input{ margin:0; }
   .lora-tab-family-chip.checked{ color:var(--text); border-color:var(--queued); }
+  /* 아직 family로 등록 안 된, 설치된 체크포인트 안내 — family-row보다 눈에 덜
+     띄게(점선 테두리) 둔다. "해도 되고 안 해도 되는" 편의 기능이라서다. */
+  .family-unregistered{
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+    padding:8px 12px; margin-bottom:10px;
+    border:1px dashed var(--border); border-radius:var(--radius-sm);
+    font-size:12.5px; color:var(--text-dim);
+  }
+  .family-unregistered-chip{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family:var(--mono); font-size:12px; color:var(--text);
+    border:1px solid var(--border); border-radius:6px; padding:2px 4px 2px 8px;
+    background:var(--bg);
+  }
+  .family-quick-register-btn{
+    background:none; border:none; color:var(--queued); font-family:var(--mono);
+    font-size:11.5px; font-weight:600; cursor:pointer; padding:2px 6px;
+  }
+  .family-quick-register-btn:hover{ text-decoration:underline; }
   /* "🎛 모델" 탭의 베이스 모델(family) 목록 줄 — 이름/체크포인트 다중선택/삭제. */
   .family-row{
     display:flex;
@@ -1788,7 +1862,6 @@
   <div class="header-right">
     <button class="theme-toggle-btn" id="theme-toggle-btn" type="button"></button>
     <button class="theme-toggle-btn api-key-btn" id="api-key-btn" type="button" title="서버 API 키 설정 (NIGHTSHIFT_API_KEY)">🔑 API 키</button>
-    <button class="comfy-status" id="comfy-status" type="button" title="ComfyUI 접속 주소 설정"><span class="cdot"></span><span id="comfy-status-text">ComfyUI 확인 중…</span></button>
     <button class="load-btn" id="comfy-models-btn" type="button" title="이 ComfyUI 서버에 설치된 체크포인트·LoRA 목록 보기">📋 모델</button>
     <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
   </div>
@@ -1798,9 +1871,9 @@
      무엇이 설치돼 있는가"에 종속되므로 파드 스코프(아래 pod-bar) 안으로 들어갔다.
      Danbooru는 태그를 조립할 뿐 파드를 쓰지 않아 전역에 남되, 도구라는 뜻으로
      구분선 뒤에 둔다. -->
-<div class="tab-bar">
+<div class="tab-bar" id="global-tab-bar">
   <div class="tab-bar-inner">
-    <button class="tab-btn active" data-tab="dashboard" type="button" title="파드(워커) 대시보드">📊 대시보드</button>
+    <button class="tab-btn active" data-tab="dashboard" type="button" title="홈 — 파드(워커) 대시보드">🏠 Home</button>
     <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
     <span class="tab-bar-sep"></span>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 파드와 무관한 프롬프트 작업대">🏷 Danbooru</button>
@@ -1811,7 +1884,7 @@
      그 파드에서 무엇을 할 수 있는지(서브탭 구성은 파드 종류가 정한다)를 한 줄에 담는다. -->
 <div class="pod-bar" id="pod-bar" style="display:none;">
   <div class="pod-bar-inner">
-    <button class="pod-bar-back" id="pod-bar-back" type="button" title="대시보드로 돌아가기">← 대시보드</button>
+    <button class="pod-bar-back" id="pod-bar-back" type="button" title="홈으로 돌아가기">🏠 Home</button>
     <span class="dash-dot" id="pod-bar-dot"></span>
     <select class="pod-bar-select" id="pod-bar-select" title="다른 파드로 이동"></select>
     <span class="pod-bar-kind" id="pod-bar-kind"></span>
@@ -1953,7 +2026,7 @@
     <button class="submit-btn" id="deleted-jobs-load-btn" disabled title="이 설정 불러오기">📂 불러오기</button>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="output-images-panel">
     <div class="panel-header">
       <div class="panel-header-title">
         <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true">▾</button>
@@ -1981,7 +2054,7 @@
     </div>
   </div>
 
-  <div class="panel collapsed">
+  <div class="panel collapsed" id="output-email-panel">
     <div class="panel-header">
       <div class="panel-header-title">
         <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
@@ -2020,7 +2093,7 @@
 <main id="tab-gallery" style="display:none;">
   <div class="panel">
     <div class="panel-header">
-      <div class="section-label">갤러리</div>
+      <div class="section-label" id="gallery-section-label">갤러리</div>
       <div class="panel-header-actions">
         <span class="gallery-count" id="gallery-count"></span>
         <div class="enhance-mode" id="gallery-view-toggle">
@@ -2049,7 +2122,22 @@
       </div>
       <div class="upload-error" id="gallery-error"></div>
       <div class="gallery-grid" id="gallery-grid"></div>
-      <div class="empty" id="gallery-empty" style="display:none;">서버에 저장된 이미지가 없어요</div>
+      <div class="empty" id="gallery-empty" style="display:none;"></div>
+    </div>
+  </div>
+</main>
+
+<main id="tab-results" style="display:none;">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label">📝 결과</div>
+      <div class="panel-header-actions">
+        <button class="load-btn" id="results-refresh-btn" type="button" title="새로고침">🔄</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="results-list" id="results-list"></div>
+      <div class="empty" id="results-empty" style="display:none;">이 파드가 아직 만든 글이 없어요</div>
     </div>
   </div>
 </main>
@@ -2241,6 +2329,7 @@
         "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/ControlNet 프리셋을 걸러서 보여줘요.
         family 하나에 체크포인트를 여러 개(같은 계열의 다른 파인튜닝 등) 넣을 수 있어요.</div>
       <div class="upload-error" id="family-tab-error"></div>
+      <div id="family-tab-unregistered"></div>
       <div id="family-tab-list"></div>
       <div class="lora-tab-row" style="margin-top:8px;">
         <input type="text" class="option-input" id="family-new-id" placeholder="family id (영문/숫자/-/_, 예: wai-illustrious)" style="max-width:220px;">
@@ -2432,7 +2521,7 @@
 <div class="modal-overlay" id="pod-edit-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
-      <div class="modal-title" id="pod-edit-title">파드 추가</div>
+      <div class="modal-title" id="pod-edit-title">➕ 파드 추가</div>
       <button class="modal-close" id="pod-edit-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
@@ -2441,6 +2530,7 @@
       <div class="field">
         <label class="field-label" for="pod-edit-name">이름</label>
         <input type="text" class="option-input" id="pod-edit-name" placeholder="예: a100-1" autocomplete="off" style="max-width:100%;">
+        <div class="pod-name-suggest" id="pod-edit-name-suggest" style="display:none;"></div>
       </div>
       <div class="field">
         <label class="field-label" for="pod-edit-kind">종류</label>
@@ -2468,12 +2558,17 @@
         </label>
         <div class="email-hint">끄면 새 작업을 보낼 수 없어요(기록은 남습니다). 파드를 잠시 쉬게 할 때 씁니다.</div>
       </div>
+      <div class="field runpod-info-box" id="pod-edit-runpod-box" style="display:none;">
+        <label class="field-label">🛰 RunPod 정보</label>
+        <div class="runpod-info-grid" id="pod-edit-runpod-fields"></div>
+      </div>
       <div class="enhance-status" id="pod-edit-status" style="text-align:left; max-width:none;"></div>
       <div class="upload-error" id="pod-edit-error"></div>
     </div>
     <div class="modal-footer">
       <button class="del-btn" id="pod-edit-delete" type="button" style="margin-right:auto;">🗑 삭제</button>
       <button class="modal-btn-secondary" id="pod-edit-test" type="button">🔌 연결 테스트</button>
+      <button class="modal-btn-secondary" id="pod-edit-runpod-test" type="button">🛰 RunPod 정보 테스트</button>
       <button class="modal-btn-secondary" id="pod-edit-cancel" type="button">✕ 취소</button>
       <button class="submit-btn" id="pod-edit-save" type="button">💾 저장</button>
     </div>
@@ -2499,42 +2594,6 @@
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="job-move-cancel" type="button">✕ 취소</button>
       <button class="submit-btn" id="job-move-confirm" type="button">➡ 옮기기</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-overlay" id="comfy-endpoint-modal" style="display:none;">
-  <div class="modal-panel">
-    <div class="modal-header">
-      <div class="modal-title">ComfyUI 접속 주소</div>
-      <button class="modal-close" id="comfy-endpoint-modal-close" aria-label="닫기">&times;</button>
-    </div>
-    <div class="modal-body">
-      <div class="email-hint">nightshift가 작업을 보낼 ComfyUI 서버 주소예요. 같은 머신에서 돌고 있으면 비워둬도
-        자동으로 찾지만, ComfyUI만 다른 곳(예: 원격 GPU pod)에서 돌고 있다면 그 주소를 여기 넣으세요.
-        <b>저장하면 서버를 재시작하지 않아도 바로 반영됩니다</b> — pod를 새로 만들어 주소가 바뀌었을 때 여기만 갈아끼우면 돼요.</div>
-      <div class="comfy-endpoint-current" id="comfy-endpoint-current"></div>
-      <div class="field">
-        <label class="field-label" for="comfy-endpoint-input">주소</label>
-        <input type="text" class="option-input" id="comfy-endpoint-input"
-               placeholder="예: https://abc123-8188.proxy.runpod.net" autocomplete="off" spellcheck="false" style="max-width:100%;">
-      </div>
-      <div class="field">
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer;">
-          <input type="checkbox" id="comfy-endpoint-pull" style="accent-color:var(--queued); cursor:pointer;">
-          결과 이미지를 이 서버로 가져오기
-        </label>
-        <div class="email-hint" id="comfy-endpoint-pull-hint">ComfyUI가 원격에 있으면 결과 이미지도 그쪽 디스크에만 쌓여서 갤러리가 비어 보여요.
-          켜두면 작업이 끝날 때마다 그 작업의 이미지를 이 서버의 출력 폴더로 자동으로 받아옵니다
-          (한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않아요). ComfyUI가 같은 머신에서 돌고 있다면 켤 필요 없어요.</div>
-      </div>
-      <div class="enhance-status" id="comfy-endpoint-status" style="text-align:left; max-width:none;"></div>
-      <div class="upload-error" id="comfy-endpoint-error"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="modal-btn-secondary" id="comfy-endpoint-auto-btn" type="button" title="설정을 지우고 환경변수/자동 탐지로 되돌려요">↺ 자동 탐지로</button>
-      <button class="modal-btn-secondary" id="comfy-endpoint-test-btn" type="button">🔌 연결 테스트</button>
-      <button class="submit-btn" id="comfy-endpoint-save-btn" type="button">💾 저장</button>
     </div>
   </div>
 </div>
@@ -2603,6 +2662,9 @@ let podKinds = [];      // 등록할 수 있는 파드 종류(드라이버) 목�
 let allTemplates = [];  // 서버가 준 템플릿 전체(고른 파드 종류에 맞는 것만 드롭다운에 넣는다)
 // 작업 목록을 한 파드 것만 보고 있을 때 그 파드 id. null이면 전체.
 let jobPodFilter = null;
+// 갤러리를 한 파드 것만 보고 있을 때 그 파드 id. null이면 전체(jobPodFilter와
+// 같은 자리, 같은 생명주기 — showTab에서 같이 정해진다).
+let galleryPodFilter = null;
 // 지금 열려 있는 파드 스코프(#pod/{id}/...). 전역 화면(대시보드·갤러리·Danbooru)에
 // 있으면 null이다.
 let currentPodId = null;
@@ -2737,9 +2799,17 @@ let queueRunning = false; // 서버의 자동 실행 모드(auto_run)를 그대�
 // 마지막으로 그린 작업 목록. render()의 지역 변수 jobs는 그 함수 밖에서는 못 보는데,
 // 모달처럼 나중에 열리는 화면도 작업 정보를 봐야 해서 여기 남겨둔다.
 let lastJobs = [];
+// 작업 목록은 2초마다 폴링되는데, 매번 tbody.innerHTML을 통째로 다시 그리면 로그를
+// 펼쳐서 에러 메시지를 드래그로 선택/복사하려는 순간 DOM이 갈아끼워져서 선택이
+// 풀려버린다(내용이 하나도 안 바뀌었어도). 그래서 "보이는 내용이 실제로 바뀌었을
+// 때만" 다시 그린다 — 바뀐 게 없으면 이번 tick은 손대지 않고 그대로 둔다.
+let lastJobsRowsSignature = null;
 
 function render(jobs, pendingCount, running, perPod){
   lastJobs = jobs;
+  // "📝 결과" 탭이 열려 있는 동안 새 작업이 끝나면 목록에 바로 반영되게, 작업
+  // 폴링(2초)에 얹어 같이 새로고침한다 — 별도 폴링 루프를 안 둔다.
+  if(currentTab === 'results') renderResultsList();
   // 작업 목록은 언제나 지금 들어와 있는 파드 것만 보여준다(파드 스코프 바 참고).
   if(jobPodFilter) jobs = jobs.filter(j => j.pod_id === jobPodFilter);
   // 그래서 "▶ 시작/⏸ 정지"도 그 파드의 큐만 켜고 끈다 — 화면에 안 보이는 다른
@@ -2772,9 +2842,19 @@ function render(jobs, pendingCount, running, perPod){
   if(jobs.length === 0){
     tbody.innerHTML = '';
     emptyMsg.style.display = 'block';
+    lastJobsRowsSignature = null;
     return;
   }
   emptyMsg.style.display = 'none';
+
+  // 화면에 실제로 영향을 주는 값만 서명에 넣는다 — template_label/options 같은
+  // 것들은 작업이 생성될 때 정해지고 이후 안 바뀌므로 뺐다.
+  const rowsSignature = JSON.stringify(jobs.map(j => [
+    j.id, j.status, j.waiting_for_comfy, j.pod_id, j.started_at, j.finished_at,
+    j.progress && j.progress.done, j.progress && j.progress.total,
+  ])) + '|' + expandedId;
+  if(rowsSignature === lastJobsRowsSignature) return;
+  lastJobsRowsSignature = rowsSignature;
 
   tbody.innerHTML = jobs.map(j => {
     const isOpen = expandedId === j.id;
@@ -2824,7 +2904,10 @@ function render(jobs, pendingCount, running, perPod){
         </td>
       </tr>`;
     if(isOpen){
-      rows += `<tr class="log-row"><td colspan="11"><pre class="log" id="log-${j.id}">불러오는 중…</pre></td></tr>`;
+      rows += `<tr class="log-row"><td colspan="11">
+        <div class="log-toolbar"><button type="button" class="load-btn log-copy-btn" data-copyid="${j.id}" title="로그 전체를 클립보드로 복사">📋 로그 복사</button></div>
+        <pre class="log" id="log-${j.id}">불러오는 중…</pre>
+      </td></tr>`;
     }
     return rows;
   }).join('');
@@ -2936,8 +3019,35 @@ async function loadLog(id){
   if(!res.ok) return;
   const data = await res.json();
   const el = document.getElementById('log-' + id);
-  if(el) el.textContent = data.log || '(아직 출력이 없어요)';
+  if(!el) return;
+  const text = data.log || '(아직 출력이 없어요)';
+  // 내용이 실제로 같으면 손대지 않는다 — textContent를 다시 대입하면 문자열이
+  // 같아도 DOM 텍스트 노드가 새로 생겨서, 그 안의 텍스트를 드래그로 선택해
+  // 복사하려던 게 풀려버린다(끝난 작업의 에러 메시지를 복사하기 불편하다는
+  // 문제의 원인 중 하나였다 — 나머지 원인은 render()의 tbody 재생성이었다).
+  if(el.textContent !== text) el.textContent = text;
 }
+
+// 로그 전체를 클립보드로 복사 — 실행 중인 로그는 계속 늘어나서 드래그로 끝까지
+// 선택하기 번거롭고, 끝난 작업의 에러 메시지도 선택 중 화면이 갱신되면 풀리기
+// 쉬우니 버튼 한 번으로 지금 보이는 전체를 복사한다. tbody가 통째로 다시
+// 그려져도(위 lastJobsRowsSignature 가드로 어차피 드물다) 델리게이션이라
+// 다시 붙일 필요가 없다.
+document.getElementById('job-rows').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.log-copy-btn');
+  if(!btn) return;
+  e.stopPropagation();
+  const el = document.getElementById('log-' + btn.dataset.copyid);
+  const text = el ? el.textContent : '';
+  const original = btn.textContent;
+  try{
+    await navigator.clipboard.writeText(text);
+    btn.textContent = '✅ 복사됨';
+  }catch(err){
+    btn.textContent = '⚠ 복사 실패 — 직접 드래그해서 복사해주세요';
+  }
+  setTimeout(() => { btn.textContent = original; }, 1500);
+});
 
 let templatesById = {};
 let selectedFiles = { workflow: null, csv: null };
@@ -3779,6 +3889,18 @@ function templateAllowedOnPod(template, podKind){
 async function renderTemplateOptions(){
   const podKind = (podsById[formPodId()] || {}).kind
     || (podsCache.find(p => p.enabled) || {}).kind || 'comfyui';
+  // "새 작업 마법사"(베이스 모델/워크플로우 유형/LoRA/실행 방식)와 "결과 이미지
+  // 관리"/"결과 이미지 이메일 전송"(둘 다 OUTPUT_DIR의 이미지 파일을 다룸)은 전부
+  // ComfyUI 개념이다 — 다른 종류의 파드(셸 명령, Claude 글쓰기)에서는 아무 의미가
+  // 없으니 숨긴다. 그 위 템플릿 select + options-fields(그 템플릿의 옵션만 자동으로
+  // 그려주는 부분)는 파드 종류와 무관하게 이미 쓸 수 있으므로 그대로 둔다.
+  const comfyOnlyDisplay = (podKind === 'comfyui') ? '' : 'none';
+  const wizardBar = document.getElementById('wizard-bar');
+  if(wizardBar) wizardBar.style.display = comfyOnlyDisplay;
+  const imagesPanel = document.getElementById('output-images-panel');
+  if(imagesPanel) imagesPanel.style.display = comfyOnlyDisplay;
+  const emailPanel = document.getElementById('output-email-panel');
+  if(emailPanel) emailPanel.style.display = comfyOnlyDisplay;
   const prev = templateSelect.value;
   templatesById = {};
   templateSelect.innerHTML = '';
@@ -4219,9 +4341,12 @@ setupRecentFilePicker({
   mimeType: 'text/csv', setFile: setCsvFile,
 });
 
+// 헤더에 있던 전역 ComfyUI 연결 배지(와 그 주소 설정 모달)는 없앴다 — 파드가
+// 여럿인 지금은 "파드 하나"의 연결 상태를 전역에 하나 띄우는 게 오히려 부정확해
+// 보인다. 각 파드 카드가 이미 자기 상태를 정확히 보여주므로 그걸로 충분하다.
+// 다만 이 폴링 자체는 남겨둔다 — 응답의 pull_outputs가 "기본 파드" 기준 전역
+// 갤러리의 "⬇ 결과 가져오기" 버튼 노출 여부(comfyPullOutputs)를 정하기 때문이다.
 async function fetchComfyStatus(){
-  const el = document.getElementById('comfy-status');
-  const text = document.getElementById('comfy-status-text');
   let data;
   try{
     const res = await fetch('/api/comfy-status');
@@ -4233,150 +4358,23 @@ async function fetchComfyStatus(){
     comfyPullOutputs = !!data.pull_outputs;
     applyPullOutputsVisibility();
   }
-  el.classList.remove('connected', 'disconnected');
-  if(data.connected){
-    el.classList.add('connected');
-    text.textContent = `ComfyUI 연결됨 · ${data.url}`;
-  } else {
-    el.classList.add('disconnected');
-    text.textContent = data.url ? `ComfyUI 연결 안 됨 · ${data.url}` : 'ComfyUI 연결 안 됨';
-  }
-  // 서버가 연결 상태를 캐시해서 돌려주므로(원격 pod까지 매번 왕복하면 느리다),
-  // 언제 실측한 값인지 툴팁으로 밝혀 둔다.
-  const age = data.checked_age_sec;
-  el.title = age == null
-    ? '눌러서 ComfyUI 접속 주소를 설정해요'
-    : `${age < 1 ? '방금' : `${Math.round(age)}초 전`} 확인한 상태 · 눌러서 접속 주소 설정`;
-}
-
-// ---- ComfyUI 접속 주소 설정 (헤더의 연결 상태 배지 클릭) ----
-// nightshift를 홈서버에 상시 띄워두고 ComfyUI만 원격 pod에서 돌리는 구성에서는
-// pod를 새로 만들 때마다 주소가 바뀐다. 서버 재시작 없이 여기서 갈아끼운다.
-const comfyEndpointModal = document.getElementById('comfy-endpoint-modal');
-const COMFY_ENDPOINT_SOURCE_LABEL = {
-  setting: '이 화면에서 저장한 설정',
-  env: 'COMFY_URL 환경변수',
-  auto: '자동 탐지',
-};
-
-function renderComfyEndpointCurrent(info, connected){
-  const el = document.getElementById('comfy-endpoint-current');
-  const source = COMFY_ENDPOINT_SOURCE_LABEL[info.source] || info.source;
-  const effective = info.effective_url || `(자동 탐지: ${(info.candidates || []).join(', ')})`;
-  const lines = [
-    `지금 적용 중: <b>${escapeHtml(effective)}</b>`,
-    `출처: <b>${escapeHtml(source)}</b>`,
-  ];
-  if(info.source === 'setting' && info.env_url){
-    lines.push(`설정을 지우면 환경변수 값(${escapeHtml(info.env_url)})으로 되돌아가요.`);
-  }
-  if(connected !== undefined && connected !== null){
-    lines.push(connected ? '연결 상태: <b>연결됨</b>' : '연결 상태: <b>응답 없음</b>');
-  }
-  if(info.pull_outputs){
-    const sync = info.output_sync || {};
-    const when = sync.last_sync ? fmtTime(sync.last_sync) : '아직 없음';
-    lines.push(`결과 가져오기: <b>켜짐</b> → ${escapeHtml(info.output_dir || '')} (마지막 동기화 ${when}, 받아둔 ${sync.known || 0}장)`);
-  }
-  el.innerHTML = lines.join('<br>');
 }
 
 // 갤러리의 "⬇ 결과 가져오기" 버튼은 원격에서 끌어올 게 있을 때만 의미가 있으므로
-// pull_outputs가 켜져 있을 때만 보여준다. 설정 모달을 열거나 저장할 때 갱신된다.
+// pull_outputs가 켜져 있을 때만 보여준다.
 let comfyPullOutputs = false;
 function applyPullOutputsVisibility(){
   const btn = document.getElementById('gallery-pull-btn');
-  if(btn) btn.style.display = comfyPullOutputs ? '' : 'none';
+  if(!btn) return;
+  // 파드 갤러리에서는 지금 보고 있는 그 파드의 설정을 본다 — 전역 갤러리는
+  // 예전처럼 기본 파드 기준(comfyPullOutputs)이다. 파드가 여럿일 때 "기본 파드"와
+  // "지금 보는 파드"가 다를 수 있어서 둘을 섞으면 안 된다.
+  const on = galleryPodFilter ? !!(podsById[galleryPodFilter] || {}).pull_outputs : comfyPullOutputs;
+  btn.style.display = on ? '' : 'none';
+  btn.title = galleryPodFilter
+    ? `'${podName(galleryPodFilter)}' 파드가 만든 결과 이미지를 이 서버로 가져와요.`
+    : '원격 ComfyUI가 만든 결과 이미지를 이 서버로 가져와요. 작업이 끝날 때마다 자동으로도 가져오지만, pod를 껐다 켠 뒤 밀린 것을 한꺼번에 받을 때 쓰세요.';
 }
-
-async function openComfyEndpointModal(){
-  const errorEl = document.getElementById('comfy-endpoint-error');
-  const statusEl = document.getElementById('comfy-endpoint-status');
-  errorEl.textContent = '';
-  statusEl.textContent = '';
-  document.getElementById('comfy-endpoint-current').textContent = '불러오는 중…';
-  comfyEndpointModal.style.display = 'flex';
-  try{
-    const res = await fetch('/api/comfy-endpoint');
-    if(!res.ok) throw new Error('설정을 불러오지 못했어요.');
-    const info = await res.json();
-    document.getElementById('comfy-endpoint-input').value = info.url || '';
-    document.getElementById('comfy-endpoint-pull').checked = !!info.pull_outputs;
-    comfyPullOutputs = !!info.pull_outputs;
-    applyPullOutputsVisibility();
-    renderComfyEndpointCurrent(info);
-  }catch(e){
-    errorEl.textContent = e.message || '설정을 불러오지 못했어요.';
-    document.getElementById('comfy-endpoint-current').textContent = '';
-  }
-}
-
-function closeComfyEndpointModal(){ comfyEndpointModal.style.display = 'none'; }
-
-document.getElementById('comfy-status').addEventListener('click', openComfyEndpointModal);
-document.getElementById('comfy-endpoint-modal-close').addEventListener('click', closeComfyEndpointModal);
-comfyEndpointModal.addEventListener('click', (e) => { if(e.target === comfyEndpointModal) closeComfyEndpointModal(); });
-document.addEventListener('keydown', (e) => {
-  if(e.key === 'Escape' && comfyEndpointModal.style.display !== 'none') closeComfyEndpointModal();
-});
-
-document.getElementById('comfy-endpoint-test-btn').addEventListener('click', async () => {
-  const errorEl = document.getElementById('comfy-endpoint-error');
-  const statusEl = document.getElementById('comfy-endpoint-status');
-  errorEl.textContent = '';
-  statusEl.textContent = '확인 중…';
-  try{
-    const res = await fetch('/api/comfy-endpoint/test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: document.getElementById('comfy-endpoint-input').value }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if(!res.ok) throw new Error(data.detail || '확인하지 못했어요.');
-    statusEl.textContent = data.connected
-      ? `✅ 응답했어요 — ${data.url}`
-      : `⚠ 응답이 없어요 — ${data.url || '주소 없음'}${data.detail ? ` (${data.detail})` : ''}`;
-  }catch(e){
-    statusEl.textContent = '';
-    errorEl.textContent = e.message || '확인하지 못했어요.';
-  }
-});
-
-async function saveComfyEndpoint(url){
-  const errorEl = document.getElementById('comfy-endpoint-error');
-  const statusEl = document.getElementById('comfy-endpoint-status');
-  errorEl.textContent = '';
-  statusEl.textContent = '저장 중…';
-  try{
-    const res = await fetch('/api/comfy-endpoint', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, pull_outputs: document.getElementById('comfy-endpoint-pull').checked }),
-    });
-    const info = await res.json().catch(() => ({}));
-    if(!res.ok) throw new Error(info.detail || '저장하지 못했어요.');
-    document.getElementById('comfy-endpoint-input').value = info.url || '';
-    document.getElementById('comfy-endpoint-pull').checked = !!info.pull_outputs;
-    comfyPullOutputs = !!info.pull_outputs;
-    applyPullOutputsVisibility();
-    renderComfyEndpointCurrent(info, info.connected);
-    statusEl.textContent = info.connected ? '저장했어요 — 연결 확인됨.' : '저장했어요 — 다만 지금은 응답이 없어요.';
-    // 서버가 바뀌었으면 설치된 모델/노드 목록도 그 서버의 것으로 다시 받아야 한다.
-    comfyObjectInfoCache = null;
-    fetchComfyStatus();
-  }catch(e){
-    statusEl.textContent = '';
-    errorEl.textContent = e.message || '저장하지 못했어요.';
-  }
-}
-
-document.getElementById('comfy-endpoint-save-btn').addEventListener('click', () => {
-  saveComfyEndpoint(document.getElementById('comfy-endpoint-input').value);
-});
-document.getElementById('comfy-endpoint-auto-btn').addEventListener('click', () => {
-  document.getElementById('comfy-endpoint-input').value = '';
-  saveComfyEndpoint('');
-});
 
 // ---- 설치된 모델/노드 목록 (ComfyUI의 /object_info를 서버가 추려서 넘겨줌) ----
 // 워크플로우 JSON은 "노드 이름 + 입력값"일 뿐이라, 이 목록이 있으면 "이 서버에서
@@ -4664,14 +4662,45 @@ document.getElementById('lora-tab-refresh-btn').addEventListener('click', () => 
 document.getElementById('lora-tab-filter').addEventListener('input', renderLoraTab);
 
 // ---- "🎛 모델" 탭 — 베이스 모델(family) 관리 ----
+// family id로 쓸 수 있는 글자만 남기고, 겹치면 -2, -3...을 붙인다. 체크포인트
+// 파일명(예: "krea2_turbo_fp8_scaled.safetensors")을 그대로 넣어도 안전한 id가
+// 나오게 하려고 둔다.
+function slugifyFamilyId(name){
+  const base = name.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, '') || 'model';
+  let id = base, n = 2;
+  while(baseModelFamilies[id]) id = `${base}-${n++}`;
+  return id;
+}
+
 function renderFamilyTab(){
   const listEl = document.getElementById('family-tab-list');
+  const unregEl = document.getElementById('family-tab-unregistered');
   const entries = Object.entries(baseModelFamilies);
+  const installed = (comfyObjectInfoCache && comfyObjectInfoCache.connected) ? (comfyObjectInfoCache.models.checkpoints || []) : [];
+
+  // 새 작업 마법사의 "베이스 모델" 1단계는 family만 보므로, ComfyUI에 체크포인트가
+  // 설치돼 있어도 family로 한 번 등록해야 마법사에 나타난다(설치 여부와 family는
+  // 서로 다른 개념 — family는 nightshift가 붙이는 사람이 읽을 이름/그룹이다).
+  // "분명 이 파드에 있는데 왜 마법사에 안 뜨지"를 줄이려고, 아직 어떤 family에도
+  // 없는 설치된 체크포인트를 여기 보여주고 클릭 한 번으로 등록하게 한다.
+  const assigned = new Set(entries.flatMap(([, f]) => f.checkpoints || []));
+  const unregistered = installed.filter(name => !assigned.has(name));
+  if(unregEl){
+    unregEl.innerHTML = unregistered.length ? `
+      <div class="family-unregistered">
+        <span>이 파드에 설치돼 있지만 아직 베이스 모델로 등록 안 된 체크포인트 — 눌러서 바로 등록:</span>
+        ${unregistered.map(name => `
+          <span class="family-unregistered-chip">
+            ${escapeHtml(name)}
+            <button type="button" class="family-quick-register-btn" data-name="${escapeHtml(name)}" title="이 체크포인트로 베이스 모델 등록">+ 등록</button>
+          </span>`).join('')}
+      </div>` : '';
+  }
+
   if(entries.length === 0){
     listEl.innerHTML = '<div class="comfy-model-empty">등록된 베이스 모델이 없어요 — 아래에서 추가하세요.</div>';
     return;
   }
-  const installed = (comfyObjectInfoCache && comfyObjectInfoCache.connected) ? (comfyObjectInfoCache.models.checkpoints || []) : [];
   listEl.innerHTML = entries.map(([familyId, family]) => {
     // 이 family에 저장돼 있지만 지금 ComfyUI에는 없는 체크포인트도 선택지에서
     // 빠지면 안 되므로(연결이 잠깐 끊겼거나 다른 파드일 수 있음) 합쳐서 보여준다.
@@ -4722,6 +4751,19 @@ document.getElementById('family-tab-list').addEventListener('click', (e) => {
   const familyId = btn.dataset.familyId;
   if(!confirm(`'${baseModelFamilies[familyId]?.label || familyId}' 베이스 모델을 삭제할까요? (LoRA/프리셋의 호환 설정에서도 사라져요)`)) return;
   delete baseModelFamilies[familyId];
+  scheduleSaveBaseModelFamilies();
+  renderFamilyTab();
+  renderLoraTab();
+});
+
+document.getElementById('family-tab-unregistered').addEventListener('click', (e) => {
+  const btn = e.target.closest('.family-quick-register-btn');
+  if(!btn) return;
+  const name = btn.dataset.name;
+  const familyId = slugifyFamilyId(name);
+  // 표시 이름은 확장자를 뗀 파일명 그대로 둔다 — 나중에 "🎛 모델" 탭에서 언제든
+  // 바꿀 수 있으니 여기서는 빠르게 등록하는 게 우선이다.
+  baseModelFamilies[familyId] = { label: name.replace(/\.[^.]+$/, ''), checkpoints: [name] };
   scheduleSaveBaseModelFamilies();
   renderFamilyTab();
   renderLoraTab();
@@ -5710,6 +5752,58 @@ function podState(p){
   return (p.running_jobs || []).length ? 'busy' : 'online';
 }
 
+// 파드 카드를 "일꾼 로봇"처럼 보이게 하는 아바타. 몸통 색은 파드 id를 해시해 고정
+// 팔레트에서 고르므로(같은 파드는 새로고침해도 항상 같은 색), 카드가 여럿이어도
+// 서로 구분이 된다. 표정/애니메이션은 podState()를 그대로 따라간다 — 상태를 두 번
+// 정의하고 싶지 않아서 dash-dot과 같은 값을 쓴다.
+const ROBOT_BODY_COLORS = ['#7c9cff', '#ff9f7c', '#7cd9a8', '#ffd27c', '#c495ff', '#7cd3f0', '#ff8fb3', '#a8d86f'];
+
+function hashToIndex(str, mod){
+  let h = 0;
+  for(let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h % mod;
+}
+
+function renderPodRobot(p){
+  const state = podState(p);
+  const body = ROBOT_BODY_COLORS[hashToIndex(p.id || '', ROBOT_BODY_COLORS.length)];
+  const lightColor = { online: 'var(--done)', busy: 'var(--running)', offline: 'var(--failed)', disabled: '#9aa0a6' }[state];
+
+  let face;
+  if(state === 'offline'){
+    // 연결이 끊긴 로봇 — 눈을 X로, 입은 옅게.
+    face = `
+      <path d="M12 19l6 6M18 19l-6 6" stroke="#22262b" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
+      <path d="M22 19l6 6M28 19l-6 6" stroke="#22262b" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
+      <rect x="14" y="28" width="12" height="2" rx="1" fill="#22262b" opacity="0.35"/>`;
+  }else if(state === 'disabled'){
+    // 꺼둔 로봇 — 눈을 감고 잠들어 있다.
+    face = `
+      <rect x="12" y="21" width="6" height="2" rx="1" fill="#22262b" opacity="0.45"/>
+      <rect x="22" y="21" width="6" height="2" rx="1" fill="#22262b" opacity="0.45"/>
+      <rect x="16" y="28" width="8" height="1.6" rx="0.8" fill="#22262b" opacity="0.3"/>`;
+  }else{
+    // 유휴/작업 중 — 눈을 뜨고 있고, 작업 중일 때만 입이 일자(집중)로 바뀐다.
+    const mouth = state === 'busy'
+      ? `<rect x="15" y="28" width="10" height="2.4" rx="1.2" fill="#22262b" opacity="0.55"/>`
+      : `<path d="M15 28.5 Q20 31.5 25 28.5" stroke="#22262b" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.55"/>`;
+    face = `
+      <circle cx="15" cy="22" r="3.2" fill="#fff"/><circle cx="25" cy="22" r="3.2" fill="#fff"/>
+      <circle cx="15" cy="22" r="1.5" fill="#22262b"/><circle cx="25" cy="22" r="1.5" fill="#22262b"/>
+      ${mouth}`;
+  }
+
+  return `
+    <svg class="dash-robot-svg dash-robot-${state}" width="36" height="36" viewBox="0 0 40 40" aria-hidden="true">
+      <line x1="20" y1="4" x2="20" y2="10" stroke="#8a8f98" stroke-width="2" stroke-linecap="round"/>
+      <circle class="dash-robot-light" cx="20" cy="4" r="2.6" fill="${lightColor}"/>
+      <rect x="6" y="10" width="28" height="24" rx="8" fill="${body}" stroke="rgba(0,0,0,0.12)"/>
+      <circle cx="6" cy="22" r="2" fill="rgba(0,0,0,0.15)"/>
+      <circle cx="34" cy="22" r="2" fill="rgba(0,0,0,0.15)"/>
+      ${face}
+    </svg>`;
+}
+
 function fmtVram(free, total){
   if(!total) return null;
   const gb = v => (v / (1024 ** 3)).toFixed(1);
@@ -5723,6 +5817,21 @@ function fmtDiskSize(n){
   if(!n && n !== 0) return null;
   const gb = n / (1024 ** 3);
   return gb >= 1 ? `${gb.toFixed(1)}GB` : `${(n / (1024 ** 2)).toFixed(0)}MB`;
+}
+
+// RunPod API가 붙어 있는 파드(url이 RunPod 프록시 주소이고 서버에 RUNPOD_API_KEY가
+// 설정된 경우)라면 card.runpod에 이름/GPU/비용/일시가 실려 온다. 하나도 없으면(키
+// 미설정 등) 조용히 빈 줄을 돌려준다 — 카드에 그 부분만 안 보이면 될 뿐.
+function renderRunpodLine(info){
+  if(!info) return '';
+  const parts = [];
+  if(info.pod_name) parts.push(`RunPod 이름 <b>${escapeHtml(info.pod_name)}</b>`);
+  if(info.gpu_type) parts.push(escapeHtml(info.gpu_type));
+  if(info.cost_per_hr != null) parts.push(`$${Number(info.cost_per_hr).toFixed(2)}/hr`);
+  if(info.created_at) parts.push(`생성 ${fmtGalleryDateTime(info.created_at)}`);
+  if(info.last_started_at) parts.push(`최근 시작 ${fmtGalleryDateTime(info.last_started_at)}`);
+  if(!parts.length) return '';
+  return `<div class="dash-card-runpod">${parts.map(p => `<span>${p}</span>`).join('')}</div>`;
 }
 
 // 카드의 "사양" 줄은 워커 종류마다 다르다 — ComfyUI는 주소와 VRAM, 셸 파드는 어디서
@@ -5739,12 +5848,17 @@ const POD_SPEC_LINE = {
     const disk = card.disk_total ? `여유 ${fmtDiskSize(card.disk_free)}/${fmtDiskSize(card.disk_total)}` : '';
     return `${escapeHtml(target)}${card.workdir ? ` · ${escapeHtml(card.workdir)}` : ''}${disk ? ` · ${disk}` : ''}`;
   },
+  claude_writer(p){
+    // 이 파드는 원격 주소가 없다 — 카드에 실을 것도 "지금 쓰는 모델" 정도뿐이다.
+    const model = (p.card || {}).model;
+    return `Claude API (Anthropic)${model ? ` · ${escapeHtml(model)}` : ''}`;
+  },
 };
 
 // "오늘 만든 것"의 단위도 워커 종류마다 다르다 — 이미지 워커는 장수지만, 셸 워커에게
-// 같은 숫자는 "명령을 몇 번 돌렸는가"다. 서버는 진행률(progress.done)의 합만 주므로
-// 이름은 화면이 붙인다.
-const POD_TODAY_UNIT = { comfyui: '장', shell: '회' };
+// 같은 숫자는 "명령을 몇 번 돌렸는가"고, 글쓰기 워커에게는 "몇 편 썼는가"다. 서버는
+// 진행률(progress.done)의 합만 주므로 이름은 화면이 붙인다.
+const POD_TODAY_UNIT = { comfyui: '장', shell: '회', claude_writer: '편' };
 
 function podTodayText(p){
   return `${p.images_today}${POD_TODAY_UNIT[p.kind] || '건'}`;
@@ -5764,16 +5878,22 @@ function renderPodCard(p){
     `<img class="dash-thumb" src="/api/output-images/${encodeURI(name)}/thumbnail?size=120" alt="" loading="lazy">`).join('');
 
   return `
-    <div class="dash-card${p.enabled ? '' : ' disabled'}" data-card-type="pod" data-pod-id="${escapeHtml(p.id)}">
-      <div class="dash-card-head">
-        <span class="dash-dot ${state.cls}" title="${state.label}"></span>
-        <span class="dash-card-name">${escapeHtml(p.name)}</span>
-        <span class="dash-card-kind">${escapeHtml(p.kind_label || p.kind)}</span>
-        <div class="dash-card-head-right">
-          <button class="load-btn" data-pod-edit="${escapeHtml(p.id)}" title="파드 설정">⚙</button>
+    <div class="dash-card dash-card-clickable${p.enabled ? '' : ' disabled'}" data-card-type="pod" data-pod-id="${escapeHtml(p.id)}" data-pod-open="${escapeHtml(p.id)}" data-pod-state="${state.cls}">
+      <div class="dash-card-top">
+        <div class="dash-robot" title="${state.label}">${renderPodRobot(p)}</div>
+        <div class="dash-card-top-info">
+          <div class="dash-card-head">
+            <span class="dash-dot ${state.cls}" title="${state.label}"></span>
+            <span class="dash-card-name">${escapeHtml(p.name)}</span>
+            <span class="dash-card-kind">${escapeHtml((p.card && p.card.runpod) ? 'RunPod 이미지 생성 모델' : (p.kind_label || p.kind))}</span>
+            <div class="dash-card-head-right">
+              <button class="load-btn" data-pod-edit="${escapeHtml(p.id)}" title="파드 설정">⚙</button>
+            </div>
+          </div>
+          <div class="dash-card-url">${podSpecLine(p)}</div>
+          ${renderRunpodLine(p.card && p.card.runpod)}
         </div>
       </div>
-      <div class="dash-card-url">${podSpecLine(p)}</div>
       <div class="dash-card-job">
         ${job
           ? `<b>${escapeHtml(job.template_label || '작업')}</b>${prog ? `
@@ -5794,7 +5914,6 @@ function renderPodCard(p){
         ${p.auto_run
           ? `<button class="del-btn" data-pod-stop="${escapeHtml(p.id)}">⏸ 정지</button>`
           : `<button class="load-btn" data-pod-start="${escapeHtml(p.id)}"${p.enabled ? '' : ' disabled'}>▶ 시작</button>`}
-        <button class="load-btn" data-pod-jobs="${escapeHtml(p.id)}">🗂 열기</button>
       </div>
     </div>`;
 }
@@ -5862,8 +5981,9 @@ function renderDashboard(){
   canvas.querySelectorAll('[data-pod-edit]').forEach(btn => btn.addEventListener('click', () => {
     openPodEditModal(btn.dataset.podEdit);
   }));
-  canvas.querySelectorAll('[data-pod-jobs]').forEach(btn => btn.addEventListener('click', () => {
-    showTab('jobs', { podId: btn.dataset.podJobs });
+  canvas.querySelectorAll('[data-pod-open]').forEach(card => card.addEventListener('click', (e) => {
+    if(e.target.closest('button, select, a')) return; // ⚙ 설정, ▶ 시작/⏸ 정지는 자기 할 일만 한다
+    showTab('jobs', { podId: card.dataset.podOpen });
   }));
   canvas.querySelectorAll('[data-job-pod]').forEach(row => row.addEventListener('click', () => {
     showTab('jobs', { podId: row.dataset.jobPod });
@@ -5887,10 +6007,56 @@ document.getElementById('dash-refresh-btn').addEventListener('click', fetchDashb
 // ---- 파드 추가/편집 ----
 let podEditId = null;   // null이면 "추가"
 
+// RunPod 정보(card.runpod)는 대시보드가 4초마다 폴링해둔 dashSummary.pods에 이미
+// 있다 — 설정 모달은 늘 대시보드 카드에서 열리므로, 추가 요청 없이 이걸 그대로
+// 재사용한다("RunPod 정보 테스트" 버튼을 눌러야만 새로 조회한다).
+function runpodInfoFromDashboard(podId){
+  const row = (dashSummary.pods || []).find(r => r.id === podId);
+  return (row && row.card && row.card.runpod) || null;
+}
+
+function renderRunpodInfoBox(info){
+  const box = document.getElementById('pod-edit-runpod-box');
+  const grid = document.getElementById('pod-edit-runpod-fields');
+  const rows = [];
+  if(info){
+    if(info.pod_name) rows.push(['RunPod 이름', info.pod_name]);
+    if(info.gpu_type) rows.push(['GPU', info.gpu_type]);
+    if(info.cost_per_hr != null) rows.push(['비용', `$${Number(info.cost_per_hr).toFixed(2)}/hr`]);
+    if(info.created_at) rows.push(['생성', fmtGalleryDateTime(info.created_at)]);
+    if(info.last_started_at) rows.push(['최근 시작', fmtGalleryDateTime(info.last_started_at)]);
+  }
+  grid.innerHTML = rows.map(([k, v]) =>
+    `<span class="ri-k">${escapeHtml(k)}</span><span class="ri-v">${escapeHtml(String(v))}</span>`).join('');
+  box.style.display = rows.length ? '' : 'none';
+}
+
+// RunPod가 자동으로 붙인 이름을 nightshift 이름 입력칸에 채워주는 제안 — 사용자가
+// 일부러 지은 이름을 조용히 덮어쓰면 안 되므로 버튼을 눌러야만 채워진다.
+function updatePodNameSuggest(runpodName){
+  const el = document.getElementById('pod-edit-name-suggest');
+  const nameInput = document.getElementById('pod-edit-name');
+  if(!runpodName || runpodName === nameInput.value.trim()){
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.style.display = '';
+  el.innerHTML = `RunPod 이름: <b>${escapeHtml(runpodName)}</b>`;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = '이 이름 쓰기';
+  btn.addEventListener('click', () => {
+    nameInput.value = runpodName;
+    el.style.display = 'none';
+  });
+  el.appendChild(btn);
+}
+
 function openPodEditModal(podId){
   podEditId = podId || null;
   const pod = podId ? (podsById[podId] || {}) : {};
-  document.getElementById('pod-edit-title').textContent = podId ? '파드 설정' : '파드 추가';
+  document.getElementById('pod-edit-title').textContent = podId ? '⚙ 파드 설정' : '➕ 파드 추가';
   document.getElementById('pod-edit-name').value = pod.name || '';
   document.getElementById('pod-edit-url').value = pod.url || '';
   document.getElementById('pod-edit-concurrent').value = pod.max_concurrent || 1;
@@ -5903,6 +6069,9 @@ function openPodEditModal(podId){
   kindSel.innerHTML = (podKinds.length ? podKinds : [{ kind: 'comfyui', label: 'ComfyUI' }])
     .map(k => `<option value="${escapeHtml(k.kind)}">${escapeHtml(k.label)}</option>`).join('');
   if(pod.kind) kindSel.value = pod.kind;
+  const runpodInfo = podId ? runpodInfoFromDashboard(podId) : null;
+  renderRunpodInfoBox(runpodInfo);
+  updatePodNameSuggest(runpodInfo && runpodInfo.pod_name);
   document.getElementById('pod-edit-modal').style.display = 'flex';
 }
 
@@ -5973,6 +6142,45 @@ document.getElementById('pod-edit-test').addEventListener('click', async () => {
   }
 });
 
+// 대시보드 카드의 RunPod 정보(card.runpod)는 실패를 조용히 삼키고 비워두므로, "왜 안
+// 뜨는지"를 직접 확인하려면 캐시를 거치지 않는 이 진단 엔드포인트가 필요하다. 원본
+// 응답(raw_response)은 콘솔에 남겨서, 정규화된 필드가 이상해도 원인을 눈으로 볼 수
+// 있게 한다.
+document.getElementById('pod-edit-runpod-test').addEventListener('click', async () => {
+  const statusEl = document.getElementById('pod-edit-status');
+  const errorEl = document.getElementById('pod-edit-error');
+  errorEl.textContent = '';
+  if(!podEditId){
+    statusEl.textContent = '';
+    errorEl.textContent = '먼저 저장한 뒤에 확인할 수 있어요.';
+    return;
+  }
+  statusEl.textContent = 'RunPod API 확인 중…';
+  try{
+    const res = await fetch(`/api/pods/${podEditId}/runpod-test`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '확인하지 못했어요.');
+    console.log('[runpod-test]', data);
+    if(data.error){
+      statusEl.textContent = `⚠ ${data.error}${data.status_code ? ` (HTTP ${data.status_code})` : ''} — 자세한 응답은 브라우저 콘솔(F12)에 남겨뒀어요.`;
+    }else{
+      const n = data.normalized || {};
+      const parts = [
+        n.pod_name, n.gpu_type,
+        n.cost_per_hr != null ? `$${Number(n.cost_per_hr).toFixed(2)}/hr` : null,
+      ].filter(Boolean);
+      statusEl.textContent = parts.length
+        ? `✅ ${parts.join(' · ')} — 원본 응답은 콘솔(F12)에 남겨뒀어요.`
+        : '⚠ 응답은 받았지만 알아본 필드가 없어요 — 콘솔(F12)의 원본 응답을 확인해주세요.';
+      renderRunpodInfoBox(n);
+      updatePodNameSuggest(n.pod_name);
+    }
+  }catch(e){
+    statusEl.textContent = '';
+    errorEl.textContent = e.message || '확인하지 못했어요.';
+  }
+});
+
 document.getElementById('pod-edit-delete').addEventListener('click', async () => {
   if(!podEditId) return;
   const pod = podsById[podEditId] || {};
@@ -6011,16 +6219,93 @@ const TAB_MAINS = {
   danbooru: document.getElementById('tab-danbooru'),
   builder: document.getElementById('tab-builder'),
   lora: document.getElementById('tab-lora'),
+  // 파드 갤러리("그 파드가 만든 것만")는 전역 갤러리와 같은 화면을 그대로 쓴다 —
+  // ~500줄짜리 갤러리 구현(격자/작업별·날짜별 보기/선택/삭제/라이트박스)을 통째로
+  // 복제하는 대신, galleryPodFilter 하나로 같은 코드가 "전체"와 "이 파드 것만"을
+  // 둘 다 그리게 한다. 같은 DOM을 두 이름이 가리키므로 아래 표시 전환 루프는
+  // "이름"이 아니라 "실제 화면 요소" 기준으로 처리한다(그래야 pgallery로 보여준
+  // 요소를 gallery 키가 다시 숨기는 일이 없다).
+  pgallery: document.getElementById('tab-gallery'),
+  // Claude 글쓰기 파드의 결과는 이미지가 아니라 글이라 갤러리(썸네일 격자)로 못
+  // 보여준다 — pgallery와 달리 이건 전용 DOM(#tab-results)과 전용 렌더러
+  // (renderResultsList)를 쓰는 완전히 별개의 화면이다.
+  results: document.getElementById('tab-results'),
 };
 
-const POD_TABS = ['jobs', 'builder', 'lora'];
-const POD_TAB_LABEL = { jobs: '🗂 작업', builder: '🧩 워크플로우', lora: '🎛 모델' };
+const POD_TABS = ['jobs', 'builder', 'lora', 'pgallery', 'results'];
+const POD_TAB_LABEL = { jobs: '🗂 작업', builder: '🧩 워크플로우', lora: '🎛 모델', pgallery: '🖼 갤러리', results: '📝 결과' };
 // 파드 종류가 서브탭 구성을 정한다 — 셸 파드에는 워크플로우도 설치된 모델도 없다.
 // (예전에는 셸 파드만 등록해도 상단에 🧩·🎛 탭이 그대로 보였고, 눌러봐야 빈
 // 목록이었다.) 새 종류의 워커를 붙일 때 여기 한 줄이 그 워커의 화면 구성이 된다.
-const POD_SUBTABS = { comfyui: ['jobs', 'builder', 'lora'], shell: ['jobs'] };
+// pgallery는 이미지를 만드는 종류에만 둔다 — Claude 글쓰기는 같은 자리에 결과가
+// 이미지가 아니라 글이라는 걸 정직하게 반영해 results 탭을 대신 쓴다.
+const POD_SUBTABS = {
+  comfyui: ['jobs', 'builder', 'lora', 'pgallery'],
+  shell: ['jobs', 'pgallery'],
+  claude_writer: ['jobs', 'results'],
+};
 
 function podSubtabs(pod){ return POD_SUBTABS[(pod || {}).kind] || ['jobs']; }
+
+// ---- "📝 결과" 탭 (Claude 글쓰기 파드) ----
+// 이미지 갤러리와 달리 별도 폴링/캐시 API가 없다 — 목록 자체는 이미 2초마다 도는
+// 작업 폴링(lastJobs)에서 그대로 걸러 쓰고, 전문(全文)만 펼칠 때 한 번 받아온다.
+let expandedResultId = null;
+const resultTextCache = {};   // job_id -> 받아온 전문(못 받아왔으면 안내 문구)
+
+function claudeResultsForPod(podId){
+  return lastJobs
+    .filter(j => j.pod_id === podId && j.template_id === 'claude_write' && !j.deleted)
+    .sort((a, b) => (b.finished_at || b.queued_at || '').localeCompare(a.finished_at || a.queued_at || ''));
+}
+
+function renderResultsList(){
+  const list = document.getElementById('results-list');
+  const empty = document.getElementById('results-empty');
+  if(!list || !currentPodId){ if(list) list.innerHTML = ''; return; }
+  const rows = claudeResultsForPod(currentPodId);
+  empty.style.display = rows.length ? 'none' : '';
+  list.innerHTML = rows.map(j => {
+    const prompt = (j.options && j.options.prompt) || '(프롬프트 없음)';
+    const isOpen = expandedResultId === j.id;
+    const bodyHtml = isOpen
+      ? `<div class="result-full">${
+          resultTextCache[j.id] != null ? escapeHtml(resultTextCache[j.id]) : '불러오는 중…'
+        }</div>`
+      : '';
+    return `
+      <div class="result-row${isOpen ? ' open' : ''}" data-result-id="${escapeHtml(j.id)}">
+        <div class="result-row-head">
+          <span class="badge ${j.status}"><span class="bdot"></span>${STATUS_LABEL[j.status] || j.status}</span>
+          <span class="result-prompt" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</span>
+          <span class="result-time">${fmtGalleryDateTime(j.finished_at || j.queued_at)}</span>
+        </div>
+        ${bodyHtml}
+      </div>`;
+  }).join('');
+}
+
+async function toggleResultRow(jobId){
+  expandedResultId = (expandedResultId === jobId) ? null : jobId;
+  if(expandedResultId && resultTextCache[jobId] == null){
+    renderResultsList();   // "불러오는 중…"을 먼저 보여준 뒤 받아온다
+    try{
+      const res = await fetch(`/api/jobs/${jobId}/text-result`);
+      const data = await res.json().catch(() => ({}));
+      resultTextCache[jobId] = data.text || '(아직 결과가 없어요 — 작업 로그를 확인해보세요.)';
+    }catch(e){
+      resultTextCache[jobId] = '(불러오지 못했어요.)';
+    }
+  }
+  renderResultsList();
+}
+
+document.getElementById('results-list').addEventListener('click', (e) => {
+  const row = e.target.closest('.result-row');
+  if(row) toggleResultRow(row.dataset.resultId);
+});
+
+document.getElementById('results-refresh-btn').addEventListener('click', fetchJobs);
 
 // 어느 파드로 들어갈지 정한다. 없는 id로 들어오면(파드를 지웠거나 옛 링크) 마지막에
 // 보던 파드 → 기본 파드 순으로 떨어진다. 파드가 하나도 없으면 null(=갈 곳이 없음).
@@ -6058,9 +6343,15 @@ function showTab(tab, { podId = null } = {}){
   jobPodFilter = (tab === 'jobs') ? scopedPodId : null;
 
   document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  for(const [name, el] of Object.entries(TAB_MAINS)){
-    el.style.display = (name === tab) ? '' : 'none';
+  const targetMain = TAB_MAINS[tab];
+  for(const el of new Set(Object.values(TAB_MAINS))){
+    el.style.display = (el === targetMain) ? '' : 'none';
   }
+  // 갤러리 화면(gallery/pgallery가 같은 요소)이 지금 "전체"인지 "이 파드 것만"인지.
+  // jobPodFilter와 같은 자리에서 같이 정한다 — 화면을 나가면(다른 탭으로 이동하면)
+  // 필터도 같이 풀린다.
+  galleryPodFilter = (tab === 'pgallery') ? scopedPodId : null;
+  updateGalleryScopeUI();
   renderPodBar();
 
   // 파드 종류가 바뀌면 그 종류에서 쓸 수 있는 템플릿만 남긴다. 종류가 그대로면
@@ -6079,10 +6370,11 @@ function showTab(tab, { podId = null } = {}){
     dashTimer = null;
   }
 
-  if(tab === 'gallery') fetchGalleryImages();
+  if(tab === 'gallery' || tab === 'pgallery') fetchGalleryImages();
   if(tab === 'builder') initBuilderTab();
   if(tab === 'lora') initLoraTab();
   if(tab === 'jobs') fetchJobs();
+  if(tab === 'results') renderResultsList();
 
   const want = scopedPodId ? `#pod/${scopedPodId}/${tab}` : `#${tab}`;
   if(location.hash !== want) history.replaceState(null, '', want);
@@ -6092,6 +6384,11 @@ function showTab(tab, { podId = null } = {}){
 function renderPodBar(){
   const bar = document.getElementById('pod-bar');
   if(!bar) return;
+  // 파드 안에 있는 동안은 전역 탭(대시보드·갤러리·Danbooru)을 아예 숨긴다 — 그
+  // 탭들은 "파드 밖" 개념이라, 파드 스코프 바와 같이 떠 있으면 지금 어느 층에
+  // 있는지 헷갈린다. 대시보드로는 파드 스코프 바의 "🏠 Home"으로 돌아간다.
+  const globalBar = document.getElementById('global-tab-bar');
+  if(globalBar) globalBar.style.display = currentPodId ? 'none' : '';
   if(!currentPodId){ bar.style.display = 'none'; return; }
   bar.style.display = '';
   const pod = podsById[currentPodId] || {};
@@ -6534,6 +6831,29 @@ document.querySelectorAll('#gallery-display-toggle .enhance-mode-btn').forEach(b
   });
 });
 
+// job_id로 그 작업이 배정된 파드를 찾는다. lastJobs는 2초마다 갱신되는 전역 작업
+// 목록(작업 화면과 공유)이라 따로 다시 받아올 필요가 없다. 오래전에 완전히
+// 삭제된 작업이면 못 찾는데, 그런 이미지는 애초에 "이 파드 것"이라고 확신할
+// 근거가 없으므로 파드 갤러리에서는 뺀다(전체 갤러리에서는 그대로 보인다).
+function podIdForImage(img){
+  if(!img.job_id) return null;
+  const job = lastJobs.find(j => j.id === img.job_id);
+  return job ? job.pod_id : null;
+}
+
+// 갤러리 화면이 "전체"인지 "이 파드 것만"인지에 따라 제목/가져오기 버튼을 맞춘다.
+// showTab()이 galleryPodFilter를 정한 직후, 그리고 상태 폴링(fetchComfyStatus)마다
+// 부른다 — 둘 다 곧바로 반영돼야 5초씩 기다리다 헷갈리지 않는다.
+function updateGalleryScopeUI(){
+  const label = document.getElementById('gallery-section-label');
+  if(label){
+    label.textContent = galleryPodFilter
+      ? `🖼 갤러리 · ${podName(galleryPodFilter) || galleryPodFilter}`
+      : '갤러리';
+  }
+  applyPullOutputsVisibility();
+}
+
 async function fetchGalleryImages(){
   const grid = document.getElementById('gallery-grid');
   const emptyMsg = document.getElementById('gallery-empty');
@@ -6545,6 +6865,10 @@ async function fetchGalleryImages(){
     ]);
     const data = await imgRes.json();
     galleryImages = data.images || [];
+    // 파드 갤러리면 그 파드가 배정된 작업의 이미지만 남긴다.
+    if(galleryPodFilter){
+      galleryImages = galleryImages.filter(img => podIdForImage(img) === galleryPodFilter);
+    }
     galleryJobLabels = labels;
   }catch(e){
     galleryImages = [];
@@ -6564,6 +6888,7 @@ async function fetchGalleryImages(){
   if(galleryImages.length === 0){
     grid.innerHTML = '';
     displayedGalleryImages = [];
+    emptyMsg.textContent = galleryPodFilter ? '이 파드가 만든 이미지가 아직 없어요' : '서버에 저장된 이미지가 없어요';
     emptyMsg.style.display = 'block';
     return;
   }
@@ -6588,7 +6913,7 @@ document.getElementById('gallery-pull-btn').addEventListener('click', async () =
     const res = await fetch('/api/comfy-outputs/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify(galleryPodFilter ? { pod_id: galleryPodFilter } : {}),
     });
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || '가져오지 못했어요.');

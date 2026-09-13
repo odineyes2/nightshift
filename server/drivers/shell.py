@@ -45,9 +45,11 @@ from pathlib import Path
 
 from .base import PodDriver
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+# 로컬 실행의 기본 작업 폴더 — "이 저장소 폴더"가 합리적인 기본값이다.
+# 이 파일은 server/drivers/ 아래에 있으므로 두 단계 위가 저장소 루트다.
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
-DEFAULT_WORKDIR = os.environ.get("NIGHTSHIFT_SHELL_WORKDIR") or str(BASE_DIR)
+DEFAULT_WORKDIR = os.environ.get("NIGHTSHIFT_SHELL_WORKDIR") or str(REPO_ROOT)
 # ssh가 비밀번호를 물어보며 멈춰 있으면 워커 스레드가 통째로 잠긴다 — BatchMode로
 # 물어보지 않게 하고, 짧은 타임아웃을 건다.
 SSH_CHECK_TIMEOUT = 8

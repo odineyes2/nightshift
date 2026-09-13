@@ -513,12 +513,23 @@ def apply_filename_prefix(workflow, title, index, seed):
     node.setdefault("inputs", {})["filename_prefix"] = prefix
 
 
+# RunPod의 프록시 주소(https://{POD_ID}-{PORT}.proxy.runpod.net/)는 Cloudflare가
+# 앞단에 있는데, Cloudflare의 봇 차단이 파이썬 urllib 기본 User-Agent
+# ("Python-urllib/3.x")를 403으로 막는다 — curl이나 브라우저로는 멀쩡히 열리는 pod가
+# 이 스크립트에서만 조용히 실패하던 원인이 이거였다. ComfyUI로 보내는 요청에는 전부
+# 이 헤더를 실어 보낸다(값은 흔한 브라우저 UA면 충분하다).
+COMFY_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+
 def queue_prompt(comfy_url, workflow):
     payload = json.dumps({"prompt": workflow, "client_id": str(uuid.uuid4())}).encode("utf-8")
     req = urllib.request.Request(
         f"{comfy_url}/prompt",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "User-Agent": COMFY_USER_AGENT},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -533,7 +544,8 @@ def wait_for_completion(comfy_url, prompt_id):
     timeout = float(env("POLL_TIMEOUT_SEC", "600"))
     deadline = time.time() + timeout
     while time.time() < deadline:
-        req = urllib.request.Request(f"{comfy_url}/history/{prompt_id}")
+        req = urllib.request.Request(
+            f"{comfy_url}/history/{prompt_id}", headers={"User-Agent": COMFY_USER_AGENT})
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 history = json.loads(resp.read().decode("utf-8"))

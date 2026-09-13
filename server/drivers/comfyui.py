@@ -21,10 +21,24 @@ import time
 import urllib.request
 
 from comfy_outputs import OutputSyncError, sync_outputs
+from runpod_api import get_runpod_info
 
 from .base import PodDriver
 
 CANDIDATE_URLS = ["http://127.0.0.1:8188", "http://127.0.0.1:8000"]
+
+# RunPod의 프록시 주소(https://{POD_ID}-{PORT}.proxy.runpod.net/)는 Cloudflare가
+# 앞단에 있다. Cloudflare의 봇 차단이 파이썬 urllib의 기본 User-Agent
+# ("Python-urllib/3.x")를 감지해 403으로 막는데, 이게 curl이나 브라우저로는
+# 멀쩡히 열리는 pod가 nightshift에서만 "응답이 없어요"로 보이던 진짜 원인이었다
+# (check_url()이 모든 예외를 뭉뚱그려 False로 돌려주는 바람에 403이라는 사실 자체가
+# 화면에 드러나지 않았다). 그래서 ComfyUI로 보내는 요청에는 전부 이 헤더를 실어
+# 보낸다 — 값 자체는 임의의 흔한 브라우저 UA면 충분하다(그 pod 앞단이 무엇을
+# 필터링하든 브라우저는 원래 통과시켜야 하므로).
+COMFY_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 # 연결 확인 타임아웃은 "어디를 찌르는지"에 따라 다르게 잡는다.
 #   - 자동 탐지 후보는 정의상 전부 127.0.0.1이라 응답이 없으면 즉시 실패한다. 여기에 긴
@@ -46,7 +60,8 @@ _object_info_cache: dict[str, dict] = {}
 
 def check_url(url: str, timeout: float = CHECK_TIMEOUT) -> bool:
     try:
-        req = urllib.request.Request(f"{url.rstrip('/')}/system_stats")
+        req = urllib.request.Request(
+            f"{url.rstrip('/')}/system_stats", headers={"User-Agent": COMFY_USER_AGENT})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status == 200
     except Exception:
@@ -54,7 +69,8 @@ def check_url(url: str, timeout: float = CHECK_TIMEOUT) -> bool:
 
 
 def _fetch_json(url: str, path: str, timeout: float):
-    req = urllib.request.Request(f"{url.rstrip('/')}{path}")
+    req = urllib.request.Request(
+        f"{url.rstrip('/')}{path}", headers={"User-Agent": COMFY_USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
@@ -147,26 +163,32 @@ class ComfyUIDriver(PodDriver):
 
     @staticmethod
     def card(pod: dict) -> dict:
-        """대시보드 카드에 실을 ComfyUI 고유 정보 — 지금은 GPU/VRAM. 못 읽어도 카드
-        자체는 떠야 하므로 실패는 조용히 빈 dict로 돌려준다."""
+        """대시보드 카드에 실을 ComfyUI 고유 정보 — GPU/VRAM(살아 있을 때만)과, url이
+        RunPod 프록시 주소면 RunPod API로 보충한 메타데이터(파드가 꺼져 있어도 조회
+        가능 — health와 무관하게 pod.url에서 바로 pod id를 뽑는다). 못 읽어도 카드
+        자체는 떠야 하므로 각 조회의 실패는 조용히 빈 값으로 돌려준다."""
+        card: dict = {}
         health = ComfyUIDriver.health(pod)
-        if not health["ok"] or not health["url"]:
-            return {}
-        try:
-            stats = _fetch_json(health["url"], "/system_stats", timeout=CHECK_TIMEOUT)
-        except Exception:
-            return {}
-        devices = stats.get("devices") or []
-        if not isinstance(devices, list) or not devices:
-            return {}
-        dev = devices[0] if isinstance(devices[0], dict) else {}
-        return {
-            "device": dev.get("name"),
-            "vram_total": dev.get("vram_total"),
-            "vram_free": dev.get("vram_free"),
-        }
+        if health["ok"] and health["url"]:
+            try:
+                stats = _fetch_json(health["url"], "/system_stats", timeout=CHECK_TIMEOUT)
+                devices = stats.get("devices") or []
+                if isinstance(devices, list) and devices:
+                    dev = devices[0] if isinstance(devices[0], dict) else {}
+                    card.update({
+                        "device": dev.get("name"),
+                        "vram_total": dev.get("vram_total"),
+                        "vram_free": dev.get("vram_free"),
+                    })
+            except Exception:
+                pass
+
+        runpod_info = get_runpod_info(pod.get("url") or health.get("url") or "")
+        if runpod_info:
+            card["runpod"] = runpod_info
+        return card
 
 
 __all__ = ["ComfyUIDriver", "OutputSyncError", "check_url",
            "CANDIDATE_URLS", "CHECK_TIMEOUT", "CHECK_TIMEOUT_LOCAL",
-           "CHECK_TIMEOUT_INTERACTIVE"]
+           "CHECK_TIMEOUT_INTERACTIVE", "COMFY_USER_AGENT"]
