@@ -25,4 +25,11 @@ __pycache__/
 node_modules/
 
 # ntfy.sh 토픽 등 민감정보 — .env.example만 커밋하고 실제 .env는 각자 만들어 씀
-.env
+.envjobs_state.json
+recent_csvs_state.json
+recent_workflows_state.json
+.ipynb_checkpoints/
+jobs_state.json
+recent_csvs_state.json
+recent_workflows_state.json
+.ipynb_checkpoints/
