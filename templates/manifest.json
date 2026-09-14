@@ -21,6 +21,18 @@
     "label": "CSV Batch",
     "script_filename": "csv_batch.py",
     "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "trigger_prompt", "label": "트리거 프롬프트", "required": false },
+      { "name": "main_prompt", "label": "메인 프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "quality_prompt", "label": "퀄리티 프롬프트", "required": false },
+      { "name": "negative_prompt", "label": "네거티브 프롬프트", "required": false },
+      { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "batch_no", "label": "배치 수", "required": false, "note": "비워두면 워크플로우 값 그대로" },
+      { "name": "width", "label": "너비", "required": false },
+      { "name": "height", "label": "높이", "required": false },
+      { "name": "resolution", "label": "화면비", "required": false, "note": "예: 16:9, 9:16, square" }
+    ],
     "options": [
       { "name": "seeds_per_case", "label": "케이스당 시드 개수", "type": "number", "default": 1 },
       { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
@@ -96,6 +108,22 @@
     "label": "CSV + 포즈 배치",
     "script_filename": "pose_csv_batch.py",
     "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "trigger_prompt", "label": "트리거 프롬프트", "required": false },
+      { "name": "main_prompt", "label": "메인 프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "quality_prompt", "label": "퀄리티 프롬프트", "required": false },
+      { "name": "negative_prompt", "label": "네거티브 프롬프트", "required": false },
+      { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "batch_no", "label": "배치 수", "required": false },
+      { "name": "width", "label": "너비", "required": false },
+      { "name": "height", "label": "높이", "required": false },
+      { "name": "resolution", "label": "화면비", "required": false },
+      { "name": "pose", "label": "포즈 참조", "required": false, "note": "세트 이름 또는 <세트>/<파일명> — 비워두면 이 행은 포즈 참조 없이 생성" },
+      { "name": "char_no", "label": "인물 수", "required": false, "note": "pose를 채웠을 때만 의미 있음, 비워두면 1" },
+      { "name": "secondary_ref", "label": "보조 참조", "required": false, "note": "옵션의 보조 참조 종류를 켰을 때만 사용" },
+      { "name": "secondary_char_no", "label": "보조 참조 인물 수", "required": false }
+    ],
     "options": [
       { "name": "pose_mode", "label": "세트 선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
       { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "depth", "lineart"], "default": "none" },
@@ -109,6 +137,22 @@
     "label": "CSV + Depth 배치",
     "script_filename": "depth_csv_batch.py",
     "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "trigger_prompt", "label": "트리거 프롬프트", "required": false },
+      { "name": "main_prompt", "label": "메인 프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "quality_prompt", "label": "퀄리티 프롬프트", "required": false },
+      { "name": "negative_prompt", "label": "네거티브 프롬프트", "required": false },
+      { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "batch_no", "label": "배치 수", "required": false },
+      { "name": "width", "label": "너비", "required": false },
+      { "name": "height", "label": "높이", "required": false },
+      { "name": "resolution", "label": "화면비", "required": false },
+      { "name": "depth", "label": "depth 참조", "required": false, "note": "세트 이름 또는 <세트>/<파일명> — 비워두면 이 행은 depth 참조 없이 생성" },
+      { "name": "char_no", "label": "인물 수", "required": false, "note": "depth를 채웠을 때만 의미 있음, 비워두면 1" },
+      { "name": "secondary_ref", "label": "보조 참조", "required": false, "note": "옵션의 보조 참조 종류를 켰을 때만 사용" },
+      { "name": "secondary_char_no", "label": "보조 참조 인물 수", "required": false }
+    ],
     "options": [
       { "name": "depth_mode", "label": "세트 선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
       { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "lineart"], "default": "none" },
@@ -122,6 +166,22 @@
     "label": "CSV + Lineart 배치",
     "script_filename": "lineart_csv_batch.py",
     "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "trigger_prompt", "label": "트리거 프롬프트", "required": false },
+      { "name": "main_prompt", "label": "메인 프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "quality_prompt", "label": "퀄리티 프롬프트", "required": false },
+      { "name": "negative_prompt", "label": "네거티브 프롬프트", "required": false },
+      { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "batch_no", "label": "배치 수", "required": false },
+      { "name": "width", "label": "너비", "required": false },
+      { "name": "height", "label": "높이", "required": false },
+      { "name": "resolution", "label": "화면비", "required": false },
+      { "name": "lineart", "label": "lineart 참조", "required": false, "note": "세트 이름 또는 <세트>/<파일명> — 비워두면 이 행은 lineart 참조 없이 생성" },
+      { "name": "char_no", "label": "인물 수", "required": false, "note": "lineart를 채웠을 때만 의미 있음, 비워두면 1" },
+      { "name": "secondary_ref", "label": "보조 참조", "required": false, "note": "옵션의 보조 참조 종류를 켰을 때만 사용" },
+      { "name": "secondary_char_no", "label": "보조 참조 인물 수", "required": false }
+    ],
     "options": [
       { "name": "lineart_mode", "label": "세트 선택 방식", "type": "select", "choices": ["sequential", "random"], "default": "sequential" },
       { "name": "secondary_kind", "label": "보조 참조 종류", "type": "select", "choices": ["none", "pose", "depth"], "default": "none" },
@@ -149,6 +209,15 @@
     "label": "CSV + 입력 이미지 배치 (img2img)",
     "script_filename": "input_image_csv_batch.py",
     "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "trigger_prompt", "label": "트리거 프롬프트", "required": false },
+      { "name": "main_prompt", "label": "메인 프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "quality_prompt", "label": "퀄리티 프롬프트", "required": false },
+      { "name": "negative_prompt", "label": "네거티브 프롬프트", "required": false },
+      { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "input_image", "label": "입력 이미지", "required": true, "note": "입력 이미지 풀(NIGHTSHIFT_INPUT_IMAGES_DIR)에 있는 파일명 — 모든 행에 필수" }
+    ],
     "options": [
       { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
@@ -174,6 +243,15 @@
     "label": "CSV + IPAdapter 배치",
     "script_filename": "ipadapter_csv_batch.py",
     "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "trigger_prompt", "label": "트리거 프롬프트", "required": false },
+      { "name": "main_prompt", "label": "메인 프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "quality_prompt", "label": "퀄리티 프롬프트", "required": false },
+      { "name": "negative_prompt", "label": "네거티브 프롬프트", "required": false },
+      { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "ipadapter_ref", "label": "IPAdapter 참조 이미지", "required": true, "note": "입력 이미지 풀(NIGHTSHIFT_INPUT_IMAGES_DIR)에 있는 파일명 — 모든 행에 필수" }
+    ],
     "options": [
       { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
@@ -200,6 +278,12 @@
     "label": "영상 생성 — WAN2.2 i2v (CSV 배치)",
     "script_filename": "wan22_video_csv_batch.py",
     "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "user_prompt", "label": "프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "start_image", "label": "시작 이미지", "required": true, "note": "입력 이미지 풀(NIGHTSHIFT_INPUT_IMAGES_DIR)에 있는 파일명 — 모든 행에 필수" }
+    ],
     "options": [
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
       { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
@@ -226,6 +310,13 @@
     "label": "영상 생성 — WAN2.2 flf2v (CSV 배치)",
     "script_filename": "wan22_video_csv_batch.py",
     "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "user_prompt", "label": "프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "start_image", "label": "시작 이미지", "required": true, "note": "입력 이미지 풀에 있는 파일명 — 모든 행에 필수" },
+      { "name": "end_image", "label": "끝 이미지", "required": true, "note": "입력 이미지 풀에 있는 파일명 — 모든 행에 필수" }
+    ],
     "options": [
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
       { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
