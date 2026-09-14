@@ -189,9 +189,10 @@
       { "name": "video_count", "label": "생성 개수", "type": "number", "default": 1 },
       { "name": "start_image", "label": "시작 이미지", "type": "input_image", "default": "" },
       { "name": "user_prompt", "label": "프롬프트", "type": "textarea", "default": "", "placeholder": "예: a woman walking along the beach at sunset, cinematic lighting" },
+      { "name": "text_enhance", "label": "프롬프트 텍스트 인핸스", "type": "select", "choices": ["on", "off"], "default": "on" },
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
       { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
-      { "name": "fast_4step", "label": "4-step LoRA 가속", "type": "select", "choices": ["off", "on"], "default": "off" }
+      { "name": "fast_4step", "label": "4-step LoRA 가속", "type": "select", "choices": ["off", "on"], "default": "on" }
     ]
   },
   {
@@ -215,6 +216,7 @@
       { "name": "start_image", "label": "시작 이미지", "type": "input_image", "default": "" },
       { "name": "end_image", "label": "끝 이미지", "type": "input_image", "default": "" },
       { "name": "user_prompt", "label": "프롬프트", "type": "textarea", "default": "", "placeholder": "예: a woman walking along the beach at sunset, cinematic lighting" },
+      { "name": "text_enhance", "label": "프롬프트 텍스트 인핸스", "type": "select", "choices": ["on", "off"], "default": "on" },
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
       { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
     ]
