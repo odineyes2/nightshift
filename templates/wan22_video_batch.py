@@ -21,9 +21,21 @@ user_lora_low/fast_4step)을 미리 붙여뒀다. i2v는 end_image/fast_4step �
 노드를 우선하도록 두 JSON 모두 순서를 맞춰뒀다).
 
 프롬프트 텍스트 인핸스(user_prompt → 시스템 프롬프트와 합쳐 Krea2 CLIP의
-TextGenerate 노드로 확장)는 ComfyUI 그래프 안에서 전부 처리된다 — 이 스크립트는
-그냥 "user_prompt" 노드의 원문 텍스트만 채워 넣으면 된다(seed_batch.py의
-apply_main_prompt와 같은 방식이지만 대상 제목이 다르다).
+TextGenerate 노드로 확장)는 기본적으로 ComfyUI 그래프 안에서 전부 처리된다 —
+"user_prompt" 노드의 원문 텍스트만 채워 넣으면 된다(seed_batch.py의
+apply_main_prompt와 같은 방식이지만 대상 제목이 다르다). TEXT_ENHANCE를 "off"로
+주면 이 인핸스 체인을 건너뛴다 — 원문 프롬프트를 긍정 프롬프트(CLIPTextEncode,
+제목에 "positive prompt" 포함) 노드에 직접 꽂아 넣어서, TextGenerate가 만드는
+확장된 프롬프트 대신 사용자가 입력한 문장을 그대로 쓴다(TextGenerate 노드
+자체는 계속 실행되지만 그 결과는 이제 아무 데도 연결돼 있지 않아 버려진다 —
+그래프를 고쳐 다시 배선하는 대신 결과만 무시하는 쪽이 더 간단하고 안전하다).
+
+**FAST_4STEP은 i2v 전용이다** — flf2v 워크플로우에는 애초에 이 스위치(및 "느린
+20스텝 경로"에 해당하는 대체 스텝/CFG 값)가 없다: lightx2v 4-step 가속 LoRA가
+무조건 걸려 있는 경로 하나뿐이다(i2v처럼 on/off 두 경로를 고르는 ComfySwitchNode가
+없음). 그래서 flf2v 템플릿의 옵션 목록에는 fast_4step이 아예 없고, 혹시 있는
+워크플로우 파일로 교체해도 이 스크립트는 "fast_4step" 제목의 노드를 못 찾으면
+조용히 건너뛴다(경고 없이 무시).
 
 LoRA는 high/low 노이즈 모델 두 갈래에 항상 쌍으로 걸려 있는 WAN2.2 관례를 따라,
 LORA_NAME/LORA_STRENGTH를 "user_lora_high"/"user_lora_low" 두 노드 모두에 같이
@@ -43,10 +55,12 @@ LORA_NAME/LORA_STRENGTH를 "user_lora_high"/"user_lora_low" 두 노드 모두에
                        user_lora_high/low에 이미 들어있는 LoRA를 그대로 씀)
     LORA_STRENGTH      LoRA 강도 strength_model (템플릿 옵션 "lora_strength", 기본
                        빈 값 — 비워두면 그대로 씀)
+    TEXT_ENHANCE       "off"면 프롬프트 텍스트 인핸스를 끄고 원문을 그대로 쓴다
+                       (템플릿 옵션 "text_enhance", 기본 "on")
     FAST_4STEP         "on"이면 i2v 워크플로우의 "4-step LoRA 가속" 스위치를 켠다
-                       (템플릿 옵션 "fast_4step", 기본 "off" — 워크플로우가 원래
-                       기본으로 쓰던 20스텝 고화질 경로를 그대로 유지). flf2v에는
-                       이 스위치 자체가 없어 무시된다.
+                       (템플릿 옵션 "fast_4step", i2v 기본 "on"). flf2v 워크플로우에는
+                       이 스위치 자체가 없어(모듈 설명 참고) 옵션 자체가 없고, 값을
+                       줘도 조용히 무시된다.
     NIGHTSHIFT_INPUT_IMAGES_DIR  입력 이미지들이 있는 폴더 (기본 NIGHTSHIFT_ASSETS_DIR/input)
     NIGHTSHIFT_ASSETS_DIR  위 override가 없을 때 쓰는 상위 디렉토리 (기본 /workspace/dataset/assets)
     COMFY_URL          ComfyUI 서버 주소 (기본 http://127.0.0.1:8188)
@@ -135,6 +149,19 @@ def apply_user_prompt(workflow, prompt):
         print("[wan22_video] 경고: user_prompt 노드를 찾지 못했습니다.", file=sys.stderr)
         return
     node.setdefault("inputs", {})["value"] = prompt
+
+
+def apply_text_enhance(workflow, prompt, enabled):
+    if enabled:
+        return  # 기본 동작 — TextGenerate 인핸스 체인을 그대로 둔다.
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return  # 끄더라도 대신 넣을 원문이 없으면(USER_PROMPT 비움) 켠 것과 동일하게 둔다.
+    node_id, node = find_node(workflow, title_substring="positive prompt", class_types=("CLIPTextEncode",))
+    if node is None:
+        print("[wan22_video] 경고: 긍정 프롬프트 노드를 찾지 못해 텍스트 인핸스를 끄지 못했습니다.", file=sys.stderr)
+        return
+    node.setdefault("inputs", {})["text"] = prompt
 
 
 def apply_lora(workflow, lora_name, lora_strength):
@@ -302,11 +329,12 @@ def resolve_input_image(name, label):
     return path
 
 
-def run_once(base_workflow, comfy_url, index, seed, user_prompt, start_image_path, end_image_path,
+def run_once(base_workflow, comfy_url, index, seed, user_prompt, text_enhance, start_image_path, end_image_path,
              lora_name, lora_strength, fast_4step):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
     apply_user_prompt(workflow, user_prompt)
+    apply_text_enhance(workflow, user_prompt, text_enhance)
     apply_image(workflow, comfy_url, "start_image", start_image_path)
     if end_image_path is not None:
         if not apply_image(workflow, comfy_url, "end_image", end_image_path):
@@ -336,6 +364,7 @@ def main():
     end_image_path = resolve_input_image(end_image_name, "끝 이미지") if end_image_name else None
 
     user_prompt = env("USER_PROMPT", "")
+    text_enhance = (env("TEXT_ENHANCE", "on") or "on").strip().lower() != "off"
     lora_name = (env("LORA_NAME", "") or "").strip()
     lora_strength = (env("LORA_STRENGTH", "") or "").strip()
     fast_4step = env("FAST_4STEP")
@@ -353,7 +382,7 @@ def main():
     for index in range(1, video_count + 1):
         seed = random.randint(0, 2**31 - 1)
         run_once(
-            base_workflow, comfy_url, index, seed, user_prompt,
+            base_workflow, comfy_url, index, seed, user_prompt, text_enhance,
             start_image_path, end_image_path, lora_name, lora_strength, fast_4step,
         )
         done += 1
