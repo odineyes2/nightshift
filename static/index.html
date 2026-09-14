@@ -1849,6 +1849,83 @@
     flex-direction:column;
     overflow:hidden;
   }
+  /* CSV 편집 모달처럼 표(열이 많을 수 있음)를 담는 모달용 — 기본 720px보다 넓힌다. */
+  .modal-panel.modal-panel-wide{ max-width:min(1100px, 100%); }
+
+  /* ---- CSV 편집 모달 (표 편집기) ---- */
+  .csv-editor-toolbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .csv-editor-hint{ font-size:11.5px; color:var(--text-dim); }
+  .csv-editor-table-wrap{
+    overflow-x:auto;
+    max-height:50vh;
+    overflow-y:auto;
+    border:1px solid var(--border);
+    border-radius:8px;
+  }
+  .csv-editor-table{
+    border-collapse:collapse;
+    width:100%;
+  }
+  .csv-editor-table th,
+  .csv-editor-table td{
+    border-bottom:1px solid var(--border);
+    border-right:1px solid var(--border);
+  }
+  .csv-editor-table th:last-child,
+  .csv-editor-table td:last-child{ border-right:none; }
+  .csv-editor-table th{
+    position:sticky;
+    top:0;
+    z-index:1;
+    background:rgba(var(--queued-rgb),0.07);
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    color:var(--text);
+    padding:8px 10px;
+    text-align:left;
+    white-space:nowrap;
+  }
+  .csv-col-required{ color:var(--failed); margin-left:3px; }
+  .csv-editor-table td{ padding:0; }
+  .csv-editor-table td input{
+    display:block;
+    width:100%;
+    min-width:150px;
+    box-sizing:border-box;
+    border:none;
+    background:transparent;
+    padding:7px 10px;
+    font-family:var(--sans);
+    font-size:12.5px;
+    color:var(--text);
+  }
+  .csv-editor-table td input:focus{
+    outline:2px solid rgba(var(--queued-rgb),0.35);
+    outline-offset:-2px;
+    background:rgba(var(--queued-rgb),0.04);
+  }
+  .csv-editor-row-actions{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0 6px !important;
+  }
+  .csv-editor-del-btn{
+    border:none;
+    background:none;
+    color:var(--text-dim);
+    cursor:pointer;
+    font-size:16px;
+    line-height:1;
+    padding:6px;
+  }
+  .csv-editor-del-btn:hover{ color:var(--failed); }
   .modal-header{
     display:flex;
     align-items:center;
@@ -2095,6 +2172,7 @@
         <div class="field" id="csv-field" style="display:none;">
           <div class="field-label-row">
             <label class="field-label">CSV <span class="opt">— 이 템플릿에 필수</span></label>
+            <button class="load-btn" id="csv-editor-btn" type="button" title="표 편집기로 CSV를 직접 작성/수정" style="display:none;">📊 CSV 편집</button>
             <button class="load-btn" id="recent-csvs-btn" type="button" title="최근 CSV">🕘 최근</button>
           </div>
           <div class="slot" id="csv-slot">.csv 파일을 끌어다 놓거나 클릭</div>
@@ -2687,6 +2765,38 @@
     </div>
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="recent-csvs-modal-cancel">✕ 닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- CSV 편집 — 표 형태로 직접 CSV를 작성/수정한다. 첫 줄(열)은 지금 고른 템플릿의
+     csv_columns(manifest.json)로 고정돼 있어 손댈 수 없고, 행만 자유롭게 추가/삭제/
+     편집할 수 있다. "💾 저장"은 위 CSV 슬롯에 바로 채우고(setCsvFile, 파일 업로드와
+     완전히 같은 자격), "⬇ 다운로드"는 지금 표 내용을 .csv 파일로 내려받는다. -->
+<div class="modal-overlay" id="csv-editor-modal" style="display:none;">
+  <div class="modal-panel modal-panel-wide">
+    <div class="modal-header">
+      <div class="modal-title" id="csv-editor-modal-title">CSV 편집</div>
+      <button class="modal-close" id="csv-editor-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint" id="csv-editor-hint"></div>
+      <div class="csv-editor-toolbar">
+        <button class="load-btn" id="csv-editor-add-row-btn" type="button">➕ 행 추가</button>
+        <span class="csv-editor-hint" id="csv-editor-row-count"></span>
+      </div>
+      <div class="csv-editor-table-wrap">
+        <table class="csv-editor-table" id="csv-editor-table">
+          <thead><tr id="csv-editor-thead-row"></tr></thead>
+          <tbody id="csv-editor-tbody"></tbody>
+        </table>
+      </div>
+      <div class="upload-error" id="csv-editor-error"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="csv-editor-download-btn" type="button">⬇ 다운로드</button>
+      <button class="modal-btn-secondary" id="csv-editor-cancel-btn" type="button">✕ 취소</button>
+      <button class="submit-btn" id="csv-editor-save-btn" type="button">💾 저장</button>
     </div>
   </div>
 </div>
@@ -4173,6 +4283,8 @@ const WAN22_BUNDLED_WORKFLOWS = {
 async function onTemplateChange(){
   const template = templatesById[templateSelect.value];
   csvField.style.display = (template && template.requires_csv) ? '' : 'none';
+  const csvEditorBtn = document.getElementById('csv-editor-btn');
+  if(csvEditorBtn) csvEditorBtn.style.display = (template && template.requires_csv && (template.csv_columns || []).length) ? '' : 'none';
   // 워크플로우가 필요 없는 템플릿(셸 명령 등) 또는 고정 그래프를 자동으로 붙이는
   // 영상 생성 템플릿에서는 첨부 칸 자체를 숨긴다(사용자가 직접 고를 게 없음).
   const bundledWorkflowName = template && WAN22_BUNDLED_WORKFLOWS[template.id];
@@ -4687,6 +4799,183 @@ setupRecentFilePicker({
   errorId: 'recent-csvs-error', retentionId: 'recent-csvs-retention',
   listApi: '/api/recent-csvs', itemApi: (id) => `/api/recent-csvs/${id}`, itemsKey: 'csvs',
   mimeType: 'text/csv', setFile: setCsvFile,
+});
+
+// ---- CSV 편집 모달 (표 편집기) ----
+// requires_csv 템플릿마다 manifest.json에 적어둔 csv_columns(스키마)를 첫 줄로
+// 고정하고, 행만 자유롭게 추가/삭제/편집하는 작은 스프레드시트다. "스키마(열)는
+// 편집할 수 없고 값만 입력/수정 가능"하다는 요구를 그대로 반영한다 — 열 이름은
+// 화면에서 아예 입력 불가능한 <th>로만 그리고, 실제 입력은 행의 <input>에만 있다.
+let csvEditorSchema = [];
+let csvEditorRows = [];
+
+function csvEditorEmptyRow(){
+  const row = {};
+  for(const col of csvEditorSchema) row[col.name] = '';
+  return row;
+}
+
+function csvEditorRowIsBlank(row){
+  return csvEditorSchema.every(col => !(row[col.name] || '').trim());
+}
+
+// 아주 단순한 RFC4180 파서 — 큰따옴표로 감싼 필드 안의 콤마/줄바꿈/이스케이프된
+// ""를 지원한다. "이미 첨부된 CSV를 편집기에 불러오기"에만 쓰므로, 완벽할 필요는
+// 없고 우리가 stringifyCsvRows로 직접 만든 형식 정도만 정확히 되읽으면 충분하다.
+function parseCsvText(text){
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  for(let i = 0; i < text.length; i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(text[i + 1] === '"'){ field += '"'; i++; } else { inQuotes = false; }
+      } else {
+        field += c;
+      }
+      continue;
+    }
+    if(c === '"'){ inQuotes = true; }
+    else if(c === ','){ row.push(field); field = ''; }
+    else if(c === '\r'){ /* 무시, \n에서 줄을 끊음 */ }
+    else if(c === '\n'){ row.push(field); rows.push(row); row = []; field = ''; }
+    else { field += c; }
+  }
+  if(field !== '' || row.length > 0){ row.push(field); rows.push(row); }
+  if(rows.length === 0) return { header: [], rows: [] };
+  const header = rows[0];
+  const dataRows = rows.slice(1).filter(r => r.some(v => v !== ''));
+  return {
+    header,
+    rows: dataRows.map(r => {
+      const obj = {};
+      header.forEach((h, idx) => { obj[h] = r[idx] !== undefined ? r[idx] : ''; });
+      return obj;
+    }),
+  };
+}
+
+function csvFieldEscape(value){
+  value = (value === undefined || value === null) ? '' : String(value);
+  if(/[",\r\n]/.test(value)) return '"' + value.replace(/"/g, '""') + '"';
+  return value;
+}
+
+function stringifyCsvRows(schema, rows){
+  const header = schema.map(c => c.name);
+  const lines = [header.map(csvFieldEscape).join(',')];
+  for(const row of rows) lines.push(header.map(name => csvFieldEscape(row[name])).join(','));
+  return lines.join('\r\n') + '\r\n';
+}
+
+function renderCsvEditorTable(){
+  document.getElementById('csv-editor-thead-row').innerHTML =
+    csvEditorSchema.map(col =>
+      `<th title="${escapeHtml(col.note || '')}">${escapeHtml(col.label)}${col.required ? '<span class="csv-col-required" title="필수">*</span>' : ''}</th>`
+    ).join('') + '<th></th>';
+
+  document.getElementById('csv-editor-tbody').innerHTML = csvEditorRows.map((row, rIdx) =>
+    `<tr>` +
+    csvEditorSchema.map(col =>
+      `<td><input type="text" data-row="${rIdx}" data-col="${escapeHtml(col.name)}" value="${escapeHtml(row[col.name] || '')}"></td>`
+    ).join('') +
+    `<td class="csv-editor-row-actions"><button type="button" class="csv-editor-del-btn" data-row="${rIdx}" title="이 행 삭제">&times;</button></td>` +
+    `</tr>`
+  ).join('');
+
+  document.getElementById('csv-editor-row-count').textContent = `${csvEditorRows.length}행`;
+}
+
+document.getElementById('csv-editor-tbody').addEventListener('input', (e) => {
+  const input = e.target.closest('input[data-col]');
+  if(!input) return;
+  csvEditorRows[Number(input.dataset.row)][input.dataset.col] = input.value;
+});
+document.getElementById('csv-editor-tbody').addEventListener('click', (e) => {
+  const btn = e.target.closest('.csv-editor-del-btn');
+  if(!btn) return;
+  csvEditorRows.splice(Number(btn.dataset.row), 1);
+  renderCsvEditorTable();
+});
+document.getElementById('csv-editor-add-row-btn').addEventListener('click', () => {
+  csvEditorRows.push(csvEditorEmptyRow());
+  renderCsvEditorTable();
+  const wrap = document.querySelector('.csv-editor-table-wrap');
+  wrap.scrollTop = wrap.scrollHeight;
+});
+
+async function openCsvEditor(){
+  const template = templatesById[templateSelect.value];
+  if(!template || !template.csv_columns || !template.csv_columns.length) return;
+  csvEditorSchema = template.csv_columns;
+  document.getElementById('csv-editor-modal-title').textContent = `CSV 편집 — ${template.label}`;
+  document.getElementById('csv-editor-error').textContent = '';
+
+  // 이미 첨부된 CSV가 있으면(업로드/최근/이전 저장) 그 내용을 표에 그대로 불러온다
+  // — 스키마와 이름이 맞는 열만 채우고, 안 맞는 열은 조용히 무시한다.
+  csvEditorRows = [];
+  if(selectedFiles.csv){
+    try{
+      const text = await selectedFiles.csv.text();
+      const parsed = parseCsvText(text);
+      csvEditorRows = parsed.rows.map(r => {
+        const row = csvEditorEmptyRow();
+        for(const col of csvEditorSchema){
+          if(r[col.name] !== undefined) row[col.name] = r[col.name];
+        }
+        return row;
+      });
+    }catch(e){ /* 못 읽으면 빈 표로 시작 */ }
+  }
+  while(csvEditorRows.length < 3) csvEditorRows.push(csvEditorEmptyRow());
+
+  renderCsvEditorTable();
+  document.getElementById('csv-editor-hint').textContent =
+    '* 표시된 열은 값이 있어야 그 행이 처리돼요. 첫 줄(열 이름)은 이 템플릿에 맞게 고정돼 있어 편집할 수 없어요 — 열에 마우스를 올리면 설명이 떠요.';
+  document.getElementById('csv-editor-modal').style.display = 'flex';
+}
+
+function closeCsvEditor(){
+  document.getElementById('csv-editor-modal').style.display = 'none';
+}
+
+document.getElementById('csv-editor-btn').addEventListener('click', openCsvEditor);
+document.getElementById('csv-editor-modal-close').addEventListener('click', closeCsvEditor);
+document.getElementById('csv-editor-cancel-btn').addEventListener('click', closeCsvEditor);
+document.getElementById('csv-editor-modal').addEventListener('click', (e) => {
+  if(e.target.id === 'csv-editor-modal') closeCsvEditor();
+});
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape' && document.getElementById('csv-editor-modal').style.display !== 'none') closeCsvEditor();
+});
+
+function csvEditorFilename(){
+  const template = templatesById[templateSelect.value];
+  return `${(template && template.id) || 'edited'}.csv`;
+}
+
+document.getElementById('csv-editor-save-btn').addEventListener('click', () => {
+  const rows = csvEditorRows.filter(r => !csvEditorRowIsBlank(r));
+  if(rows.length === 0){
+    document.getElementById('csv-editor-error').textContent = '값이 채워진 행이 하나도 없어요.';
+    return;
+  }
+  const text = stringifyCsvRows(csvEditorSchema, rows);
+  setCsvFile(new File([text], csvEditorFilename(), { type: 'text/csv' }));
+  closeCsvEditor();
+  document.getElementById('load-notice').textContent = `표에서 작성한 CSV(${rows.length}행)를 CSV 슬롯에 채웠어요.`;
+});
+
+document.getElementById('csv-editor-download-btn').addEventListener('click', () => {
+  const rows = csvEditorRows.filter(r => !csvEditorRowIsBlank(r));
+  if(rows.length === 0){
+    document.getElementById('csv-editor-error').textContent = '값이 채워진 행이 하나도 없어요.';
+    return;
+  }
+  const text = stringifyCsvRows(csvEditorSchema, rows);
+  triggerBlobDownload(new Blob([text], { type: 'text/csv' }), csvEditorFilename());
 });
 
 // 헤더에 있던 전역 ComfyUI 연결 배지(와 그 주소 설정 모달)는 없앴다 — 파드가
