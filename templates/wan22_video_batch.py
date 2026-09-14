@@ -41,6 +41,25 @@ LoRA는 high/low 노이즈 모델 두 갈래에 항상 쌍으로 걸려 있는 W
 LORA_NAME/LORA_STRENGTH를 "user_lora_high"/"user_lora_low" 두 노드 모두에 같이
 적용한다(한쪽만 바꾸면 하나는 예전 LoRA로 남아 out-of-sync 상태가 됨).
 
+영상 해상도(VIDEO_WIDTH/VIDEO_HEIGHT)는 원래 두 워크플로우 다 WanImageToVideo/
+WanFirstLastFrameToVideo 노드에 특정 값(i2v 1536×704, flf2v 704×1536)이 그대로
+박혀 있었다 — 입력 이미지의 실제 크기와 무관하게 항상 그 값으로 강제 리사이즈됐다는
+뜻이다. VIDEO_WIDTH/VIDEO_HEIGHT를 비워두면(기본) 대신 START_IMAGE의 실제 픽셀
+크기를 읽어 그 비율 그대로 쓴다(compute_video_dims 참고) — 두 변 모두 16의
+배수로 반올림하고(WAN 계열 비디오 모델의 일반적인 정렬 단위), 원본 워크플로우와
+같은 총 픽셀 예산(1536×704 ≈ 108만 픽셀)을 넘으면 비율을 유지한 채 축소한다
+(작은 이미지를 확대하지는 않는다 — 어차피 WanImageToVideo가 지정한 해상도로
+다시 리샘플링하므로 확대해봐야 화질이 좋아지지 않고 VRAM만 더 쓴다).
+VIDEO_WIDTH/VIDEO_HEIGHT를 둘 다 채우면 그 값을 그대로 쓴다(자동 계산을
+건너뜀) — 하나만 채우면 경고만 남기고 자동 계산으로 돌아간다.
+
+옵션 이름을 "width"/"height"가 아니라 "video_width"/"video_height"로 지은
+이유: 프론트엔드가 템플릿 옵션 목록에 "width"와 "height"가 함께 있으면(다른
+이미지 생성 템플릿들의 관례) 자동으로 화면비·해상도 프리셋 UI로 묶어버린다
+(renderOptionFields의 hasResolutionPair 로직) — 이 프리셋 UI는 항상 값을 채운
+채로 시작해서 "비워두면 자동 계산" 동작과 충돌한다. 이름을 다르게 지어 그
+자동 병합을 피했다.
+
 환경변수:
     WORKFLOW_PATH      (필수) ComfyUI API 형식 workflow json 경로 (nightshift가 주입 —
                        항상 GET /api/video-workflows/{name}로 받아온 고정 그래프)
@@ -61,6 +80,9 @@ LORA_NAME/LORA_STRENGTH를 "user_lora_high"/"user_lora_low" 두 노드 모두에
                        (템플릿 옵션 "fast_4step", i2v 기본 "on"). flf2v 워크플로우에는
                        이 스위치 자체가 없어(모듈 설명 참고) 옵션 자체가 없고, 값을
                        줘도 조용히 무시된다.
+    VIDEO_WIDTH, VIDEO_HEIGHT  영상 해상도 (템플릿 옵션 "video_width"/"video_height",
+                       기본 빈 값 — 둘 다 비우면 START_IMAGE의 실제 크기에서 자동
+                       계산함, 모듈 설명 참고)
     NIGHTSHIFT_INPUT_IMAGES_DIR  입력 이미지들이 있는 폴더 (기본 NIGHTSHIFT_ASSETS_DIR/input)
     NIGHTSHIFT_ASSETS_DIR  위 override가 없을 때 쓰는 상위 디렉토리 (기본 /workspace/dataset/assets)
     COMFY_URL          ComfyUI 서버 주소 (기본 http://127.0.0.1:8188)
@@ -89,7 +111,13 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+from PIL import Image
+
 INPUT_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+# 원본 워크플로우가 원래 쓰던 총 픽셀 수(1536×704) — 자동 계산한 해상도가 이걸
+# 넘으면 비율을 유지한 채 줄인다(모듈 설명의 "영상 해상도" 절 참고).
+DEFAULT_MAX_VIDEO_PIXELS = 1536 * 704
+VIDEO_DIM_MULTIPLE = 16
 
 
 def env(name, default=None):
@@ -162,6 +190,58 @@ def apply_text_enhance(workflow, prompt, enabled):
         print("[wan22_video] 경고: 긍정 프롬프트 노드를 찾지 못해 텍스트 인핸스를 끄지 못했습니다.", file=sys.stderr)
         return
     node.setdefault("inputs", {})["text"] = prompt
+
+
+def compute_video_dims(image_path, max_pixels=DEFAULT_MAX_VIDEO_PIXELS, multiple=VIDEO_DIM_MULTIPLE):
+    """image_path의 실제 픽셀 크기를 읽어 영상 해상도로 쓸 (width, height)를 계산한다.
+    비율은 유지하되, 총 픽셀 수가 max_pixels를 넘으면(넘을 때만) 축소하고, 두 변
+    모두 multiple의 배수로 반올림한다(WAN 계열 비디오 모델이 흔히 요구하는 정렬
+    단위). 작은 이미지를 확대하지는 않는다 — 어차피 WanImageToVideo류 노드가
+    지정한 해상도로 다시 리샘플링하므로 확대해봐야 화질 이득이 없다."""
+    with Image.open(image_path) as img:
+        width, height = img.size
+    if width <= 0 or height <= 0:
+        return None
+    scale = 1.0
+    if width * height > max_pixels:
+        scale = (max_pixels / (width * height)) ** 0.5
+    w = max(multiple, round(width * scale / multiple) * multiple)
+    h = max(multiple, round(height * scale / multiple) * multiple)
+    return w, h
+
+
+def apply_video_size(workflow, width, height):
+    node_id, node = find_node(workflow, class_types=("WanImageToVideo", "WanFirstLastFrameToVideo"))
+    if node is None:
+        print("[wan22_video] 경고: 영상 해상도를 넣을 노드를 찾지 못했습니다.", file=sys.stderr)
+        return
+    inputs = node.setdefault("inputs", {})
+    inputs["width"] = width
+    inputs["height"] = height
+
+
+def resolve_video_dims(width_raw, height_raw, start_image_path):
+    """VIDEO_WIDTH/VIDEO_HEIGHT 옵션과 시작 이미지로 최종 (width, height)를 정한다.
+    둘 다 채워졌으면 그 값을 그대로 쓰고, 하나만 채워졌으면 경고 후 자동 계산으로
+    돌아간다(다른 템플릿들의 "width/height는 둘 다 채워야 적용됨" 규칙과 동일)."""
+    width_raw = (width_raw or "").strip() if isinstance(width_raw, str) else width_raw
+    height_raw = (height_raw or "").strip() if isinstance(height_raw, str) else height_raw
+    has_width = width_raw not in (None, "")
+    has_height = height_raw not in (None, "")
+    if has_width and has_height:
+        try:
+            return int(float(width_raw)), int(float(height_raw))
+        except (TypeError, ValueError):
+            print(f"[wan22_video] 경고: VIDEO_WIDTH/VIDEO_HEIGHT 값 '{width_raw}x{height_raw}'을 정수로 변환하지 못했습니다 — 자동 계산으로 대체합니다.", file=sys.stderr)
+    elif has_width or has_height:
+        print("[wan22_video] 경고: VIDEO_WIDTH/VIDEO_HEIGHT는 둘 다 채워야 적용됩니다 (하나만 비어 있음) — 자동 계산으로 대체합니다.", file=sys.stderr)
+
+    try:
+        dims = compute_video_dims(start_image_path)
+    except Exception as e:
+        print(f"[wan22_video] 경고: 시작 이미지 크기를 읽지 못해 해상도를 자동 계산하지 못했습니다: {e}", file=sys.stderr)
+        return None
+    return dims
 
 
 def apply_lora(workflow, lora_name, lora_strength):
@@ -330,7 +410,7 @@ def resolve_input_image(name, label):
 
 
 def run_once(base_workflow, comfy_url, index, seed, user_prompt, text_enhance, start_image_path, end_image_path,
-             lora_name, lora_strength, fast_4step):
+             lora_name, lora_strength, fast_4step, video_dims):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
     apply_user_prompt(workflow, user_prompt)
@@ -339,6 +419,8 @@ def run_once(base_workflow, comfy_url, index, seed, user_prompt, text_enhance, s
     if end_image_path is not None:
         if not apply_image(workflow, comfy_url, "end_image", end_image_path):
             print("[wan22_video] 경고: 이 워크플로우에는 end_image 노드가 없어 끝 이미지를 넣지 못했습니다.", file=sys.stderr)
+    if video_dims is not None:
+        apply_video_size(workflow, *video_dims)
     apply_lora(workflow, lora_name, lora_strength)
     apply_fast_4step(workflow, fast_4step)
     apply_filename_prefix(workflow, index, seed)
@@ -368,6 +450,7 @@ def main():
     lora_name = (env("LORA_NAME", "") or "").strip()
     lora_strength = (env("LORA_STRENGTH", "") or "").strip()
     fast_4step = env("FAST_4STEP")
+    video_dims = resolve_video_dims(env("VIDEO_WIDTH"), env("VIDEO_HEIGHT"), start_image_path)
 
     base_workflow = load_workflow(workflow_path)
     comfy_url = env("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
@@ -375,6 +458,7 @@ def main():
     nightshift_url = env("NIGHTSHIFT_URL", "http://127.0.0.1:8000")
 
     detail = f"시작 이미지: {start_image_name}" + (f", 끝 이미지: {end_image_name}" if end_image_path else "")
+    detail += f", 해상도: {video_dims[0]}x{video_dims[1]}" if video_dims else " (해상도는 워크플로우 값 그대로)"
     print(f"[wan22_video] 총 {video_count}건 제출 예정 ({detail})")
     report_progress(job_id, nightshift_url, video_count, 0)
 
@@ -383,7 +467,7 @@ def main():
         seed = random.randint(0, 2**31 - 1)
         run_once(
             base_workflow, comfy_url, index, seed, user_prompt, text_enhance,
-            start_image_path, end_image_path, lora_name, lora_strength, fast_4step,
+            start_image_path, end_image_path, lora_name, lora_strength, fast_4step, video_dims,
         )
         done += 1
         report_progress(job_id, nightshift_url, video_count, done)
