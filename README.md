@@ -764,6 +764,19 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 - **결과**: `SaveVideo` 노드가 `<JOB_ID>/wan22_video_<순번>_seed<시드>.mp4`로 저장하므로, 다른 템플릿과 마찬가지로 `NIGHTSHIFT_OUTPUT_DIR/<job_id>/` 아래에 쌓이고 위 "🎬 영상 갤러리" 탭에서 볼 수 있습니다.
 - 워크플로우 구조(어떤 노드가 어떤 제목을 쓰는지, 시드/이미지/LoRA 주입 방식)는 `templates/wan22_video_batch.py`와 `templates/wan22_video_csv_batch.py`의 모듈 docstring에 자세히 적어뒀습니다.
 
+### 이미지→영상 복합 CSV 배치 (`img2video_i2v_csv_batch`/`img2video_flf2v_csv_batch`)
+
+이미지 생성과 WAN2.2 영상 생성을 한 작업 안에서 이어붙인 템플릿입니다. CSV 한 행마다 (1) 사용자가 올린 이미지 생성 워크플로우로 이미지를 생성하고(i2v는 1장, flf2v는 시작/끝 프레임 각 1장씩 2장), (2) 그 결과를 바로 WAN2.2 i2v/flf2v 영상으로 잇습니다. 위 "영상 생성" 템플릿들과 달리 이미지 생성 단계는 사용자가 워크플로우를 직접 올려야 합니다(`csv_batch`와 같은 방식) — 영상 단계만 `wan22_i2v.json`/`wan22_flf2v.json`을 nightshift가 내부적으로 고정으로 씁니다(화면에 영상 워크플로우 업로드 칸이 따로 없음).
+
+- **이미지→영상 연계**: 이미지 생성 결과를 `NIGHTSHIFT_INPUT_IMAGES_DIR`(입력 이미지 풀)에 전혀 쓰지 않습니다 — ComfyUI의 `/history/{prompt_id}` 응답에서 방금 만든 이미지의 파일 정보를 찾아 `/view`로 그 바이트를 그대로 받아온 뒤, 같은 ComfyUI 서버의 `/upload/image`로 바로 재업로드해서 영상 워크플로우의 `start_image`(flf2v는 `end_image`도) 노드에 꽂습니다. 로컬 디스크 왕복 없이 ComfyUI 서버 안에서 끝나는 연계입니다.
+- **영상 해상도**: 방금 받은 이미지 바이트의 실제 크기에서 자동 계산합니다(다른 WAN2.2 템플릿들의 `compute_video_dims`와 같은 규칙 — 16의 배수로 반올림, 총 픽셀수가 기준을 넘을 때만 축소). 이미지 생성 단계의 `width`/`height`/`resolution` 컬럼으로 생성 이미지 크기를 정하면 그 결과가 그대로 영상 해상도 계산에 쓰이므로, 영상 전용 해상도 컬럼은 따로 두지 않았습니다.
+- **만화 선화(lineart) 안전장치**(`line_safety` 옵션, 기본 `on`): 생성된 이미지가 영상의 시작 프레임이 되는데, 동작을 표현하려고 넣는 집중선/강조선/겹선 같은 만화적 왜곡이 있으면 그게 영상 전체에 깔린 정지 잔상처럼 보입니다. 켜져 있으면 매 행의 이미지 생성 프롬프트(`main_prompt`/`prompt`)에 `clean lineart, sharp lineart, smooth lineart`를, `negative_prompt`에 `speed lines, motion lines, emphasis lines, focus lines, action lines, impact lines, duplicate lineart, rough lineart, messy lineart, multiple outlines, motion blur lines`를 자동으로 덧붙입니다(이미 같은 문구 전체가 들어있으면 중복 추가하지 않음). 끄고 싶으면 `off`로 바꿉니다.
+- **이미지 생성 단계**: 프롬프트 컬럼(`trigger_prompt`/`main_prompt`(=`prompt`)/`quality_prompt`/`negative_prompt`)과 노드 매칭 방식, `checkpoint`/`lora_name`/`lora_strength` 옵션, `width`/`height`/`resolution` 해상도 우선순위는 전부 `csv_batch`와 동일합니다.
+- **영상 생성 단계**: `video_prompt`가 영상 워크플로우의 `user_prompt` 노드로 들어가고(텍스트 인핸스는 `text_enhance` 옵션, 기본 `on`), `video_lora_name`/`video_lora_strength`가 `user_lora_high`/`user_lora_low`에 적용됩니다. `fast_4step`(기본 `on`)은 i2v 템플릿에만 있습니다 — flf2v 워크플로우에는 이 스위치 자체가 없다는 사실은 위 "영상 생성" 절에서 이미 확인한 내용과 같습니다.
+- **flf2v의 시작/끝 프레임**: `main_prompt`(=`prompt`)가 시작 프레임, `end_prompt`가 끝 프레임 프롬프트입니다(필수, 둘 다 있어야 그 행을 실행). `trigger_prompt`/`quality_prompt`/`negative_prompt`/`width`/`height`/`resolution`은 시작·끝 프레임에 공통으로 적용되고, `seed`(시작)/`end_seed`(끝)만 따로입니다.
+- **결과**: 이미지는 `<JOB_ID>/<title>_img_<순번>_seed<이미지시드>`(flf2v는 `_img_start_`/`_img_end_`로 구분), 영상은 `<JOB_ID>/<title>_video_<순번>_seed<영상시드>`로 저장됩니다 — 같은 `JOB_ID` 폴더 아래 쌓이므로 이미지는 🖼 갤러리, 영상은 🎬 영상 갤러리에 각각 나타나고 "작업별 보기"로 함께 묶여 보입니다.
+- 노드 매칭/체이닝 로직 전체는 `templates/img2video_i2v_csv_batch.py`/`templates/img2video_flf2v_csv_batch.py`의 모듈 docstring에 자세히 적어뒀습니다.
+
 ### 베이스 모델(family) / LoRA 호환성 / ControlNet·IPAdapter 프리셋 관리 (`🎛 모델` 탭)
 
 체크포인트를 `wai-illustrious`, `krea.2`처럼 서로 호환되는 계열(family)로 묶어두면, "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/프리셋을 걸러서 보여줍니다. 관리는 전부 "🎛 모델" 탭에서 합니다(구 "🎛 LoRA" 탭을 확장한 것).
@@ -788,7 +801,7 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 ### CSV 편집 — 표 편집기로 직접 작성/수정 (`📊 CSV 편집` 버튼)
 
-CSV가 필요한 템플릿(`requires_csv: true`이고 `csv_columns`가 있는 것 — `csv_batch`, `pose_csv_batch`/`depth_csv_batch`/`lineart_csv_batch`, `input_image_csv_batch`, `ipadapter_csv_batch`, `wan22_i2v_csv_batch`/`wan22_flf2v_csv_batch`)를 고르면 CSV 슬롯 옆에 **"📊 CSV 편집"** 버튼이 나타납니다. 외부 스프레드시트 프로그램 없이도 nightshift 안에서 작은 표 편집 모달로 CSV를 바로 만들거나 고칠 수 있습니다.
+CSV가 필요한 템플릿(`requires_csv: true`이고 `csv_columns`가 있는 것 — `csv_batch`, `pose_csv_batch`/`depth_csv_batch`/`lineart_csv_batch`, `input_image_csv_batch`, `ipadapter_csv_batch`, `wan22_i2v_csv_batch`/`wan22_flf2v_csv_batch`, `img2video_i2v_csv_batch`/`img2video_flf2v_csv_batch`)를 고르면 CSV 슬롯 옆에 **"📊 CSV 편집"** 버튼이 나타납니다. 외부 스프레드시트 프로그램 없이도 nightshift 안에서 작은 표 편집 모달로 CSV를 바로 만들거나 고칠 수 있습니다.
 
 - **열(스키마)은 고정, 값만 편집**: 표의 첫 줄(열 이름 — 그 템플릿의 `csv_columns`)은 `<th>`로만 그려져 편집할 수 없습니다. 행 추가/삭제와 각 칸의 값 입력만 가능합니다 — 워크플로우 스크립트가 기대하는 열 이름 자체를 사용자가 실수로 바꿔서 CSV가 무의미해지는 사고를 원천 차단합니다. 필수 열(스크립트가 값이 없으면 그 행을 건너뛰거나 거부하는 열)은 열 이름 옆에 빨간 `*`로 표시됩니다(열에 마우스를 올리면 설명 툴팁도 뜹니다).
 - **불러오기**: CSV 슬롯에 이미 파일이 첨부돼 있으면(직접 업로드, "🕘 최근"으로 고름, 혹은 이전에 이 편집기로 저장한 것) 모달을 열 때 그 내용을 자동으로 표에 채웁니다 — 열 이름이 지금 템플릿의 스키마와 일치하는 값만 채워지고, 안 맞는 열은 조용히 무시됩니다.
@@ -992,6 +1005,8 @@ nightshift/
 │   ├── video_workflows/          # 영상 생성 템플릿이 쓰는 고정 워크플로우(nightshift가 함께 배포)
 │   │   ├── wan22_i2v.json
 │   │   └── wan22_flf2v.json
+│   ├── img2video_i2v_csv_batch.py   # 템플릿 스크립트 (이미지 생성 → WAN2.2 i2v 영상, CSV 배치)
+│   ├── img2video_flf2v_csv_batch.py # 템플릿 스크립트 (이미지 생성 → WAN2.2 flf2v 영상, CSV 배치)
 │   ├── shell_command.py         # 템플릿 스크립트 (셸 파드용 — 임의 명령 실행)
 │   └── claude_write.py          # 템플릿 스크립트 (Claude 글쓰기 파드용 — Claude API로 프롬프트 전송)
 ├── scripts/                   # 독립 실행 유틸리티 — 서버가 import하지 않고, 사람이나

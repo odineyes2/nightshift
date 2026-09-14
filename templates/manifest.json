@@ -331,6 +331,65 @@
     ]
   },
   {
+    "id": "img2video_i2v_csv_batch",
+    "label": "이미지→영상 복합 CSV 배치 — i2v",
+    "script_filename": "img2video_i2v_csv_batch.py",
+    "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "trigger_prompt", "label": "트리거 프롬프트(이미지)", "required": false },
+      { "name": "main_prompt", "label": "메인 프롬프트(이미지)", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "quality_prompt", "label": "퀄리티 프롬프트(이미지)", "required": false },
+      { "name": "negative_prompt", "label": "네거티브 프롬프트(이미지)", "required": false, "note": "만화 선화 안전장치가 켜져 있으면(기본) 집중선/겹선 배제 태그가 자동으로 덧붙어요" },
+      { "name": "seed", "label": "이미지 시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "width", "label": "이미지 너비", "required": false, "note": "height와 함께 채워야 적용됨" },
+      { "name": "height", "label": "이미지 높이", "required": false, "note": "width와 함께 채워야 적용됨" },
+      { "name": "resolution", "label": "이미지 화면비", "required": false, "note": "예: 16:9, 9:16, square (width/height가 비어 있을 때만)" },
+      { "name": "video_prompt", "label": "영상 프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀" },
+      { "name": "video_seed", "label": "영상 시드", "required": false, "note": "비워두면 무작위" }
+    ],
+    "options": [
+      { "name": "checkpoint", "label": "체크포인트(이미지)", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA(이미지)", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도(이미지)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
+      { "name": "line_safety", "label": "만화 선화 안전장치 (집중선/겹선 등 배제)", "type": "select", "choices": ["on", "off"], "default": "on" },
+      { "name": "video_lora_name", "label": "LoRA(영상)", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "video_lora_strength", "label": "LoRA 강도(영상)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
+      { "name": "text_enhance", "label": "영상 프롬프트 텍스트 인핸스", "type": "select", "choices": ["on", "off"], "default": "on" },
+      { "name": "fast_4step", "label": "영상 4-step LoRA 가속", "type": "select", "choices": ["off", "on"], "default": "on" }
+    ]
+  },
+  {
+    "id": "img2video_flf2v_csv_batch",
+    "label": "이미지→영상 복합 CSV 배치 — flf2v",
+    "script_filename": "img2video_flf2v_csv_batch.py",
+    "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "trigger_prompt", "label": "트리거 프롬프트(이미지, 공통)", "required": false },
+      { "name": "main_prompt", "label": "시작 프레임 프롬프트(이미지)", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "end_prompt", "label": "끝 프레임 프롬프트(이미지)", "required": true, "note": "비워두면 이 행은 건너뜀" },
+      { "name": "quality_prompt", "label": "퀄리티 프롬프트(이미지, 공통)", "required": false },
+      { "name": "negative_prompt", "label": "네거티브 프롬프트(이미지, 공통)", "required": false, "note": "만화 선화 안전장치가 켜져 있으면(기본) 집중선/겹선 배제 태그가 자동으로 덧붙어요" },
+      { "name": "seed", "label": "시작 프레임 시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "end_seed", "label": "끝 프레임 시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "width", "label": "이미지 너비", "required": false, "note": "height와 함께 채워야 적용됨, 시작/끝 공통" },
+      { "name": "height", "label": "이미지 높이", "required": false, "note": "width와 함께 채워야 적용됨, 시작/끝 공통" },
+      { "name": "resolution", "label": "이미지 화면비", "required": false, "note": "예: 16:9, 9:16, square (width/height가 비어 있을 때만, 시작/끝 공통)" },
+      { "name": "video_prompt", "label": "영상 프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀" },
+      { "name": "video_seed", "label": "영상 시드", "required": false, "note": "비워두면 무작위" }
+    ],
+    "options": [
+      { "name": "checkpoint", "label": "체크포인트(이미지)", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
+      { "name": "lora_name", "label": "LoRA(이미지)", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "lora_strength", "label": "LoRA 강도(이미지)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
+      { "name": "line_safety", "label": "만화 선화 안전장치 (집중선/겹선 등 배제)", "type": "select", "choices": ["on", "off"], "default": "on" },
+      { "name": "video_lora_name", "label": "LoRA(영상)", "type": "comfy_model", "model_kind": "loras", "default": "" },
+      { "name": "video_lora_strength", "label": "LoRA 강도(영상)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
+      { "name": "text_enhance", "label": "영상 프롬프트 텍스트 인핸스", "type": "select", "choices": ["on", "off"], "default": "on" }
+    ]
+  },
+  {
     "id": "shell_command",
     "label": "셸 명령 실행",
     "script_filename": "shell_command.py",
