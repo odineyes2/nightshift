@@ -268,6 +268,8 @@
       { "name": "start_image", "label": "시작 이미지", "type": "input_image", "default": "" },
       { "name": "user_prompt", "label": "프롬프트", "type": "textarea", "default": "", "placeholder": "예: a woman walking along the beach at sunset, cinematic lighting" },
       { "name": "text_enhance", "label": "프롬프트 텍스트 인핸스", "type": "select", "choices": ["on", "off"], "default": "on" },
+      { "name": "video_width", "label": "영상 너비(width)", "type": "number_optional", "default": "", "placeholder": "비워두면 시작 이미지 크기에서 자동 계산해요" },
+      { "name": "video_height", "label": "영상 높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 시작 이미지 크기에서 자동 계산해요" },
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
       { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
       { "name": "fast_4step", "label": "4-step LoRA 가속", "type": "select", "choices": ["off", "on"], "default": "on" }
@@ -282,7 +284,9 @@
       { "name": "title", "label": "제목", "required": false },
       { "name": "user_prompt", "label": "프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
       { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
-      { "name": "start_image", "label": "시작 이미지", "required": true, "note": "입력 이미지 풀(NIGHTSHIFT_INPUT_IMAGES_DIR)에 있는 파일명 — 모든 행에 필수" }
+      { "name": "start_image", "label": "시작 이미지", "required": true, "note": "입력 이미지 풀(NIGHTSHIFT_INPUT_IMAGES_DIR)에 있는 파일명 — 모든 행에 필수" },
+      { "name": "width", "label": "너비", "required": false, "note": "height와 함께 채워야 적용됨 — 비워두면 이 행의 시작 이미지 크기에서 자동 계산" },
+      { "name": "height", "label": "높이", "required": false, "note": "width와 함께 채워야 적용됨 — 비워두면 이 행의 시작 이미지 크기에서 자동 계산" }
     ],
     "options": [
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
@@ -301,6 +305,8 @@
       { "name": "end_image", "label": "끝 이미지", "type": "input_image", "default": "" },
       { "name": "user_prompt", "label": "프롬프트", "type": "textarea", "default": "", "placeholder": "예: a woman walking along the beach at sunset, cinematic lighting" },
       { "name": "text_enhance", "label": "프롬프트 텍스트 인핸스", "type": "select", "choices": ["on", "off"], "default": "on" },
+      { "name": "video_width", "label": "영상 너비(width)", "type": "number_optional", "default": "", "placeholder": "비워두면 시작 이미지 크기에서 자동 계산해요" },
+      { "name": "video_height", "label": "영상 높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 시작 이미지 크기에서 자동 계산해요" },
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
       { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
     ]
@@ -315,7 +321,9 @@
       { "name": "user_prompt", "label": "프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
       { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
       { "name": "start_image", "label": "시작 이미지", "required": true, "note": "입력 이미지 풀에 있는 파일명 — 모든 행에 필수" },
-      { "name": "end_image", "label": "끝 이미지", "required": true, "note": "입력 이미지 풀에 있는 파일명 — 모든 행에 필수" }
+      { "name": "end_image", "label": "끝 이미지", "required": true, "note": "입력 이미지 풀에 있는 파일명 — 모든 행에 필수" },
+      { "name": "width", "label": "너비", "required": false, "note": "height와 함께 채워야 적용됨 — 비워두면 이 행의 시작 이미지 크기에서 자동 계산" },
+      { "name": "height", "label": "높이", "required": false, "note": "width와 함께 채워야 적용됨 — 비워두면 이 행의 시작 이미지 크기에서 자동 계산" }
     ],
     "options": [
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
