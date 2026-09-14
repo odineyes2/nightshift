@@ -1474,6 +1474,124 @@
     .gallery-details-col.job, .gallery-details-col.dim, .gallery-details-col.size, .gallery-details-col.mtime{ display:none; }
   }
 
+  /* ---- 영상 갤러리 ----
+     이미지 갤러리(.gallery-*)와 시각적으로 똑같지만 클래스명을 vgallery-*로 따로 둔다.
+     둘 다 같은 페이지의 숨겨진 DOM으로 동시에 존재하는데(탭 전환은 display:none일 뿐
+     제거가 아님), 이미지 갤러리의 "전체선택"/"선택 해제"/그룹 체크박스 동기화 로직이
+     document.querySelectorAll('.gallery-item') 처럼 컨테이너로 좁히지 않고 문서
+     전체에서 클래스로 찾는다 — 같은 클래스명을 쓰면 영상 갤러리 카드까지 (숨겨진
+     채로) 함께 선택 표시가 돼버린다. "자세히 보기"는 폭/높이/길이를 ffprobe 없이는
+     읽을 수 없어 넣지 않았으므로 details 관련 스타일은 옮기지 않는다. */
+  .vgallery-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
+    gap:10px;
+  }
+  .vgallery-group{ grid-column:1 / -1; margin-bottom:20px; }
+  .vgallery-group:last-child{ margin-bottom:0; }
+  .vgallery-group-header{
+    font-family:var(--mono);
+    font-size:11.5px;
+    font-weight:600;
+    color:var(--text-dim);
+    padding:6px 2px;
+    margin-bottom:8px;
+    border-bottom:1px solid var(--border);
+  }
+  .vgallery-group-select-label{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    cursor:pointer;
+  }
+  .vgallery-group-select-label input{
+    width:14px; height:14px;
+    cursor:pointer;
+    accent-color:var(--queued);
+  }
+  .vgallery-group-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
+    gap:10px;
+  }
+  .vgallery-item{
+    position:relative;
+    aspect-ratio:1;
+    border-radius:8px;
+    overflow:hidden;
+    border:1px solid var(--border);
+    cursor:pointer;
+    background:var(--bg);
+  }
+  .vgallery-item video{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    display:block;
+  }
+  .vgallery-item-name{
+    position:absolute;
+    left:0; right:0; bottom:0;
+    padding:4px 6px;
+    font-family:var(--mono);
+    font-size:10px;
+    color:#fff;
+    background:linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0));
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    pointer-events:none;
+  }
+  .vgallery-item-select{
+    position:absolute;
+    top:6px; left:6px;
+    z-index:2;
+    width:20px; height:20px;
+    border-radius:5px;
+    background:rgba(0,0,0,0.45);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+  }
+  .vgallery-item-select input{
+    width:14px; height:14px;
+    cursor:pointer;
+    accent-color:var(--queued);
+  }
+  .vgallery-item-delete{
+    position:absolute;
+    top:6px; right:6px;
+    z-index:2;
+    width:22px; height:22px;
+    border-radius:50%;
+    border:none;
+    background:rgba(0,0,0,0.45);
+    color:#fff;
+    font-size:15px;
+    line-height:1;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    opacity:0;
+    transition:opacity .15s ease, background .15s ease, transform .15s ease;
+  }
+  .vgallery-item:hover .vgallery-item-delete{ opacity:1; }
+  .vgallery-item-delete:hover{ background:rgba(var(--failed-rgb),0.85); transform:scale(1.08); }
+  .vgallery-item.selected{ outline:2px solid var(--queued); outline-offset:-2px; }
+  .vgallery-item-play{
+    position:absolute;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:28px;
+    color:rgba(255,255,255,0.85);
+    text-shadow:0 1px 4px rgba(0,0,0,0.5);
+    pointer-events:none;
+  }
+
   /* ---- Danbooru 프롬프트 조립 탭 ---- */
   .danbooru-prompt-box{
     background:rgba(var(--queued-rgb),0.04);
@@ -1875,6 +1993,7 @@
   <div class="tab-bar-inner">
     <button class="tab-btn active" data-tab="dashboard" type="button" title="홈 — 파드(워커) 대시보드">🏠 Home</button>
     <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
+    <button class="tab-btn" data-tab="video-gallery" type="button" title="영상 갤러리 — 아직 영상을 만드는 파드는 없지만, 출력 폴더에 영상 파일이 생기면 여기서 볼 수 있어요">🎬 영상</button>
     <span class="tab-bar-sep"></span>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 파드와 무관한 프롬프트 작업대">🏷 Danbooru</button>
   </div>
@@ -2123,6 +2242,42 @@
       <div class="upload-error" id="gallery-error"></div>
       <div class="gallery-grid" id="gallery-grid"></div>
       <div class="empty" id="gallery-empty" style="display:none;"></div>
+    </div>
+  </div>
+</main>
+
+<!-- 영상 갤러리 — 이미지 갤러리와 구조가 같되(격자/작업별·날짜별 보기/선택/다운로드/삭제/
+     라이트박스), 영상 전용이 아닌 기능은 뺐다: 회전(이미지 전용 후처리), "📌 세트 추가"
+     (포즈 참조용, 이미지 전용), "📂 작업 불러오기"(영상 작업 템플릿이 아직 없어 불러올
+     설정이 없음), "📋 자세히"(폭/높이/길이를 읽으려면 ffprobe가 필요한데 새 시스템
+     의존성을 안 늘리기로 했음). 지금은 영상을 만드는 파드가 없어 늘 비어 있겠지만,
+     생기면 바로 쓸 수 있게 미리 마련해둔다. -->
+<main id="tab-video-gallery" style="display:none;">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label">🎬 영상 갤러리</div>
+      <div class="panel-header-actions">
+        <span class="gallery-count" id="video-gallery-count"></span>
+        <div class="enhance-mode" id="video-gallery-view-toggle">
+          <button class="enhance-mode-btn active" type="button" data-view="all" title="전체 보기">🖼 전체</button>
+          <button class="enhance-mode-btn" type="button" data-view="byjob" title="작업별 보기">🗂 작업별</button>
+          <button class="enhance-mode-btn" type="button" data-view="bydate" title="날짜별 보기">📅 날짜별</button>
+        </div>
+        <button class="load-btn" id="video-gallery-select-all-btn" type="button" disabled title="전체 선택">☑ 전체선택</button>
+        <button class="load-btn" id="video-gallery-refresh-btn" type="button" title="새로고침">🔄</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="email-hint">아직 영상을 만드는 파드가 없어요 — 장차 그런 파드가 생기면 여기서 결과 영상을 확인할 수 있어요.</div>
+      <div class="gallery-toolbar" id="video-gallery-toolbar" style="display:none;">
+        <span class="gallery-toolbar-count" id="video-gallery-toolbar-count"></span>
+        <button class="load-btn" id="video-gallery-download-selected-btn" type="button" title="다운로드">⬇ 다운로드</button>
+        <button class="del-btn" id="video-gallery-delete-selected-btn" type="button" title="삭제">🗑 삭제</button>
+        <button class="modal-btn-secondary" id="video-gallery-clear-selection-btn" type="button" title="선택 해제">✕ 해제</button>
+      </div>
+      <div class="upload-error" id="video-gallery-error"></div>
+      <div class="vgallery-grid" id="video-gallery-grid"></div>
+      <div class="empty" id="video-gallery-empty" style="display:none;"></div>
     </div>
   </div>
 </main>
@@ -2386,6 +2541,21 @@
     <div class="lightbox-error" id="gallery-lightbox-error"></div>
   </div>
   <button class="lightbox-nav lightbox-next" id="gallery-next" aria-label="다음 이미지" type="button">&rsaquo;</button>
+</div>
+
+<div class="lightbox-overlay" id="video-gallery-lightbox" style="display:none;">
+  <button class="lightbox-close" id="video-gallery-lightbox-close" aria-label="닫기" type="button">&times;</button>
+  <button class="lightbox-nav lightbox-prev" id="video-gallery-prev" aria-label="이전 영상" type="button">&lsaquo;</button>
+  <div class="lightbox-img-wrap">
+    <video class="lightbox-img" id="video-gallery-lightbox-video" src="" controls></video>
+    <div class="lightbox-info" id="video-gallery-lightbox-info"></div>
+    <div class="lightbox-actions">
+      <button class="modal-btn-secondary" id="video-gallery-lightbox-download-btn" type="button" title="다운로드">⬇ 다운로드</button>
+      <button class="danger-btn" id="video-gallery-lightbox-delete-btn" type="button" title="삭제">🗑 삭제</button>
+    </div>
+    <div class="lightbox-error" id="video-gallery-lightbox-error"></div>
+  </div>
+  <button class="lightbox-nav lightbox-next" id="video-gallery-next" aria-label="다음 영상" type="button">&rsaquo;</button>
 </div>
 
 <div class="modal-overlay" id="pose-import-modal" style="display:none;">
@@ -6216,6 +6386,7 @@ const TAB_MAINS = {
   dashboard: document.getElementById('tab-dashboard'),
   jobs: document.getElementById('tab-jobs'),
   gallery: document.getElementById('tab-gallery'),
+  'video-gallery': document.getElementById('tab-video-gallery'),
   danbooru: document.getElementById('tab-danbooru'),
   builder: document.getElementById('tab-builder'),
   lora: document.getElementById('tab-lora'),
@@ -6371,6 +6542,7 @@ function showTab(tab, { podId = null } = {}){
   }
 
   if(tab === 'gallery' || tab === 'pgallery') fetchGalleryImages();
+  if(tab === 'video-gallery') fetchGalleryVideos();
   if(tab === 'builder') initBuilderTab();
   if(tab === 'lora') initLoraTab();
   if(tab === 'jobs') fetchJobs();
@@ -7185,6 +7357,358 @@ document.addEventListener('keydown', (e) => {
   else if(e.key === 'ArrowLeft') showPrevImage();
   else if(e.key === 'ArrowRight') showNextImage();
   else if(e.key === 'Delete' || e.key === 'Backspace') deleteCurrentLightboxImage();
+});
+
+// ---- 영상 갤러리 ----
+// 이미지 갤러리(위)와 구조는 같되(전체/작업별/날짜별 보기, 선택, 다운로드, 삭제,
+// 라이트박스) 회전/세트추가/작업불러오기/자세히 보기는 뺐다 — 왜 뺐는지는 마크업
+// 쪽 주석 참고. galleryJobLabels/fetchGalleryJobLabels/fetchAllJobsIncludingDeleted/
+// fmtBytes/fmtGalleryDateTime/fmtDateKey/fmtDateLabel/triggerBlobDownload/
+// triggerAnchorDownload/escapeHtml은 이미지 갤러리 것을 그대로 재사용한다(미디어
+// 종류와 무관하게 동작하는 공용 함수들).
+let galleryVideos = [];
+let vLightboxIndex = -1;
+let selectedGalleryVideoNames = new Set();
+let videoGalleryViewMode = 'all'; // 'all' | 'byjob' | 'bydate'
+let displayedGalleryVideos = [];
+const videoGalleryLightbox = document.getElementById('video-gallery-lightbox');
+
+function updateVideoGalleryToolbar(){
+  const toolbar = document.getElementById('video-gallery-toolbar');
+  if(selectedGalleryVideoNames.size === 0){
+    toolbar.style.display = 'none';
+    return;
+  }
+  toolbar.style.display = 'flex';
+  document.getElementById('video-gallery-toolbar-count').textContent = `${selectedGalleryVideoNames.size}개 선택됨`;
+}
+
+async function deleteGalleryVideos(names){
+  if(names.length === 0) return false;
+  const label = names.length === 1 ? `'${names[0]}' 영상을` : `선택한 영상 ${names.length}개를`;
+  if(!confirm(`${label} 삭제할까요? 되돌릴 수 없어요.`)) return false;
+
+  const errorEl = document.getElementById('video-gallery-error');
+  errorEl.textContent = '';
+  try{
+    const res = await fetch('/api/output-videos/delete-selected', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names }),
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      errorEl.textContent = data.detail || '삭제에 실패했어요.';
+      return false;
+    }
+  }catch(e){
+    errorEl.textContent = '삭제에 실패했어요.';
+    return false;
+  }
+
+  for(const name of names) selectedGalleryVideoNames.delete(name);
+  updateVideoGalleryToolbar();
+  await fetchGalleryVideos();
+  return true;
+}
+
+async function downloadGalleryVideos(names){
+  if(names.length === 0) return;
+  const errorEl = document.getElementById('video-gallery-error');
+  errorEl.textContent = '';
+  try{
+    if(names.length === 1){
+      triggerAnchorDownload(`/api/output-videos/${encodeURIComponent(names[0])}`, names[0]);
+      return;
+    }
+    const res = await fetch('/api/output-videos/download-selected', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names }),
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      errorEl.textContent = data.detail || '다운로드에 실패했어요.';
+      return;
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    triggerBlobDownload(blob, match ? match[1] : 'nightshift_videos_selected.zip');
+  }catch(e){
+    errorEl.textContent = '다운로드에 실패했어요.';
+  }
+}
+
+// 영상 카드 썸네일 — ffmpeg 없이 브라우저의 <video> 태그만으로 미리보기를 낸다.
+// src에 #t=0.1을 붙이면(미디어 프래그먼트) 재생하지 않아도 0.1초 지점 프레임을
+// 포스터처럼 보여준다(대부분 브라우저에서 첫 프레임은 검은 화면일 수 있어서).
+// controls 없이 두고 클릭은 카드 전체가 라이트박스를 여는 데 쓴다(재생 버튼
+// 아이콘만 장식으로 얹음).
+function videoGalleryItemHtml(vid, index){
+  const selected = selectedGalleryVideoNames.has(vid.name);
+  const src = `/api/output-videos/${encodeURIComponent(vid.name)}#t=0.1`;
+  return `
+    <div class="vgallery-item${selected ? ' selected' : ''}" data-index="${index}">
+      <label class="vgallery-item-select" title="선택">
+        <input type="checkbox" ${selected ? 'checked' : ''}>
+      </label>
+      <button class="vgallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
+      <video src="${src}" preload="metadata" muted playsinline></video>
+      <div class="vgallery-item-play">▶</div>
+      <div class="vgallery-item-name">${escapeHtml(vid.name)}</div>
+    </div>
+  `;
+}
+
+function wireVideoGalleryItems(){
+  document.querySelectorAll('#video-gallery-grid .vgallery-item').forEach(el => {
+    const index = Number(el.dataset.index);
+    const name = displayedGalleryVideos[index].name;
+
+    el.querySelector('video').addEventListener('click', () => openVideoLightbox(index));
+
+    const checkbox = el.querySelector('.vgallery-item-select input');
+    checkbox.addEventListener('click', (e) => e.stopPropagation());
+    checkbox.addEventListener('change', () => {
+      if(checkbox.checked) selectedGalleryVideoNames.add(name);
+      else selectedGalleryVideoNames.delete(name);
+      el.classList.toggle('selected', checkbox.checked);
+      updateVideoGalleryToolbar();
+      const groupEl = el.closest('.vgallery-group');
+      if(groupEl) updateVideoGroupCheckboxState(groupEl);
+    });
+
+    el.querySelector('.vgallery-item-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteGalleryVideos([name]);
+    });
+  });
+}
+
+function updateVideoGroupCheckboxState(groupEl){
+  const groupCheckbox = groupEl.querySelector('.vgallery-group-checkbox');
+  if(!groupCheckbox) return;
+  const itemEls = groupEl.querySelectorAll('.vgallery-item');
+  const selectedCount = Array.from(itemEls).filter(el => el.classList.contains('selected')).length;
+  groupCheckbox.checked = itemEls.length > 0 && selectedCount === itemEls.length;
+  groupCheckbox.indeterminate = selectedCount > 0 && selectedCount < itemEls.length;
+}
+
+function refreshAllVideoGroupCheckboxStates(){
+  document.querySelectorAll('#video-gallery-grid .vgallery-group').forEach(updateVideoGroupCheckboxState);
+}
+
+function wireVideoGalleryGroupCheckboxes(){
+  document.querySelectorAll('#video-gallery-grid .vgallery-group').forEach(groupEl => {
+    updateVideoGroupCheckboxState(groupEl);
+    const groupCheckbox = groupEl.querySelector('.vgallery-group-checkbox');
+    groupCheckbox.addEventListener('change', () => {
+      const checked = groupCheckbox.checked;
+      groupCheckbox.indeterminate = false;
+      groupEl.querySelectorAll('.vgallery-item').forEach(itemEl => {
+        const index = Number(itemEl.dataset.index);
+        const name = displayedGalleryVideos[index].name;
+        if(checked) selectedGalleryVideoNames.add(name);
+        else selectedGalleryVideoNames.delete(name);
+        itemEl.classList.toggle('selected', checked);
+        const itemCheckbox = itemEl.querySelector('.vgallery-item-select input');
+        if(itemCheckbox) itemCheckbox.checked = checked;
+      });
+      updateVideoGalleryToolbar();
+    });
+  });
+}
+
+function videoGalleryGroupKeyFor(vid){
+  if(videoGalleryViewMode === 'byjob') return vid.job_id || '';
+  if(videoGalleryViewMode === 'bydate') return fmtDateKey(vid.mtime);
+  return '';
+}
+
+function videoGalleryGroupLabelFor(key){
+  if(videoGalleryViewMode === 'byjob'){
+    return key ? (galleryJobLabels[key] || `알 수 없는 작업 (${key})`) : '작업 정보 없음';
+  }
+  if(videoGalleryViewMode === 'bydate') return fmtDateLabel(key);
+  return '';
+}
+
+function renderVideoGalleryGrid(){
+  const grid = document.getElementById('video-gallery-grid');
+  displayedGalleryVideos = [];
+
+  if(videoGalleryViewMode === 'byjob' || videoGalleryViewMode === 'bydate'){
+    const groups = new Map();
+    for(const vid of galleryVideos){
+      const key = videoGalleryGroupKeyFor(vid);
+      if(!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(vid);
+    }
+    let html = '';
+    for(const [key, groupVideos] of groups){
+      const label = videoGalleryGroupLabelFor(key);
+      const itemsHtml = groupVideos.map(vid => {
+        const item = videoGalleryItemHtml(vid, displayedGalleryVideos.length);
+        displayedGalleryVideos.push(vid);
+        return item;
+      }).join('');
+      html += `
+        <div class="vgallery-group">
+          <div class="vgallery-group-header">
+            <label class="vgallery-group-select-label" title="이 그룹 전체 선택">
+              <input type="checkbox" class="vgallery-group-checkbox">
+              ${escapeHtml(label)} · ${groupVideos.length}개
+            </label>
+          </div>
+          <div class="vgallery-group-grid">${itemsHtml}</div>
+        </div>
+      `;
+    }
+    grid.innerHTML = html;
+  }else{
+    displayedGalleryVideos = galleryVideos;
+    grid.innerHTML = galleryVideos.map((vid, i) => videoGalleryItemHtml(vid, i)).join('');
+  }
+
+  wireVideoGalleryItems();
+  wireVideoGalleryGroupCheckboxes();
+}
+
+document.querySelectorAll('#video-gallery-view-toggle .enhance-mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if(btn.dataset.view === videoGalleryViewMode) return;
+    videoGalleryViewMode = btn.dataset.view;
+    document.querySelectorAll('#video-gallery-view-toggle .enhance-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.view === videoGalleryViewMode));
+    if(galleryVideos.length > 0) renderVideoGalleryGrid();
+  });
+});
+
+async function fetchGalleryVideos(){
+  const grid = document.getElementById('video-gallery-grid');
+  const emptyMsg = document.getElementById('video-gallery-empty');
+  const countEl = document.getElementById('video-gallery-count');
+  try{
+    const [vidRes, labels] = await Promise.all([
+      fetch('/api/output-videos'),
+      fetchGalleryJobLabels(),
+    ]);
+    const data = await vidRes.json();
+    galleryVideos = data.videos || [];
+    galleryJobLabels = labels; // 이미지 갤러리와 공유하는 전역(작업 라벨은 미디어 종류와 무관)
+  }catch(e){
+    galleryVideos = [];
+  }
+
+  const stillPresent = new Set(galleryVideos.map(vid => vid.name));
+  for(const name of Array.from(selectedGalleryVideoNames)){
+    if(!stillPresent.has(name)) selectedGalleryVideoNames.delete(name);
+  }
+  updateVideoGalleryToolbar();
+
+  countEl.textContent = galleryVideos.length ? `총 ${galleryVideos.length}개` : '';
+  document.getElementById('video-gallery-select-all-btn').disabled = galleryVideos.length === 0;
+
+  if(galleryVideos.length === 0){
+    grid.innerHTML = '';
+    displayedGalleryVideos = [];
+    emptyMsg.textContent = '서버에 저장된 영상이 없어요';
+    emptyMsg.style.display = 'block';
+    return;
+  }
+  emptyMsg.style.display = 'none';
+
+  renderVideoGalleryGrid();
+}
+
+document.getElementById('video-gallery-refresh-btn').addEventListener('click', fetchGalleryVideos);
+document.getElementById('video-gallery-select-all-btn').addEventListener('click', () => {
+  for(const vid of galleryVideos) selectedGalleryVideoNames.add(vid.name);
+  document.querySelectorAll('#video-gallery-grid .vgallery-item').forEach(el => el.classList.add('selected'));
+  document.querySelectorAll('#video-gallery-grid .vgallery-item-select input').forEach(cb => { cb.checked = true; });
+  refreshAllVideoGroupCheckboxStates();
+  updateVideoGalleryToolbar();
+});
+document.getElementById('video-gallery-download-selected-btn').addEventListener('click', () => {
+  downloadGalleryVideos(Array.from(selectedGalleryVideoNames));
+});
+document.getElementById('video-gallery-delete-selected-btn').addEventListener('click', () => {
+  deleteGalleryVideos(Array.from(selectedGalleryVideoNames));
+});
+document.getElementById('video-gallery-clear-selection-btn').addEventListener('click', () => {
+  selectedGalleryVideoNames.clear();
+  document.querySelectorAll('#video-gallery-grid .vgallery-item.selected').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll('#video-gallery-grid .vgallery-item-select input').forEach(cb => { cb.checked = false; });
+  refreshAllVideoGroupCheckboxStates();
+  updateVideoGalleryToolbar();
+});
+
+function renderVideoLightbox(){
+  const vid = displayedGalleryVideos[vLightboxIndex];
+  if(!vid) return;
+  document.getElementById('video-gallery-lightbox-error').textContent = '';
+  const videoEl = document.getElementById('video-gallery-lightbox-video');
+  videoEl.src = `/api/output-videos/${encodeURIComponent(vid.name)}`;
+  document.getElementById('video-gallery-lightbox-info').textContent =
+    `${vid.name} · ${fmtBytes(vid.size)} · ${fmtGalleryDateTime(vid.mtime)} (${vLightboxIndex + 1}/${displayedGalleryVideos.length})`;
+  document.getElementById('video-gallery-prev').disabled = vLightboxIndex <= 0;
+  document.getElementById('video-gallery-next').disabled = vLightboxIndex >= displayedGalleryVideos.length - 1;
+}
+
+function openVideoLightbox(index){
+  vLightboxIndex = index;
+  renderVideoLightbox();
+  videoGalleryLightbox.style.display = 'flex';
+}
+
+function closeVideoLightbox(){
+  videoGalleryLightbox.style.display = 'none';
+  vLightboxIndex = -1;
+  // 라이트박스를 닫아도 <video>가 계속 재생/버퍼링되지 않게 멈춘다.
+  const videoEl = document.getElementById('video-gallery-lightbox-video');
+  videoEl.pause();
+  videoEl.removeAttribute('src');
+  videoEl.load();
+}
+
+function showPrevVideo(){
+  if(vLightboxIndex > 0){ vLightboxIndex--; renderVideoLightbox(); }
+}
+
+function showNextVideo(){
+  if(vLightboxIndex < displayedGalleryVideos.length - 1){ vLightboxIndex++; renderVideoLightbox(); }
+}
+
+document.getElementById('video-gallery-lightbox-close').addEventListener('click', closeVideoLightbox);
+document.getElementById('video-gallery-prev').addEventListener('click', showPrevVideo);
+document.getElementById('video-gallery-next').addEventListener('click', showNextVideo);
+document.getElementById('video-gallery-lightbox-download-btn').addEventListener('click', () => {
+  const vid = displayedGalleryVideos[vLightboxIndex];
+  if(vid) triggerAnchorDownload(`/api/output-videos/${encodeURIComponent(vid.name)}`, vid.name);
+});
+async function deleteCurrentVideoLightboxItem(){
+  const vid = displayedGalleryVideos[vLightboxIndex];
+  if(!vid) return;
+  const indexBeforeDelete = vLightboxIndex;
+  const ok = await deleteGalleryVideos([vid.name]);
+  if(!ok) return;
+  if(displayedGalleryVideos.length === 0){
+    closeVideoLightbox();
+    return;
+  }
+  vLightboxIndex = Math.min(indexBeforeDelete, displayedGalleryVideos.length - 1);
+  renderVideoLightbox();
+}
+document.getElementById('video-gallery-lightbox-delete-btn').addEventListener('click', deleteCurrentVideoLightboxItem);
+videoGalleryLightbox.addEventListener('click', (e) => {
+  if(e.target === videoGalleryLightbox) closeVideoLightbox();
+});
+document.addEventListener('keydown', (e) => {
+  if(videoGalleryLightbox.style.display === 'none') return;
+  if(e.key === 'Escape') closeVideoLightbox();
+  else if(e.key === 'ArrowLeft') showPrevVideo();
+  else if(e.key === 'ArrowRight') showNextVideo();
+  else if(e.key === 'Delete' || e.key === 'Backspace') deleteCurrentVideoLightboxItem();
 });
 
 // ============================================================
@@ -8306,6 +8830,13 @@ setInterval(() => {
   if(TAB_MAINS.gallery.style.display === 'none') return;
   if(galleryLightbox.style.display !== 'none') return;
   fetchGalleryImages();
+}, 4000);
+// 영상 갤러리도 같은 이유로 주기적으로 새로 받아온다 — 지금은 영상을 만드는 파드가
+// 없어 늘 빈 목록이겠지만, 생기면 바로 자동 반영되게 미리 켜둔다.
+setInterval(() => {
+  if(TAB_MAINS['video-gallery'].style.display === 'none') return;
+  if(videoGalleryLightbox.style.display !== 'none') return;
+  fetchGalleryVideos();
 }, 4000);
 </script>
 </body>

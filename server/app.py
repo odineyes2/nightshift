@@ -69,6 +69,12 @@ from output_images import (
     list_output_images,
     rotate_landscape_images,
 )
+from output_videos import (
+    VIDEO_EXTENSIONS,
+    delete_output_videos,
+    find_video_files,
+    list_output_videos,
+)
 from ref_assets import (
     DEFAULT_CHAR_NO,
     REF_KINDS,
@@ -3242,6 +3248,139 @@ async def rotate_selected_images(request: Request):
     if not rotated and not skipped:
         raise HTTPException(404, "선택한 이미지를 찾을 수 없어요.")
     return {"rotated": rotated, "skipped": skipped}
+
+
+def list_output_videos_meta() -> list[dict]:
+    # 영상 갤러리 탭을 채우는 용도. 이미지와 같은 출력 폴더를 보되 동영상 확장자만
+    # 걸러낸다 — width/height는 ffprobe 없이는 못 읽으므로(의도적으로 새 시스템
+    # 의존성을 추가하지 않기로 함) 내지 않는다. 자세히 보기가 없는 이유도 같다.
+    try:
+        files = list_output_videos(OUTPUT_DIR)
+    except OutputFolderError:
+        return []
+    base = Path(OUTPUT_DIR)
+    items = []
+    for f in files:
+        stat = f.stat()
+        rel = f.relative_to(base)
+        job_id = rel.parts[0] if len(rel.parts) > 1 else None
+        items.append({
+            "name": rel.as_posix(),
+            "job_id": job_id,
+            "size": stat.st_size,
+            "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        })
+    items.sort(key=lambda item: item["mtime"], reverse=True)
+    return items
+
+
+@app.get("/api/output-videos")
+def list_output_videos_api():
+    return {"videos": list_output_videos_meta()}
+
+
+def resolve_output_video(filename: str) -> Path:
+    # resolve_output_image와 같은 방식의 경로 검증(상위 폴더 탈출·심볼릭 링크 우회 방지).
+    if not filename or filename.startswith("/") or ".." in Path(filename).parts:
+        raise HTTPException(400, "올바르지 않은 파일명이에요.")
+    base = Path(OUTPUT_DIR).resolve()
+    path = (base / filename).resolve()
+    if not path.is_relative_to(base):
+        raise HTTPException(400, "올바르지 않은 파일명이에요.")
+    if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
+        raise HTTPException(404, "동영상을 찾을 수 없어요.")
+    return path
+
+
+@app.get("/api/output-videos/{filename:path}")
+def get_output_video(filename: str):
+    # 영상 갤러리 라이트박스의 <video> 태그가 재생하는 용도. FileResponse는
+    # HTTP Range 요청을 그대로 지원해서(Starlette 내장) 앞으로 감기·되감기가 된다.
+    return FileResponse(resolve_output_video(filename))
+
+
+@app.delete("/api/output-videos/{filename:path}")
+def delete_output_video(filename: str):
+    resolve_output_video(filename).unlink()
+    return {"ok": True}
+
+
+def build_output_video_zip() -> Path:
+    files = find_video_files(OUTPUT_DIR)
+    return build_zip_from_paths(files)
+
+
+@app.get("/api/download-videos")
+async def download_videos():
+    try:
+        zip_path = await asyncio.to_thread(build_output_video_zip)
+    except OutputFolderError as e:
+        raise HTTPException(404, str(e))
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=f"nightshift_videos_{timestamp}.zip",
+        background=BackgroundTask(lambda: zip_path.unlink(missing_ok=True)),
+    )
+
+
+@app.post("/api/output-videos/download-selected")
+async def download_selected_videos(request: Request):
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    names = parse_image_names_body(data)
+
+    paths = []
+    for name in names:
+        try:
+            paths.append(resolve_output_video(name))
+        except HTTPException:
+            continue
+    if not paths:
+        raise HTTPException(404, "선택한 동영상을 찾을 수 없어요.")
+
+    zip_path = await asyncio.to_thread(build_zip_from_paths, paths)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=f"nightshift_videos_selected_{timestamp}.zip",
+        background=BackgroundTask(lambda: zip_path.unlink(missing_ok=True)),
+    )
+
+
+@app.delete("/api/output-videos")
+async def delete_videos():
+    try:
+        deleted = await asyncio.to_thread(delete_output_videos, OUTPUT_DIR)
+    except OutputFolderError as e:
+        raise HTTPException(404, str(e))
+    return {"deleted": deleted}
+
+
+@app.post("/api/output-videos/delete-selected")
+async def delete_selected_videos(request: Request):
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    names = parse_image_names_body(data)
+
+    deleted = 0
+    for name in names:
+        try:
+            path = resolve_output_video(name)
+        except HTTPException:
+            continue
+        path.unlink()
+        deleted += 1
+    return {"deleted": deleted}
 
 
 @app.get("/api/danbooru/tag-edits")
