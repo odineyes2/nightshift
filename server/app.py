@@ -89,7 +89,13 @@ from ref_assets import (
     validate_new_folder_name,
     validate_ref_set,
 )
-from input_assets import InputAssetError, list_input_images, resolve_input_image
+from input_assets import (
+    InputAssetError,
+    delete_input_image,
+    list_input_images,
+    resolve_input_image,
+    save_input_image,
+)
 
 # 프론트엔드(static/index.html)가 작업 목록/ComfyUI 연결 상태를 실시간처럼 보여주려고
 # 브라우저 탭마다 GET /api/jobs를 2초, GET /api/comfy-status를 5초 간격으로 계속
@@ -121,6 +127,14 @@ JOBS_DIR = data_dir("jobs")
 LOGS_DIR = data_dir("logs")
 TEMPLATES_DIR = REPO_ROOT / "templates"
 MANIFEST_PATH = TEMPLATES_DIR / "manifest.json"
+# 영상 생성(WAN2.2 i2v/flf2v) 템플릿이 쓰는 고정 워크플로우 — family별 프리셋과
+# 달리 관리자가 올려둔 게 아니라 nightshift 자체가 기능으로 함께 배포하는
+# 워크플로우라 소스 트리(templates/) 안에, 버전 관리 대상으로 둔다. 프론트엔드가
+# 해당 템플릿을 고르면 GET /api/video-workflows/{name}으로 받아서 워크플로우
+# 업로드 칸에 자동으로 채운다(사용자가 파일을 고를 필요가 없음).
+VIDEO_WORKFLOWS_DIR = TEMPLATES_DIR / "video_workflows"
+VIDEO_WORKFLOW_NAMES = {"wan22_i2v", "wan22_flf2v"}
+STATE_FILE = data_path("jobs_state.json")
 STATE_FILE = data_path("jobs_state.json")
 # "새 작업 추가" 마법사의 ControlNet 계열 워크플로우 유형(openpose_cn/depth_cn/
 # lineart_cn)이 쓰는, family(베이스 모델)별로 미리 만들어 올려둔 워크플로우 JSON
@@ -1547,10 +1561,72 @@ async def put_lora_triggers(request: Request):
 
 @app.get("/api/input-images")
 def get_input_images():
-    # img2img/USDU 워크플로우 유형이 "입력 이미지" 선택 드롭다운을 채우는 데 쓴다.
-    # ref_assets의 pose/depth/lineart와 달리 세트/char_no 구분이 없는 평평한 목록
-    # (input_assets.py 모듈 설명 참고) — 업로드 API는 없고 조회만 한다.
+    # img2img/USDU 워크플로우 유형과 영상 생성(WAN2.2) 템플릿의 "입력 이미지"
+    # 선택 드롭다운을 채우는 데 쓴다. ref_assets의 pose/depth/lineart와 달리
+    # 세트/char_no 구분이 없는 평평한 목록(input_assets.py 모듈 설명 참고).
     return {"images": list_input_images()}
+
+
+@app.post("/api/input-images")
+async def upload_input_image(request: Request):
+    # "이미지 선택 — 업로드" 경로(영상 생성 작업 화면, img2img "입력 이미지" 필드
+    # 둘 다 이 풀을 공유한다). 파일 하나만 받는다 — 여러 장을 한 번에 올릴 일이
+    # 없어서(그때그때 하나씩 골라 쓰는 용도) 단순하게 뒀다.
+    form = await request.form()
+    file = form.get("image")
+    if not isinstance(file, UploadFile) or not file.filename:
+        raise HTTPException(400, "이미지 파일을 첨부하세요.")
+    content = await file.read()
+    try:
+        name = await asyncio.to_thread(save_input_image, file.filename, content)
+    except InputAssetError as e:
+        raise HTTPException(400, str(e))
+    return {"name": name}
+
+
+@app.delete("/api/input-images/{name}")
+def delete_input_image_api(name: str):
+    try:
+        delete_input_image(name)
+    except InputAssetError as e:
+        raise HTTPException(404, str(e))
+    return {"ok": True}
+
+
+@app.post("/api/input-images/import-from-output")
+async def import_output_images_to_input_pool(request: Request):
+    # "이미지 선택 — 갤러리에서 선택" 경로 — 결과 이미지 갤러리에서 고른 이미지를
+    # 입력 이미지 풀로 사본을 만든다. /api/assets/import-from-output(참조 세트로
+    # 보내기)과 같은 패턴: 원본은 지우지 않고 복사만 하며, 그 사이 지워진 이미지는
+    # 조용히 건너뛴다.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    names = parse_image_names_body(data)
+
+    added = []
+    skipped = []
+    for name in names:
+        try:
+            path = resolve_output_image(name)
+        except HTTPException as e:
+            skipped.append({"name": name, "reason": e.detail})
+            continue
+        # job_id별 하위 폴더에서 온 이름이라, 평평한 입력 이미지 풀에 맞게
+        # "<job_id>_<원본파일명>"으로 합친다(참조 세트 가져오기와 같은 규칙).
+        parts = name.split("/")
+        dest_filename = f"{parts[0]}_{parts[-1]}" if len(parts) > 1 else parts[0]
+        try:
+            content = await asyncio.to_thread(path.read_bytes)
+            stored_name = await asyncio.to_thread(save_input_image, dest_filename, content)
+        except (OSError, InputAssetError) as e:
+            skipped.append({"name": name, "reason": f"저장 실패: {e}"})
+            continue
+        added.append(stored_name)
+
+    return {"added": added, "skipped": skipped}
 
 
 @app.get("/api/base-model-families")
@@ -1674,6 +1750,19 @@ def get_workflow_preset(family_id: str, type_id: str):
     path = WORKFLOW_PRESETS_DIR / preset_filename(family_id, type_id)
     if not path.exists():
         raise HTTPException(404, "해당 조합의 프리셋 워크플로우가 없어요.")
+    return Response(content=path.read_text(encoding="utf-8"), media_type="application/json")
+
+
+@app.get("/api/video-workflows/{name}")
+def get_video_workflow(name: str):
+    # 영상 생성 템플릿(wan22_i2v_batch 등)을 고르면 프론트엔드가 이걸 받아
+    # 워크플로우 업로드 칸에 자동으로 채운다 — 사용자가 직접 파일을 고를 필요가
+    # 없다. name은 고정된 화이트리스트라 경로 조작 걱정이 없다.
+    if name not in VIDEO_WORKFLOW_NAMES:
+        raise HTTPException(404, "해당 영상 워크플로우가 없어요.")
+    path = VIDEO_WORKFLOWS_DIR / f"{name}.json"
+    if not path.exists():
+        raise HTTPException(404, "워크플로우 파일이 서버에 없어요.")
     return Response(content=path.read_text(encoding="utf-8"), media_type="application/json")
 
 

@@ -358,6 +358,15 @@
   select.option-input:focus,
   textarea.option-input:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
 
+  /* "입력 이미지" 옵션 — 드롭다운 + 업로드/갤러리 버튼을 한 줄에 (buildInputImageControl) */
+  .input-image-control{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:8px;
+  }
+  .input-image-control select.option-input{ flex:1 1 200px; }
+
   /* 메인 프롬프트의 "직접 입력 → Prompt Enhance(자연어/Danbooru) → 결과" 3단
      레이아웃. 실제로 큐에 보내는 값은 hidden input(.option-input)에 모이므로,
      여기 두 텍스트 에어리어(.enhance-textarea)는 일부러 .option-input 셀렉터
@@ -2593,6 +2602,23 @@
   </div>
 </div>
 
+<!-- "입력 이미지" 옵션(img2img/영상 생성)의 "🖼 갤러리에서 선택" 버튼이 여는 모달 —
+     결과 이미지 갤러리 썸네일을 격자로 보여주고, 클릭 한 번으로 입력 이미지 풀에
+     사본을 만든다(원본은 그대로 둠). buildInputImageControl 참고. -->
+<div class="modal-overlay" id="input-image-picker-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">🖼 갤러리에서 이미지 선택</div>
+      <button class="modal-close" id="input-image-picker-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="upload-error" id="input-image-picker-error"></div>
+      <div class="gallery-grid" id="input-image-picker-grid"></div>
+      <div class="empty" id="input-image-picker-empty" style="display:none;">서버에 저장된 이미지가 없어요</div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="workflow-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
@@ -3888,16 +3914,143 @@ function buildComfyModelControl(opt){
   return select;
 }
 
+// "입력 이미지" 선택 — 드롭다운(기존) 옆에 "⬆ 업로드"/"🖼 갤러리에서 선택" 버튼을
+// 붙여서, img2img류뿐 아니라 영상 생성(WAN2.2 i2v/flf2v)의 시작/끝 이미지 선택도
+// 같은 컨트롤로 처리한다. 어느 경로로 채워지든 결국 입력 이미지 풀(input_assets.py)에
+// 파일 하나가 생기고 그 파일명이 select.value가 되므로, 제출 로직(.option-input
+// 일괄 수집)은 손댈 필요가 없다.
 function buildInputImageControl(opt){
+  const wrap = document.createElement('div');
+  wrap.className = 'input-image-control';
+
   const select = document.createElement('select');
   select.className = 'option-input';
   select.dataset.name = opt.name;
-  const images = inputImagesCache || [];
-  const choices = images.map(img => ({ value: img.name, label: img.name, disabled: false }));
-  populateSelectOptions(select, choices, '(입력 이미지 없음 — NIGHTSHIFT_INPUT_IMAGES_DIR에 올려두세요)');
+  populateSelectOptions(select, inputImageChoices(), '(입력 이미지 없음)');
   if(!select.disabled && opt.default) select.value = opt.default;
-  return select;
+
+  const uploadBtn = document.createElement('button');
+  uploadBtn.type = 'button';
+  uploadBtn.className = 'load-btn';
+  uploadBtn.textContent = '⬆ 업로드';
+  uploadBtn.title = '내 컴퓨터에서 이미지 업로드';
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.png,.jpg,.jpeg,.webp';
+  fileInput.style.display = 'none';
+  uploadBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    if(!file) return;
+    uploadBtn.disabled = true;
+    const original = uploadBtn.textContent;
+    uploadBtn.textContent = '⏳ 업로드 중…';
+    try{
+      const form = new FormData();
+      form.append('image', file);
+      const res = await fetch('/api/input-images', { method: 'POST', body: form });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(data.detail || '업로드에 실패했어요.');
+      await fetchInputImages(true);
+      populateSelectOptions(select, inputImageChoices(), '(입력 이미지 없음)');
+      select.value = data.name;
+    }catch(e){
+      alert(e.message || '업로드에 실패했어요.');
+    }finally{
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = original;
+    }
+  });
+
+  const galleryBtn = document.createElement('button');
+  galleryBtn.type = 'button';
+  galleryBtn.className = 'load-btn';
+  galleryBtn.textContent = '🖼 갤러리에서 선택';
+  galleryBtn.title = '결과 이미지 갤러리에서 사본으로 가져오기';
+  galleryBtn.addEventListener('click', () => openInputImageGalleryPicker(async (name) => {
+    const res = await fetch('/api/input-images/import-from-output', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names: [name] }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !(data.added || []).length){
+      throw new Error(data.detail || (data.skipped && data.skipped[0] && data.skipped[0].reason) || '가져오지 못했어요.');
+    }
+    await fetchInputImages(true);
+    populateSelectOptions(select, inputImageChoices(), '(입력 이미지 없음)');
+    select.value = data.added[0];
+  }));
+
+  wrap.appendChild(select);
+  wrap.appendChild(uploadBtn);
+  wrap.appendChild(galleryBtn);
+  wrap.appendChild(fileInput);
+  return wrap;
 }
+
+function inputImageChoices(){
+  return (inputImagesCache || []).map(img => ({ value: img.name, label: img.name, disabled: false }));
+}
+
+// ---- 입력 이미지 — 갤러리에서 선택 모달 ----
+// 결과 이미지 갤러리(output-images)의 썸네일을 격자로 보여주고, 하나를 클릭하면
+// onPick(name)을 불러 실제 가져오기(복사)를 맡긴다 — 호출부(업로드 vs 다른 용도)에
+// 따라 가져온 뒤 할 일이 다를 수 있어 이 모달 자체는 "고르기"에만 집중한다.
+let inputImageGalleryOnPick = null;
+
+async function openInputImageGalleryPicker(onPick){
+  inputImageGalleryOnPick = onPick;
+  const modal = document.getElementById('input-image-picker-modal');
+  const grid = document.getElementById('input-image-picker-grid');
+  const empty = document.getElementById('input-image-picker-empty');
+  const errorEl = document.getElementById('input-image-picker-error');
+  errorEl.textContent = '';
+  grid.innerHTML = '<div class="empty">불러오는 중…</div>';
+  modal.style.display = 'flex';
+  try{
+    const res = await fetch('/api/output-images');
+    const data = await res.json();
+    const images = data.images || [];
+    if(images.length === 0){
+      grid.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+    grid.innerHTML = images.map(img => `
+      <div class="gallery-item" data-name="${escapeHtml(img.name)}" title="${escapeHtml(img.name)}">
+        <img src="/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=200" alt="${escapeHtml(img.name)}" loading="lazy">
+        <div class="gallery-item-name">${escapeHtml(img.name)}</div>
+      </div>
+    `).join('');
+    grid.querySelectorAll('.gallery-item').forEach(el => {
+      el.addEventListener('click', async () => {
+        errorEl.textContent = '';
+        try{
+          await inputImageGalleryOnPick(el.dataset.name);
+          closeInputImageGalleryPicker();
+        }catch(e){
+          errorEl.textContent = e.message || '가져오지 못했어요.';
+        }
+      });
+    });
+  }catch(e){
+    grid.innerHTML = '';
+    errorEl.textContent = '이미지 목록을 가져오지 못했어요.';
+  }
+}
+
+function closeInputImageGalleryPicker(){
+  document.getElementById('input-image-picker-modal').style.display = 'none';
+  inputImageGalleryOnPick = null;
+}
+document.getElementById('input-image-picker-close').addEventListener('click', closeInputImageGalleryPicker);
+document.getElementById('input-image-picker-modal').addEventListener('click', (e) => {
+  if(e.target.id === 'input-image-picker-modal') closeInputImageGalleryPicker();
+});
 
 function buildOptionControl(opt){
   if(opt.name === 'main_prompt' && opt.type === 'textarea'){
@@ -4005,12 +4158,37 @@ function renderOptionFields(template){
   }
 }
 
+// 영상 생성(WAN2.2) 템플릿은 사용자가 워크플로우 파일을 직접 고르지 않는다 —
+// nightshift가 함께 배포하는 고정 그래프(templates/video_workflows/*.json)를
+// 템플릿을 고르는 순간 GET /api/video-workflows/{name}로 받아 자동으로 채운다.
+// i2v 계열 두 템플릿(시드/CSV)은 같은 그래프를, flf2v 계열 두 템플릿도 같은
+// 그래프를 공유한다.
+const WAN22_BUNDLED_WORKFLOWS = {
+  wan22_i2v_batch: 'wan22_i2v',
+  wan22_i2v_csv_batch: 'wan22_i2v',
+  wan22_flf2v_batch: 'wan22_flf2v',
+  wan22_flf2v_csv_batch: 'wan22_flf2v',
+};
+
 async function onTemplateChange(){
   const template = templatesById[templateSelect.value];
   csvField.style.display = (template && template.requires_csv) ? '' : 'none';
-  // 워크플로우가 필요 없는 템플릿(셸 명령 등)에서는 첨부 칸 자체를 숨긴다.
+  // 워크플로우가 필요 없는 템플릿(셸 명령 등) 또는 고정 그래프를 자동으로 붙이는
+  // 영상 생성 템플릿에서는 첨부 칸 자체를 숨긴다(사용자가 직접 고를 게 없음).
+  const bundledWorkflowName = template && WAN22_BUNDLED_WORKFLOWS[template.id];
   const wfField = document.getElementById('workflow-field');
-  if(wfField) wfField.style.display = (template && template.requires_workflow === false) ? 'none' : '';
+  if(wfField) wfField.style.display = (template && (template.requires_workflow === false || bundledWorkflowName)) ? 'none' : '';
+  if(bundledWorkflowName){
+    try{
+      const res = await fetch(`/api/video-workflows/${bundledWorkflowName}`);
+      if(!res.ok) throw new Error();
+      const workflow = await res.json();
+      setWorkflowFile(new File([JSON.stringify(workflow)], `${bundledWorkflowName}.json`, { type: 'application/json' }));
+    }catch(e){
+      setWorkflowFile(null);
+      console.error('영상 워크플로우를 받아오지 못했어요:', e);
+    }
+  }
   // char_no/asset_folder 옵션이 있는 템플릿을 고를 때마다 목록을 새로 받아와서, 방금
   // 서버에 새로 올려둔 포즈 세트도 페이지를 새로고침하지 않고 바로 반영되게 한다.
   const needsAssets = template && (template.options || []).some(o => o.type === 'asset_folder' || o.type === 'char_no');
