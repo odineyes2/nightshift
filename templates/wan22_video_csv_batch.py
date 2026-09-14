@@ -13,6 +13,12 @@ CSV 컬럼:
                     바로 아래에 있어야 한다.
     end_image       flf2v 워크플로우일 때만 필수(워크플로우에 end_image 노드가
                     있는지로 자동 판단 — i2v면 이 컬럼 자체를 무시한다)
+    width, height   영상 해상도 (선택, 둘 다 채워야 적용됨) — 비워두면(기본) 그 행의
+                    start_image 실제 크기에서 행마다 자동 계산한다(wan22_video_batch.py
+                    모듈 설명의 "영상 해상도" 절 참고 — compute_video_dims를 그대로
+                    복사해 씀). 원래 두 워크플로우 다 특정 값(i2v 1536×704, flf2v
+                    704×1536)이 고정돼 있어 입력 이미지 크기와 무관하게 강제
+                    리사이즈됐던 것을 이걸로 대체한다.
 
 환경변수:
     WORKFLOW_PATH, CSV_PATH  (둘 다 필수, nightshift가 주입)
@@ -45,7 +51,11 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+from PIL import Image
+
 INPUT_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+DEFAULT_MAX_VIDEO_PIXELS = 1536 * 704
+VIDEO_DIM_MULTIPLE = 16
 
 
 def env(name, default=None):
@@ -114,6 +124,49 @@ def apply_user_prompt(workflow, prompt):
         print("[wan22_video_csv] 경고: user_prompt 노드를 찾지 못했습니다.", file=sys.stderr)
         return
     node.setdefault("inputs", {})["value"] = prompt
+
+
+def compute_video_dims(image_path, max_pixels=DEFAULT_MAX_VIDEO_PIXELS, multiple=VIDEO_DIM_MULTIPLE):
+    """wan22_video_batch.py의 같은 이름 함수와 동일 — 자기완결성 컨벤션에 따라
+    복사했다. 고치면 두 파일 다 같이 고쳐야 한다."""
+    with Image.open(image_path) as img:
+        width, height = img.size
+    if width <= 0 or height <= 0:
+        return None
+    scale = 1.0
+    if width * height > max_pixels:
+        scale = (max_pixels / (width * height)) ** 0.5
+    w = max(multiple, round(width * scale / multiple) * multiple)
+    h = max(multiple, round(height * scale / multiple) * multiple)
+    return w, h
+
+
+def apply_video_size(workflow, width, height):
+    node_id, node = find_node(workflow, class_types=("WanImageToVideo", "WanFirstLastFrameToVideo"))
+    if node is None:
+        print("[wan22_video_csv] 경고: 영상 해상도를 넣을 노드를 찾지 못했습니다.", file=sys.stderr)
+        return
+    inputs = node.setdefault("inputs", {})
+    inputs["width"] = width
+    inputs["height"] = height
+
+
+def resolve_video_dims(width_raw, height_raw, start_image_path):
+    width_raw = (width_raw or "").strip()
+    height_raw = (height_raw or "").strip()
+    if width_raw and height_raw:
+        try:
+            return int(float(width_raw)), int(float(height_raw))
+        except ValueError:
+            print(f"[wan22_video_csv] 경고: width/height 값 '{width_raw}x{height_raw}'을 정수로 변환하지 못했습니다 — 자동 계산으로 대체합니다.", file=sys.stderr)
+    elif width_raw or height_raw:
+        print("[wan22_video_csv] 경고: width/height는 둘 다 채워야 적용됩니다 (하나만 비어 있음) — 자동 계산으로 대체합니다.", file=sys.stderr)
+
+    try:
+        return compute_video_dims(start_image_path)
+    except Exception as e:
+        print(f"[wan22_video_csv] 경고: 시작 이미지 크기를 읽지 못해 해상도를 자동 계산하지 못했습니다: {e}", file=sys.stderr)
+        return None
 
 
 def apply_lora(workflow, lora_name, lora_strength):
@@ -272,13 +325,15 @@ def report_progress(job_id, nightshift_url, total, done):
         print(f"[wan22_video_csv] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
 
 
-def run_once(base_workflow, comfy_url, title, seed, index, prompt, start_path, end_path, lora_name, lora_strength, fast_4step):
+def run_once(base_workflow, comfy_url, title, seed, index, prompt, start_path, end_path, lora_name, lora_strength, fast_4step, video_dims):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
     apply_user_prompt(workflow, prompt)
     apply_image(workflow, comfy_url, "start_image", start_path)
     if end_path is not None:
         apply_image(workflow, comfy_url, "end_image", end_path)
+    if video_dims is not None:
+        apply_video_size(workflow, *video_dims)
     apply_lora(workflow, lora_name, lora_strength)
     apply_fast_4step(workflow, fast_4step)
     apply_filename_prefix(workflow, title, index, seed)
@@ -341,14 +396,15 @@ def main():
         title = (row.get("title") or row.get("name") or "").strip()
         row_seed = (row.get("seed") or "").strip()
         seed = int(row_seed) if row_seed else random.randint(0, 2**31 - 1)
-        plan.append((title, seed, prompt, start_path, end_path))
+        video_dims = resolve_video_dims(row.get("width"), row.get("height"), start_path)
+        plan.append((title, seed, prompt, start_path, end_path, video_dims))
 
     print(f"[wan22_video_csv] 총 {len(plan)}건 제출 예정")
     report_progress(job_id, nightshift_url, len(plan), 0)
 
     done = 0
-    for index, (title, seed, prompt, start_path, end_path) in enumerate(plan, start=1):
-        run_once(base_workflow, comfy_url, title, seed, index, prompt, start_path, end_path, lora_name, lora_strength, fast_4step)
+    for index, (title, seed, prompt, start_path, end_path, video_dims) in enumerate(plan, start=1):
+        run_once(base_workflow, comfy_url, title, seed, index, prompt, start_path, end_path, lora_name, lora_strength, fast_4step, video_dims)
         done += 1
         report_progress(job_id, nightshift_url, len(plan), done)
 
