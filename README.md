@@ -590,7 +590,7 @@ CheckpointLoaderSimple → LoraLoader 체인(0개 이상) → CLIPTextEncode 긍
 |---|---|
 | `name` | 옵션 이름. 폼 필드명이자, 대문자로 변환되어 스크립트에 환경변수로 전달됨 (예: `seed_count` → `SEED_COUNT`) |
 | `label` | 입력 필드 위에 표시될 사람이 읽는 이름 |
-| `type` | `"number"`/`"text"`(한 줄 직접 입력), `"textarea"`(여러 줄 직접 입력 — 프롬프트처럼 긴 텍스트용), `"select"`(고정 드롭다운, `choices` 필요), `"char_no"`("인물 수" 드롭다운 — 아래 참고), `"asset_folder"`(참조 세트 드롭다운, 선택된 char_no 값으로 스코프됨 — 아래 참고), `"comfy_model"`(ComfyUI에 설치된 모델 드롭다운, `model_kind` 필요 — 아래 참고), `"input_image"`(`GET /api/input-images`의 평평한 목록에서 고르는 드롭다운 — `input_image_batch` 템플릿 전용, 아래 "입력 이미지 배치" 절 참고) |
+| `type` | `"number"`/`"text"`(한 줄 직접 입력), `"textarea"`(여러 줄 직접 입력 — 프롬프트처럼 긴 텍스트용), `"select"`(고정 드롭다운, `choices` 필요), `"char_no"`("인물 수" 드롭다운 — 아래 참고), `"asset_folder"`(참조 세트 드롭다운, 선택된 char_no 값으로 스코프됨 — 아래 참고), `"comfy_model"`(ComfyUI에 설치된 모델 드롭다운, `model_kind` 필요 — 아래 참고), `"input_image"`(`GET /api/input-images`의 평평한 목록에서 고르는 드롭다운 + "⬆ 업로드"/"🖼 갤러리에서 선택" 버튼 — `input_image_batch`/`ipadapter_batch`와 영상 생성 템플릿(`wan22_*`)이 공유, 아래 "입력 이미지 배치"/"영상 생성" 절 참고) |
 | `kind` | `"char_no"`/`"asset_folder"` 타입에서만 사용 — 이 옵션이 다루는 참조 종류를 `"pose"`/`"depth"`/`"lineart"` 중 하나로 정적으로 고정. 생략하면(and `kind_from`도 없으면) 하위호환으로 `"pose"` |
 | `kind_from` | `"char_no"`/`"asset_folder"` 타입에서만 사용 — `kind`를 정적으로 고정하는 대신, 같은 폼의 다른 옵션(보통 `secondary_kind` 같은 select) 이름을 가리켜서 그 옵션의 "현재 선택값"을 종류로 그대로 따라감(동적). 그 값이 `"none"`이면 이 옵션은 비활성화됨(선택지 없음, 빈 문자열로 취급) |
 | `char_no_option` | `"asset_folder"` 타입에서만 사용 — 이 세트를 스코프할 char_no 값을 어느 형제 옵션에서 읽을지 지정 (기본 `"char_no"`). 보조 참조처럼 `"secondary_char_no"`라는 별도 이름의 char_no 옵션을 참조할 때 씀 |
@@ -737,7 +737,7 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 베이스가 `img2img`인 워크플로우 유형(후처리로 `hires_fix`/`usdu`를 얹었는지와 무관)에 쓰는 두 템플릿입니다. `pose_batch` 등과 달리 참조 이미지 저장소가 **세트/char_no 계층 없는 평평한(flat) 파일 목록**입니다(`ref_assets.py`가 아니라 별도의 `input_assets.py`) — img2img는 보통 "이 그림 한 장을 원본으로" 쓰는 용도라 세트 개념이 필요 없기 때문입니다. 베이스가 `txt2img`인 워크플로우에 `usdu` 후처리만 얹은 경우는 입력 이미지가 필요 없으므로 `seed_batch`/`csv_batch`를 그대로 씁니다.
 
-**입력 이미지 폴더**: `NIGHTSHIFT_INPUT_IMAGES_DIR`(기본 `NIGHTSHIFT_ASSETS_DIR/input`, 그 기본값은 `/workspace/dataset/assets/input`) 바로 아래에 png/jpg/jpeg/webp 파일을 평평하게 올려두면, `GET /api/input-images`가 목록으로 나열합니다. 세트를 옮기는 별도 업로드 API는 없습니다(다른 참조 이미지 폴더들과 마찬가지로 서버 밖에서 파일을 직접 옮겨두는 걸 전제로 함) — 웹 UI의 "새 작업 추가" 마법사와 개별 옵션 폼의 "입력 이미지" 드롭다운이 이 목록에서 고릅니다. 같은 폴더를 아래 IPAdapter 템플릿의 참조 이미지와도 공유합니다.
+**입력 이미지 폴더**: `NIGHTSHIFT_INPUT_IMAGES_DIR`(기본 `NIGHTSHIFT_ASSETS_DIR/input`, 그 기본값은 `/workspace/dataset/assets/input`) 바로 아래에 png/jpg/jpeg/webp 파일을 평평하게 쌓아둡니다. 서버 밖에서 파일을 직접 옮겨두거나(예전부터 되던 방식), 웹 UI의 "입력 이미지" 드롭다운 옆 **"⬆ 업로드"**(`POST /api/input-images`, 내 컴퓨터의 파일을 바로 올림) / **"🖼 갤러리에서 선택"**(`POST /api/input-images/import-from-output`, 결과 이미지 갤러리에서 사본으로 가져옴 — 원본은 그대로 둠) 버튼으로 채울 수 있습니다. `GET /api/input-images`가 이 폴더를 목록으로 나열하고, `DELETE /api/input-images/{name}`으로 개별 삭제할 수 있습니다. 같은 폴더를 아래 IPAdapter 템플릿과 영상 생성(WAN2.2) 템플릿의 이미지 입력과도 공유합니다.
 
 - `input_image_batch` — 입력 이미지 하나(`input_image` 옵션)를 골라, `image_count`개의 시드로 반복 생성합니다(예: 그림 한 장으로 여러 스타일 변형을 뽑을 때). `seed_batch`/`pose_batch`와 같은 방식(워크플로우 노드 찾기/제출/폴링/진행률 보고)이며, 매 반복 시드를 바꿔가며 같은 입력 이미지를 LoadImage 노드에 주입합니다(이미지 업로드 자체는 실행당 한 번 — 위 "ComfyUI로의 이미지 주입 방식" 참고).
 - `input_image_csv_batch` — CSV 행마다 `input_image`(필수, 다른 참조 템플릿과 달리 비워둘 수 없음 — img2img는 입력 이미지 없이는 성립하지 않으므로) 컬럼으로 서로 다른 입력 이미지를 지정합니다. 나머지 컬럼(`title`/`trigger_prompt`/`main_prompt`/`quality_prompt`/`negative_prompt`/`prompt`/`seed`)은 `csv_batch`와 같습니다. `width`/`height`/`resolution` 컬럼은 없습니다(아래 참고).
@@ -747,6 +747,18 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 ### IPAdapter 배치 (`ipadapter_batch`/`ipadapter_csv_batch`)
 
 "IPAdapter" 워크플로우 유형(프리셋)에 쓰는 두 템플릿으로, `input_image_batch`/`input_image_csv_batch`와 거의 같은 구조입니다 — 다른 점은 참조 이미지를 주입할 옵션/컬럼 이름이 `ipadapter_ref`이고, 주입 대상 LoadImage 노드의 기본 제목이 `"input_image"` 대신 `"ipadapter_ref"`라는 것뿐입니다(제목을 분리해둔 덕분에, 관리자가 만든 프리셋 워크플로우 안에 img2img 입력 이미지와 IPAdapter 참조 이미지가 동시에 있어도 서로 다른 노드에 독립적으로 주입됩니다). 참조 이미지 저장소는 img2img와 완전히 같은 `input_assets.py`/`NIGHTSHIFT_INPUT_IMAGES_DIR`를 공유합니다. `IPADAPTER_NODE_TITLE` 환경변수로 노드 제목을 조정할 수 있습니다.
+
+### 영상 생성 — WAN2.2 i2v/flf2v (`wan22_i2v_batch`/`wan22_i2v_csv_batch`/`wan22_flf2v_batch`/`wan22_flf2v_csv_batch`)
+
+이미지 한 장(i2v) 또는 시작·끝 두 장(flf2v, first-last-frame)으로 짧은 영상을 만드는 네 템플릿입니다. 지금까지의 이미지 템플릿과 달리 **워크플로우를 사용자가 올리지 않습니다** — `templates/video_workflows/wan22_i2v.json`/`wan22_flf2v.json`(WAN2.2 14B, high/low-noise 2단계 샘플링 + Krea2 CLIP 기반 프롬프트 인핸스 + LoRA 체인이 이미 배선된 고정 그래프)을 nightshift가 함께 배포하고, 템플릿을 고르는 순간 `GET /api/video-workflows/{name}`으로 받아 자동으로 채웁니다 — 그래서 "워크플로우 유형" 마법사(베이스/후처리/프리셋 조합)와 무관하며, 워크플로우 첨부 칸 자체가 화면에서 숨겨집니다. 이 네 템플릿은 일반 comfyui 파드에서 다른 템플릿과 나란히 고를 수 있습니다(별도 파드 종류가 아닙니다).
+
+- **이미지 선택**: `start_image`(i2v/flf2v 공통) / `end_image`(flf2v만)는 `"input_image"` 옵션 타입(기존 img2img가 쓰던 것과 같은 저장소, `input_assets.py`)을 그대로 씁니다. 드롭다운 옆에 **"⬆ 업로드"**(내 컴퓨터에서 이미지 업로드 → `POST /api/input-images`)와 **"🖼 갤러리에서 선택"**(결과 이미지 갤러리에서 사본으로 가져오기 → `POST /api/input-images/import-from-output`, 원본은 그대로 둠) 버튼이 붙습니다 — 이 두 버튼은 img2img의 기존 "입력 이미지" 드롭다운에도 똑같이 적용되는 공용 업그레이드입니다.
+- **프롬프트**: `user_prompt` 옵션이 워크플로우 안의 `user_prompt` 노드에 그대로 들어가고, 시스템 프롬프트와 합쳐져 Krea2 CLIP의 `TextGenerate` 노드가 인핸스합니다 — nightshift는 원문 텍스트만 채워 넣을 뿐, 인핸스 자체는 ComfyUI 그래프 안에서 끝납니다.
+- **LoRA**: `lora_name`(`comfy_model`/`loras`)/`lora_strength`를 고르면 워크플로우의 high-noise/low-noise 모델 두 갈래에 걸린 "user_lora_high"/"user_lora_low" LoRA 로더 노드 둘 다에 같은 값을 적용합니다(WAN2.2는 두 모델 사본에 항상 같은 LoRA를 쌍으로 걸어야 하므로). 비워두면 워크플로우에 원래 있던 LoRA(파일 원본 그대로)를 씁니다.
+- **4-step LoRA 가속**(`fast_4step`, i2v만): i2v 워크플로우에는 "빠른 4스텝 경로"와 "원래의 20스텝 고화질 경로"를 고르는 스위치가 있습니다 — 기본(`off`)은 워크플로우가 원래 쓰던 20스텝 경로를 그대로 유지하고, `on`으로 켜면 lightx2v 4-step LoRA 경로로 전환합니다. flf2v 워크플로우에는 이 스위치가 없어 옵션 자체가 없습니다.
+- **시드 반복 vs CSV 배치**: `wan22_i2v_batch`/`wan22_flf2v_batch`는 `video_count`개를 시드만 바꿔 반복하고, `wan22_i2v_csv_batch`/`wan22_flf2v_csv_batch`는 CSV 행마다 다른 `user_prompt`/`start_image`(+flf2v면 `end_image`)/`seed`로 만듭니다(`seed_batch`/`csv_batch`와 같은 관계).
+- **결과**: `SaveVideo` 노드가 `<JOB_ID>/wan22_video_<순번>_seed<시드>.mp4`로 저장하므로, 다른 템플릿과 마찬가지로 `NIGHTSHIFT_OUTPUT_DIR/<job_id>/` 아래에 쌓이고 위 "🎬 영상 갤러리" 탭에서 볼 수 있습니다.
+- 워크플로우 구조(어떤 노드가 어떤 제목을 쓰는지, 시드/이미지/LoRA 주입 방식)는 `templates/wan22_video_batch.py`와 `templates/wan22_video_csv_batch.py`의 모듈 docstring에 자세히 적어뒀습니다.
 
 ### 베이스 모델(family) / LoRA 호환성 / ControlNet·IPAdapter 프리셋 관리 (`🎛 모델` 탭)
 
@@ -830,7 +842,11 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `PUT` | `/api/lora-triggers` | 매핑 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "🎛 모델" 탭이 입력/체크할 때마다 부름. `trigger`가 빈 문자열이고 `families`도 빈 배열이면 그 키를 저장하지 않음(지움). 객체가 아니거나 각 값이 `{trigger: string, families: string[]}` 형태가 아니면 400. 예전 스키마(`{lora_filename: "트리거 문자열"}`)로 저장돼 있던 파일은 서버가 시작할 때 자동으로 이 형태로 이관함(`families: []`) |
 | `GET` | `/api/base-model-families` | 베이스 모델 family 정의를 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}`로 반환 — "새 작업 추가" 마법사 1단계와 LoRA/프리셋 호환성 필터링의 기준이 됨 |
 | `PUT` | `/api/base-model-families` | family 정의 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "🎛 모델" 탭이 family를 추가/편집할 때마다 부름. `label`이 비어있거나 `checkpoints`가 문자열 배열이 아니면 400 |
-| `GET` | `/api/input-images` | img2img/IPAdapter 입력 이미지 목록(세트/char_no 구분 없는 평평한 목록, `input_assets.py`)을 `{"images": [{"name", "size"}, ...]}`로 반환. `NIGHTSHIFT_INPUT_IMAGES_DIR`(기본 `NIGHTSHIFT_ASSETS_DIR/input`)에 미리 파일을 옮겨둬야 함 — 별도 업로드 API는 없음 |
+| `GET` | `/api/input-images` | img2img/IPAdapter/영상 생성 입력 이미지 목록(세트/char_no 구분 없는 평평한 목록, `input_assets.py`)을 `{"images": [{"name", "size"}, ...]}`로 반환 |
+| `POST` | `/api/input-images` | 이미지 파일 하나를 입력 이미지 풀에 업로드(멀티파트 폼 필드 `image`) — "입력 이미지" 옵션의 "⬆ 업로드" 버튼. 이미 같은 이름의 파일이 있으면 지우지 않고 `_2`, `_3`...를 붙여 저장. 응답 `{"name": 실제 저장된 파일명}`, png/jpg/jpeg/webp가 아니면 400 |
+| `DELETE` | `/api/input-images/{name}` | 입력 이미지 풀에서 파일 하나 삭제. 응답 `{"ok": true}`, 없으면 404 |
+| `POST` | `/api/input-images/import-from-output` | 결과 이미지 갤러리에서 고른 이미지를 입력 이미지 풀에 사본으로 추가(원본은 그대로 둠) — "입력 이미지" 옵션의 "🖼 갤러리에서 선택" 버튼. `/api/assets/import-from-output`과 같은 패턴. 요청 본문 `{"names": [파일명...]}`. 응답 `{"added": [실제 저장된 파일명...], "skipped": [{"name", "reason"}, ...]}` |
+| `GET` | `/api/video-workflows/{name}` | 영상 생성(WAN2.2) 템플릿이 쓰는 고정 워크플로우 JSON을 그대로 반환(`name`은 `wan22_i2v`/`wan22_flf2v`만 허용). "새 작업 추가" 화면이 해당 템플릿을 고르는 즉시 이걸 받아 워크플로우 첨부 칸에 자동으로 채움 — 사용자가 직접 파일을 고를 필요가 없음 |
 | `GET` | `/api/workflow-types` | "새 작업 추가" 마법사 2단계(워크플로우 유형) 카탈로그를 `{"base": [...], "post": [...], "preset": [...]}` 세 그룹으로 반환(위 "워크플로우 유형의 조합 규칙" 참고) — `base`(`txt2img`/`img2img`, 하나만 고름), `post`(`hires_fix`/`usdu`, 0개 이상 동시 선택), `preset`(`openpose_cn`/`depth_cn`/`lineart_cn`/`ipadapter`, 하나만 고르고 base/post와 배타적). `base`/`preset` 항목의 `template_ids: {seed, csv}`는 그 조합을 "시드 반복"/"CSV 순회" 중 어느 실행 방식으로 큐에 올릴지에 따른 실제 템플릿 id(`post`는 base가 고른 템플릿을 그대로 씀 — 워크플로우 안에서 완결되므로), `requires_node`(있으면)는 그 클래스가 `/api/comfy-object-info`의 `node_types`에 없을 때 화면에서 "설치 필요"로 안내하는 데 씀(선택 자체를 막지는 않음) |
 | `GET` | `/api/workflow-presets` | 저장된 `{family_id, type_id}` 조합 전체를 `{"presets": [...]}`로 반환 — 마법사가 이 family에 어떤 프리셋이 있는지 한 번에 확인하는 용도 |
 | `GET` | `/api/workflow-presets/{family_id}/{type_id}` | 그 조합의 프리셋 워크플로우 JSON을 그대로 반환. 없으면 404 |
@@ -928,8 +944,9 @@ nightshift/
 │   ├── app.py                 # FastAPI 서버 + 큐 워커 본체
 │   ├── email_sender.py        # 결과 이미지 이메일 발송 로직
 │   ├── output_images.py       # 출력 폴더 공용 로직 (목록 조회/삭제/가로형 이미지 회전)
+│   ├── output_videos.py       # 영상 갤러리용 출력 폴더 공용 로직 (목록 조회/삭제, output_images.py와 짝)
 │   ├── ref_assets.py          # pose/depth/lineart 참조 세트 폴더 스캔/업로드 시점 검증 로직
-│   ├── input_assets.py        # img2img/USDU 입력 이미지(세트 없는 평평한 목록) 스캔 로직
+│   ├── input_assets.py        # img2img/USDU/영상 생성 입력 이미지(세트 없는 평평한 목록) 스캔/업로드/삭제 로직
 │   ├── workflow_builder.py    # 워크플로우 빌더 탭 + 마법사가 쓰는 워크플로우 JSON 조립 로직
 │   ├── pod_registry.py        # 파드(워커) 레지스트리 — data/pods.json 로드/저장/CRUD
 │   ├── comfy_outputs.py       # 원격 ComfyUI의 결과 이미지를 HTTP로 끌어오기
@@ -956,6 +973,11 @@ nightshift/
 │   ├── input_image_csv_batch.py # 템플릿 스크립트 (img2img — CSV 행마다 다른 입력 이미지)
 │   ├── ipadapter_batch.py       # 템플릿 스크립트 (IPAdapter 프리셋 — 참조 이미지 1장 + 시드 반복)
 │   ├── ipadapter_csv_batch.py   # 템플릿 스크립트 (IPAdapter 프리셋 — CSV 행마다 다른 참조 이미지)
+│   ├── wan22_video_batch.py     # 템플릿 스크립트 (WAN2.2 i2v/flf2v 영상 생성 — 시드 반복)
+│   ├── wan22_video_csv_batch.py # 템플릿 스크립트 (WAN2.2 i2v/flf2v 영상 생성 — CSV 행마다 다른 프롬프트/이미지)
+│   ├── video_workflows/          # 영상 생성 템플릿이 쓰는 고정 워크플로우(nightshift가 함께 배포)
+│   │   ├── wan22_i2v.json
+│   │   └── wan22_flf2v.json
 │   ├── shell_command.py         # 템플릿 스크립트 (셸 파드용 — 임의 명령 실행)
 │   └── claude_write.py          # 템플릿 스크립트 (Claude 글쓰기 파드용 — Claude API로 프롬프트 전송)
 ├── scripts/                   # 독립 실행 유틸리티 — 서버가 import하지 않고, 사람이나
