@@ -2172,9 +2172,10 @@
 
         <div class="field" id="workflow-field">
           <div class="field-label-row">
-            <label class="field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
+            <label class="field-label" id="workflow-field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
             <button class="load-btn" id="recent-workflows-btn" type="button" title="최근 워크플로우">🕘 최근</button>
           </div>
+          <div class="opt" id="workflow-field-hint" style="display:none;"></div>
           <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
           <input type="file" class="slot-input" id="workflow-input" accept=".json">
           <div class="workflow-check" id="workflow-check" hidden></div>
@@ -4291,6 +4292,17 @@ const WAN22_BUNDLED_WORKFLOWS = {
   wan22_flf2v_csv_batch: 'wan22_flf2v',
 };
 
+// 이미지→영상 복합 CSV 배치 템플릿(img2video_*)은 워크플로우 첨부 칸이 하나뿐이지만
+// "두 개"처럼 보일 수 있다 — 여기 올리는 건 이미지 생성 단계 워크플로우뿐이고,
+// 영상 단계(i2v/flf2v)는 스크립트 자신이 templates/video_workflows/*.json을 직접
+// 읽어 쓰므로 화면에 올릴 필요가 없다. 이 첨부 칸의 라벨/안내문을 바꿔서 그 사실을
+// 명확히 한다 — 값(오른쪽)은 사람이 읽을 영상 워크플로우 이름표일 뿐, 실제로 어떤
+// 파일을 쓰는지는 스크립트 쪽 VIDEO_WORKFLOW_PATH가 결정한다.
+const IMG2VIDEO_COMBO_TEMPLATES = {
+  img2video_i2v_csv_batch: 'WAN2.2 i2v',
+  img2video_flf2v_csv_batch: 'WAN2.2 flf2v',
+};
+
 async function onTemplateChange(){
   const template = templatesById[templateSelect.value];
   csvField.style.display = (template && template.requires_csv) ? '' : 'none';
@@ -4311,6 +4323,18 @@ async function onTemplateChange(){
       setWorkflowFile(null);
       console.error('영상 워크플로우를 받아오지 못했어요:', e);
     }
+  }
+
+  const comboVideoLabel = template && IMG2VIDEO_COMBO_TEMPLATES[template.id];
+  const wfLabel = document.getElementById('workflow-field-label');
+  const wfHint = document.getElementById('workflow-field-hint');
+  if(comboVideoLabel){
+    wfLabel.innerHTML = '이미지 생성 워크플로우 (.json) <span class="opt">— 필수</span>';
+    wfHint.textContent = `여기 올리는 건 이미지 생성 단계 워크플로우예요 — 영상 단계(${comboVideoLabel})는 nightshift가 내장한 고정 워크플로우를 자동으로 씁니다. 따로 올릴 필요 없어요.`;
+    wfHint.style.display = '';
+  }else{
+    wfLabel.innerHTML = '워크플로우 (.json) <span class="opt">— 필수</span>';
+    wfHint.style.display = 'none';
   }
   // char_no/asset_folder 옵션이 있는 템플릿을 고를 때마다 목록을 새로 받아와서, 방금
   // 서버에 새로 올려둔 포즈 세트도 페이지를 새로고침하지 않고 바로 반영되게 한다.
