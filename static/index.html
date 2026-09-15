@@ -2332,7 +2332,7 @@
       <div class="gallery-toolbar" id="gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="gallery-toolbar-count"></span>
         <button class="load-btn" id="gallery-download-selected-btn" type="button" title="다운로드">⬇ 다운로드</button>
-        <button class="load-btn" id="gallery-rotate-download-selected-btn" type="button" title="선택한 이미지 중 가로형만 시계 방향으로 90도 돌린 뒤 다운로드 (세로형은 그대로 둠)">🔄⬇ 회전 후 다운로드</button>
+        <button class="load-btn" id="gallery-rotate-download-selected-btn" type="button" title="선택한 이미지 중 가로형만 시계 방향으로 90도 돌린 사본을 다운로드 (세로형은 그대로, 원본 파일은 건드리지 않음)">🔄⬇ 회전 후 다운로드</button>
         <button class="load-btn" id="gallery-send-to-pose-btn" type="button" title="참조 세트로 보내기">📌 세트 추가</button>
         <button class="del-btn" id="gallery-delete-selected-btn" type="button" title="삭제">🗑 삭제</button>
         <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button" title="선택 해제">✕ 해제</button>
@@ -7204,14 +7204,14 @@ async function downloadGalleryImages(names){
   }
 }
 
-// 5번 요구사항 — 선택한 이미지를 서버 파일 그대로 시계 방향 90도 돌린 뒤(가로형
-// 판정 없이 무조건) 다운로드한다. 회전은 원본 파일에 영구히 적용되므로(디스크
-// 상의 실제 파일을 덮어씀), 다운로드가 끝난 뒤 갤러리도 다시 받아와서 회전된
-// 썸네일/원본이 바로 반영되게 한다.
-// 여러 장을 고르면 회전(서버가 한 장씩 순차 처리)도 다운로드 준비(zip 압축)도
-// 시간이 걸릴 수 있어서, 버튼을 눌러 회전이 시작된 시점부터 다운로드가 실제로
-// 시작되는 시점까지 버튼 자체에 스피너+안내 문구를 보여준다(회전 중/다운로드
-// 준비 중 두 단계로 문구만 바뀜) — 그동안 버튼은 비활성화해 중복 클릭을 막는다.
+// 5번 요구사항 — 선택한 이미지 중 가로형만 시계 방향 90도로 돌린 "다운로드본"을
+// 내려받는다. 예전에는 원본 파일 자체를 영구히 돌려버렸는데(디스크에 덮어씀),
+// 그 회전은 이 다운로드 한 번을 위한 것일 뿐이라 갤러리에 계속 남아있을 이유가
+// 없다 — 그래서 원본은 절대 건드리지 않고, 서버가 회전한 바이트만 담은 zip을
+// 받아온다(build_zip_from_paths의 rotate_landscape 옵션, 세로형/정사각형은
+// 회전 없이 그대로 담김). 여러 장을 고르면 서버가 순회하며 회전+압축하는 동안
+// 시간이 걸릴 수 있어 버튼에 스피너+안내 문구를 보여주고 비활성화해 중복
+// 클릭을 막는다.
 async function rotateThenDownloadGalleryImages(names){
   if(names.length === 0) return;
   const errorEl = document.getElementById('gallery-error');
@@ -7221,29 +7221,24 @@ async function rotateThenDownloadGalleryImages(names){
   const setBusy = (text) => { btn.disabled = true; btn.innerHTML = `<span class="btn-spinner"></span> ${text}`; };
   const setIdle = () => { btn.disabled = false; btn.innerHTML = originalLabel; };
 
-  setBusy('회전 중…');
+  setBusy('회전 및 다운로드 준비 중…');
   try{
-    const res = await fetch('/api/output-images/rotate-selected', {
+    const res = await fetch('/api/output-images/download-selected-rotated', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ names }),
     });
     if(!res.ok){
       const data = await res.json().catch(() => ({}));
-      errorEl.textContent = data.detail || '회전에 실패했어요.';
+      errorEl.textContent = data.detail || '회전 후 다운로드에 실패했어요.';
       return;
     }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    triggerBlobDownload(blob, match ? match[1] : 'nightshift_selected_rotated.zip');
   }catch(e){
-    errorEl.textContent = '회전에 실패했어요.';
-    return;
-  }finally{
-    setIdle();
-  }
-
-  setBusy('다운로드 준비 중…');
-  try{
-    await downloadGalleryImages(names);
-    await fetchGalleryImages();
+    errorEl.textContent = '회전 후 다운로드에 실패했어요.';
   }finally{
     setIdle();
   }
