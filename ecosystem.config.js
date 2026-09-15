@@ -44,9 +44,12 @@ function loadDotEnv() {
 // 자식 프로세스를 스폰할 때는 로그인 셸이 아니라서 그 활성화가 적용되지 않는다.
 // 그러면 "python3"이 PATH에서 (uvicorn이 설치된 conda/venv 쪽이 아니라) 시스템
 // /usr/bin/python3로 풀려서 "No module named uvicorn"이 나는 경우가 생긴다.
-// `npm start`를 실행한 바로 그 셸에서 `which python3`가 가리키는 인터프리터를
-// 미리 확인해두면, uvicorn이 실제로 설치돼 있는(=지금 `python3 app.py`가 정상
-// 동작하는) 인터프리터와 항상 같은 것을 pm2가 쓰게 된다.
+// `npm start`를 실행한 바로 그 셸에서 `which python3`(윈도우는 `where python`)가
+// 가리키는 인터프리터를 미리 확인해두면, uvicorn이 실제로 설치돼 있는(=지금
+// `python3 app.py`/`python app.py`가 정상 동작하는) 인터프리터와 항상 같은 것을
+// pm2가 쓰게 된다. 윈도우엔 `python3` 실행 파일 자체가 보통 없고(App Execution
+// Alias 스텁만 있어 "Python was not found..." 오류가 남) `which` 명령도 없으므로,
+// 플랫폼별로 후보를 다르게 시도한다.
 function resolvePython3() {
   try {
     const isWindows = process.platform === "win32";
