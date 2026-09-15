@@ -2100,7 +2100,7 @@
   <div class="tab-bar-inner">
     <button class="tab-btn active" data-tab="dashboard" type="button" title="홈 — 파드(워커) 대시보드">🏠 Home</button>
     <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
-    <button class="tab-btn" data-tab="video-gallery" type="button" title="영상 갤러리 — 아직 영상을 만드는 파드는 없지만, 출력 폴더에 영상 파일이 생기면 여기서 볼 수 있어요">🎬 영상</button>
+    <button class="tab-btn" data-tab="video-gallery" type="button" title="영상 갤러리 — 출력 폴더에 쌓인 영상 파일을 확인">🎬 영상</button>
     <span class="tab-bar-sep"></span>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 파드와 무관한 프롬프트 작업대">🏷 Danbooru</button>
   </div>
@@ -2358,8 +2358,7 @@
      라이트박스), 영상 전용이 아닌 기능은 뺐다: 회전(이미지 전용 후처리), "📌 세트 추가"
      (포즈 참조용, 이미지 전용), "📂 작업 불러오기"(영상 작업 템플릿이 아직 없어 불러올
      설정이 없음), "📋 자세히"(폭/높이/길이를 읽으려면 ffprobe가 필요한데 새 시스템
-     의존성을 안 늘리기로 했음). 지금은 영상을 만드는 파드가 없어 늘 비어 있겠지만,
-     생기면 바로 쓸 수 있게 미리 마련해둔다. -->
+     의존성을 안 늘리기로 했음). -->
 <main id="tab-video-gallery" style="display:none;">
   <div class="panel">
     <div class="panel-header">
@@ -2376,7 +2375,6 @@
       </div>
     </div>
     <div class="panel-body">
-      <div class="email-hint">아직 영상을 만드는 파드가 없어요 — 장차 그런 파드가 생기면 여기서 결과 영상을 확인할 수 있어요.</div>
       <div class="gallery-toolbar" id="video-gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="video-gallery-toolbar-count"></span>
         <button class="load-btn" id="video-gallery-download-selected-btn" type="button" title="다운로드">⬇ 다운로드</button>
