@@ -29,7 +29,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
   옵션만 바꿔가며 여러 작업을 잇달아 추가하기 쉬움. 필요할 때만 "↺ 초기화" 버튼으로 직접 비움
 - ComfyUI 서버 주소 자동 감지 — 후보 포트를 순서대로 찔러보고 응답하는 첫 주소를 채택, 상단 인디케이터로 연결 상태 표시
 - 아직 시작하지 않은(대기중) 작업의 워크플로우 JSON과 CSV를 웹 UI에서 바로 열어 편집/저장 (시작 이후에는 수정 불가)
-- 실행 큐에 들어간 순서대로 워커 스레드가 하나씩 `python3`로 실행 (동시 실행 없음)
+- 실행 큐에 들어간 순서대로 워커 스레드가 하나씩, nightshift 서버 자신과 같은 파이썬 인터프리터(`sys.executable`)로 실행 (동시 실행 없음)
 - 작업 상태 추적: `pending`(대기중, 시작 전) → `queued`(배치 시작됨, 워커 차례 대기) → `running` → `done` / `failed` (서버 재시작 시 `queued`/`running`이었던 작업은 `interrupted`). ComfyUI가 꺼져 있으면 `queued`인 채로 붙잡아 두고 연결되면 이어서 실행합니다(`waiting_for_comfy`, 화면에는 `GPU 대기`). 작업마다 `pod_id`(어느 워커에서 돌지)가 붙고, 큐는 파드별로 따로 돕니다
 - 작업별 실행 로그(stdout/stderr)를 실시간에 가깝게 조회 (2초 폴링)
 - `seed_batch`/`csv_batch` 템플릿은 실행 전에 예상 총 이미지 수(시드/행 수 × batch_size)를 계산해 두고, 이미지가 하나
@@ -125,7 +125,9 @@ npm start
 
 내부적으로는 `ecosystem.config.js`에 정의된 pm2 앱 설정(`server/` 안에서 `python3 -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload`)을 그대로 실행합니다 — 필요하면 이 파일에서 포트나 옵션을 직접 조정할 수 있습니다.
 
-> **conda/venv를 쓴다면**: `ecosystem.config.js`는 `npm start`를 실행한 그 셸에서 `which python3`가 가리키는 인터프리터를 그대로 사용합니다. RunPod 등에서 conda/venv가 `~/.bashrc`에서만 활성화되도록 돼 있으면, pm2가 자식 프로세스를 로그인 셸이 아닌 방식으로 띄우면서 그 활성화가 빠져 `/usr/bin/python3: No module named uvicorn` 같은 에러가 로그에 쌓일 수 있습니다. 그런 경우엔 (1) `cd server && python3 app.py`가 정상 동작하는 바로 그 셸에서 `npm start`를 실행하고 (2) 예전에 다른 환경에서 이미 `pm2 start`를 한 적이 있다면 `npx pm2 delete nightshift`(또는 `npx pm2 kill`로 데몬 자체를 리셋)한 뒤 `npm start`를 다시 실행하세요 — pm2 데몬이 예전에 잘못 잡은 인터프리터 경로를 계속 재사용하기 때문입니다.
+> **conda/venv를 쓴다면**: `ecosystem.config.js`는 `npm start`를 실행한 그 셸에서 `which python3`(윈도우는 `where python`)가 가리키는 인터프리터를 그대로 사용합니다. RunPod 등에서 conda/venv가 `~/.bashrc`에서만 활성화되도록 돼 있으면, pm2가 자식 프로세스를 로그인 셸이 아닌 방식으로 띄우면서 그 활성화가 빠져 `/usr/bin/python3: No module named uvicorn` 같은 에러가 로그에 쌓일 수 있습니다. 그런 경우엔 (1) `cd server && python3 app.py`(윈도우는 `python app.py`)가 정상 동작하는 바로 그 셸에서 `npm start`를 실행하고 (2) 예전에 다른 환경에서 이미 `pm2 start`를 한 적이 있다면 `npx pm2 delete nightshift`(또는 `npx pm2 kill`로 데몬 자체를 리셋)한 뒤 `npm start`를 다시 실행하세요 — pm2 데몬이 예전에 잘못 잡은 인터프리터 경로를 계속 재사용하기 때문입니다.
+>
+> **윈도우에서 "Python was not found..." 오류가 났다면**: 윈도우엔 보통 `python3`이라는 실행 파일 자체가 없고(App Execution Alias라는 가짜 진입점만 있어서, 실제 파이썬이 있어도 `python3`으로 부르면 이 오류가 남) `python`만 있습니다. 작업(job)을 실행하는 서브프로세스는 nightshift 서버 자신과 같은 인터프리터(`sys.executable`)를 쓰도록 이미 고쳐져 있어 최신 코드라면 이 문제가 없어야 합니다 — 그래도 이 오류가 나면 지금 `git pull`이 안 됐거나, 서버 자체를 `python3`으로 잘못 띄운 경우입니다(윈도우에선 `python app.py`처럼 `python`을 쓰세요).
 
 ### python3로 직접 실행
 

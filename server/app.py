@@ -25,6 +25,7 @@ import os
 import queue
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -925,7 +926,7 @@ def _run_one_job(pod_id: str, job_id: str):
     with open(log_path, "w") as logf:
         try:
             proc = subprocess.Popen(
-                ["python3", "-u", str(script_path)],
+                [sys.executable, "-u", str(script_path)],
                 stdout=logf,
                 stderr=subprocess.STDOUT,
                 env=env,
