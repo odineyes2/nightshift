@@ -1077,6 +1077,32 @@ nightshift/
 - 워커 스레드는 **파드마다** 따로 돌고, 한 파드 안에서는 `max_concurrent`(기본 1)만큼 동시에 실행됩니다.
 - 서버가 재시작되면 이전에 `queued`/`running` 상태였던 작업은 `interrupted`로 표시되며, 자동으로 재실행되지 않습니다.
 
+### RunPod → 홈서버 이관 (`scripts/migrate_export.py`/`scripts/migrate_verify.py`)
+
+지금까지 RunPod pod에서 임시로 돌리며 쌓아온 결과물(이미지/영상/입력 이미지/작업기록)을, nightshift를 상시 실행할 홈서버로 옮길 때 쓰는 스크립트 두 개입니다. 이관 대상은 위에서 설명한 세 트리(`NIGHTSHIFT_DATA_DIR`, `NIGHTSHIFT_OUTPUT_DIR`, `NIGHTSHIFT_ASSETS_DIR`의 `input`/`pose`/`depth`/`lineart`)이며, 이 세 트리만 옮기면 작업기록과 결과물의 연결이 그대로 이어집니다(연결이 순전히 "출력 폴더 밑의 `job_id` 이름의 하위 폴더"라는 규칙 하나로만 돼 있어서, 절대경로를 어딘가에 따로 저장해두지 않기 때문입니다).
+
+**큰 파일(결과 이미지/영상, 참조 이미지)은 이 스크립트가 직접 옮기지 않습니다** — 그건 rsync가 재개 가능/변경분만 전송 등으로 훨씬 안정적으로 잘 하는 일이라, 스크립트는 정확한 rsync 명령만 만들어 줍니다. `data/`(작업기록·설정 등, 보통 수십MB 이하)만 스크립트가 직접 tar.gz로 묶어 줍니다.
+
+**순서:**
+
+1. **RunPod pod에서** (지금 nightshift가 도는 곳):
+   ```bash
+   python3 scripts/migrate_export.py --out ./migration_bundle
+   ```
+   `./migration_bundle/` 아래에 `manifest.json`(세 트리의 파일 목록/크기 스냅샷), `data.tar.gz`(`data/` 전체 압축본), `rsync_commands.sh`(결과 이미지/영상·참조 이미지를 옮기는 rsync 명령, 호스트 자리는 `<POD_SSH_HOST>`/`<POD_SSH_PORT>`로 비워둠)가 생깁니다.
+2. 이 세 파일을 홈서버로 옮깁니다(scp 등).
+3. **홈서버에서** `rsync_commands.sh`를 열어 `<POD_SSH_HOST>`/`<POD_SSH_PORT>`를 RunPod 콘솔의 "Connect" > SSH 정보로, 목적지 경로(각 줄의 오른쪽)를 홈서버에서 실제 쓸 `NIGHTSHIFT_OUTPUT_DIR`/`NIGHTSHIFT_ASSETS_DIR` 값으로 바꾼 뒤 실행합니다 — pod가 켜져 있어야 하고, RunPod pod가 SSH를 지원해야 합니다(대부분의 GPU pod가 지원).
+4. **홈서버에서** `data.tar.gz`를 `NIGHTSHIFT_DATA_DIR`의 부모 폴더에 풉니다: `tar xzf data.tar.gz -C <NIGHTSHIFT_DATA_DIR의 부모 폴더>` (기본이면 저장소 루트 — 결과가 `<저장소>/data/`가 되게).
+5. **홈서버에서** 개수/용량이 원본과 일치하는지 확인합니다:
+   ```bash
+   python3 scripts/migrate_verify.py --manifest ./migration_bundle/manifest.json
+   ```
+   누락되거나 크기가 다른 파일을 트리별로 콕 짚어 알려줍니다(전부 일치하면 종료 코드 0, 하나라도 문제 있으면 1 — CI/스크립트에서 성공 여부를 바로 판단할 수 있습니다).
+6. `.env`의 `NIGHTSHIFT_DATA_DIR`/`NIGHTSHIFT_OUTPUT_DIR`/`NIGHTSHIFT_ASSETS_DIR`를 홈서버 경로로 맞추고 재기동합니다.
+7. `data/pods.json`에 남아있는 RunPod pod 항목은 이제 존재하지 않는 주소를 가리키므로, 앞으로도 그 RunPod pod를 GPU로 계속 쓸 계획이면 그대로 두고(pod가 다시 켜지면 주소만 갱신하면 됨), 아니면 "파드" 관리 화면에서 지우고 홈서버의 GPU(또는 새 pod)를 가리키는 파드를 새로 등록하세요.
+
+두 스크립트 모두 `server/` 모듈을 import하지 않고 경로 해석 로직을 그대로 복사해 자기완결적으로 작성했습니다(`templates/*.py`와 같은 컨벤션) — `NIGHTSHIFT_DATA_DIR`/`NIGHTSHIFT_OUTPUT_DIR`/`NIGHTSHIFT_ASSETS_DIR`(및 `NIGHTSHIFT_POSES_DIR`/`NIGHTSHIFT_DEPTH_DIR`/`NIGHTSHIFT_LINEART_DIR` 개별 override)를 서버와 완전히 같은 이름/기본값으로 읽습니다.
+
 ## 주의사항
 
 - 템플릿 스크립트는 서버 프로세스 권한으로 그대로 실행됩니다. `templates/`에는 신뢰할 수 있는 스크립트만 등록하세요.
