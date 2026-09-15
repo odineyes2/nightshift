@@ -49,12 +49,14 @@ function loadDotEnv() {
 // 동작하는) 인터프리터와 항상 같은 것을 pm2가 쓰게 된다.
 function resolvePython3() {
   try {
-    const resolved = execSync("which python3", { encoding: "utf8" }).trim();
+    const isWindows = process.platform === "win32";
+    const cmd = isWindows ? "where.exe python" : "which python3";
+    const resolved = execSync(cmd, { encoding: "utf8" }).split(/\r?\n/)[0].trim();
     if (resolved) return resolved;
   } catch (e) {
-    // which가 없거나 python3을 못 찾으면 아래에서 그냥 "python3"으로 폴백한다.
+    // which/where가 없거나 python을 못 찾으면 아래에서 폴백한다.
   }
-  return "python3";
+  return process.platform === "win32" ? "python" : "python3";
 }
 
 // 서버 파이썬 모듈이 사는 곳. app.py/mcp_server.py 둘 다 여기서 cwd로 띄운다 —
@@ -75,7 +77,7 @@ module.exports = {
     {
       name: "nightshift",
       script: resolvePython3(),
-      args: `-m uvicorn app:app --host 0.0.0.0 --port ${nightshiftPort} --reload`,
+      args: `-m uvicorn app:app --host 0.0.0.0 --port ${nightshiftPort}`,
       interpreter: "none",
       cwd: SERVER_DIR,
       env: {
@@ -108,6 +110,20 @@ module.exports = {
       max_restarts: 10,
       restart_delay: 2000,
       watch: ["mcp_server.py"],
+    },
+    {
+      name: "jupyterlab",
+      script: "jupyter",
+      args: "lab --no-browser --ip=0.0.0.0 --port=8888",
+      interpreter: "none",
+      cwd: "C:\\Users\\Simon Lomebrote\\Projects\\nightshift",
+      env: {
+        PYTHONUNBUFFERED: "1",
+      },
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
+      watch: false,
     },
   ],
 };
