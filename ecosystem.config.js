@@ -44,17 +44,27 @@ function loadDotEnv() {
 // 자식 프로세스를 스폰할 때는 로그인 셸이 아니라서 그 활성화가 적용되지 않는다.
 // 그러면 "python3"이 PATH에서 (uvicorn이 설치된 conda/venv 쪽이 아니라) 시스템
 // /usr/bin/python3로 풀려서 "No module named uvicorn"이 나는 경우가 생긴다.
-// `npm start`를 실행한 바로 그 셸에서 `which python3`가 가리키는 인터프리터를
-// 미리 확인해두면, uvicorn이 실제로 설치돼 있는(=지금 `python3 app.py`가 정상
-// 동작하는) 인터프리터와 항상 같은 것을 pm2가 쓰게 된다.
+// `npm start`를 실행한 바로 그 셸에서 `which python3`(윈도우는 `where python`)가
+// 가리키는 인터프리터를 미리 확인해두면, uvicorn이 실제로 설치돼 있는(=지금
+// `python3 app.py`/`python app.py`가 정상 동작하는) 인터프리터와 항상 같은 것을
+// pm2가 쓰게 된다. 윈도우엔 `python3` 실행 파일 자체가 보통 없고(App Execution
+// Alias 스텁만 있어 "Python was not found..." 오류가 남) `which` 명령도 없으므로,
+// 플랫폼별로 후보를 다르게 시도한다.
 function resolvePython3() {
-  try {
-    const resolved = execSync("which python3", { encoding: "utf8" }).trim();
-    if (resolved) return resolved;
-  } catch (e) {
-    // which가 없거나 python3을 못 찾으면 아래에서 그냥 "python3"으로 폴백한다.
+  const isWindows = process.platform === "win32";
+  const candidates = isWindows
+    ? ["where python", "where python3"]
+    : ["which python3", "which python"];
+  for (const cmd of candidates) {
+    try {
+      const resolved = execSync(cmd, { encoding: "utf8" }).trim().split(/\r?\n/)[0];
+      if (resolved) return resolved;
+    } catch (e) {
+      // 이 후보를 못 찾으면 다음 후보로 넘어간다.
+    }
   }
-  return "python3";
+  // 전부 실패하면 폴백 — 윈도우는 "python"(python3은 보통 없음), 그 외는 "python3".
+  return isWindows ? "python" : "python3";
 }
 
 // 서버 파이썬 모듈이 사는 곳. app.py/mcp_server.py 둘 다 여기서 cwd로 띄운다 —
