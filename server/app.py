@@ -3188,11 +3188,17 @@ def parse_image_names_body(data: dict) -> list[str]:
     return names
 
 
-def build_zip_from_paths(paths: list[Path]) -> Path:
+def build_zip_from_paths(paths: list[Path], rotate_landscape: bool = False) -> Path:
     # 작업별 하위 폴더 구조 없이 파일명만으로 평평하게 담는다 — 압축을 풀었을 때
     # 폴더 구조 없이 한 자리에 전부 모여있길 원해서다. 서로 다른 작업 폴더에서
     # 온 파일이 우연히 같은 이름이면 zip 안에서 이름이 겹치므로, 그런 경우에만
     # "이름 (1).ext"처럼 번호를 붙여 구분한다.
+    #
+    # rotate_landscape=True면 가로형(너비>높이) 이미지만 시계 방향 90도로 돌려서
+    # zip에 담는다 — 원본 파일은 절대 건드리지 않는다(메모리에서만 돌려서 그
+    # 결과 바이트만 zip에 씀). "회전 후 다운로드" 버튼이 쓰는 옵션으로, 예전에는
+    # 원본 파일 자체를 영구히 돌려버렸는데(디스크에 덮어씀) 그 회전이 이 다운로드
+    # 한 번을 위한 것일 뿐이라 원본은 그대로 두고 다운로드본만 돌리도록 바꿨다.
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
     tmp.close()
     tmp_path = Path(tmp.name)
@@ -3207,7 +3213,19 @@ def build_zip_from_paths(paths: list[Path]) -> Path:
                     n += 1
                 arcname = f"{stem} ({n}){suffix}"
             used_names.add(arcname)
-            zf.write(f, arcname=arcname)
+
+            rotated_bytes = None
+            if rotate_landscape:
+                with Image.open(f) as img:
+                    if img.width > img.height:
+                        rotated = img.transpose(Image.Transpose.ROTATE_270)
+                        buf = io.BytesIO()
+                        rotated.save(buf, format=img.format or "PNG")
+                        rotated_bytes = buf.getvalue()
+            if rotated_bytes is not None:
+                zf.writestr(arcname, rotated_bytes)
+            else:
+                zf.write(f, arcname=arcname)
     return tmp_path
 
 
@@ -3306,23 +3324,14 @@ async def rotate_images():
     return result
 
 
-def rotate_one_image(path: Path) -> bool:
-    # 가로형(너비 > 높이)일 때만 시계 방향 90도로 돌려서 같은 파일에 덮어쓴다 —
-    # rotate-landscape처럼 hires-fix 비율(1536x704 등) 자동 판정까지는 안 하지만,
-    # 이미 세로형이거나 정사각형인 이미지를 눕혀버리는 건 막는다. 회전했으면
-    # True, 세로형/정사각형이라 건드리지 않았으면 False를 돌려준다.
-    with Image.open(path) as img:
-        if img.width <= img.height:
-            return False
-        img.transpose(Image.Transpose.ROTATE_270).save(path)
-    return True
-
-
-@app.post("/api/output-images/rotate-selected")
-async def rotate_selected_images(request: Request):
-    # 갤러리에서 고른 이미지 중 가로형만 시계 방향 90도로 돌려서 같은 파일에
-    # 덮어쓴다 — rotate-landscape처럼 hires-fix 비율 자동 판정까지는 하지 않지만,
-    # 세로형/정사각형 이미지는 그대로 둔다.
+@app.post("/api/output-images/download-selected-rotated")
+async def download_selected_images_rotated(request: Request):
+    # "회전 후 다운로드" 버튼용 — 가로형만 시계 방향 90도로 돌려서 zip에 담아
+    # 내려준다. download-selected와 달리 원본 파일은 전혀 건드리지 않는다(예전엔
+    # /api/output-images/rotate-selected로 원본을 영구히 덮어쓴 뒤 다운로드했는데,
+    # 그 회전이 이 한 번의 다운로드만을 위한 것일 뿐 갤러리에 계속 남아있을
+    # 이유가 없어서, 다운로드되는 바이트만 돌리고 저장된 원본은 그대로 두게
+    # 바꿨다 — build_zip_from_paths의 rotate_landscape 참고).
     body = await request.body()
     try:
         data = json.loads(body.decode("utf-8"))
@@ -3330,21 +3339,23 @@ async def rotate_selected_images(request: Request):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
     names = parse_image_names_body(data)
 
-    rotated = []
-    skipped = []
+    paths = []
     for name in names:
         try:
-            path = resolve_output_image(name)
+            paths.append(resolve_output_image(name))
         except HTTPException:
             continue
-        try:
-            did_rotate = await asyncio.to_thread(rotate_one_image, path)
-        except Exception as e:
-            raise HTTPException(500, f"{name} 회전에 실패했어요: {e}")
-        (rotated if did_rotate else skipped).append(name)
-    if not rotated and not skipped:
+    if not paths:
         raise HTTPException(404, "선택한 이미지를 찾을 수 없어요.")
-    return {"rotated": rotated, "skipped": skipped}
+
+    zip_path = await asyncio.to_thread(build_zip_from_paths, paths, rotate_landscape=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=f"nightshift_selected_rotated_{timestamp}.zip",
+        background=BackgroundTask(lambda: zip_path.unlink(missing_ok=True)),
+    )
 
 
 def list_output_videos_meta() -> list[dict]:
