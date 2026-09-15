@@ -1045,6 +1045,13 @@ async def require_api_key(request: Request, call_next):
         auth_header = request.headers.get("authorization", "")
         if auth_header.lower().startswith("bearer "):
             provided = auth_header[len("bearer "):]
+    if not provided:
+        # 브라우저의 <img>/<video> src, 다운로드 링크(<a href>)는 커스텀 헤더를 실어
+        # 보낼 수 없어서(자바스크립트 fetch를 거치지 않고 브라우저가 직접 요청함),
+        # 갤러리 썸네일/원본/영상이 API 키를 켠 순간 전부 403으로 깨진다 — 이런
+        # 요청을 위해 쿼리스트링으로도 같은 키를 받아준다(index.html이 이 URL들을
+        # 만들 때 ?api_key=...를 붙인다).
+        provided = request.query_params.get("api_key")
 
     if not provided or not hmac.compare_digest(provided, API_KEY):
         return JSONResponse({"detail": "API 키가 없거나 올바르지 않아요."}, status_code=401)
