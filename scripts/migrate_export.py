@@ -10,9 +10,9 @@ RunPod 등 지금 nightshift가 도는 곳(이관할 "원본" 머신)에서 실�
     NIGHTSHIFT_ASSETS_DIR  (기본 /workspace/dataset/assets) — 입력 이미지 + pose/depth/lineart 참조
 
 이 스크립트가 실제로 대량 파일을 복사하지는 않는다 — 결과 이미지/영상, 참조
-이미지처럼 큰 트리는 rsync가 훨씬 안정적으로(재개 가능, 변경분만 전송) 잘 하는
-일이라, 이 스크립트는 그 자리에서 쓸 정확한 rsync 명령만 만들어 화면과 파일로
-남긴다. 대신 다음 두 가지를 한다:
+이미지처럼 큰 트리는 rsync(또는 홈서버가 Windows면 scp)가 훨씬 안정적으로(재개
+가능/변경분만 전송 — scp는 재전송만) 잘 하는 일이라, 이 스크립트는 그 자리에서
+쓸 정확한 명령만 만들어 화면과 파일로 남긴다. 대신 다음 두 가지를 한다:
 
     1. data/ 트리(보통 수십MB 이하)는 크기가 작으므로 여기서 직접 tar.gz로
        통째로 묶는다 — 홈서버로는 scp 한 줄이면 충분하다.
@@ -27,9 +27,12 @@ RunPod 등 지금 nightshift가 도는 곳(이관할 "원본" 머신)에서 실�
     manifest.json         세 트리의 파일 목록/크기 스냅샷 (migrate_verify.py가 씀)
     data.tar.gz            data/ 전체 압축본
     rsync_commands.sh      결과 이미지/영상, 참조 이미지를 옮기는 rsync 명령 모음
-                           (호스트 정보는 <POD_SSH_HOST> 등으로 자리만 잡아둠 —
-                           RunPod 콘솔의 "Connect" > SSH 정보로 바꿔서 홈서버에서
-                           실행해야 함)
+                           (홈서버가 Linux/macOS일 때 — 호스트 정보는 <POD_SSH_HOST>
+                           등으로 자리만 잡아둠, RunPod 콘솔의 "Connect" > SSH 정보로
+                           바꿔서 홈서버에서 실행해야 함)
+    pull_commands.ps1      같은 일을 하는 PowerShell 버전 (홈서버가 Windows일 때 —
+                           윈도우엔 rsync가 기본으로 없어서 scp로 대체. 윈도우
+                           10/11엔 ssh/scp가 기본 내장돼 있어 따로 설치할 필요 없음)
 
 환경변수 (nightshift 서버와 완전히 같은 이름/기본값 — server/data_paths.py,
 server/output_images.py, server/ref_assets.py 참고. 이 스크립트는 서버 모듈을
@@ -129,6 +132,30 @@ def write_rsync_commands(roots, dest: Path):
     dest.chmod(0o755)
 
 
+def write_powershell_commands(roots, dest: Path):
+    """rsync_commands.sh와 같은 일이지만 홈서버가 Windows일 때 쓰는 버전 — 윈도우엔
+    rsync가 기본으로 없어서 scp로 대체한다(윈도우 10/11엔 ssh/scp가 기본 내장돼 있어
+    별도 설치가 필요 없다). scp는 rsync처럼 "바뀐 부분만" 다시 보내주지 않고 매번
+    전체를 다시 받으므로, 이미 받은 뒤 다시 실행하면 파일을 통째로 다시 받는다 —
+    한 번만 돌리는 이관 용도로는 문제없다."""
+    lines = [
+        "# 홈서버(윈도우)에서 PowerShell로 실행하세요 (RunPod pod -> 홈서버로 '당겨오는' 방향).",
+        "# 윈도우 10/11엔 ssh/scp가 기본 내장돼 있어 별도 설치 없이 됩니다(rsync는 없어서 scp로 대체).",
+        "# <POD_SSH_HOST>/<POD_SSH_PORT>는 RunPod 콘솔의 'Connect' > SSH 정보로 바꿔 넣으세요.",
+        "# $dest 값(각 블록의 첫 줄)은 홈서버에서 실제 쓸 NIGHTSHIFT_OUTPUT_DIR/NIGHTSHIFT_ASSETS_DIR",
+        "# 경로로 바꾸세요 (.env에 설정한 값과 반드시 일치해야 갤러리가 이어집니다).",
+        "$ErrorActionPreference = 'Stop'",
+        "",
+    ]
+    for key in ("output", "assets_input", "assets_pose", "assets_depth", "assets_lineart"):
+        root = roots[key]
+        lines.append(f'$dest = "{root}"')
+        lines.append("New-Item -ItemType Directory -Force -Path $dest | Out-Null")
+        lines.append(f'scp -P <POD_SSH_PORT> -r "root@<POD_SSH_HOST>:{root.as_posix()}/*" $dest')
+        lines.append("")
+    dest.write_text("\r\n".join(lines), encoding="utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", default="./migration_bundle", help="산출물을 담을 폴더 (기본 ./migration_bundle)")
@@ -164,14 +191,19 @@ def main():
 
     rsync_script_path = out_dir / "rsync_commands.sh"
     write_rsync_commands(roots, rsync_script_path)
-    print(f"[migrate_export] rsync 명령 스크립트 생성: {rsync_script_path} (홈서버에서 값 채운 뒤 실행)")
+    print(f"[migrate_export] rsync 명령 스크립트 생성: {rsync_script_path} (홈서버가 Linux/macOS면 이걸 쓰세요)")
+
+    ps_script_path = out_dir / "pull_commands.ps1"
+    write_powershell_commands(roots, ps_script_path)
+    print(f"[migrate_export] PowerShell 명령 스크립트 생성: {ps_script_path} (홈서버가 Windows면 이걸 쓰세요)")
 
     print()
     print("[migrate_export] 다음 순서로 진행하세요:")
-    print(f"  1. {manifest_path}와 {rsync_script_path}(data.tar.gz도)를 홈서버로 옮깁니다 (scp 등).")
-    print(f"  2. {rsync_script_path.name}을 열어 <POD_SSH_HOST>/<POD_SSH_PORT>와 목적지 경로를 채운 뒤 홈서버에서 실행합니다.")
+    print(f"  1. {manifest_path}와 {rsync_script_path.name}/{ps_script_path.name}(data.tar.gz도)를 홈서버로 옮깁니다 (scp 등).")
+    print(f"  2. 홈서버 운영체제에 맞는 파일을 열어 <POD_SSH_HOST>/<POD_SSH_PORT>와 목적지 경로를 채운 뒤 홈서버에서 실행합니다.")
     print("  3. 홈서버에서 data.tar.gz를 NIGHTSHIFT_DATA_DIR의 부모 폴더에 풉니다:")
     print("       tar xzf data.tar.gz -C <NIGHTSHIFT_DATA_DIR의 부모 폴더>")
+    print("     (윈도우 10/11의 PowerShell도 tar 명령이 기본 내장돼 있어 그대로 씁니다.)")
     print("  4. scripts/migrate_verify.py --manifest manifest.json 로 개수/용량이 일치하는지 확인하세요.")
 
 
