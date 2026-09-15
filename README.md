@@ -1081,7 +1081,7 @@ nightshift/
 
 지금까지 RunPod pod에서 임시로 돌리며 쌓아온 결과물(이미지/영상/입력 이미지/작업기록)을, nightshift를 상시 실행할 홈서버로 옮길 때 쓰는 스크립트 두 개입니다. 이관 대상은 위에서 설명한 세 트리(`NIGHTSHIFT_DATA_DIR`, `NIGHTSHIFT_OUTPUT_DIR`, `NIGHTSHIFT_ASSETS_DIR`의 `input`/`pose`/`depth`/`lineart`)이며, 이 세 트리만 옮기면 작업기록과 결과물의 연결이 그대로 이어집니다(연결이 순전히 "출력 폴더 밑의 `job_id` 이름의 하위 폴더"라는 규칙 하나로만 돼 있어서, 절대경로를 어딘가에 따로 저장해두지 않기 때문입니다).
 
-**큰 파일(결과 이미지/영상, 참조 이미지)은 이 스크립트가 직접 옮기지 않습니다** — 그건 rsync가 재개 가능/변경분만 전송 등으로 훨씬 안정적으로 잘 하는 일이라, 스크립트는 정확한 rsync 명령만 만들어 줍니다. `data/`(작업기록·설정 등, 보통 수십MB 이하)만 스크립트가 직접 tar.gz로 묶어 줍니다.
+**큰 파일(결과 이미지/영상, 참조 이미지)은 이 스크립트가 직접 옮기지 않습니다** — 그건 rsync(홈서버가 Windows면 scp)가 재개 가능/변경분만 전송 등으로 훨씬 안정적으로 잘 하는 일이라, 스크립트는 정확한 명령만 만들어 줍니다. `data/`(작업기록·설정 등, 보통 수십MB 이하)만 스크립트가 직접 tar.gz로 묶어 줍니다.
 
 **순서:**
 
@@ -1089,9 +1089,9 @@ nightshift/
    ```bash
    python3 scripts/migrate_export.py --out ./migration_bundle
    ```
-   `./migration_bundle/` 아래에 `manifest.json`(세 트리의 파일 목록/크기 스냅샷), `data.tar.gz`(`data/` 전체 압축본), `rsync_commands.sh`(결과 이미지/영상·참조 이미지를 옮기는 rsync 명령, 호스트 자리는 `<POD_SSH_HOST>`/`<POD_SSH_PORT>`로 비워둠)가 생깁니다.
-2. 이 세 파일을 홈서버로 옮깁니다(scp 등).
-3. **홈서버에서** `rsync_commands.sh`를 열어 `<POD_SSH_HOST>`/`<POD_SSH_PORT>`를 RunPod 콘솔의 "Connect" > SSH 정보로, 목적지 경로(각 줄의 오른쪽)를 홈서버에서 실제 쓸 `NIGHTSHIFT_OUTPUT_DIR`/`NIGHTSHIFT_ASSETS_DIR` 값으로 바꾼 뒤 실행합니다 — pod가 켜져 있어야 하고, RunPod pod가 SSH를 지원해야 합니다(대부분의 GPU pod가 지원).
+   `./migration_bundle/` 아래에 `manifest.json`(세 트리의 파일 목록/크기 스냅샷), `data.tar.gz`(`data/` 전체 압축본), `rsync_commands.sh`(홈서버가 Linux/macOS일 때 쓰는 rsync 명령), `pull_commands.ps1`(홈서버가 Windows일 때 쓰는 scp 명령 — 윈도우 10/11엔 ssh/scp가 기본 내장돼 있어 별도 설치 필요 없음)가 생깁니다. 호스트 자리는 둘 다 `<POD_SSH_HOST>`/`<POD_SSH_PORT>`로 비워둠.
+2. 이 파일들(`manifest.json`, `data.tar.gz`, 홈서버 OS에 맞는 명령 스크립트 하나)을 홈서버로 옮깁니다(scp 등).
+3. **홈서버에서** 그 명령 스크립트를 열어 `<POD_SSH_HOST>`/`<POD_SSH_PORT>`를 RunPod 콘솔의 "Connect" > SSH 정보로, 목적지 경로를 홈서버에서 실제 쓸 `NIGHTSHIFT_OUTPUT_DIR`/`NIGHTSHIFT_ASSETS_DIR` 값으로 바꾼 뒤 실행합니다(Linux/macOS는 `sh rsync_commands.sh`, Windows는 PowerShell에서 `.\pull_commands.ps1`) — pod가 켜져 있어야 하고, RunPod pod가 SSH를 지원해야 합니다(대부분의 GPU pod가 지원).
 4. **홈서버에서** `data.tar.gz`를 `NIGHTSHIFT_DATA_DIR`의 부모 폴더에 풉니다: `tar xzf data.tar.gz -C <NIGHTSHIFT_DATA_DIR의 부모 폴더>` (기본이면 저장소 루트 — 결과가 `<저장소>/data/`가 되게).
 5. **홈서버에서** 개수/용량이 원본과 일치하는지 확인합니다:
    ```bash
