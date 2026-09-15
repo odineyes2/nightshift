@@ -1,7 +1,18 @@
 """
-원격 ComfyUI가 만든 결과 이미지를 HTTP로 끌어와 로컬 출력 폴더(NIGHTSHIFT_OUTPUT_DIR)에
-채워 넣는다. nightshift를 홈서버에 상시 띄워두고 ComfyUI만 원격 GPU pod에서 돌리는
-구성을 위한 모듈이다.
+원격 ComfyUI가 만든 결과 이미지/영상을 HTTP로 끌어와 로컬 출력 폴더
+(NIGHTSHIFT_OUTPUT_DIR)에 채워 넣는다. nightshift를 홈서버에 상시 띄워두고
+ComfyUI만 원격 GPU pod에서 돌리는 구성을 위한 모듈이다.
+
+## 영상이 안 끌려오던 문제
+
+/history의 노드별 출력은 이미지 노드(SaveImage 등)면 "images" 키에, 영상
+노드(SaveVideo 등)는 ComfyUI 버전/노드에 따라 "videos" 또는(구버전 호환용)
+"gifs" 키에 파일 정보를 담는다 — 형식(mp4/webm 등)과 무관하게 키 이름 자체가
+그렇다. 이 모듈이 원래 "images" 키만 보고 있어서(모듈 이름 자체가 img 전용
+개념으로 시작했다) 영상은 목록에 아예 안 잡혔고, 설령 잡혔어도 목적지
+확장자 검사(IMAGE_EXTENSIONS만 허용)에서 걸러졌다 — 그래서 이미지는 잘
+동기화되는데 영상만 안 되는 상태였다. 세 키를 다 보고, 확장자 허용 목록도
+영상 확장자까지 넓혀서 고쳤다.
 
 ## 왜 이것만 있으면 되는가
 
@@ -39,6 +50,17 @@ from pathlib import Path
 
 from data_paths import data_path
 from output_images import IMAGE_EXTENSIONS, OUTPUT_DIR
+from output_videos import VIDEO_EXTENSIONS
+
+# ComfyUI가 저장한 파일을 허용하는 전체 확장자 — 이미지(SaveImage 등) + 영상
+# (SaveVideo 등). _safe_dest가 이 목록 밖의 확장자는 전부 걸러낸다.
+DOWNLOADABLE_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
+
+# ComfyUI의 /history 응답에서 노드 출력마다 파일 목록이 들어있는 키 이름들.
+# 이미지 저장 노드는 "images", 영상 저장 노드는 ComfyUI 버전/노드 구현에 따라
+# "videos" 또는(구 AnimateDiff/VHS 계열과의 호환을 위해 지금도 흔히 쓰이는)
+# "gifs" 키를 쓴다 — 실제 파일 형식(mp4/webm 등)과 무관하게 키 이름은 그렇다.
+OUTPUT_LIST_KEYS = ("images", "videos", "gifs")
 
 # drivers/comfyui.py의 COMFY_USER_AGENT와 값이 같다(왜 필요한지는 그쪽 주석 참고 —
 # Cloudflare가 앞단인 RunPod pod가 파이썬 urllib 기본 UA를 403으로 막는다). 여기서
@@ -153,26 +175,27 @@ def remote_output_items(
         for node_output in outputs.values():
             if not isinstance(node_output, dict):
                 continue
-            for image in node_output.get("images") or []:
-                if not isinstance(image, dict):
-                    continue
-                # type이 "output"이 아닌 것(temp 미리보기, 업로드해 둔 input 이미지)은
-                # 결과물이 아니므로 건너뛴다.
-                if (image.get("type") or "output") != "output":
-                    continue
-                filename = image.get("filename")
-                if not filename:
-                    continue
-                subfolder = image.get("subfolder") or ""
-                key = f"{subfolder}/{filename}" if subfolder else filename
-                items.setdefault(key, {"filename": filename, "subfolder": subfolder, "key": key})
+            for list_key in OUTPUT_LIST_KEYS:
+                for image in node_output.get(list_key) or []:
+                    if not isinstance(image, dict):
+                        continue
+                    # type이 "output"이 아닌 것(temp 미리보기, 업로드해 둔 input 이미지)은
+                    # 결과물이 아니므로 건너뛴다.
+                    if (image.get("type") or "output") != "output":
+                        continue
+                    filename = image.get("filename")
+                    if not filename:
+                        continue
+                    subfolder = image.get("subfolder") or ""
+                    key = f"{subfolder}/{filename}" if subfolder else filename
+                    items.setdefault(key, {"filename": filename, "subfolder": subfolder, "key": key})
     return list(items.values())
 
 
 def _safe_dest(base: Path, key: str) -> Path | None:
     """key("<subfolder>/<파일명>")를 로컬 경로로 바꾸되, 원격 서버가 준 문자열이라는
     전제로 검증한다 — ".."나 절대 경로로 출력 폴더 밖에 파일을 쓰게 두면 안 된다.
-    이미지 확장자가 아닌 것도 여기서 걸러낸다(갤러리가 어차피 못 읽는다)."""
+    이미지/영상 확장자가 아닌 것도 여기서 걸러낸다(갤러리가 어차피 못 읽는다)."""
     if not key or key.startswith("/") or "\\" in key:
         return None
     parts = Path(key).parts
@@ -181,7 +204,7 @@ def _safe_dest(base: Path, key: str) -> Path | None:
     dest = (base / key).resolve()
     if not dest.is_relative_to(base.resolve()):
         return None
-    if dest.suffix.lower() not in IMAGE_EXTENSIONS:
+    if dest.suffix.lower() not in DOWNLOADABLE_EXTENSIONS:
         return None
     return dest
 
