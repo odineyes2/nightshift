@@ -51,20 +51,15 @@ function loadDotEnv() {
 // Alias 스텁만 있어 "Python was not found..." 오류가 남) `which` 명령도 없으므로,
 // 플랫폼별로 후보를 다르게 시도한다.
 function resolvePython3() {
-  const isWindows = process.platform === "win32";
-  const candidates = isWindows
-    ? ["where python", "where python3"]
-    : ["which python3", "which python"];
-  for (const cmd of candidates) {
-    try {
-      const resolved = execSync(cmd, { encoding: "utf8" }).trim().split(/\r?\n/)[0];
-      if (resolved) return resolved;
-    } catch (e) {
-      // 이 후보를 못 찾으면 다음 후보로 넘어간다.
-    }
+  try {
+    const isWindows = process.platform === "win32";
+    const cmd = isWindows ? "where.exe python" : "which python3";
+    const resolved = execSync(cmd, { encoding: "utf8" }).split(/\r?\n/)[0].trim();
+    if (resolved) return resolved;
+  } catch (e) {
+    // which/where가 없거나 python을 못 찾으면 아래에서 폴백한다.
   }
-  // 전부 실패하면 폴백 — 윈도우는 "python"(python3은 보통 없음), 그 외는 "python3".
-  return isWindows ? "python" : "python3";
+  return process.platform === "win32" ? "python" : "python3";
 }
 
 // 서버 파이썬 모듈이 사는 곳. app.py/mcp_server.py 둘 다 여기서 cwd로 띄운다 —
@@ -85,7 +80,7 @@ module.exports = {
     {
       name: "nightshift",
       script: resolvePython3(),
-      args: `-m uvicorn app:app --host 0.0.0.0 --port ${nightshiftPort} --reload`,
+      args: `-m uvicorn app:app --host 0.0.0.0 --port ${nightshiftPort}`,
       interpreter: "none",
       cwd: SERVER_DIR,
       env: {
@@ -118,6 +113,20 @@ module.exports = {
       max_restarts: 10,
       restart_delay: 2000,
       watch: ["mcp_server.py"],
+    },
+    {
+      name: "jupyterlab",
+      script: "jupyter",
+      args: "lab --no-browser --ip=0.0.0.0 --port=8888",
+      interpreter: "none",
+      cwd: "C:\\Users\\Simon Lomebrote\\Projects\\nightshift",
+      env: {
+        PYTHONUNBUFFERED: "1",
+      },
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
+      watch: false,
     },
   ],
 };
