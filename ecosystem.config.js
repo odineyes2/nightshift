@@ -115,13 +115,40 @@ module.exports = {
       watch: ["mcp_server.py"],
     },
     {
+      // Cloudflare Tunnel(jupyter.lomebrote.com)이 예전엔 이 프로세스를 바로
+      // 가리켜서, 로그인 화면 없이 노트북(임의 코드 실행)이 그대로 노출돼 있었다.
+      // 이제 127.0.0.1에만 묶어서 아래 jupyter-gate를 거치지 않고는 이 머신 밖
+      // 어디서도 닿을 수 없게 한다. JUPYTER_TOKEN은 게이트가 모든 프록시 요청에
+      // 자동으로 실어 보내는 내부 전용 값이라, 사람이 이 토큰을 보거나 입력할
+      // 일은 없다(잊어버려도 되는 값 — 게이트 키만 실제 로그인에 쓰인다).
       name: "jupyterlab",
       script: "jupyter",
-      args: "lab --no-browser --ip=0.0.0.0 --port=8888",
+      args: "lab --no-browser --ip=127.0.0.1 --port=18888",
       interpreter: "none",
       cwd: "C:\\Users\\Simon Lomebrote\\Projects\\nightshift",
       env: {
         PYTHONUNBUFFERED: "1",
+        JUPYTER_TOKEN: dotEnv.JUPYTER_INTERNAL_TOKEN || "",
+      },
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
+      watch: false,
+    },
+    {
+      // 위 jupyterlab 앞을 지키는 로그인 게이트 (server/jupyter_gate.py 참고).
+      // Cloudflare Tunnel이 실제로 가리키는 포트(8888)를 이제 이 프로세스가 받는다.
+      name: "jupyter-gate",
+      script: resolvePython3(),
+      args: "jupyter_gate.py",
+      interpreter: "none",
+      cwd: SERVER_DIR,
+      env: {
+        PYTHONUNBUFFERED: "1",
+        JUPYTER_GATE_KEY: dotEnv.JUPYTER_GATE_KEY || "",
+        JUPYTER_INTERNAL_TOKEN: dotEnv.JUPYTER_INTERNAL_TOKEN || "",
+        JUPYTER_GATE_PORT: "8888",
+        JUPYTER_UPSTREAM_PORT: "18888",
       },
       autorestart: true,
       max_restarts: 10,

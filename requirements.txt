@@ -3,6 +3,10 @@ uvicorn[standard]
 python-multipart
 Pillow
 
+# server/jupyter_gate.py(주피터 앞 로그인 게이트)가 직접 import한다. uvicorn[standard]가
+# 이미 끌어오지만, 직접 쓰는 만큼 명시적으로 적어둔다.
+websockets
+
 # mcp_server.py (nightshift 잡 큐를 MCP 도구로 감싸는 별도 프로세스)가 쓴다.
 fastmcp
 httpx
