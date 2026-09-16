@@ -1,12 +1,24 @@
 """
 이미지→영상 복합 CSV 배치 템플릿(flf2v) — CSV 한 행마다 (1) 사용자가 올린 이미지
-생성 워크플로우로 시작/끝 프레임 이미지를 각각 하나씩(총 2장) 생성하고, (2) 그
-결과 이미지들을 로컬 디스크를 거치지 않고 ComfyUI 서버 안에서 바로 WAN2.2
-flf2v 영상 워크플로우의 시작/끝 이미지로 넘겨 영상을 만든다. i2v용
-img2video_i2v_csv_batch.py와 거의 같고(자기완결성 컨벤션에 따라 그대로 복사했다),
-차이는 이미지 생성을 행마다 2번(시작/끝) 돌리는 것과, flf2v 워크플로우에는
-fast_4step 스위치가 아예 없어서(4-step 가속 LoRA가 무조건 걸려 있음) 그
-옵션/환경변수가 없다는 점뿐이다.
+생성 워크플로우로 시작 프레임 이미지를 하나 생성하고, (2) end_prompt가 있으면
+끝 프레임 이미지를 하나 더 생성하고, 없으면 시작 이미지를 끝 이미지로 그대로
+재사용해서(루프/부메랑 영상), (3) 그 결과 이미지(들)를 로컬 디스크를 거치지
+않고 ComfyUI 서버 안에서 바로 WAN2.2 flf2v 영상 워크플로우의 시작/끝 이미지로
+넘겨 영상을 만든다. i2v용 img2video_i2v_csv_batch.py와 거의 같고(자기완결성
+컨벤션에 따라 그대로 복사했다), 차이는 end_prompt가 있을 때 이미지 생성을
+행마다 2번(시작/끝) 돌리는 것과, flf2v 워크플로우에는 fast_4step 스위치가
+아예 없어서(4-step 가속 LoRA가 무조건 걸려 있음) 그 옵션/환경변수가 없다는
+점뿐이다.
+
+flf2v 영상 워크플로우 자체는 "끝 프레임을 어떻게 만들지"를 모른다 — start_image/
+end_image라는 두 장의 이미지를 입력으로 받을 뿐이다. 그래서 이 템플릿에서
+end_prompt는 "끝 프레임 이미지를 새로 생성할지"를 결정하는 선택 컬럼이지,
+워크플로우가 요구하는 필수값이 아니다:
+    - end_prompt가 있으면: 그 프롬프트로 끝 프레임 이미지를 따로 하나 더
+      생성해서(시작 프레임과 다른 이미지) 일반적인 flf2v 영상을 만든다.
+    - end_prompt가 없으면: 끝 프레임 이미지를 따로 만들지 않고 시작 프레임
+      이미지를 그대로 끝 이미지에도 넣어서(이미지 생성 1번만 돎) 시작=끝인
+      루프(부메랑) 영상을 만든다.
 
 이미지→영상 연계 방법, 영상 해상도 자동계산, 만화 선화 안전장치는
 img2video_i2v_csv_batch.py와 완전히 동일한 방식이다(그 파일 설명 참고). 다만
@@ -15,16 +27,32 @@ start_image 기준으로 계산하는 것과 동일한 정책 — 끝 프레임 
 
 CSV 컬럼:
     title           결과 파일명 접두사 (선택, name도 허용)
-    trigger_prompt, quality_prompt, negative_prompt
-                    이미지 생성 공통 프롬프트 (시작/끝 프레임에 똑같이 적용)
     main_prompt(=prompt)   시작 프레임 프롬프트 (필수, 비면 그 행은 건너뜀)
-    end_prompt      끝 프레임 프롬프트 (필수, 비면 그 행은 건너뜀)
+    end_prompt      끝 프레임 프롬프트 (선택 — 비어 있으면 끝 프레임을 새로
+                    만들지 않고 시작 프레임 이미지를 끝 이미지로도 재사용해
+                    루프 영상을 만든다. 값이 있으면 그 프롬프트로 끝 프레임을
+                    따로 생성해 일반적인 flf2v 영상을 만든다)
+    trigger_prompt, negative_prompt
+                    이미지 생성 보조 프롬프트, 시작/끝 프레임 공통 (선택 — 값이
+                    있는데 매칭되는 노드가 없으면 경고만 찍고 그 필드만
+                    건너뛴다. 행 처리나 큐 자체는 멈추지 않음)
+    quality_prompt  이미지 생성 부가 프롬프트, 시작/끝 공통 (선택 — csv_batch.py와의
+                    컬럼 호환을 위해 남겨둔 부가 컬럼일 뿐, 필수 아님)
     seed            시작 프레임 이미지 생성 시드 (선택, 비어 있으면 무작위)
     end_seed        끝 프레임 이미지 생성 시드 (선택, 비어 있으면 무작위)
     width, height   이미지 생성 해상도, 시작/끝 공통 (선택, 둘 다 채워야 적용)
     resolution      이미지 생성 해상도 프리셋/WxH, 시작/끝 공통 (선택)
-    video_prompt    영상 생성 프롬프트 (필수 — 비면 그 행 전체를 건너뜀)
+    user_prompt(=video_prompt)
+                    영상 생성 프롬프트 (선택 — 비어 있으면 main_prompt/prompt(시작
+                    프레임 프롬프트)를 그대로 재사용한다. video_prompt는 예전
+                    컬럼명과의 호환을 위해 계속 받아준다)
     video_seed      영상 생성 시드 (선택, 비어 있으면 무작위)
+
+    위 컬럼들 외에 CSV에 다른 컬럼이 더 있어도 그냥 무시된다 — 그것 때문에
+    행이 건너뛰어지거나 큐 처리가 멈추는 일은 없다.
+
+    영상 해상도는 항상 시작 프레임 이미지의 실제 크기에서 자동 계산되며,
+    별도 컬럼으로 지정할 수 없다.
 
 환경변수:
     WORKFLOW_PATH   (필수) 이미지 생성 워크플로우 json 경로 (nightshift가 주입,
@@ -46,7 +74,9 @@ CSV 컬럼:
 
 결과물 파일명 규칙:
     이미지: "<JOB_ID>/<title>_img_start_<순번>_seed<시작시드>",
-           "<JOB_ID>/<title>_img_end_<순번>_seed<끝시드>"
+           end_prompt가 있을 때만 "<JOB_ID>/<title>_img_end_<순번>_seed<끝시드>"도
+           추가로 생성됨(루프 영상이면 끝 이미지 파일은 따로 안 만들어짐 — 시작
+           이미지를 재사용할 뿐)
     영상:   "<JOB_ID>/<title>_video_<순번>_seed<영상시드>"
 """
 
@@ -339,6 +369,16 @@ def apply_image_filename_prefix(workflow, title, suffix, index, seed):
 
 # ── 영상 생성 단계 (wan22_video_csv_batch.py와 동일, fast_4step만 없음) ──
 
+def resolve_video_prompt(row):
+    """영상 생성에 쓸 프롬프트를 결정한다: user_prompt(=video_prompt)가 있으면
+    그 값을, 비어 있으면 시작 프레임에 쓴 main_prompt/prompt를 그대로
+    재사용한다."""
+    value = (row.get("user_prompt") or row.get("video_prompt") or "").strip()
+    if value:
+        return value
+    return (row.get("main_prompt") or row.get("prompt") or "").strip()
+
+
 def apply_video_user_prompt(workflow, prompt):
     prompt = (prompt or "").strip()
     if not prompt:
@@ -545,13 +585,20 @@ def generate_image(image_workflow, comfy_url, row, title, index, suffix, seed):
 def run_once(image_workflow, video_workflow, comfy_url, row, title, index, start_seed, end_seed, video_seed,
              video_lora_name, video_lora_strength, text_enhance):
     row_start = dict(row)
-    row_end = dict(row)
     end_text = (row.get("end_prompt") or "").strip()
-    row_end["main_prompt"] = end_text
-    row_end["prompt"] = end_text
 
     start_name, start_bytes = generate_image(image_workflow, comfy_url, row_start, title, index, "img_start", start_seed)
-    end_name, _ = generate_image(image_workflow, comfy_url, row_end, title, index, "img_end", end_seed)
+
+    if end_text:
+        row_end = dict(row)
+        row_end["main_prompt"] = end_text
+        row_end["prompt"] = end_text
+        end_name, _ = generate_image(image_workflow, comfy_url, row_end, title, index, "img_end", end_seed)
+    else:
+        # end_prompt가 없으면 끝 프레임 이미지를 따로 만들지 않고 시작 이미지를
+        # 그대로 끝 이미지에도 써서 루프(부메랑) 영상을 만든다.
+        end_name = start_name
+        print(f"[img2video_flf2v_csv] [{index}] end_prompt 없음 — 시작 이미지를 끝 이미지로 재사용해 루프 영상을 만듭니다.")
 
     video = copy.deepcopy(video_workflow)
     for img_title, uploaded_name in (("start_image", start_name), ("end_image", end_name)):
@@ -564,8 +611,9 @@ def run_once(image_workflow, video_workflow, comfy_url, row, title, index, start
     if video_dims is not None:
         apply_video_size(video, *video_dims)
 
-    apply_video_user_prompt(video, row.get("video_prompt"))
-    apply_text_enhance(video, row.get("video_prompt"), text_enhance)
+    video_prompt = resolve_video_prompt(row)
+    apply_video_user_prompt(video, video_prompt)
+    apply_text_enhance(video, video_prompt, text_enhance)
     apply_video_seed(video, video_seed)
     apply_video_lora(video, video_lora_name, video_lora_strength)
     apply_video_filename_prefix(video, title, index, video_seed)
@@ -604,13 +652,8 @@ def main():
     plan = []
     for line_no, row in enumerate(rows, start=2):
         main_prompt = (row.get("main_prompt") or row.get("prompt") or "").strip()
-        end_prompt = (row.get("end_prompt") or "").strip()
-        video_prompt = (row.get("video_prompt") or "").strip()
-        if not main_prompt or not end_prompt or not video_prompt:
-            print(
-                f"[img2video_flf2v_csv] 건너뜀 (main_prompt/prompt, end_prompt, video_prompt 중 빠짐, "
-                f"{line_no}번째 줄): {row}",
-            )
+        if not main_prompt:
+            print(f"[img2video_flf2v_csv] 건너뜀 (main_prompt/prompt 없음, {line_no}번째 줄): {row}")
             continue
         row = apply_line_safety(row, line_safety)
         title = (row.get("title") or row.get("name") or "").strip()
