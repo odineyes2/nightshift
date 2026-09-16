@@ -446,6 +446,13 @@ def apply_fast_4step(workflow, raw):
         return
     node_id, node = find_node(workflow, title_substring="fast_4step")
     if node is None:
+        print(
+            "[img2video_i2v_csv] 경고: 'fast_4step' 노드를 찾지 못해 4-step LoRA 가속 설정을 "
+            "적용하지 못했습니다 — 영상 워크플로우가 원래 값(대개 20-step 느린 경로) 그대로 "
+            "돌아가서 생성 시간이 훨씬 오래 걸릴 수 있습니다. 영상 생성 워크플로우를 직접 "
+            "올렸다면 그 파일에 'fast_4step'이라는 제목의 노드가 있는지 확인해주세요.",
+            file=sys.stderr,
+        )
         return
     node.setdefault("inputs", {})["value"] = (str(raw).strip().lower() == "on")
 
