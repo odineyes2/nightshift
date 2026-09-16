@@ -453,7 +453,7 @@ def prune_deleted_jobs():
         reverse=True,
     )
     for job in deleted[DELETED_JOBS_RETENTION:]:
-        for field in ("workflow_filename", "csv_filename"):
+        for field in ("workflow_filename", "video_workflow_filename", "csv_filename"):
             filename = job.get(field)
             if filename:
                 (JOBS_DIR / filename).unlink(missing_ok=True)
@@ -916,6 +916,8 @@ def _run_one_job(pod_id: str, job_id: str):
                  **driver_for(pod).job_env(pod, comfy_url)}
     if job.get("workflow_filename"):
         extra_env["WORKFLOW_PATH"] = str((JOBS_DIR / job["workflow_filename"]).resolve())
+    if job.get("video_workflow_filename"):
+        extra_env["VIDEO_WORKFLOW_UPLOAD_PATH"] = str((JOBS_DIR / job["video_workflow_filename"]).resolve())
     if job.get("csv_filename"):
         extra_env["CSV_PATH"] = str((JOBS_DIR / job["csv_filename"]).resolve())
     for name, value in job.get("options", {}).items():
@@ -2384,6 +2386,8 @@ async def create_job(
     csv_filename: str | None,
     raw_options: dict,
     pod_id: str | None = None,
+    video_workflow_bytes: bytes | None = None,
+    video_workflow_filename: str | None = None,
 ) -> dict:
     # POST /api/upload(사람이 브라우저에서 파일 첨부)와 POST /api/jobs(LLM 등
     # 프로그램이 JSON으로 호출)가 공유하는 실제 잡 생성 로직 — 두 경로 모두
@@ -2494,6 +2498,15 @@ async def create_job(
         csv_original_name = csv_filename
         recent_csvs_store.record(csv_filename, csv_bytes)
 
+    # img2video 복합 템플릿의 "영상 생성 워크플로우"는 완전히 선택 — 안 올리면
+    # 템플릿 스크립트가 nightshift 내장 기본값(wan22_i2v.json/wan22_flf2v.json)을
+    # 그대로 쓴다. 다른 템플릿들은 애초에 이 값을 보내지 않으므로 항상 None.
+    video_workflow_dest_name = None
+    if video_workflow_bytes is not None:
+        video_workflow_dest_name = f"{job_id}_video_{video_workflow_filename}"
+        (JOBS_DIR / video_workflow_dest_name).write_bytes(video_workflow_bytes)
+        recent_workflows_store.record(video_workflow_filename, video_workflow_bytes)
+
     with lock:
         jobs[job_id] = {
             "id": job_id,
@@ -2503,6 +2516,8 @@ async def create_job(
             "options": options,
             "workflow_filename": workflow_dest_name,
             "workflow_original_name": workflow_filename if workflow_dest_name else None,
+            "video_workflow_filename": video_workflow_dest_name,
+            "video_workflow_original_name": video_workflow_filename if video_workflow_dest_name else None,
             "csv_filename": csv_dest_name,
             "csv_original_name": csv_original_name,
             "status": "pending",
@@ -2546,10 +2561,18 @@ async def upload(request: Request):
     if requires_csv and (not isinstance(csv_file, UploadFile) or not csv_file.filename or not csv_file.filename.endswith(".csv")):
         raise HTTPException(400, "이 템플릿은 csv 파일이 필요해요.")
 
+    # 영상 생성 워크플로우는 완전히 선택(img2video 복합 템플릿에서만 의미가 있고,
+    # 안 올리면 템플릿이 내장 기본값을 씀) — 있으면 .json인지만 확인한다.
+    video_workflow = form.get("video_workflow")
+    has_video_workflow = isinstance(video_workflow, UploadFile) and bool(video_workflow.filename)
+    if has_video_workflow and not video_workflow.filename.endswith(".json"):
+        raise HTTPException(400, "영상 생성 워크플로우는 json 파일만 업로드할 수 있어요.")
+
     # UploadFile은 한 번만 읽을 수 있으므로, 검증에도 쓰고 저장에도 쓸 수 있게
     # 여기서 미리 한 번만 읽어둔다.
     workflow_bytes = await workflow.read() if needs_workflow else None
     csv_bytes = await csv_file.read() if requires_csv else None
+    video_workflow_bytes = await video_workflow.read() if has_video_workflow else None
 
     raw_options = {}
     for option in template.get("options", []):
@@ -2565,6 +2588,8 @@ async def upload(request: Request):
         csv_file.filename if requires_csv else None,
         raw_options,
         pod_id if isinstance(pod_id, str) and pod_id.strip() else None,
+        video_workflow_bytes,
+        video_workflow.filename if has_video_workflow else None,
     )
 
 
@@ -2614,9 +2639,23 @@ async def create_job_from_json(request: Request):
         raise HTTPException(400, "options는 JSON 객체여야 해요.")
     raw_options = {k: (None if v is None else str(v)) for k, v in raw_options_in.items()}
 
+    # 영상 생성 워크플로우는 완전히 선택(img2video 복합 템플릿 전용) — 안 주면
+    # 템플릿이 내장 기본값을 쓴다.
+    video_workflow = body.get("video_workflow")
+    video_workflow_filename = None
+    video_workflow_bytes = None
+    if video_workflow is not None:
+        if not isinstance(video_workflow, dict):
+            raise HTTPException(400, "video_workflow는 JSON 객체(워크플로우 자체)여야 해요.")
+        video_workflow_filename = body.get("video_workflow_filename") or "video_workflow.json"
+        if not isinstance(video_workflow_filename, str) or not video_workflow_filename.endswith(".json"):
+            raise HTTPException(400, "video_workflow_filename은 .json으로 끝나야 해요.")
+        video_workflow_bytes = json.dumps(video_workflow).encode("utf-8")
+
     pod_id = body.get("pod_id")
     return await create_job(template, workflow_bytes, workflow_filename, csv_bytes, csv_filename,
-                            raw_options, pod_id if isinstance(pod_id, str) and pod_id.strip() else None)
+                            raw_options, pod_id if isinstance(pod_id, str) and pod_id.strip() else None,
+                            video_workflow_bytes, video_workflow_filename)
 
 
 def start_pods(pod_ids: list[str]) -> int:
@@ -2887,6 +2926,18 @@ def get_job_workflow(job_id: str):
 @app.put("/api/jobs/{job_id}/workflow")
 async def update_job_workflow(job_id: str, request: Request):
     await write_job_attachment(job_id, "workflow_filename", request, validate_json_text, "워크플로우 파일이 없어요.")
+    return {"ok": True}
+
+
+@app.get("/api/jobs/{job_id}/video-workflow")
+def get_job_video_workflow(job_id: str):
+    text = read_job_attachment(job_id, "video_workflow_filename", "영상 생성 워크플로우 파일이 없어요.")
+    return Response(content=text, media_type="application/json")
+
+
+@app.put("/api/jobs/{job_id}/video-workflow")
+async def update_job_video_workflow(job_id: str, request: Request):
+    await write_job_attachment(job_id, "video_workflow_filename", request, validate_json_text, "영상 생성 워크플로우 파일이 없어요.")
     return {"ok": True}
 
 

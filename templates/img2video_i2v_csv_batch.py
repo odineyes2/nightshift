@@ -57,6 +57,11 @@ CSV 컬럼:
 환경변수:
     WORKFLOW_PATH   (필수) 이미지 생성 워크플로우 json 경로 (nightshift가 주입,
                     사용자가 화면에서 올린 파일)
+    VIDEO_WORKFLOW_UPLOAD_PATH
+                    (선택) 영상 생성 워크플로우 json 경로 — nightshift 화면의
+                    "영상 생성 워크플로우" 첨부 칸에 사용자가 파일을 올렸을 때만
+                    주입된다. 안 올리면 이 환경변수 자체가 없고, 아래 "번들 영상
+                    워크플로우" 절의 내장 기본값을 대신 쓴다.
     CSV_PATH        (필수)
     CHECKPOINT, LORA_NAME, LORA_STRENGTH
                     이미지 생성 단계 모델 옵션 (csv_batch.py와 동일)
@@ -69,9 +74,16 @@ CSV 컬럼:
     POLL_INTERVAL_SEC, POLL_TIMEOUT_SEC   나머지 템플릿들과 동일
 
 번들 영상 워크플로우:
-    영상 단계는 이 스크립트가 저장소에 고정으로 들어있는
-    templates/video_workflows/wan22_i2v.json을 직접 읽어서 쓴다 — WORKFLOW_PATH는
-    이미지 생성용으로만 쓰인다(사용자가 영상 워크플로우를 따로 올릴 필요 없음).
+    영상 단계는 기본적으로 이 스크립트가 저장소에 고정으로 들어있는
+    templates/video_workflows/wan22_i2v.json을 직접 읽어서 쓴다 — 사용자가
+    화면에서 영상 생성 워크플로우를 따로 올리지 않아도 된다는 뜻이다. 다만
+    nightshift 화면의 "영상 생성 워크플로우" 첨부 칸(선택)에 직접 워크플로우를
+    올리면 VIDEO_WORKFLOW_UPLOAD_PATH로 그 파일 경로가 주입되고, 이 스크립트는
+    그걸 번들 기본값 대신 쓴다 — 즉 이미지 생성/영상 생성 워크플로우를 각각
+    독립적으로 올릴 수 있다. 사용자가 올린 영상 워크플로우에도 start_image/
+    user_prompt/fast_4step/user_lora_high/user_lora_low 등 이 스크립트가 title로
+    찾는 노드 제목은 그대로 있어야 한다(templates/video_workflows/wan22_i2v.json을
+    참고해서 만들 것).
 
 결과물 파일명 규칙:
     이미지: "<JOB_ID>/<title>_img_<순번>_seed<이미지시드>"
@@ -524,14 +536,26 @@ def report_progress(job_id, nightshift_url, total, done):
         print(f"[img2video_i2v_csv] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
 
 
+IMAGE_OUTPUT_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff")
+
+
 def find_first_output_image(history_result):
+    """history_result에서 이미지 확장자를 가진 첫 출력 파일을 찾는다. "images" 키
+    안에 이미지가 아닌 파일(.mp4 등)이 들어있는 경우도 있어서(예: 영상 워크플로우를
+    이미지 생성 워크플로우 칸에 잘못 올렸을 때) 확장자까지 확인한다 — 그래야
+    나중에 PIL이 그 바이트를 못 열어서 알아보기 힘든 에러를 내는 대신, 여기서
+    바로 원인을 짚어주는 에러를 낼 수 있다. 이미지가 하나도 없으면 (None, None,
+    None, 발견된 비이미지 파일명 목록)을 돌려준다."""
     outputs = history_result.get("outputs", {}) if isinstance(history_result, dict) else {}
+    non_image_filenames = []
     for node_output in outputs.values():
         images = node_output.get("images") if isinstance(node_output, dict) else None
-        if images:
-            img = images[0]
-            return img.get("filename"), img.get("subfolder", ""), img.get("type", "output")
-    return None, None, None
+        for img in images or []:
+            filename = img.get("filename") or ""
+            if filename.lower().endswith(IMAGE_OUTPUT_EXTENSIONS):
+                return filename, img.get("subfolder", ""), img.get("type", "output"), non_image_filenames
+            non_image_filenames.append(filename)
+    return None, None, None, non_image_filenames
 
 
 def fetch_image_bytes(comfy_url, filename, subfolder, type_):
@@ -582,8 +606,15 @@ def generate_image(image_workflow, comfy_url, row, title, index, suffix, seed):
     prompt_id = queue_prompt(comfy_url, workflow)
     print(f"[img2video_i2v_csv] [{index}] {suffix} 이미지 생성 큐 등록 (prompt_id={prompt_id})")
     history_result = wait_for_completion(comfy_url, prompt_id)
-    filename, subfolder, type_ = find_first_output_image(history_result)
+    filename, subfolder, type_, non_image_filenames = find_first_output_image(history_result)
     if filename is None:
+        if non_image_filenames:
+            raise RuntimeError(
+                f"[{index}] {suffix} 이미지 생성 결과에 이미지 파일이 없고 다른 형식만 있습니다: "
+                f"{non_image_filenames} — 여기 올린 '이미지 생성 워크플로우'가 실제로는 영상(.mp4 등)을 "
+                "출력하고 있는 것 같습니다. 이미지 생성 단계에는 이미지를 저장(SaveImage)하는 워크플로우를 "
+                "올려야 합니다 (영상 단계 워크플로우는 nightshift가 내장한 것을 자동으로 씁니다)."
+            )
         raise RuntimeError(f"[{index}] {suffix} 이미지 생성 결과에서 출력 이미지를 찾지 못했습니다.")
     image_bytes = fetch_image_bytes(comfy_url, filename, subfolder, type_)
     uploaded_name = upload_image_bytes_to_comfy(comfy_url, filename, image_bytes)
@@ -625,12 +656,24 @@ def main():
     if not workflow_path or not csv_path:
         print("[img2video_i2v_csv] WORKFLOW_PATH와 CSV_PATH 환경변수가 모두 필요합니다.", file=sys.stderr)
         sys.exit(1)
-    if not VIDEO_WORKFLOW_PATH.is_file():
-        print(f"[img2video_i2v_csv] 번들 영상 워크플로우를 찾지 못했습니다: {VIDEO_WORKFLOW_PATH}", file=sys.stderr)
-        sys.exit(1)
+
+    # 영상 생성 워크플로우는 사용자가 직접 올렸으면(VIDEO_WORKFLOW_UPLOAD_PATH,
+    # nightshift 화면의 "영상 생성 워크플로우" 첨부 칸) 그걸 쓰고, 안 올렸으면
+    # 지금까지처럼 번들 기본값(VIDEO_WORKFLOW_PATH)을 쓴다.
+    video_workflow_upload_path = env("VIDEO_WORKFLOW_UPLOAD_PATH")
+    if video_workflow_upload_path:
+        video_workflow_path = Path(video_workflow_upload_path)
+        if not video_workflow_path.is_file():
+            print(f"[img2video_i2v_csv] 업로드된 영상 워크플로우를 찾지 못했습니다: {video_workflow_path}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        video_workflow_path = VIDEO_WORKFLOW_PATH
+        if not video_workflow_path.is_file():
+            print(f"[img2video_i2v_csv] 번들 영상 워크플로우를 찾지 못했습니다: {video_workflow_path}", file=sys.stderr)
+            sys.exit(1)
 
     image_workflow = load_workflow(workflow_path)
-    video_workflow = load_workflow(VIDEO_WORKFLOW_PATH)
+    video_workflow = load_workflow(video_workflow_path)
     rows = load_rows(csv_path)
     if not rows:
         print("[img2video_i2v_csv] CSV에 처리할 행이 없습니다.")

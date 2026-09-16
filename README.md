@@ -768,7 +768,7 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 ### 이미지→영상 복합 CSV 배치 (`img2video_i2v_csv_batch`/`img2video_flf2v_csv_batch`)
 
-이미지 생성과 WAN2.2 영상 생성을 한 작업 안에서 이어붙인 템플릿입니다. CSV 한 행마다 (1) 사용자가 올린 이미지 생성 워크플로우로 이미지를 생성하고(i2v는 1장, flf2v는 시작/끝 프레임 각 1장씩 2장), (2) 그 결과를 바로 WAN2.2 i2v/flf2v 영상으로 잇습니다. 위 "영상 생성" 템플릿들과 달리 이미지 생성 단계는 사용자가 워크플로우를 직접 올려야 합니다(`csv_batch`와 같은 방식) — 영상 단계만 `wan22_i2v.json`/`wan22_flf2v.json`을 nightshift가 내부적으로 고정으로 씁니다(화면에 영상 워크플로우 업로드 칸이 따로 없음).
+이미지 생성과 WAN2.2 영상 생성을 한 작업 안에서 이어붙인 템플릿입니다. CSV 한 행마다 (1) 사용자가 올린 이미지 생성 워크플로우로 이미지를 생성하고(i2v는 1장, flf2v는 시작/끝 프레임 각 1장씩 2장), (2) 그 결과를 바로 WAN2.2 i2v/flf2v 영상으로 잇습니다. 이미지 생성 워크플로우는 항상 사용자가 직접 올려야 합니다(`csv_batch`와 같은 방식). **영상 생성 워크플로우는 선택**입니다 — "영상 생성 워크플로우" 첨부 칸에 따로 올리지 않으면 nightshift가 내장한 `wan22_i2v.json`/`wan22_flf2v.json`을 그대로 쓰고, 직접 만든 영상 워크플로우가 있으면 그 칸에 올려서 바꿀 수 있습니다(이미지 생성 워크플로우와 완전히 독립적으로 각각 첨부). 직접 올리는 영상 워크플로우에도 `start_image`/`end_image`(flf2v만)/`user_prompt`/`user_lora_high`/`user_lora_low` 같은 노드 제목은 그대로 있어야 스크립트가 해당 노드를 찾아 값을 채울 수 있습니다 — `templates/video_workflows/wan22_i2v.json`/`wan22_flf2v.json`을 참고하세요.
 
 - **이미지→영상 연계**: 이미지 생성 결과를 `NIGHTSHIFT_INPUT_IMAGES_DIR`(입력 이미지 풀)에 전혀 쓰지 않습니다 — ComfyUI의 `/history/{prompt_id}` 응답에서 방금 만든 이미지의 파일 정보를 찾아 `/view`로 그 바이트를 그대로 받아온 뒤, 같은 ComfyUI 서버의 `/upload/image`로 바로 재업로드해서 영상 워크플로우의 `start_image`(flf2v는 `end_image`도) 노드에 꽂습니다. 로컬 디스크 왕복 없이 ComfyUI 서버 안에서 끝나는 연계입니다.
 - **영상 해상도**: 방금 받은 이미지 바이트의 실제 크기에서 자동 계산합니다(다른 WAN2.2 템플릿들의 `compute_video_dims`와 같은 규칙 — 16의 배수로 반올림, 총 픽셀수가 기준을 넘을 때만 축소). 이미지 생성 단계의 `width`/`height`/`resolution` 컬럼으로 생성 이미지 크기를 정하면 그 결과가 그대로 영상 해상도 계산에 쓰이므로, 영상 전용 해상도 컬럼은 따로 두지 않았습니다.
@@ -897,6 +897,8 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `PUT` | `/api/jobs/{job_id}/progress` | 실행 중인 템플릿 스크립트가 자기 진행 상황을 스스로 보고하는 용도 (요청 본문: `{"total": N, "done": M}`, 둘 다 0 이상의 정수). 매 이미지마다 호출될 수 있어 디스크에는 쓰지 않고 메모리만 갱신함. 없는 작업 id면 404, total/done이 정수가 아니거나 음수면 400 |
 | `GET` | `/api/jobs/{job_id}/workflow` | 해당 작업의 워크플로우 JSON 원문을 그대로 반환 |
 | `PUT` | `/api/jobs/{job_id}/workflow` | 워크플로우 JSON을 덮어씀 (요청 본문 = 새 JSON 텍스트). 작업 상태가 `pending`이 아니면 400, 유효한 JSON이 아니면 400 |
+| `GET` | `/api/jobs/{job_id}/video-workflow` | img2video 복합 템플릿에서 사용자가 영상 생성 워크플로우를 따로 올렸을 때만 그 JSON 원문을 반환 (안 올렸으면 404 — 내장 기본값을 썼다는 뜻) |
+| `PUT` | `/api/jobs/{job_id}/video-workflow` | 영상 생성 워크플로우 JSON을 덮어씀. `workflow`와 동일한 조건(작업이 `pending`이어야 함, 유효한 JSON이어야 함)이고, 애초에 올린 적 없는 작업이면 404 |
 | `GET` | `/api/jobs/{job_id}/csv` | 해당 작업의 CSV 원문을 그대로 반환. CSV가 첨부되지 않은 작업이면 404 |
 | `PUT` | `/api/jobs/{job_id}/csv` | CSV를 덮어씀 (요청 본문 = 새 CSV 텍스트). 작업 상태가 `pending`이 아니면 400, CSV가 첨부되지 않은 작업이면 404, 각 행의 열 개수가 첫 줄(헤더)과 다르면 400 |
 | `DELETE` | `/api/jobs/{job_id}` | `pending`이거나 완료/실패/중단된 작업을 소프트 삭제 (`queued`/`running`인 작업은 삭제 불가). 실제로 지우지 않고 `deleted`/`deleted_at`만 표시해서 `GET /api/jobs`에서 제외시킨다 — 워크플로우/CSV는 `GET /api/jobs/{job_id}/workflow`·`csv`로 계속 읽을 수 있다. 소프트 삭제된 작업 중 최근 `NIGHTSHIFT_DELETED_JOBS_RETENTION`개를 넘는 오래된 것은 이 호출 안에서 파일까지 완전히 정리된다(이미 삭제된 작업을 다시 삭제하면 404) |

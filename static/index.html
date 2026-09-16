@@ -2356,6 +2356,15 @@
           <div class="workflow-check" id="workflow-check" hidden></div>
         </div>
 
+        <div class="field" id="video-workflow-field" style="display:none;">
+          <div class="field-label-row">
+            <label class="field-label">영상 생성 워크플로우 (.json) <span class="opt">— 선택</span></label>
+          </div>
+          <div class="opt" id="video-workflow-field-hint">비워두면 nightshift 내장 기본값(WAN2.2)을 그대로 써요 — 직접 만든 영상 워크플로우가 있으면 여기 올려서 바꿀 수 있어요.</div>
+          <div class="slot" id="video-workflow-slot">.json 파일을 끌어다 놓거나 클릭 (선택)</div>
+          <input type="file" class="slot-input" id="video-workflow-input" accept=".json">
+        </div>
+
         <div class="field" id="csv-field" style="display:none;">
           <div class="field-label-row">
             <label class="field-label">CSV <span class="opt">— 이 템플릿에 필수</span></label>
@@ -3581,10 +3590,12 @@ function setupSlot(slotId, inputId, key, accept, onFile){
 }
 
 const setWorkflowFile = setupSlot('workflow-slot', 'workflow-input', 'workflow', '.json', checkWorkflowCompatibility);
+const setVideoWorkflowFile = setupSlot('video-workflow-slot', 'video-workflow-input', 'video_workflow', '.json');
 const setCsvFile = setupSlot('csv-slot', 'csv-input', 'csv', '.csv');
 
 function resetForm(){
   setWorkflowFile(null);
+  setVideoWorkflowFile(null);
   setCsvFile(null);
 }
 
@@ -4506,7 +4517,7 @@ async function onTemplateChange(){
   const wfHint = document.getElementById('workflow-field-hint');
   if(comboVideoLabel){
     wfLabel.innerHTML = '이미지 생성 워크플로우 (.json) <span class="opt">— 필수</span>';
-    wfHint.textContent = `여기 올리는 건 이미지 생성 단계 워크플로우예요 — 영상 단계(${comboVideoLabel})는 nightshift가 내장한 고정 워크플로우를 자동으로 씁니다. 따로 올릴 필요 없어요.`;
+    wfHint.textContent = `여기 올리는 건 이미지 생성 단계 워크플로우예요 — 영상 단계(${comboVideoLabel})는 바로 아래 "영상 생성 워크플로우" 칸에서 따로 올릴 수 있어요(선택, 비워두면 nightshift 내장 기본값을 씁니다).`;
     wfHint.style.display = '';
   }else if(bundledWorkflowName){
     wfLabel.innerHTML = '워크플로우 (.json) <span class="opt">— 필수</span>';
@@ -4516,6 +4527,15 @@ async function onTemplateChange(){
     wfLabel.innerHTML = '워크플로우 (.json) <span class="opt">— 필수</span>';
     wfHint.style.display = 'none';
   }
+
+  // img2video 복합 템플릿만 "영상 생성 워크플로우" 칸을 따로 보여준다(선택 —
+  // 비워두면 템플릿 스크립트가 내장 기본값을 그대로 씀). 템플릿을 바꾸면 이전에
+  // 골라둔 파일은 비운다 — 다른 템플릿엔 의미 없는 값이라 그대로 들고 있으면
+  // 헷갈린다.
+  const videoWfField = document.getElementById('video-workflow-field');
+  const hasOptionalVideoWorkflow = !!(template && template.optional_video_workflow);
+  if(videoWfField) videoWfField.style.display = hasOptionalVideoWorkflow ? '' : 'none';
+  if(!hasOptionalVideoWorkflow) setVideoWorkflowFile(null);
   // char_no/asset_folder 옵션이 있는 템플릿을 고를 때마다 목록을 새로 받아와서, 방금
   // 서버에 새로 올려둔 포즈 세트도 페이지를 새로고침하지 않고 바로 반영되게 한다.
   const needsAssets = template && (template.options || []).some(o => o.type === 'asset_folder' || o.type === 'char_no');
@@ -4680,6 +4700,20 @@ async function loadJobSettings(job){
     warnings.push('워크플로우 파일을 찾을 수 없어 직접 첨부해야 해요.');
   }
 
+  // 영상 생성 워크플로우는 애초에 선택이라(안 올렸으면 내장 기본값을 씀) 그
+  // 작업이 실제로 올렸을 때만 불러온다 — video_workflow_filename이 없으면
+  // "내장 기본값을 썼다"는 뜻이라 그냥 건너뛴다(경고 아님).
+  if(template.optional_video_workflow && job.video_workflow_filename){
+    const videoWfRes = await fetch(`/api/jobs/${job.id}/video-workflow`).catch(() => null);
+    if(videoWfRes && videoWfRes.ok){
+      const text = await videoWfRes.text();
+      const filename = job.video_workflow_original_name || 'video_workflow.json';
+      setVideoWorkflowFile(new File([text], filename, { type: 'application/json' }));
+    } else {
+      warnings.push('영상 생성 워크플로우 파일을 찾을 수 없어 직접 첨부해야 해요.');
+    }
+  }
+
   if(template.requires_csv){
     const csvRes = await fetch(`/api/jobs/${job.id}/csv`).catch(() => null);
     if(csvRes && csvRes.ok){
@@ -4809,6 +4843,9 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   const podId = formPodId();
   if(podId) form.append('pod_id', podId);
   if(needsWorkflow) form.append('workflow', selectedFiles.workflow);
+  if(template && template.optional_video_workflow && selectedFiles.video_workflow){
+    form.append('video_workflow', selectedFiles.video_workflow);
+  }
   if(template && template.requires_csv) form.append('csv', selectedFiles.csv);
   optionsFields.querySelectorAll('.option-input').forEach(input => {
     form.append(input.dataset.name, input.value);
