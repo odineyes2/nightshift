@@ -335,6 +335,7 @@
     "label": "이미지→영상 복합 CSV 배치 — i2v",
     "script_filename": "img2video_i2v_csv_batch.py",
     "requires_csv": true,
+    "optional_video_workflow": true,
     "csv_columns": [
       { "name": "title", "label": "제목", "required": false },
       { "name": "trigger_prompt", "label": "트리거 프롬프트(이미지)", "required": false },
@@ -364,6 +365,7 @@
     "label": "이미지→영상 복합 CSV 배치 — flf2v",
     "script_filename": "img2video_flf2v_csv_batch.py",
     "requires_csv": true,
+    "optional_video_workflow": true,
     "csv_columns": [
       { "name": "title", "label": "제목", "required": false },
       { "name": "trigger_prompt", "label": "트리거 프롬프트(이미지, 공통)", "required": false },
