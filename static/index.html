@@ -4280,9 +4280,10 @@ function renderOptionFields(template){
   }
 }
 
-// 영상 생성(WAN2.2) 템플릿은 사용자가 워크플로우 파일을 직접 고르지 않는다 —
-// nightshift가 함께 배포하는 고정 그래프(templates/video_workflows/*.json)를
-// 템플릿을 고르는 순간 GET /api/video-workflows/{name}로 받아 자동으로 채운다.
+// 영상 생성(WAN2.2) 템플릿은 템플릿을 고르는 순간 nightshift가 함께 배포하는
+// 고정 그래프(templates/video_workflows/*.json)를 GET /api/video-workflows/{name}로
+// 받아 기본값으로 채워준다 — 다만 첨부 칸 자체는 계속 보여주고 그대로 두므로,
+// 사용자가 원하면 다른 .json 워크플로우를 올려서 이 기본값을 덮어쓸 수 있다.
 // i2v 계열 두 템플릿(시드/CSV)은 같은 그래프를, flf2v 계열 두 템플릿도 같은
 // 그래프를 공유한다.
 const WAN22_BUNDLED_WORKFLOWS = {
@@ -4308,11 +4309,12 @@ async function onTemplateChange(){
   csvField.style.display = (template && template.requires_csv) ? '' : 'none';
   const csvEditorBtn = document.getElementById('csv-editor-btn');
   if(csvEditorBtn) csvEditorBtn.style.display = (template && template.requires_csv && (template.csv_columns || []).length) ? '' : 'none';
-  // 워크플로우가 필요 없는 템플릿(셸 명령 등) 또는 고정 그래프를 자동으로 붙이는
-  // 영상 생성 템플릿에서는 첨부 칸 자체를 숨긴다(사용자가 직접 고를 게 없음).
+  // 워크플로우 자체가 필요 없는 템플릿(셸 명령 등)만 첨부 칸을 숨긴다. 고정
+  // 그래프를 자동으로 붙이는 영상 생성 템플릿도 칸은 계속 보여준다 — 기본값을
+  // 자동으로 채워줄 뿐, 사용자가 직접 다른 워크플로우로 덮어쓸 수 있어야 한다.
   const bundledWorkflowName = template && WAN22_BUNDLED_WORKFLOWS[template.id];
   const wfField = document.getElementById('workflow-field');
-  if(wfField) wfField.style.display = (template && (template.requires_workflow === false || bundledWorkflowName)) ? 'none' : '';
+  if(wfField) wfField.style.display = (template && template.requires_workflow === false) ? 'none' : '';
   if(bundledWorkflowName){
     try{
       const res = await fetch(`/api/video-workflows/${bundledWorkflowName}`);
@@ -4331,6 +4333,10 @@ async function onTemplateChange(){
   if(comboVideoLabel){
     wfLabel.innerHTML = '이미지 생성 워크플로우 (.json) <span class="opt">— 필수</span>';
     wfHint.textContent = `여기 올리는 건 이미지 생성 단계 워크플로우예요 — 영상 단계(${comboVideoLabel})는 nightshift가 내장한 고정 워크플로우를 자동으로 씁니다. 따로 올릴 필요 없어요.`;
+    wfHint.style.display = '';
+  }else if(bundledWorkflowName){
+    wfLabel.innerHTML = '워크플로우 (.json) <span class="opt">— 필수</span>';
+    wfHint.textContent = `기본값으로 nightshift 내장 워크플로우(${bundledWorkflowName}.json)가 자동으로 채워져 있어요 — 다른 .json 파일을 끌어다 놓거나 클릭해서 올리면 그걸로 바뀝니다.`;
     wfHint.style.display = '';
   }else{
     wfLabel.innerHTML = '워크플로우 (.json) <span class="opt">— 필수</span>';
