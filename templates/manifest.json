@@ -368,7 +368,7 @@
       { "name": "title", "label": "제목", "required": false },
       { "name": "trigger_prompt", "label": "트리거 프롬프트(이미지, 공통)", "required": false },
       { "name": "main_prompt", "label": "시작 프레임 프롬프트(이미지)", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
-      { "name": "end_prompt", "label": "끝 프레임 프롬프트(이미지)", "required": true, "note": "비워두면 이 행은 건너뜀" },
+      { "name": "end_prompt", "label": "끝 프레임 프롬프트(이미지)", "required": false, "note": "비워두면 끝 프레임을 새로 만들지 않고 시작 이미지를 그대로 재사용해 루프(부메랑) 영상을 만들어요" },
       { "name": "quality_prompt", "label": "퀄리티 프롬프트(이미지, 공통)", "required": false },
       { "name": "negative_prompt", "label": "네거티브 프롬프트(이미지, 공통)", "required": false, "note": "만화 선화 안전장치가 켜져 있으면(기본) 집중선/겹선 배제 태그가 자동으로 덧붙어요" },
       { "name": "seed", "label": "시작 프레임 시드", "required": false, "note": "비워두면 무작위" },
