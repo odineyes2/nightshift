@@ -154,6 +154,131 @@
      없거나 틀려서 401을 받은 적이 있으면 위험색으로 바뀌어 눈에 띄게 한다. */
   .api-key-btn.unauthorized{ color:var(--failed); border-color:currentColor; background:rgba(var(--failed-rgb),0.08); }
 
+  /* ---- 로그인 화면 (미니멀 센터드형) ---- */
+  /* 아직 별도 로그인 시스템은 없다 — 서버가 NIGHTSHIFT_API_KEY를 요구할 수 있으니,
+     본 화면 접속 전에 이 게이트를 한 번 거치게 한다. 장식 없이 여백·정렬만으로
+     위계를 만들고, 키 입력은 모달을 거치지 않고 이 화면 한가운데서 바로
+     받는다(Enter로 제출) — 저장된 값 확인/삭제 같은 세부 조작만 하단의 조용한
+     링크로 기존 API 키 모달을 열어 처리한다. 색은 새로 만들지 않고 앱이 이미
+     쓰는 테마 변수를 그대로 물려받아 밤/낮 모드 전환에 자동으로 맞는다. */
+  .login-screen{
+    position:fixed;
+    inset:0;
+    /* .modal-overlay(z-index:70)보다 낮아야 한다 — 하단 링크로 여는 API 키
+       모달이 이 화면 뒤에 가려지면 안 된다. */
+    z-index:65;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+    background:
+      radial-gradient(circle at 50% 42%, rgba(var(--queued-rgb),0.05), transparent 60%),
+      radial-gradient(var(--border) 1px, transparent 1px) 0 0/28px 28px,
+      var(--bg);
+  }
+  .login-content{
+    width:100%;
+    max-width:320px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    text-align:center;
+    gap:20px;
+  }
+  @media (prefers-reduced-motion: no-preference){
+    .login-content{ animation: login-rise .5s cubic-bezier(.16,1,.3,1) both; }
+  }
+  @keyframes login-rise{
+    from{ opacity:0; transform:translateY(6px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+  .login-mark{ width:20px; height:20px; color:var(--text); }
+  .login-heading{ display:flex; flex-direction:column; gap:8px; }
+  .login-wordmark{
+    font-family:var(--mono);
+    font-size:12px;
+    font-weight:600;
+    letter-spacing:0.24em;
+    text-transform:uppercase;
+    color:var(--text);
+  }
+  .login-tagline{
+    font-size:13.5px;
+    color:var(--text-dim);
+    line-height:1.6;
+    max-width:30ch;
+  }
+  .login-access-field{ width:100%; display:flex; flex-direction:column; gap:10px; }
+  .login-field-shell{
+    width:100%;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:12px 20px;
+    transition: border-color .2s ease, box-shadow .2s ease;
+  }
+  .login-field-shell:focus-within{
+    border-color:var(--queued);
+    box-shadow:0 0 0 4px rgba(var(--queued-rgb),0.14);
+  }
+  #login-key-input{
+    width:100%;
+    border:none;
+    outline:none;
+    background:none;
+    text-align:center;
+    font-family:var(--mono);
+    font-size:14px;
+    letter-spacing:0.03em;
+    color:var(--text);
+  }
+  #login-key-input::placeholder{ color:var(--text-dim); opacity:0.7; }
+  .login-enter-hint{
+    display:flex; align-items:center; justify-content:center; gap:6px;
+    font-size:11px;
+    color:var(--text-dim);
+    opacity:0.6;
+    transition:opacity .2s ease;
+  }
+  .login-enter-hint kbd{
+    font-family:var(--mono);
+    font-size:10px;
+    color:var(--text-dim);
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:4px;
+    padding:1px 5px;
+  }
+  .login-error{
+    font-size:12.5px;
+    color:var(--failed);
+    min-height:1.2em;
+  }
+  .login-request-link{
+    font-family:var(--sans);
+    font-size:12px;
+    color:var(--text-dim);
+    background:none;
+    border:none;
+    padding:0;
+    cursor:pointer;
+    border-bottom:1px solid transparent;
+    transition:color .2s ease, border-color .2s ease;
+  }
+  .login-request-link:hover{ color:var(--queued); border-color:var(--queued); }
+  .login-watermark{
+    position:absolute;
+    left:0; right:0; bottom:max(22px, env(safe-area-inset-bottom,0px));
+    text-align:center;
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:0.22em;
+    text-transform:uppercase;
+    color:var(--text-dim);
+    opacity:0.45;
+    pointer-events:none;
+  }
+
   .tab-bar{
     background:var(--panel);
     border-bottom:1px solid var(--border);
@@ -2077,10 +2202,50 @@
       const sep = url.includes('?') ? '&' : '?';
       return `${url}${sep}api_key=${encodeURIComponent(key)}`;
     };
+
+    // 로그인 화면이 "이 키로 실제로 서버에 들어갈 수 있는가"를 확인할 때 쓴다.
+    // 저장된 키가 아니라 지금 막 입력한 값을 검증해야 하므로, 위의 fetch 래퍼(항상
+    // localStorage 값을 덮어씀)를 거치지 않고 nativeFetch를 직접 쓴다.
+    // true=통과, false=401(키가 틀림), null=서버에 닿지 못함(네트워크 오류 등).
+    window.__nightshiftVerifyApiKey = async function(key){
+      try{
+        const headers = key ? { 'X-API-Key': key } : {};
+        const res = await nativeFetch('/api/templates', { headers });
+        return res.status !== 401;
+      }catch(e){
+        return null;
+      }
+    };
   })();
 </script>
 </head>
 <body>
+
+<div class="login-screen" id="login-screen">
+  <div class="login-content">
+    <svg class="login-mark" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 1 0 10.5 10.5Z" fill="currentColor"/>
+    </svg>
+
+    <div class="login-heading">
+      <div class="login-wordmark">Nightshift</div>
+      <p class="login-tagline">아직 로그인 기능은 없어요. 서버에 API 키를 설정했다면 입력하세요.</p>
+    </div>
+
+    <form class="login-access-field" id="login-access-form" autocomplete="off">
+      <div class="login-field-shell">
+        <input id="login-key-input" type="password" placeholder="API 키" autocomplete="off" spellcheck="false" aria-label="API 키">
+      </div>
+      <div class="login-enter-hint" id="login-enter-hint"><kbd>Enter</kbd> 를 눌러 계속</div>
+    </form>
+
+    <div class="login-error" id="login-screen-error"></div>
+
+    <button class="login-request-link" id="login-screen-api-key-btn" type="button">키 확인·삭제 등 자세히 설정하기</button>
+  </div>
+
+  <div class="login-watermark">NIGHTSHIFT_API_KEY</div>
+</div>
 
 <header>
   <div class="brand"><span class="dot"></span> <img class="brand-logo" src="/nightshift-wordmark.svg" alt="Nightshift"></div>
@@ -2835,6 +3000,7 @@
       <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-dim); cursor:pointer; margin-top:8px;">
         <input type="checkbox" id="api-key-show"> 입력한 값 표시
       </label>
+      <div class="login-error" id="api-key-modal-error"></div>
     </div>
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="api-key-modal-clear">🗑 지우기</button>
@@ -6347,11 +6513,16 @@ const apiKeyBtn = document.getElementById('api-key-btn');
 const apiKeyModal = document.getElementById('api-key-modal');
 const apiKeyInput = document.getElementById('api-key-input');
 const apiKeyShowCheckbox = document.getElementById('api-key-show');
+const apiKeyModalError = document.getElementById('api-key-modal-error');
+const apiKeyModalSaveBtn = document.getElementById('api-key-modal-save');
+const loginScreen = document.getElementById('login-screen');
+const loginScreenError = document.getElementById('login-screen-error');
 
 function openApiKeyModal(){
   apiKeyInput.value = window.__nightshiftGetApiKey();
   apiKeyInput.type = 'password';
   apiKeyShowCheckbox.checked = false;
+  apiKeyModalError.textContent = '';
   apiKeyModal.style.display = 'flex';
   apiKeyInput.focus();
 }
@@ -6360,22 +6531,99 @@ function closeApiKeyModal(){
   apiKeyModal.style.display = 'none';
 }
 
+function hideLoginScreen(){
+  loginScreen.style.display = 'none';
+}
+
+function showLoginScreen(message){
+  loginScreenError.textContent = message || '';
+  loginScreen.style.display = 'flex';
+}
+
 apiKeyBtn.addEventListener('click', openApiKeyModal);
+document.getElementById('login-screen-api-key-btn').addEventListener('click', openApiKeyModal);
 document.getElementById('api-key-modal-close').addEventListener('click', closeApiKeyModal);
+
+// 로그인 화면 한가운데의 입력창 — 모달을 거치지 않고 Enter만으로 바로 들어간다.
+// "자세히 설정하기"(위 버튼)는 저장된 값을 보거나 지우는 등 세부 조작이 필요할
+// 때만 기존 모달을 여는 보조 경로다.
+const loginKeyInput = document.getElementById('login-key-input');
+const loginAccessForm = document.getElementById('login-access-form');
+const loginEnterHint = document.getElementById('login-enter-hint');
+
+loginKeyInput.value = window.__nightshiftGetApiKey();
+
+loginAccessForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const value = loginKeyInput.value.trim();
+  loginScreenError.textContent = '';
+  loginKeyInput.disabled = true;
+  const ok = await window.__nightshiftVerifyApiKey(value);
+  loginKeyInput.disabled = false;
+
+  if(ok === false){
+    loginScreenError.textContent = 'API 키가 올바르지 않아요.';
+    loginKeyInput.focus();
+    return;
+  }
+  if(ok === null){
+    loginScreenError.textContent = '서버에 연결하지 못했어요. 잠시 후 다시 시도하세요.';
+    return;
+  }
+
+  window.__nightshiftSetApiKey(value);
+  hideLoginScreen();
+  window.__nightshiftOnApiAuthResult(true);
+});
+
+loginKeyInput.addEventListener('input', () => {
+  loginEnterHint.style.opacity = loginKeyInput.value.trim().length > 0 ? '1' : '0.6';
+});
+
+// 버튼 없이 Enter로만 제출하는 입력창이라, 브라우저의 암묵적 제출(단일 입력 폼에서
+// Enter → submit)에만 기대지 않고 명시적으로도 눌러준다.
+loginKeyInput.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    loginAccessForm.requestSubmit();
+  }
+});
 apiKeyModal.addEventListener('click', (e) => { if(e.target === apiKeyModal) closeApiKeyModal(); });
 
 apiKeyShowCheckbox.addEventListener('change', () => {
   apiKeyInput.type = apiKeyShowCheckbox.checked ? 'text' : 'password';
 });
 
-document.getElementById('api-key-modal-save').addEventListener('click', () => {
-  window.__nightshiftSetApiKey(apiKeyInput.value.trim());
+apiKeyModalSaveBtn.addEventListener('click', async () => {
+  const value = apiKeyInput.value.trim();
+  apiKeyModalError.textContent = '';
+  apiKeyModalSaveBtn.disabled = true;
+  apiKeyModalSaveBtn.textContent = '확인 중…';
+  const ok = await window.__nightshiftVerifyApiKey(value);
+  apiKeyModalSaveBtn.disabled = false;
+  apiKeyModalSaveBtn.textContent = '💾 저장';
+
+  if(ok === false){
+    apiKeyModalError.textContent = 'API 키가 올바르지 않아요.';
+    return;
+  }
+  if(ok === null){
+    apiKeyModalError.textContent = '서버에 연결하지 못했어요. 잠시 후 다시 시도하세요.';
+    return;
+  }
+
+  window.__nightshiftSetApiKey(value);
+  loginKeyInput.value = value;
   closeApiKeyModal();
+  hideLoginScreen();
+  window.__nightshiftOnApiAuthResult(true);
 });
 
 document.getElementById('api-key-modal-clear').addEventListener('click', () => {
   window.__nightshiftSetApiKey('');
   apiKeyInput.value = '';
+  loginKeyInput.value = '';
+  apiKeyModalError.textContent = '';
 });
 
 // GET /api/jobs 폴링(2초 간격)이 401을 물어올 때마다 매번 모달을 띄우면 성가시므로,
@@ -6386,7 +6634,16 @@ window.__nightshiftOnApiAuthResult = function(authorized){
   apiKeyBtn.title = authorized
     ? '서버 API 키 설정 (NIGHTSHIFT_API_KEY)'
     : 'API 키가 없거나 틀렸어요 — 눌러서 입력하세요';
+  // 로그인 화면을 지난 뒤 서버 키가 바뀌는 등으로 다시 401을 받으면 게이트로
+  // 돌려보낸다 — 계속 본 화면에 남아있어봤자 모든 API 호출이 막혀 있으니까.
+  if(!authorized) showLoginScreen('API 키가 없거나 틀렸어요 — 다시 입력하세요.');
 };
+
+// ---- 로그인 게이트 ----
+// 아직 로그인 기능이 없으므로, 접속할 때마다 일단 이 화면에서 멈춘다(마크업 기본값이
+// 이미 표시 상태 — 위 CSS 참고). 하단 버튼으로 기존 API 키 모달을 열면, 이전에
+// 저장해둔 값이 있으면 자동으로 채워져 있어 다시 입력할 필요 없이 저장만 누르면
+// 된다. 저장 시 서버에 그 값으로 한 번 확인(verify)한 뒤에만 본 화면으로 넘어간다.
 
 // ---- 대시보드 (파드 카드 캔버스) ----
 // 카드마다 타입이 있고, 타입별 렌더러가 그 카드의 HTML을 만든다. 지금은 파드 카드
