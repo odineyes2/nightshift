@@ -15,16 +15,29 @@ start_image 기준으로 계산하는 것과 동일한 정책 — 끝 프레임 
 
 CSV 컬럼:
     title           결과 파일명 접두사 (선택, name도 허용)
-    trigger_prompt, quality_prompt, negative_prompt
-                    이미지 생성 공통 프롬프트 (시작/끝 프레임에 똑같이 적용)
     main_prompt(=prompt)   시작 프레임 프롬프트 (필수, 비면 그 행은 건너뜀)
     end_prompt      끝 프레임 프롬프트 (필수, 비면 그 행은 건너뜀)
+    trigger_prompt, negative_prompt
+                    이미지 생성 보조 프롬프트, 시작/끝 프레임 공통 (선택 — 값이
+                    있는데 매칭되는 노드가 없으면 경고만 찍고 그 필드만
+                    건너뛴다. 행 처리나 큐 자체는 멈추지 않음)
+    quality_prompt  이미지 생성 부가 프롬프트, 시작/끝 공통 (선택 — csv_batch.py와의
+                    컬럼 호환을 위해 남겨둔 부가 컬럼일 뿐, 필수 아님)
     seed            시작 프레임 이미지 생성 시드 (선택, 비어 있으면 무작위)
     end_seed        끝 프레임 이미지 생성 시드 (선택, 비어 있으면 무작위)
     width, height   이미지 생성 해상도, 시작/끝 공통 (선택, 둘 다 채워야 적용)
     resolution      이미지 생성 해상도 프리셋/WxH, 시작/끝 공통 (선택)
-    video_prompt    영상 생성 프롬프트 (필수 — 비면 그 행 전체를 건너뜀)
+    user_prompt(=video_prompt)
+                    영상 생성 프롬프트 (선택 — 비어 있으면 main_prompt/prompt(시작
+                    프레임 프롬프트)를 그대로 재사용한다. video_prompt는 예전
+                    컬럼명과의 호환을 위해 계속 받아준다)
     video_seed      영상 생성 시드 (선택, 비어 있으면 무작위)
+
+    위 컬럼들 외에 CSV에 다른 컬럼이 더 있어도 그냥 무시된다 — 그것 때문에
+    행이 건너뛰어지거나 큐 처리가 멈추는 일은 없다.
+
+    영상 해상도는 항상 시작 프레임 이미지의 실제 크기에서 자동 계산되며,
+    별도 컬럼으로 지정할 수 없다.
 
 환경변수:
     WORKFLOW_PATH   (필수) 이미지 생성 워크플로우 json 경로 (nightshift가 주입,
@@ -339,6 +352,16 @@ def apply_image_filename_prefix(workflow, title, suffix, index, seed):
 
 # ── 영상 생성 단계 (wan22_video_csv_batch.py와 동일, fast_4step만 없음) ──
 
+def resolve_video_prompt(row):
+    """영상 생성에 쓸 프롬프트를 결정한다: user_prompt(=video_prompt)가 있으면
+    그 값을, 비어 있으면 시작 프레임에 쓴 main_prompt/prompt를 그대로
+    재사용한다."""
+    value = (row.get("user_prompt") or row.get("video_prompt") or "").strip()
+    if value:
+        return value
+    return (row.get("main_prompt") or row.get("prompt") or "").strip()
+
+
 def apply_video_user_prompt(workflow, prompt):
     prompt = (prompt or "").strip()
     if not prompt:
@@ -564,8 +587,9 @@ def run_once(image_workflow, video_workflow, comfy_url, row, title, index, start
     if video_dims is not None:
         apply_video_size(video, *video_dims)
 
-    apply_video_user_prompt(video, row.get("video_prompt"))
-    apply_text_enhance(video, row.get("video_prompt"), text_enhance)
+    video_prompt = resolve_video_prompt(row)
+    apply_video_user_prompt(video, video_prompt)
+    apply_text_enhance(video, video_prompt, text_enhance)
     apply_video_seed(video, video_seed)
     apply_video_lora(video, video_lora_name, video_lora_strength)
     apply_video_filename_prefix(video, title, index, video_seed)
@@ -605,10 +629,9 @@ def main():
     for line_no, row in enumerate(rows, start=2):
         main_prompt = (row.get("main_prompt") or row.get("prompt") or "").strip()
         end_prompt = (row.get("end_prompt") or "").strip()
-        video_prompt = (row.get("video_prompt") or "").strip()
-        if not main_prompt or not end_prompt or not video_prompt:
+        if not main_prompt or not end_prompt:
             print(
-                f"[img2video_flf2v_csv] 건너뜀 (main_prompt/prompt, end_prompt, video_prompt 중 빠짐, "
+                f"[img2video_flf2v_csv] 건너뜀 (main_prompt/prompt 또는 end_prompt 없음, "
                 f"{line_no}번째 줄): {row}",
             )
             continue
