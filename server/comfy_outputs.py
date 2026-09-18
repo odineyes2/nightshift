@@ -123,6 +123,32 @@ def sync_state_summary() -> dict:
     return {"last_sync": state["last_sync"], "known": len(state["downloaded"])}
 
 
+# "받아온 기록"의 값 형식 — 원래는 받은 시각(ISO 문자열)뿐이었는데, 이제 어느
+# 파드에서 받았는지도 같이 남긴다(파드 갤러리가 "이 파드가 만든 것"을 job_id 없는
+# 파일까지 알아보려면 이 정보가 필요하다 — nightshift 큐를 거치지 않고 ComfyUI에서
+# 직접 돌린 결과는 job_id가 없어서 작업 목록으로는 어느 파드 것인지 알 길이 없다).
+# 예전 기록(순수 문자열)도 그대로 읽을 수 있어야 하므로, 값을 만들 때는 새 형식으로
+# 쓰되 읽을 때는 두 형식을 다 받아준다.
+def _entry(at: str, pod_id: str | None) -> dict:
+    return {"at": at, "pod_id": pod_id}
+
+
+def _entry_at(value) -> str | None:
+    return value.get("at") if isinstance(value, dict) else value
+
+
+def _entry_pod_id(value) -> str | None:
+    return value.get("pod_id") if isinstance(value, dict) else None
+
+
+def synced_pod_ids() -> dict[str, str | None]:
+    """{"<subfolder>/<파일명>": pod_id} — pod_id를 알 수 없는(예전 기록이거나 파드
+    지정 없이 받은) 항목은 값이 None이다. 갤러리 메타(app.py)가 job_id로 못 찾은
+    파드를 이걸로 한 번 더 찾아본다."""
+    downloaded = load_sync_state()["downloaded"]
+    return {key: _entry_pod_id(value) for key, value in downloaded.items()}
+
+
 def forget_downloaded(subfolder: str | None = None) -> int:
     """동기화 기록을 지운다(subfolder를 주면 그 작업 것만). 지운 개수를 반환.
     "지운 이미지를 다시 받고 싶다"는 명시적인 의사 표시에만 쓴다."""
@@ -230,12 +256,19 @@ def sync_outputs(
     force: bool = False,
     max_items: int = SYNC_MAX_ITEMS,
     timeout: float = SYNC_TIMEOUT_SEC,
+    pod_id: str | None = None,
 ) -> dict:
     """원격 ComfyUI의 결과 이미지를 로컬 출력 폴더로 가져온다.
 
     only_subfolder를 주면 그 작업(job_id) 것만 받는다 — 작업이 끝난 직후 자동으로
     부를 때 쓴다. force=True면 "이미 받았다"는 기록을 무시하고, 로컬에 없는 파일을
     다시 받는다(로컬에 이미 있는 파일은 어느 경우에도 건드리지 않는다).
+
+    pod_id를 주면(호출부가 "이 파드에서 가져와" 하고 부른 것이므로) 새로 받는
+    항목뿐 아니라 이미 알고 있던 항목 중 파드가 아직 안 적힌 것도 이 값으로
+    채운다 — nightshift 큐를 거치지 않고 ComfyUI에서 직접 돌려 job_id가 없는
+    파일은 이 기록이 유일한 "어느 파드 것인지" 단서라서, 예전에 파드 지정 없이
+    받아 둔 파일도 나중에 파드를 지정해서 한 번 더 누르면 그제서야 소급 적용된다.
 
     반환: {"checked", "downloaded": [...], "skipped_known", "skipped_existing",
            "skipped_invalid", "errors": [...], "last_sync"}
@@ -257,6 +290,8 @@ def sync_outputs(
             key = item["key"]
             if not force and key in known:
                 skipped_known += 1
+                if pod_id and _entry_pod_id(known[key]) is None:
+                    known[key] = _entry(_entry_at(known[key]) or _now_iso(), pod_id)
                 continue
             dest = _safe_dest(base, key)
             if dest is None:
@@ -266,7 +301,11 @@ def sync_outputs(
                 # 같은 머신에서 ComfyUI가 돌던 시절에 이미 쌓인 파일이거나, 기록만
                 # 날아간 경우. 받을 필요는 없지만 기록은 남겨 둬야 나중에 지웠을 때
                 # 되살아나지 않는다.
-                known.setdefault(key, _now_iso())
+                existing = known.get(key)
+                if existing is None:
+                    known[key] = _entry(_now_iso(), pod_id)
+                elif pod_id and _entry_pod_id(existing) is None:
+                    known[key] = _entry(_entry_at(existing) or _now_iso(), pod_id)
                 skipped_existing += 1
                 continue
             try:
@@ -274,7 +313,7 @@ def sync_outputs(
             except Exception as e:
                 errors.append(f"{key}: {e}")
                 continue
-            known[key] = _now_iso()
+            known[key] = _entry(_now_iso(), pod_id)
             downloaded_now.append(key)
 
         # 받은 게 없어도 last_sync는 갱신한다 — "언제 확인했는지"가 화면에 필요하다.

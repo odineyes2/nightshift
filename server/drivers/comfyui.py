@@ -159,7 +159,7 @@ class ComfyUIDriver(PodDriver):
         설정이 꺼져 있으면 아무것도 안 한다(comfy_outputs.py 참고)."""
         if not pod.get("pull_outputs"):
             return None
-        return sync_outputs(url, only_subfolder=job_id)
+        return sync_outputs(url, only_subfolder=job_id, pod_id=pod.get("id"))
 
     @staticmethod
     def card(pod: dict) -> dict:

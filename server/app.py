@@ -46,7 +46,7 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
 from PIL import Image
 
-from comfy_outputs import OutputSyncError, forget_downloaded, sync_outputs, sync_state_summary
+from comfy_outputs import OutputSyncError, forget_downloaded, sync_outputs, sync_state_summary, synced_pod_ids
 from data_paths import data_dir, data_path
 from drivers import DriverError, driver_for, driver_kinds
 from drivers.comfyui import (
@@ -3076,10 +3076,16 @@ def list_output_images_meta() -> list[dict]:
     except OutputFolderError:
         return []
     base = Path(OUTPUT_DIR)
+    # nightshift 큐를 거치지 않고 ComfyUI에서 직접 돌린 이미지는 job_id가 없어서
+    # 파드 갤러리(프론트의 podIdForImage)가 어느 파드 것인지 알 길이 없었다 —
+    # "⬇ 결과 가져오기"가 남긴 동기화 기록(comfy_output_sync.json)에 이제 파드
+    # 정보가 있으니, job_id가 없을 때 쓸 수 있게 같이 넘긴다.
+    pod_ids = synced_pod_ids()
     items = []
     for f in files:
         stat = f.stat()
         rel = f.relative_to(base)
+        name = rel.as_posix()
         # 템플릿 스크립트가 JOB_ID 하위 폴더에 나눠 저장하므로(seed_batch.py 등),
         # 상대 경로가 여러 단계면 첫 번째 폴더 이름을 job_id로 노출한다 — 갤러리의
         # "작업별 보기"가 이 값으로 묶는다. 하위 폴더 없이 바로 밑에 있는(예전 방식
@@ -3096,8 +3102,9 @@ def list_output_images_meta() -> list[dict]:
         except Exception:
             pass
         items.append({
-            "name": rel.as_posix(),
+            "name": name,
             "job_id": job_id,
+            "synced_pod_id": pod_ids.get(name),
             "size": stat.st_size,
             "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
             "width": width,
@@ -3146,11 +3153,12 @@ async def sync_comfy_outputs(request: Request):
         health = await asyncio.to_thread(driver_for(pod).health, pod)
         url, connected = health["url"], health["ok"]
     else:
+        pod_id = pod_registry.default_pod()["id"]
         url, connected = await asyncio.to_thread(resolve_comfy_url)
     if not url or not connected:
         raise HTTPException(503, "ComfyUI에 연결할 수 없어 결과 이미지를 가져올 수 없어요.")
     try:
-        result = await asyncio.to_thread(sync_outputs, url, only_subfolder=job_id, force=force)
+        result = await asyncio.to_thread(sync_outputs, url, only_subfolder=job_id, force=force, pod_id=pod_id)
     except OutputSyncError as e:
         raise HTTPException(502, str(e))
     return {"url": url, **result}
@@ -3418,14 +3426,17 @@ def list_output_videos_meta() -> list[dict]:
     except OutputFolderError:
         return []
     base = Path(OUTPUT_DIR)
+    pod_ids = synced_pod_ids()  # list_output_images_meta 참고 — job_id 없는 영상용.
     items = []
     for f in files:
         stat = f.stat()
         rel = f.relative_to(base)
+        name = rel.as_posix()
         job_id = rel.parts[0] if len(rel.parts) > 1 else None
         items.append({
-            "name": rel.as_posix(),
+            "name": name,
             "job_id": job_id,
+            "synced_pod_id": pod_ids.get(name),
             "size": stat.st_size,
             "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
         })

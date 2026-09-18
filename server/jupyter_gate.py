@@ -140,6 +140,36 @@ LOGIN_PAGE = """<!doctype html>
     font-family:var(--mono); font-size:10px; color:var(--text-dim); background:var(--bg);
     border:1px solid var(--border); border-radius:4px; padding:1px 5px;
   }
+  .submit-btn{
+    width:100%; padding:11px 20px; border:none; border-radius:999px;
+    background:linear-gradient(135deg, #3B7DF5, #2054D6); color:#fff;
+    font-family:var(--sans); font-size:14px; font-weight:600; cursor:pointer;
+    transition: box-shadow .15s ease, transform .05s ease;
+  }
+  .submit-btn:hover{ box-shadow:0 4px 14px rgba(var(--queued-rgb),0.35); }
+  .submit-btn:active{ transform:translateY(1px); }
+  /* "또는" 구분선 — 실제 로그인(위 게이트 키)과 아래 장식용 버튼을 시각적으로 나눈다. */
+  .divider{
+    width:100%; display:flex; align-items:center; gap:10px;
+    font-size:11px; color:var(--text-dim); opacity:0.6;
+  }
+  .divider::before, .divider::after{ content:''; flex:1; height:1px; background:var(--border); }
+  /* 아래 두 버튼은 순전히 장식이다 — 이 게이트엔 로그인 시스템이 따로 없고 위
+     게이트 키가 유일한 인증 수단이다. */
+  .oauth-row{ width:100%; display:flex; flex-direction:column; gap:8px; }
+  .oauth-btn{
+    width:100%; display:flex; align-items:center; justify-content:center; gap:8px;
+    padding:10px 16px; border:1px solid var(--border); border-radius:999px;
+    background:var(--panel); color:var(--text); font-family:var(--sans);
+    font-size:13px; font-weight:500; cursor:pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .oauth-btn:hover{ border-color:var(--text-dim); }
+  .oauth-btn svg{ flex-shrink:0; }
+  @keyframes oauth-shake{
+    0%, 100%{ transform:translateX(0); } 25%{ transform:translateX(-3px); } 75%{ transform:translateX(3px); }
+  }
+  .oauth-btn.is-fake-clicked{ animation: oauth-shake .3s ease; }
   .login-error{ font-size:12.5px; color:var(--failed); min-height:1.2em; }
   .watermark{
     position:absolute; left:0; right:0; bottom:max(22px, env(safe-area-inset-bottom,0px));
@@ -162,9 +192,26 @@ LOGIN_PAGE = """<!doctype html>
       <div class="field-shell">
         <input id="key-input" name="key" type="password" placeholder="게이트 키" autocomplete="off" spellcheck="false" autofocus aria-label="게이트 키">
       </div>
+      <button class="submit-btn" type="submit">로그인</button>
       <div class="enter-hint"><kbd>Enter</kbd> 를 눌러 계속</div>
     </div>
     <div class="login-error">__ERROR__</div>
+    <div class="divider">또는</div>
+    <div class="oauth-row">
+      <button class="oauth-btn oauth-fake" type="button">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        아이디로 로그인
+      </button>
+      <button class="oauth-btn oauth-fake" type="button">
+        <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true">
+          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.95v2.33A9 9 0 0 0 9 18Z"/>
+          <path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.95A9 9 0 0 0 0 9c0 1.45.35 2.83.95 4.05l3.02-2.33Z"/>
+          <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .95 4.95l3.02 2.33C4.68 5.16 6.66 3.58 9 3.58Z"/>
+        </svg>
+        Google로 로그인
+      </button>
+    </div>
   </form>
   <div class="watermark">Private &middot; Admin Only</div>
 </div>
@@ -176,6 +223,22 @@ LOGIN_PAGE = """<!doctype html>
       e.preventDefault();
       e.target.form.requestSubmit();
     }
+  });
+
+  // 장식용 버튼(아이디로 로그인/Google로 로그인) — 이 게이트엔 로그인 시스템이
+  // 따로 없어서 실제로는 아무 동작도 하지 않는다. 고장난 버튼처럼 보이지 않게
+  // 살짝 흔들리며 라벨이 잠깐 바뀌는 피드백만 준다.
+  document.querySelectorAll('.oauth-fake').forEach(function(btn){
+    var originalLabel = btn.lastChild.textContent;
+    var resetTimer = null;
+    btn.addEventListener('click', function(){
+      btn.classList.remove('is-fake-clicked');
+      void btn.offsetWidth;
+      btn.classList.add('is-fake-clicked');
+      btn.lastChild.textContent = ' 아직은 그림이에요';
+      clearTimeout(resetTimer);
+      resetTimer = setTimeout(function(){ btn.lastChild.textContent = originalLabel; }, 1400);
+    });
   });
 </script>
 </body>

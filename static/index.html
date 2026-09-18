@@ -249,6 +249,67 @@
     border-radius:4px;
     padding:1px 5px;
   }
+  .login-submit-btn{
+    width:100%;
+    padding:11px 20px;
+    border:none;
+    border-radius:999px;
+    background:var(--grad-primary);
+    color:#fff;
+    font-family:var(--sans);
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+    transition: box-shadow .15s ease, transform .05s ease;
+  }
+  .login-submit-btn:hover{ box-shadow:0 4px 14px rgba(var(--queued-rgb),0.35); }
+  .login-submit-btn:active{ transform:translateY(1px); }
+  /* "또는" 구분선 — 실제 로그인(위 게이트 키)과 아래 장식용 버튼을 시각적으로 나눈다. */
+  .login-divider{
+    width:100%;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-size:11px;
+    color:var(--text-dim);
+    opacity:0.6;
+  }
+  .login-divider::before, .login-divider::after{
+    content:'';
+    flex:1;
+    height:1px;
+    background:var(--border);
+  }
+  /* 아래 두 버튼은 순전히 장식이다 — 이 서버는 로그인 시스템이 따로 없고 위 게이트
+     키가 유일한 인증 수단이다. 눌러도 아무 일도 안 일어나는 대신, 클릭하면 살짝
+     흔들리며 "아직은 그림이에요" 같은 문구를 잠깐 보여준다(멀쩡한 버튼인데 안 눌리는
+     것처럼 보이지 않게). */
+  .login-oauth-row{ width:100%; display:flex; flex-direction:column; gap:8px; }
+  .login-oauth-btn{
+    width:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    padding:10px 16px;
+    border:1px solid var(--border);
+    border-radius:999px;
+    background:var(--panel);
+    color:var(--text);
+    font-family:var(--sans);
+    font-size:13px;
+    font-weight:500;
+    cursor:pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .login-oauth-btn:hover{ border-color:var(--text-dim); }
+  .login-oauth-btn svg{ flex-shrink:0; }
+  @keyframes login-oauth-shake{
+    0%, 100%{ transform:translateX(0); }
+    25%{ transform:translateX(-3px); }
+    75%{ transform:translateX(3px); }
+  }
+  .login-oauth-btn.is-fake-clicked{ animation: login-oauth-shake .3s ease; }
   .login-error{
     font-size:12.5px;
     color:var(--failed);
@@ -2236,10 +2297,28 @@
       <div class="login-field-shell">
         <input id="login-key-input" type="password" placeholder="API 키" autocomplete="off" spellcheck="false" aria-label="API 키">
       </div>
+      <button class="login-submit-btn" type="submit">로그인</button>
       <div class="login-enter-hint" id="login-enter-hint"><kbd>Enter</kbd> 를 눌러 계속</div>
     </form>
 
     <div class="login-error" id="login-screen-error"></div>
+
+    <div class="login-divider">또는</div>
+    <div class="login-oauth-row">
+      <button class="login-oauth-btn login-oauth-fake" type="button">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        아이디로 로그인
+      </button>
+      <button class="login-oauth-btn login-oauth-fake" type="button">
+        <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true">
+          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.95v2.33A9 9 0 0 0 9 18Z"/>
+          <path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.95A9 9 0 0 0 0 9c0 1.45.35 2.83.95 4.05l3.02-2.33Z"/>
+          <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .95 4.95l3.02 2.33C4.68 5.16 6.66 3.58 9 3.58Z"/>
+        </svg>
+        Google로 로그인
+      </button>
+    </div>
 
     <button class="login-request-link" id="login-screen-api-key-btn" type="button">키 확인·삭제 등 자세히 설정하기</button>
   </div>
@@ -2537,7 +2616,7 @@
 <main id="tab-video-gallery" style="display:none;">
   <div class="panel">
     <div class="panel-header">
-      <div class="section-label">🎬 영상 갤러리</div>
+      <div class="section-label" id="video-gallery-section-label">🎬 영상 갤러리</div>
       <div class="panel-header-actions">
         <span class="gallery-count" id="video-gallery-count"></span>
         <div class="enhance-mode" id="video-gallery-view-toggle">
@@ -3168,6 +3247,11 @@ let jobPodFilter = null;
 // 갤러리를 한 파드 것만 보고 있을 때 그 파드 id. null이면 전체(jobPodFilter와
 // 같은 자리, 같은 생명주기 — showTab에서 같이 정해진다).
 let galleryPodFilter = null;
+// 영상 갤러리판 galleryPodFilter — 별도 변수인 이유는 이미지 갤러리와 영상
+// 갤러리가 같은 화면 안에서도 서로 다른 파드로 스코프될 수 있어서가 아니라
+// (실제로는 같이 바뀐다), 두 갤러리가 완전히 독립된 렌더러/데이터를 쓰기
+// 때문에 하나로 묶으면 오히려 "이 필터가 지금 어느 갤러리 얘기인지" 헷갈린다.
+let videoGalleryPodFilter = null;
 // 지금 열려 있는 파드 스코프(#pod/{id}/...). 전역 화면(대시보드·갤러리·Danbooru)에
 // 있으면 null이다.
 let currentPodId = null;
@@ -5266,12 +5350,16 @@ function applyPullOutputsVisibility(){
       ? `'${podName(galleryPodFilter)}' 파드가 만든 결과 이미지를 이 서버로 가져와요.`
       : '원격 ComfyUI가 만든 결과 이미지를 이 서버로 가져와요. 작업이 끝날 때마다 자동으로도 가져오지만, pod를 껐다 켠 뒤 밀린 것을 한꺼번에 받을 때 쓰세요.';
   }
-  // 영상 갤러리는 파드 스코프가 없는 전역 화면이라 기본 파드 기준(comfyPullOutputs)만 본다.
-  // 같은 /api/comfy-outputs/sync가 이미지/영상을 함께 받아오므로 백엔드는 그대로 두고
-  // 버튼만 나란히 둔다.
+  // 영상 갤러리도 이제 파드 갤러리(pvideo)가 있으니 이미지와 같은 규칙을 쓴다 —
+  // 지금 보는 파드가 있으면 그 파드 기준, 전역이면 기본 파드(comfyPullOutputs) 기준.
+  // 같은 /api/comfy-outputs/sync가 이미지/영상을 함께 받아오므로 백엔드는 그대로 둔다.
   const videoBtn = document.getElementById('video-gallery-pull-btn');
   if(videoBtn){
-    videoBtn.style.display = comfyPullOutputs ? '' : 'none';
+    const videoOn = videoGalleryPodFilter ? !!(podsById[videoGalleryPodFilter] || {}).pull_outputs : comfyPullOutputs;
+    videoBtn.style.display = videoOn ? '' : 'none';
+    videoBtn.title = videoGalleryPodFilter
+      ? `'${podName(videoGalleryPodFilter)}' 파드가 만든 결과 영상을 이 서버로 가져와요.`
+      : '원격 ComfyUI가 만든 결과 영상을 이 서버로 가져와요. nightshift를 거치지 않고 ComfyUI에서 직접 돌린 작업도 ComfyUI 히스토리에 남아있으면 함께 가져와요.';
   }
 }
 
@@ -6665,6 +6753,23 @@ loginKeyInput.addEventListener('keydown', (e) => {
     loginAccessForm.requestSubmit();
   }
 });
+
+// 장식용 버튼(아이디로 로그인/Google로 로그인) — 이 서버엔 로그인 시스템이 따로
+// 없어서 실제로는 아무 동작도 하지 않는다. 눌렀을 때 아무 반응이 없으면 고장난
+// 버튼처럼 보이니, 살짝 흔들리며 라벨이 잠깐 바뀌는 정도의 피드백만 준다.
+document.querySelectorAll('.login-oauth-fake').forEach((btn) => {
+  const originalLabel = btn.lastChild.textContent;
+  let resetTimer = null;
+  btn.addEventListener('click', () => {
+    btn.classList.remove('is-fake-clicked');
+    void btn.offsetWidth; // 애니메이션 재시작
+    btn.classList.add('is-fake-clicked');
+    btn.lastChild.textContent = ' 아직은 그림이에요';
+    clearTimeout(resetTimer);
+    resetTimer = setTimeout(() => { btn.lastChild.textContent = originalLabel; }, 1400);
+  });
+});
+
 apiKeyModal.addEventListener('click', (e) => { if(e.target === apiKeyModal) closeApiKeyModal(); });
 
 apiKeyShowCheckbox.addEventListener('change', () => {
@@ -7217,22 +7322,26 @@ const TAB_MAINS = {
   // "이름"이 아니라 "실제 화면 요소" 기준으로 처리한다(그래야 pgallery로 보여준
   // 요소를 gallery 키가 다시 숨기는 일이 없다).
   pgallery: document.getElementById('tab-gallery'),
+  // pvideo("그 파드가 만든 영상만")도 pgallery와 같은 이유로 전역 영상 갤러리
+  // DOM을 그대로 쓴다 — videoGalleryPodFilter가 "전체"와 "이 파드 것만"을 가른다.
+  pvideo: document.getElementById('tab-video-gallery'),
   // Claude 글쓰기 파드의 결과는 이미지가 아니라 글이라 갤러리(썸네일 격자)로 못
   // 보여준다 — pgallery와 달리 이건 전용 DOM(#tab-results)과 전용 렌더러
   // (renderResultsList)를 쓰는 완전히 별개의 화면이다.
   results: document.getElementById('tab-results'),
 };
 
-const POD_TABS = ['jobs', 'builder', 'lora', 'pgallery', 'results'];
-const POD_TAB_LABEL = { jobs: '🗂 작업', builder: '🧩 워크플로우', lora: '🎛 모델', pgallery: '🖼 갤러리', results: '📝 결과' };
+const POD_TABS = ['jobs', 'builder', 'lora', 'pgallery', 'pvideo', 'results'];
+const POD_TAB_LABEL = { jobs: '🗂 작업', builder: '🧩 워크플로우', lora: '🎛 모델', pgallery: '🖼 갤러리', pvideo: '🎬 영상', results: '📝 결과' };
 // 파드 종류가 서브탭 구성을 정한다 — 셸 파드에는 워크플로우도 설치된 모델도 없다.
 // (예전에는 셸 파드만 등록해도 상단에 🧩·🎛 탭이 그대로 보였고, 눌러봐야 빈
 // 목록이었다.) 새 종류의 워커를 붙일 때 여기 한 줄이 그 워커의 화면 구성이 된다.
-// pgallery는 이미지를 만드는 종류에만 둔다 — Claude 글쓰기는 같은 자리에 결과가
-// 이미지가 아니라 글이라는 걸 정직하게 반영해 results 탭을 대신 쓴다.
+// pgallery/pvideo는 이미지·영상을 만드는 종류에만 둔다 — Claude 글쓰기는 같은
+// 자리에 결과가 이미지/영상이 아니라 글이라는 걸 정직하게 반영해 results 탭을
+// 대신 쓴다.
 const POD_SUBTABS = {
-  comfyui: ['jobs', 'builder', 'lora', 'pgallery'],
-  shell: ['jobs', 'pgallery'],
+  comfyui: ['jobs', 'builder', 'lora', 'pgallery', 'pvideo'],
+  shell: ['jobs', 'pgallery', 'pvideo'],
   claude_writer: ['jobs', 'results'],
 };
 
@@ -7342,7 +7451,9 @@ function showTab(tab, { podId = null } = {}){
   // jobPodFilter와 같은 자리에서 같이 정한다 — 화면을 나가면(다른 탭으로 이동하면)
   // 필터도 같이 풀린다.
   galleryPodFilter = (tab === 'pgallery') ? scopedPodId : null;
+  videoGalleryPodFilter = (tab === 'pvideo') ? scopedPodId : null;
   updateGalleryScopeUI();
+  updateVideoGalleryScopeUI();
   renderPodBar();
 
   // 파드 종류가 바뀌면 그 종류에서 쓸 수 있는 템플릿만 남긴다. 종류가 그대로면
@@ -7362,7 +7473,7 @@ function showTab(tab, { podId = null } = {}){
   }
 
   if(tab === 'gallery' || tab === 'pgallery') fetchGalleryImages();
-  if(tab === 'video-gallery') fetchGalleryVideos();
+  if(tab === 'video-gallery' || tab === 'pvideo') fetchGalleryVideos();
   if(tab === 'builder') initBuilderTab();
   if(tab === 'lora') initLoraTab();
   if(tab === 'jobs') fetchJobs();
@@ -7819,13 +7930,30 @@ document.querySelectorAll('#gallery-display-toggle .enhance-mode-btn').forEach(b
 });
 
 // job_id로 그 작업이 배정된 파드를 찾는다. lastJobs는 2초마다 갱신되는 전역 작업
-// 목록(작업 화면과 공유)이라 따로 다시 받아올 필요가 없다. 오래전에 완전히
-// 삭제된 작업이면 못 찾는데, 그런 이미지는 애초에 "이 파드 것"이라고 확신할
-// 근거가 없으므로 파드 갤러리에서는 뺀다(전체 갤러리에서는 그대로 보인다).
+// 목록(작업 화면과 공유)이라 따로 다시 받아올 필요가 없다. job_id가 없거나(=
+// nightshift 큐를 거치지 않고 ComfyUI에서 직접 돌린 결과) 오래전에 완전히 삭제된
+// 작업이면, "⬇ 결과 가져오기"가 남긴 동기화 기록(synced_pod_id, app.py가
+// comfy_output_sync.json에서 채워 준다)으로 한 번 더 찾아본다. 그것도 없으면
+// 정말로 "이 파드 것"이라고 확신할 근거가 없는 것이므로 파드 갤러리에서는 뺀다
+// (전체 갤러리에서는 그대로 보인다).
 function podIdForImage(img){
-  if(!img.job_id) return null;
-  const job = lastJobs.find(j => j.id === img.job_id);
-  return job ? job.pod_id : null;
+  if(img.job_id){
+    const job = lastJobs.find(j => j.id === img.job_id);
+    if(job) return job.pod_id;
+  }
+  return img.synced_pod_id || null;
+}
+
+// podIdForImage와 완전히 같은 규칙 — 영상도 output-videos API가 job_id/
+// synced_pod_id를 그대로 노출하므로 로직을 그대로 재사용할 수 있지만, 파드
+// 갤러리는 podIdForImage라는 이름 자체가 "이미지 얘기"로 읽혀서 헷갈리지
+// 않게 이름만 따로 둔다.
+function podIdForVideo(vid){
+  if(vid.job_id){
+    const job = lastJobs.find(j => j.id === vid.job_id);
+    if(job) return job.pod_id;
+  }
+  return vid.synced_pod_id || null;
 }
 
 // 갤러리 화면이 "전체"인지 "이 파드 것만"인지에 따라 제목/가져오기 버튼을 맞춘다.
@@ -7839,6 +7967,18 @@ function updateGalleryScopeUI(){
       : '갤러리';
   }
   applyPullOutputsVisibility();
+}
+
+// updateGalleryScopeUI와 같은 자리(파드 스코프 진입/전환마다)에서 영상 갤러리
+// 제목만 맞춘다 — applyPullOutputsVisibility는 이미지·영상 버튼을 한 번에
+// 처리하므로 여기서 다시 부르지 않는다(showTab이 둘 다 순서대로 호출한다).
+function updateVideoGalleryScopeUI(){
+  const label = document.getElementById('video-gallery-section-label');
+  if(label){
+    label.textContent = videoGalleryPodFilter
+      ? `🎬 영상 갤러리 · ${podName(videoGalleryPodFilter) || videoGalleryPodFilter}`
+      : '🎬 영상 갤러리';
+  }
 }
 
 async function fetchGalleryImages(){
@@ -8410,6 +8550,10 @@ async function fetchGalleryVideos(){
     ]);
     const data = await vidRes.json();
     galleryVideos = data.videos || [];
+    // 파드 갤러리면 그 파드가 배정된 작업의 영상만 남긴다(fetchGalleryImages와 동일한 규칙).
+    if(videoGalleryPodFilter){
+      galleryVideos = galleryVideos.filter(vid => podIdForVideo(vid) === videoGalleryPodFilter);
+    }
     galleryJobLabels = labels; // 이미지 갤러리와 공유하는 전역(작업 라벨은 미디어 종류와 무관)
   }catch(e){
     galleryVideos = [];
@@ -8427,7 +8571,7 @@ async function fetchGalleryVideos(){
   if(galleryVideos.length === 0){
     grid.innerHTML = '';
     displayedGalleryVideos = [];
-    emptyMsg.textContent = '서버에 저장된 영상이 없어요';
+    emptyMsg.textContent = videoGalleryPodFilter ? '이 파드가 만든 영상이 아직 없어요' : '서버에 저장된 영상이 없어요';
     emptyMsg.style.display = 'block';
     return;
   }
@@ -8452,7 +8596,7 @@ document.getElementById('video-gallery-pull-btn').addEventListener('click', asyn
     const res = await fetch('/api/comfy-outputs/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify(videoGalleryPodFilter ? { pod_id: videoGalleryPodFilter } : {}),
     });
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || '가져오지 못했어요.');
