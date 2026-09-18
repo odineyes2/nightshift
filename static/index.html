@@ -2546,6 +2546,8 @@
           <button class="enhance-mode-btn" type="button" data-view="bydate" title="날짜별 보기">📅 날짜별</button>
         </div>
         <button class="load-btn" id="video-gallery-select-all-btn" type="button" disabled title="전체 선택">☑ 전체선택</button>
+        <button class="load-btn" id="video-gallery-pull-btn" type="button" style="display:none;"
+                title="원격 ComfyUI가 만든 결과 영상을 이 서버로 가져와요. nightshift를 거치지 않고 ComfyUI에서 직접 돌린 작업도 ComfyUI 히스토리에 남아있으면 함께 가져와요.">⬇ 결과 가져오기</button>
         <button class="load-btn" id="video-gallery-refresh-btn" type="button" title="새로고침">🔄</button>
       </div>
     </div>
@@ -5254,15 +5256,23 @@ async function fetchComfyStatus(){
 let comfyPullOutputs = false;
 function applyPullOutputsVisibility(){
   const btn = document.getElementById('gallery-pull-btn');
-  if(!btn) return;
-  // 파드 갤러리에서는 지금 보고 있는 그 파드의 설정을 본다 — 전역 갤러리는
-  // 예전처럼 기본 파드 기준(comfyPullOutputs)이다. 파드가 여럿일 때 "기본 파드"와
-  // "지금 보는 파드"가 다를 수 있어서 둘을 섞으면 안 된다.
-  const on = galleryPodFilter ? !!(podsById[galleryPodFilter] || {}).pull_outputs : comfyPullOutputs;
-  btn.style.display = on ? '' : 'none';
-  btn.title = galleryPodFilter
-    ? `'${podName(galleryPodFilter)}' 파드가 만든 결과 이미지를 이 서버로 가져와요.`
-    : '원격 ComfyUI가 만든 결과 이미지를 이 서버로 가져와요. 작업이 끝날 때마다 자동으로도 가져오지만, pod를 껐다 켠 뒤 밀린 것을 한꺼번에 받을 때 쓰세요.';
+  if(btn){
+    // 파드 갤러리에서는 지금 보고 있는 그 파드의 설정을 본다 — 전역 갤러리는
+    // 예전처럼 기본 파드 기준(comfyPullOutputs)이다. 파드가 여럿일 때 "기본 파드"와
+    // "지금 보는 파드"가 다를 수 있어서 둘을 섞으면 안 된다.
+    const on = galleryPodFilter ? !!(podsById[galleryPodFilter] || {}).pull_outputs : comfyPullOutputs;
+    btn.style.display = on ? '' : 'none';
+    btn.title = galleryPodFilter
+      ? `'${podName(galleryPodFilter)}' 파드가 만든 결과 이미지를 이 서버로 가져와요.`
+      : '원격 ComfyUI가 만든 결과 이미지를 이 서버로 가져와요. 작업이 끝날 때마다 자동으로도 가져오지만, pod를 껐다 켠 뒤 밀린 것을 한꺼번에 받을 때 쓰세요.';
+  }
+  // 영상 갤러리는 파드 스코프가 없는 전역 화면이라 기본 파드 기준(comfyPullOutputs)만 본다.
+  // 같은 /api/comfy-outputs/sync가 이미지/영상을 함께 받아오므로 백엔드는 그대로 두고
+  // 버튼만 나란히 둔다.
+  const videoBtn = document.getElementById('video-gallery-pull-btn');
+  if(videoBtn){
+    videoBtn.style.display = comfyPullOutputs ? '' : 'none';
+  }
 }
 
 // ---- 설치된 모델/노드 목록 (ComfyUI의 /object_info를 서버가 추려서 넘겨줌) ----
@@ -8427,6 +8437,38 @@ async function fetchGalleryVideos(){
 }
 
 document.getElementById('video-gallery-refresh-btn').addEventListener('click', fetchGalleryVideos);
+
+// 이미지 갤러리의 "⬇ 결과 가져오기"와 같은 엔드포인트를 쓴다(comfy_outputs.py가
+// 이미지/영상을 같은 출력 폴더로 함께 받아온다) — nightshift 큐를 거치지 않고
+// ComfyUI에서 직접 돌린 작업도 ComfyUI 히스토리에 남아있으면 이걸로 받아온다.
+document.getElementById('video-gallery-pull-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('video-gallery-pull-btn');
+  const errorEl = document.getElementById('video-gallery-error');
+  errorEl.textContent = '';
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ 가져오는 중…';
+  try{
+    const res = await fetch('/api/comfy-outputs/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '가져오지 못했어요.');
+    const got = (data.downloaded || []).length;
+    const failed = (data.errors || []).length;
+    errorEl.textContent = failed
+      ? `${got}개 가져왔어요 (실패 ${failed}건: ${data.errors.slice(0, 2).join('; ')})`
+      : (got ? '' : '새로 가져올 영상이 없어요.');
+    if(got) await fetchGalleryVideos();
+  }catch(e){
+    errorEl.textContent = e.message || '가져오지 못했어요.';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
 document.getElementById('video-gallery-select-all-btn').addEventListener('click', () => {
   for(const vid of galleryVideos) selectedGalleryVideoNames.add(vid.name);
   document.querySelectorAll('#video-gallery-grid .vgallery-item').forEach(el => el.classList.add('selected'));
