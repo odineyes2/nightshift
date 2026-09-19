@@ -15,7 +15,7 @@ OUTPUT_DIR 바로 밑뿐 아니라 하위 폴더까지 재귀적으로 훑는다
 import os
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, PngImagePlugin
 
 OUTPUT_DIR = os.environ.get("NIGHTSHIFT_OUTPUT_DIR", "/workspace/output")
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
@@ -63,12 +63,25 @@ def is_landscape_hiresfix_size(width: int, height: int) -> bool:
     return abs(ratio - target_ratio) / target_ratio <= LANDSCAPE_RATIO_TOLERANCE
 
 
+def save_rotated(original: Image.Image, rotated: Image.Image, path: Path) -> None:
+    """회전한 이미지를 path에 덮어쓴다. PNG는 ComfyUI가 넣어둔 프롬프트/워크플로우
+    텍스트 청크를 그대로 옮겨 담는다 — PIL의 save()는 기본적으로 버려서, 한 번만 돌려도
+    그 이미지의 시드/프롬프트 메타데이터가 영영 사라진다(결과물 색인이 이걸 읽는다)."""
+    kwargs = {}
+    if original.format == "PNG":
+        info = PngImagePlugin.PngInfo()
+        for key, value in (getattr(original, "text", None) or {}).items():
+            info.add_text(key, value)
+        kwargs["pnginfo"] = info
+    rotated.save(path, **kwargs)
+
+
 def rotate_image_file(path: Path) -> None:
     """이미지 파일 하나를 시계 방향 90도 회전해 같은 파일에 덮어쓴다. 갤러리
     라이트박스/선택 회전처럼 사용자가 직접 고른 이미지를 돌릴 때 쓴다 —
     rotate_landscape_images(비율로 자동 판단)와 달리 방향 판단 없이 무조건 돈다."""
     with Image.open(path) as img:
-        img.transpose(Image.Transpose.ROTATE_270).save(path)
+        save_rotated(img, img.transpose(Image.Transpose.ROTATE_270), path)
 
 
 def rotate_landscape_images(search_dir: str | None = None) -> dict:
@@ -84,7 +97,7 @@ def rotate_landscape_images(search_dir: str | None = None) -> dict:
             with Image.open(f) as img:
                 if not is_landscape_hiresfix_size(img.width, img.height):
                     continue
-                img.transpose(Image.Transpose.ROTATE_270).save(f)
+                save_rotated(img, img.transpose(Image.Transpose.ROTATE_270), f)
         except Exception as e:
             errors.append(f"{f.name}: {e}")
             continue

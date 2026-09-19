@@ -35,7 +35,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 - `seed_batch`/`csv_batch` 템플릿은 실행 전에 예상 총 이미지 수(시드/행 수 × batch_size)를 계산해 두고, 이미지가 하나
   완료될 때마다 진행 상황을 서버에 보고 — 작업 목록에서 상태 배지 아래 진행률 바(`done/total`)로 실시간 확인 가능
 - 시작 전(대기중)이거나 완료/실패/중단된 작업 삭제 (이미 시작됐거나 실행 중인 작업은 삭제 불가). "작업 목록" 패널의 "🗑 완료 삭제" 버튼으로 완료/실패/중단된 작업을 한꺼번에 정리할 수도 있음(둘 다 소프트 삭제라 "삭제된 작업 설정 불러오기"로 되돌릴 수 있음)
-- 서버가 재시작되어도 `jobs_state.json`에 저장된 이력은 유지됨 (단, 이미 시작된 상태로 큐에 남아있던 작업은 재실행되지 않고 `interrupted`로 표시됨. 아직 시작하지 않은 `pending` 작업은 그대로 남아 다시 배치를 시작할 수 있음). `interrupted` 작업은 "🔁 재시작" 버튼으로 워크플로우/CSV/옵션을 다시 첨부할 필요 없이 그 자리에서 다시 큐에 올릴 수 있음
+- 서버가 재시작되어도 `data/nightshift.db`(SQLite)에 저장된 작업 이력은 유지됨 (단, 이미 시작된 상태로 큐에 남아있던 작업은 재실행되지 않고 `interrupted`로 표시됨. 아직 시작하지 않은 `pending` 작업은 그대로 남아 다시 배치를 시작할 수 있음). `interrupted` 작업은 "🔁 재시작" 버튼으로 워크플로우/CSV/옵션을 다시 첨부할 필요 없이 그 자리에서 다시 큐에 올릴 수 있음
 - ComfyUI가 원격(GPU pod)에 있을 때 결과 이미지를 이 서버의 출력 폴더로 자동으로 끌어오기 — 작업이 끝날 때마다 그 작업 몫만 받아오고, 한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않음(`comfy_outputs.py`)
 - "결과 이미지 이메일 전송" 패널에서 보내는 메일 계정/비밀번호/받는 메일 계정을 입력하면, 서버의 출력 폴더에 쌓인 이미지를 모아 용량 한도 안에서 여러 통으로 나눠 발송 (계정 정보는 저장하지 않고 그 요청 처리에만 사용)
 - "결과 이미지 ZIP 다운로드" 패널에서 버튼 하나로 출력 폴더의 이미지를 모두 zip으로 묶어 바로 다운로드
@@ -858,6 +858,11 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `PUT` | `/api/pods/{pod_id}` | 파드를 **부분 수정**한다 — 보낸 필드만 바뀐다(이름만 바꾸려는 요청이 주소를 지우면 안 되므로). 주소가 바뀌면 그 파드의 노드/모델 목록 캐시를 비운다. 없는 파드면 404 |
 | `DELETE` | `/api/pods/{pod_id}` | 파드를 지운다. 마지막 하나는 지울 수 없음(400) — 쓰지 않으려면 `enabled: false` |
 | `GET` | `/api/pods/summary` | 대시보드가 폴링할 파드별 요약 — 레코드(+`kind_label`/`effective_url`) + 연결 상태(캐시) + `auto_run`/`queue_len`/`running_jobs`/`waiting_for_pod`/`pending_count`/`images_today` + `card`(드라이버가 주는 카드 정보, ComfyUI는 GPU/VRAM — 20초 캐시에 백그라운드 갱신) + `recent_images`(최근 결과 3장의 상대 경로) + 전체 합계 `totals`. 파드 폴더만 들여다보므로 출력 폴더 전체를 훑지 않는다 |
+| `GET` | `/api/projects` | 프로젝트 목록 `{"projects": [...], "unassigned": {...}}` — 각 프로젝트에 `job_count`/`active_jobs`/`asset_count`/`favorite_count`/`cover_path`/`last_activity`가 붙는다. `unassigned`는 프로젝트에 안 속한 작업·결과물 요약("미분류"). `?include_archived=true`면 보관된 프로젝트도 포함 |
+| `POST` | `/api/projects` | 프로젝트를 만든다(`{"name"(필수), "description", "defaults"}`). 프로젝트는 파드와 무관하게 작업과 결과물을 묶는다 |
+| `GET`/`PATCH`/`DELETE` | `/api/projects/{id}` | 조회 / 부분 수정(`name`·`description`·`defaults`·`archived`·`cover_asset_id`) / 삭제 — 삭제해도 그 안의 작업·결과물은 지워지지 않고 미분류로 돌아온다 |
+| `PUT` | `/api/jobs/{job_id}/project` | 작업을 다른 프로젝트로 옮긴다(`{"project_id": 3}`, 미분류로는 `null`). 그 작업이 만든 결과물도 같이 옮겨간다 |
+| `GET` | `/api/output-assets` | 결과물 색인(SQLite) 조회 — `?project_id=`(숫자 또는 `unassigned`)·`kind`(`image`/`video`)·`job_id`·`favorite`·`limit`·`offset`. 시드/프롬프트/체크포인트 등 PNG 메타데이터에서 뽑은 값이 함께 온다 |
 | `POST` | `/api/pods/{pod_id}/queue/start` | **그 파드만** 자동 실행을 켜고, 그 파드로 배정된 대기 작업을 큐에 넣음(작업 화면의 "▶ 시작"이 부르는 것). 다른 파드에 배정된 작업은 건드리지 않고, 배정된 파드가 사라졌거나 꺼진 작업만 — 그것도 워커 종류가 맞을 때만 — 이 파드로 되돌림. 응답 `{"pod_id", "running": true, "started": N}` |
 | `POST` | `/api/pods/{pod_id}/queue/stop` | **그 파드만** 멈춤(다른 파드는 계속 돎). 그 파드에서 실행 중인 작업에 종료 요청. 응답 `{"pod_id", "running": false, "stopped_job_ids": [...]}` |
 | `POST` | `/api/jobs/{job_id}/move` | 작업을 다른 파드로 옮김(요청 본문 `{"pod_id": "..."}`). `pending`/`queued`/`interrupted`만 가능하고 실행 중이면 400, 없는 파드면 404, 사용 안 함 파드면 400 |
@@ -956,6 +961,8 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `list_models` | `GET /api/comfy-object-info` | 설치된 모델/샘플러/스케줄러만 추려서 반환 (`node_types` 제외) |
 | `build_workflow` | `POST /api/build-workflow` | 체크포인트/LoRA/프롬프트/샘플링 파라미터로 워크플로우 JSON 조립 |
 | `submit_job` | `POST /api/upload` | 워크플로우(JSON 객체)와 옵션으로 잡 등록 — 내부적으로 임시 파일을 만들어 멀티파트로 올린 뒤 바로 정리함. `requires_csv` 템플릿에 `csv` 없이 부르면 업로드 전에 걸러서 에러 반환 |
+| `list_projects` | `GET /api/projects` | 프로젝트 목록과 미분류 요약. `submit_job`의 `project_id`에 쓸 id를 여기서 찾는다 |
+| `create_project` | `POST /api/projects` | 새 프로젝트를 만든다 |
 | `list_jobs` | `GET /api/jobs` (+`/deleted`) | 활성 잡 목록. `include_deleted=true`면 삭제된 잡도 합쳐서 반환 |
 | `get_job` | `list_jobs` 재사용 | 잡 하나 조회, 없으면 404 스타일 에러 |
 | `wait_for_job` | `get_job` 폴링 | `done`/`failed`/`interrupted`까지 대기, timeout 넘으면 예외 대신 마지막 상태와 함께 에러 반환 |
@@ -1032,7 +1039,8 @@ nightshift/
     ├── recent_workflows/       # "🕘 최근" 워크플로우 사본
     ├── recent_csvs/            # "🕘 최근" CSV 사본
     ├── workflow_presets/       # family별 ControlNet 프리셋 워크플로우
-    ├── jobs_state.json         # 작업 이력
+    ├── nightshift.db           # SQLite — 프로젝트·작업 이력·결과물 색인·태그 (옛 jobs_state.json은
+    │                           #   첫 실행 때 여기로 옮겨지고 jobs_state.json.migrated로 보존됨)
     ├── pods.json               # 파드(워커) 목록
     ├── comfy_endpoint.json     # (옛 형식) ComfyUI 접속 주소 — 있으면 pods.json으로 이관됨
     ├── comfy_output_sync.json  # 원격 ComfyUI에서 어디까지 받아왔는지의 기록

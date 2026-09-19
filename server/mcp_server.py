@@ -170,12 +170,14 @@ async def submit_job(
     options: dict,
     workflow_filename: str = "workflow.json",
     csv: str | None = None,
+    project_id: int | None = None,
 ) -> dict:
     """워크플로우 JSON과 템플릿 옵션으로 잡을 큐에 등록한다(아직 실행 큐에는
     안 들어감 — start_queue를 불러야 실제로 돈다). template_id는 list_templates
     결과의 id 중 하나, options는 그 템플릿의 options 이름들을 key로 쓰는
     key-value(비워두면 각 옵션의 default가 쓰임). requires_csv가 true인
-    템플릿이면 csv에 CSV 원문 텍스트를 실어야 한다."""
+    템플릿이면 csv에 CSV 원문 텍스트를 실어야 한다. project_id는 list_projects의
+    id — 주면 그 프로젝트에 속한 잡이 되고(결과물도 그 프로젝트로 모인다), 비우면 미분류."""
     try:
         async with _client(STATUS_TIMEOUT) as client:
             templates_resp = await client.get("/api/templates")
@@ -198,6 +200,8 @@ async def submit_job(
         workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
 
         form_data = {"template_id": template_id}
+        if project_id is not None:
+            form_data["project_id"] = str(project_id)
         for option in template.get("options", []):
             value = options.get(option["name"])
             form_data[option["name"]] = "" if value is None else str(value)
@@ -218,6 +222,34 @@ async def submit_job(
         return resp.json()
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+@mcp.tool()
+async def list_projects(include_archived: bool = False) -> dict:
+    """프로젝트 목록(작업/결과물 수, 실행 중인 작업 수, 마지막 활동 포함)과 "미분류"
+    요약을 반환한다. 프로젝트는 파드와 무관하게 작업과 결과물을 묶는다 —
+    submit_job의 project_id에 여기 id를 넣으면 그 프로젝트로 들어간다."""
+    try:
+        async with _client(STATUS_TIMEOUT) as client:
+            resp = await client.get("/api/projects", params={"include_archived": str(include_archived).lower()})
+    except httpx.HTTPError as e:
+        return _error_from_exception(e)
+    if resp.status_code != 200:
+        return _error_from_response(resp)
+    return resp.json()
+
+
+@mcp.tool()
+async def create_project(name: str, description: str = "") -> dict:
+    """새 프로젝트를 만든다. 반환값의 id를 submit_job의 project_id로 쓴다."""
+    try:
+        async with _client(STATUS_TIMEOUT) as client:
+            resp = await client.post("/api/projects", json={"name": name, "description": description})
+    except httpx.HTTPError as e:
+        return _error_from_exception(e)
+    if resp.status_code != 200:
+        return _error_from_response(resp)
+    return resp.json()
 
 
 @mcp.tool()

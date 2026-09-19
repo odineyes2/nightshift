@@ -58,7 +58,10 @@ from drivers.comfyui import (
     ComfyUIDriver,
     check_url,
 )
+import assets_index
+import db
 import pod_registry
+import projects as project_store
 import runpod_api
 from email_sender import EmailSendError, find_image_files, send_output_images
 from workflow_builder import WorkflowBuildError, build_workflow
@@ -434,15 +437,21 @@ def now_iso() -> str:
 
 def save_state():
     # 큐 자체는 프로세스가 죽으면 사라지지만, 이력 조회는 재시작 후에도 가능하게 기록만 남긴다.
+    # 작업 기록은 SQLite(db.py)에 산다 — 메모리 jobs dict를 통째로 맞추되 바뀐 것만 쓴다.
+    # DB가 잠깐 안 써져도 워커 스레드가 죽으면 안 되므로 로그만 남기고 넘어간다(바뀐 것은
+    # 저장에 성공할 때까지 계속 "바뀐 것"으로 남아서 다음 save_state()가 다시 쓴다).
     with lock:
-        with open(STATE_FILE, "w") as f:
-            json.dump(jobs, f, indent=2, default=str)
+        try:
+            db.save_jobs(jobs)
+        except Exception:
+            logging.exception("작업 기록을 DB에 저장하지 못했어요")
 
 
 def load_state():
-    if STATE_FILE.exists():
-        with open(STATE_FILE) as f:
-            jobs.update(json.load(f))
+    # 예전 jobs_state.json이 있으면 한 번만 DB로 가져오고(원본은 .migrated로 보존).
+    db.init()
+    db.import_legacy_jobs(STATE_FILE)
+    jobs.update(db.load_jobs())
 
 
 def prune_deleted_jobs():
@@ -959,6 +968,8 @@ def _run_one_job(pod_id: str, job_id: str):
     # 출력 폴더를 읽으므로, 작업이 끝난 직후 그 작업 몫만 끌어온다. 중간에 실패했더라도
     # 그때까지 나온 이미지는 가져온다(returncode를 안 본다).
     pull_job_outputs(pod, job_id, comfy_url, log_path)
+    # 방금 끝난 작업의 결과물을 색인에 넣는다(그 job의 프로젝트를 물려받는다).
+    _sync_assets_quietly(force=True)
 
 
 def ensure_runtime(pod: dict) -> PodRuntime:
@@ -992,6 +1003,14 @@ def sync_runtimes():
             del pod_runtimes[pid]
 
 
+def _sync_assets_quietly(force: bool = False):
+    # 색인은 부가 기능이라 실패해도 갤러리/작업 흐름을 막지 않는다.
+    try:
+        assets_index.sync(force=force)
+    except Exception:
+        logging.exception("결과물 색인(assets) 동기화에 실패했어요")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_state()
@@ -1014,6 +1033,9 @@ async def lifespan(app: FastAPI):
             set_comfy_wait_flag(job, False)
     save_state()
     sync_runtimes()
+    # 결과물 색인(assets)을 디스크와 맞춘다 — 파일이 많으면 시간이 걸릴 수 있으니
+    # 서버가 뜨는 걸 붙잡지 않게 뒤에서 돌린다.
+    threading.Thread(target=_sync_assets_quietly, kwargs={"force": True}, daemon=True).start()
     yield
 
 
@@ -2389,6 +2411,7 @@ async def create_job(
     pod_id: str | None = None,
     video_workflow_bytes: bytes | None = None,
     video_workflow_filename: str | None = None,
+    project_id: int | None = None,
 ) -> dict:
     # POST /api/upload(사람이 브라우저에서 파일 첨부)와 POST /api/jobs(LLM 등
     # 프로그램이 JSON으로 호출)가 공유하는 실제 잡 생성 로직 — 두 경로 모두
@@ -2403,6 +2426,10 @@ async def create_job(
             raise HTTPException(400, f"'{pod['name']}' 파드는 지금 사용 안 함 상태예요.")
     else:
         pod = pod_registry.default_pod()
+
+    # 프로젝트는 파드와 무관하게 작업을 묶는다. 없으면 "미분류"(project_id=None).
+    if project_id is not None and not project_store.project_exists(project_id):
+        raise HTTPException(400, "없는 프로젝트예요.")
 
     # 템플릿이 특정 워커 종류 전용이면(셸 명령은 셸 파드에서만 뜻이 있다) 여기서 막는다.
     # 안 막으면 ComfyUI 파드에 셸 작업이 들어가 조용히 엉뚱하게 돈다.
@@ -2484,6 +2511,20 @@ async def create_job(
 
     job_id = str(uuid.uuid4())[:8]
 
+    # 파드 스냅샷용 GPU/시간당 비용 — 대시보드가 이미 주기적으로 조회해 캐시해둔 값을
+    # 쓰므로 보통 네트워크를 안 탄다. 캐시가 비어 있어도 작업 추가를 오래 붙잡지 않도록
+    # 짧게만 기다리고, 못 얻으면 그냥 비워둔다(비용 집계에서 "모름"으로 남는다).
+    pod_gpu = pod_cost_per_hr = None
+    try:
+        info = await asyncio.wait_for(
+            asyncio.to_thread(runpod_api.get_runpod_info, pod.get("url") or ""), timeout=3)
+        if info:
+            pod_gpu = info.get("gpu_type")
+            cost = info.get("cost_per_hr")
+            pod_cost_per_hr = float(cost) if isinstance(cost, (int, float)) else None
+    except Exception:
+        pass
+
     # 워크플로우가 필요 없는 템플릿도 있다(셸 명령처럼 ComfyUI를 아예 안 쓰는 것들).
     workflow_dest_name = None
     if workflow_bytes is not None:
@@ -2530,6 +2571,13 @@ async def create_job(
             "deleted": False,
             "deleted_at": None,
             "pod_id": pod["id"],
+            "project_id": project_id,
+            # 파드는 일시적이라(지워지고 다시 안 쓴다) 나중에 "어디서 돌았나/얼마 들었나"를
+            # 볼 수 있게 이 시점의 정보를 job에 찍어둔다.
+            "pod_name": pod.get("name"),
+            "pod_kind": pod.get("kind"),
+            "pod_gpu": pod_gpu,
+            "pod_cost_per_hr": pod_cost_per_hr,
         }
         # 자동 실행 모드("▶ 시작"이 켜져 있는 동안)면 대기 목록에 머무르지 않고
         # 바로 그 파드의 실행 큐에 넣는다 — 그래야 켜놓은 동안 새로 추가하는 작업이
@@ -2591,7 +2639,20 @@ async def upload(request: Request):
         pod_id if isinstance(pod_id, str) and pod_id.strip() else None,
         video_workflow_bytes,
         video_workflow.filename if has_video_workflow else None,
+        parse_project_id(form.get("project_id")),
     )
+
+
+def parse_project_id(value) -> int | None:
+    """요청에서 온 project_id(숫자/숫자 문자열/빈 값)를 int 또는 None(미분류)으로."""
+    if value is None or value == "" or value == "null":
+        return None
+    if isinstance(value, bool):
+        raise HTTPException(400, "project_id는 숫자여야 해요.")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "project_id는 숫자여야 해요.")
 
 
 @app.post("/api/jobs")
@@ -2656,7 +2717,8 @@ async def create_job_from_json(request: Request):
     pod_id = body.get("pod_id")
     return await create_job(template, workflow_bytes, workflow_filename, csv_bytes, csv_filename,
                             raw_options, pod_id if isinstance(pod_id, str) and pod_id.strip() else None,
-                            video_workflow_bytes, video_workflow_filename)
+                            video_workflow_bytes, video_workflow_filename,
+                            parse_project_id(body.get("project_id")))
 
 
 def start_pods(pod_ids: list[str]) -> int:
@@ -2709,6 +2771,116 @@ def start_pods(pod_ids: list[str]) -> int:
     for job_id, pod_id in started:
         dispatch_job(job_id, pod_id)
     return len(started)
+
+
+# ---- 프로젝트 ------------------------------------------------------------------------
+# 프로젝트는 파드와 무관하게 작업(job)과 결과물(asset)을 묶는다. project_id가 없는 것은
+# "미분류". 프로젝트를 지워도 그 안의 작업/결과물은 지워지지 않고 미분류로 돌아온다.
+
+def _clean_project_fields(body: dict, creating: bool) -> dict:
+    fields: dict = {}
+    if "name" in body or creating:
+        name = body.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise HTTPException(400, "프로젝트 이름이 필요해요.")
+        fields["name"] = name.strip()
+    if "description" in body:
+        if not isinstance(body["description"], str):
+            raise HTTPException(400, "description은 문자열이어야 해요.")
+        fields["description"] = body["description"]
+    if "defaults" in body:
+        if not isinstance(body["defaults"], dict):
+            raise HTTPException(400, "defaults는 JSON 객체여야 해요.")
+        fields["defaults"] = body["defaults"]
+    if "archived" in body:
+        fields["archived"] = bool(body["archived"])
+    if "cover_asset_id" in body:
+        cover = body["cover_asset_id"]
+        if cover is not None and (not isinstance(cover, int) or isinstance(cover, bool)):
+            raise HTTPException(400, "cover_asset_id는 숫자 또는 null이어야 해요.")
+        fields["cover_asset_id"] = cover
+    return fields
+
+
+@app.get("/api/projects")
+def list_projects_api(include_archived: bool = False):
+    return {
+        "projects": project_store.list_projects(include_archived),
+        "unassigned": project_store.unassigned_summary(),
+    }
+
+
+@app.post("/api/projects")
+async def create_project_api(request: Request):
+    body = await read_json_object(request, allow_empty=False)
+    fields = _clean_project_fields(body, creating=True)
+    return project_store.create_project(fields["name"], fields.get("description", ""), fields.get("defaults"))
+
+
+@app.get("/api/projects/{project_id}")
+def get_project_api(project_id: int):
+    project = project_store.get_project(project_id)
+    if project is None:
+        raise HTTPException(404, "없는 프로젝트예요.")
+    return project
+
+
+@app.patch("/api/projects/{project_id}")
+async def update_project_api(project_id: int, request: Request):
+    body = await read_json_object(request, allow_empty=False)
+    project = project_store.update_project(project_id, _clean_project_fields(body, creating=False))
+    if project is None:
+        raise HTTPException(404, "없는 프로젝트예요.")
+    return project
+
+
+@app.delete("/api/projects/{project_id}")
+def delete_project_api(project_id: int):
+    if not project_store.delete_project(project_id):
+        raise HTTPException(404, "없는 프로젝트예요.")
+    # DB에서는 FK가 알아서 미분류로 돌렸지만 메모리 jobs dict는 그대로라 같이 맞춘다.
+    with lock:
+        for job in jobs.values():
+            if job.get("project_id") == project_id:
+                job["project_id"] = None
+    save_state()
+    return {"ok": True}
+
+
+@app.put("/api/jobs/{job_id}/project")
+async def set_job_project(job_id: str, request: Request):
+    # 작업을 다른 프로젝트로(또는 미분류로) 옮긴다 — 그 작업이 만든 결과물도 같이 옮겨간다.
+    body = await read_json_object(request, allow_empty=False)
+    if "project_id" not in body:
+        raise HTTPException(400, "project_id가 필요해요(미분류로 옮기려면 null).")
+    project_id = parse_project_id(body["project_id"])
+    if project_id is not None and not project_store.project_exists(project_id):
+        raise HTTPException(400, "없는 프로젝트예요.")
+    with lock:
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(404, "없는 작업이에요.")
+        job["project_id"] = project_id
+        snapshot = dict(job)
+    save_state()
+    project_store.set_job_assets_project(job_id, project_id)
+    return snapshot
+
+
+@app.get("/api/output-assets")
+def list_assets_api(project_id: str | None = None, kind: str | None = None,
+                    job_id: str | None = None, favorite: bool | None = None,
+                    limit: int = 200, offset: int = 0):
+    # 결과물 색인 조회 — project_id는 숫자 또는 "unassigned"(미분류). 아직 갤러리 화면이
+    # 쓰지는 않는다(갤러리는 여전히 폴더를 직접 훑는다).
+    if kind not in (None, "image", "video"):
+        raise HTTPException(400, "kind는 image 또는 video여야 해요.")
+    project: str | int | None = None
+    if project_id is not None:
+        project = "unassigned" if project_id == "unassigned" else parse_project_id(project_id)
+    _sync_assets_quietly()
+    return {"assets": assets_index.list_assets(project, kind, job_id, favorite,
+                                               max(1, min(limit, 1000)), max(0, offset))}
 
 
 @app.post("/api/queue/start")
@@ -2787,10 +2959,15 @@ def clear_completed_jobs(pod_id: str | None = None):
 
 
 @app.get("/api/jobs")
-def list_jobs():
+def list_jobs(project_id: str | None = None):
+    # project_id를 주면 그 프로젝트 것만("unassigned"면 미분류) — 안 주면 전부.
+    wanted = None
+    if project_id is not None:
+        wanted = "unassigned" if project_id == "unassigned" else parse_project_id(project_id)
     with lock:
         ordered = sorted(
-            (j for j in jobs.values() if not j.get("deleted")),
+            (j for j in jobs.values() if not j.get("deleted")
+             and (wanted is None or j.get("project_id") == (None if wanted == "unassigned" else wanted))),
             key=lambda j: j["queued_at"],
             reverse=True,
         )
@@ -3117,6 +3294,9 @@ def list_output_images_meta() -> list[dict]:
 
 @app.get("/api/output-images")
 def list_output_images_api():
+    # 갤러리가 4초마다 부르는 곳 — 색인(assets)이 디스크와 어긋나지 않게 짧은 간격
+    # 안에서는 건너뛰는 sync를 같이 돌린다(회전/삭제/직접 넣은 파일이 여기서 따라잡힌다).
+    _sync_assets_quietly()
     return {"images": list_output_images_meta()}
 
 
@@ -3485,6 +3665,7 @@ def list_output_videos_meta() -> list[dict]:
 
 @app.get("/api/output-videos")
 def list_output_videos_api():
+    _sync_assets_quietly()
     return {"videos": list_output_videos_meta()}
 
 
