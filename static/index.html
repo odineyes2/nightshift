@@ -83,7 +83,9 @@
     color:var(--text);
     font-family:var(--sans);
     min-height:100vh;
-    overflow-x:hidden;
+    /* hidden이 아니라 clip — html이 이미 가로 오버플로를 막고 있고, body에 hidden을 걸면 body가
+       스크롤 컨테이너가 되어 그 안의 position:sticky(갤러리 선택 툴바)가 동작하지 않는다. */
+    overflow-x:clip;
   }
   header{
     display:flex;
@@ -101,7 +103,12 @@
     font-size:15px;
     font-weight:600;
     letter-spacing:0.01em;
+    color:inherit;
+    text-decoration:none;
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
   }
+  .brand:focus-visible{ outline:2px solid var(--queued); outline-offset:4px; border-radius:6px; }
   .brand-logo{
     height:22px;
     width:auto;
@@ -549,7 +556,7 @@
   /* 폰에서는 파드 바/서브탭/라이트박스 버튼의 글자를 숨기고 아이콘만 남긴다 — 폭이
      좁아 글자가 한 자씩 세로로 쪼개지던 문제. 서브탭은 한 줄을 똑같은 폭으로 나눠 쓴다. */
   @media (max-width:640px){
-    .pod-bar-back .btn-label, .pod-subtab-btn .btn-label, .lightbox-actions .btn-label{ display:none; }
+    .pod-bar-back .btn-label, .pod-subtab-btn .btn-label, .lightbox-actions .btn-label, .gallery-toolbar .btn-label{ display:none; }
     .pod-bar-back{ padding:7px 10px; }
     .pod-bar-subtabs{ flex:1 1 100%; margin-left:0; gap:6px; }
     .pod-subtab-btn{ flex:1; padding:9px 0; }
@@ -1629,9 +1636,15 @@
     gap:var(--gap-md);
     padding:10px 12px;
     margin-bottom:12px;
-    background:rgba(var(--queued-rgb),0.06);
+    /* 스크롤해도 화면 위에 붙어 따라온다 — 아래쪽 이미지를 고르다가 맨 위로 되돌아가지 않게.
+       내용이 비쳐 보이지 않게 패널 색 위에 옅은 색을 덧칠한다. */
+    position:sticky;
+    top:8px;
+    z-index:20;
+    background:linear-gradient(rgba(var(--queued-rgb),0.06), rgba(var(--queued-rgb),0.06)), var(--panel);
     border:1px solid rgba(var(--queued-rgb),0.25);
     border-radius:var(--radius-md);
+    box-shadow:0 4px 14px rgba(16,24,40,0.10);
   }
   /* 이미지/영상 갤러리에서 여러 개를 선택했을 때 뜨는 줄 — 버튼이 줄어들지도
      줄바꿈되지도 않아 "N개 선택됨" 글자만 세로로 쪼개지고 버튼들은 화면 밖으로
@@ -1640,6 +1653,8 @@
     .gallery-toolbar{ flex-wrap:wrap; }
     .gallery-toolbar-count{ margin-right:0; flex-basis:100%; }
   }
+  /* "해제"(.modal-btn-secondary)는 다른 툴바 버튼(.load-btn)보다 커서 줄이 들쭉날쭉했다 — 크기를 맞춘다. */
+  .gallery-toolbar .modal-btn-secondary{ padding:4px 10px; font-size:11px; }
   .gallery-toolbar-count{
     font-family:var(--mono);
     font-size:12.5px;
@@ -2580,7 +2595,7 @@
 </div>
 
 <header>
-  <div class="brand"><span class="dot"></span> <img class="brand-logo" src="/nightshift-wordmark.svg" alt="Nightshift"></div>
+  <a class="brand" id="brand-home" href="#dashboard" title="홈으로" aria-label="Nightshift 홈"><span class="dot"></span> <img class="brand-logo" src="/nightshift-wordmark.svg" alt="Nightshift"></a>
   <div class="header-right">
     <button class="theme-toggle-btn" id="theme-toggle-btn" type="button"></button>
     <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
@@ -2869,6 +2884,7 @@
         <div class="enhance-mode" id="gallery-view-toggle">
           <button class="enhance-mode-btn active" type="button" data-view="all" title="전체 보기"><svg class="ico"><use href="#i-images"/></svg> 전체</button>
           <button class="enhance-mode-btn" type="button" data-view="byjob" title="작업별 보기"><svg class="ico"><use href="#i-folders"/></svg> 작업별</button>
+          <button class="enhance-mode-btn" type="button" data-view="byproject" title="프로젝트별 보기"><svg class="ico"><use href="#i-folder-kanban"/></svg> 프로젝트별</button>
           <button class="enhance-mode-btn" type="button" data-view="bydate" title="날짜별 보기"><svg class="ico"><use href="#i-calendar-days"/></svg> 날짜별</button>
         </div>
         <div class="enhance-mode" id="gallery-display-toggle">
@@ -2893,15 +2909,15 @@
       </div>
       <div class="gallery-toolbar" id="gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="gallery-toolbar-count"></span>
-        <button class="load-btn" id="gallery-fav-selected-btn" type="button" title="선택한 이미지를 즐겨찾기에 넣기/빼기 (전부 즐겨찾기면 빼요)"><svg class="ico"><use href="#i-star"/></svg> 즐겨찾기</button>
-        <button class="load-btn" id="gallery-tag-selected-btn" type="button" title="선택한 이미지에 태그 붙이기/떼기"><svg class="ico"><use href="#i-tag"/></svg> 태그</button>
-        <button class="load-btn" id="gallery-move-selected-btn" type="button" title="선택한 이미지를 다른 프로젝트로 옮기기"><svg class="ico"><use href="#i-folder-input"/></svg> 이동</button>
-        <button class="load-btn" id="gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg> 다운로드</button>
-        <button class="load-btn" id="gallery-rotate-download-selected-btn" type="button" title="선택한 이미지 중 가로형만 시계 방향으로 90도 돌린 사본을 다운로드 (세로형은 그대로, 원본 파일은 건드리지 않음)"><svg class="ico"><use href="#i-rotate-cw"/></svg><svg class="ico"><use href="#i-download"/></svg> 회전 후 다운로드</button>
-        <button class="load-btn" id="gallery-rotate-selected-btn" type="button" title="선택한 이미지를 전부 시계 방향으로 90도 돌려요 (원본을 실제로 바꿔요)"><svg class="ico"><use href="#i-rotate-cw"/></svg> 회전</button>
-        <button class="load-btn" id="gallery-send-to-pose-btn" type="button" title="참조 세트로 보내기"><svg class="ico"><use href="#i-bookmark-plus"/></svg> 세트 추가</button>
-        <button class="del-btn" id="gallery-delete-selected-btn" type="button" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>
-        <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg> 해제</button>
+        <button class="load-btn" id="gallery-fav-selected-btn" type="button" title="선택한 이미지를 즐겨찾기에 넣기/빼기 (전부 즐겨찾기면 빼요)"><svg class="ico"><use href="#i-star"/></svg><span class="btn-label">즐겨찾기</span></button>
+        <button class="load-btn" id="gallery-tag-selected-btn" type="button" title="선택한 이미지에 태그 붙이기/떼기"><svg class="ico"><use href="#i-tag"/></svg><span class="btn-label">태그</span></button>
+        <button class="load-btn" id="gallery-move-selected-btn" type="button" title="선택한 이미지를 다른 프로젝트로 옮기기"><svg class="ico"><use href="#i-folder-input"/></svg><span class="btn-label">이동</span></button>
+        <button class="load-btn" id="gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
+        <button class="load-btn" id="gallery-rotate-download-selected-btn" type="button" title="선택한 이미지 중 가로형만 시계 방향으로 90도 돌린 사본을 다운로드 (세로형은 그대로, 원본 파일은 건드리지 않음)"><svg class="ico"><use href="#i-rotate-cw"/></svg><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">회전 후 다운로드</span></button>
+        <button class="load-btn" id="gallery-rotate-selected-btn" type="button" title="선택한 이미지를 전부 시계 방향으로 90도 돌려요 (원본을 실제로 바꿔요)"><svg class="ico"><use href="#i-rotate-cw"/></svg><span class="btn-label">회전</span></button>
+        <button class="load-btn" id="gallery-send-to-pose-btn" type="button" title="참조 세트로 보내기"><svg class="ico"><use href="#i-bookmark-plus"/></svg><span class="btn-label">세트 추가</span></button>
+        <button class="del-btn" id="gallery-delete-selected-btn" type="button" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
+        <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg><span class="btn-label">해제</span></button>
       </div>
       <div class="upload-error" id="gallery-error"></div>
       <div class="gallery-grid" id="gallery-grid"></div>
@@ -2924,6 +2940,7 @@
         <div class="enhance-mode" id="video-gallery-view-toggle">
           <button class="enhance-mode-btn active" type="button" data-view="all" title="전체 보기"><svg class="ico"><use href="#i-images"/></svg> 전체</button>
           <button class="enhance-mode-btn" type="button" data-view="byjob" title="작업별 보기"><svg class="ico"><use href="#i-folders"/></svg> 작업별</button>
+          <button class="enhance-mode-btn" type="button" data-view="byproject" title="프로젝트별 보기"><svg class="ico"><use href="#i-folder-kanban"/></svg> 프로젝트별</button>
           <button class="enhance-mode-btn" type="button" data-view="bydate" title="날짜별 보기"><svg class="ico"><use href="#i-calendar-days"/></svg> 날짜별</button>
         </div>
         <button class="load-btn" id="video-gallery-select-all-btn" type="button" disabled title="전체 선택"><svg class="ico"><use href="#i-square-check-big"/></svg> 전체선택</button>
@@ -2944,12 +2961,12 @@
       </div>
       <div class="gallery-toolbar" id="video-gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="video-gallery-toolbar-count"></span>
-        <button class="load-btn" id="video-gallery-fav-selected-btn" type="button" title="선택한 영상을 즐겨찾기에 넣기/빼기 (전부 즐겨찾기면 빼요)"><svg class="ico"><use href="#i-star"/></svg> 즐겨찾기</button>
-        <button class="load-btn" id="video-gallery-tag-selected-btn" type="button" title="선택한 영상에 태그 붙이기/떼기"><svg class="ico"><use href="#i-tag"/></svg> 태그</button>
-        <button class="load-btn" id="video-gallery-move-selected-btn" type="button" title="선택한 영상을 다른 프로젝트로 옮기기"><svg class="ico"><use href="#i-folder-input"/></svg> 이동</button>
-        <button class="load-btn" id="video-gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg> 다운로드</button>
-        <button class="del-btn" id="video-gallery-delete-selected-btn" type="button" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>
-        <button class="modal-btn-secondary" id="video-gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg> 해제</button>
+        <button class="load-btn" id="video-gallery-fav-selected-btn" type="button" title="선택한 영상을 즐겨찾기에 넣기/빼기 (전부 즐겨찾기면 빼요)"><svg class="ico"><use href="#i-star"/></svg><span class="btn-label">즐겨찾기</span></button>
+        <button class="load-btn" id="video-gallery-tag-selected-btn" type="button" title="선택한 영상에 태그 붙이기/떼기"><svg class="ico"><use href="#i-tag"/></svg><span class="btn-label">태그</span></button>
+        <button class="load-btn" id="video-gallery-move-selected-btn" type="button" title="선택한 영상을 다른 프로젝트로 옮기기"><svg class="ico"><use href="#i-folder-input"/></svg><span class="btn-label">이동</span></button>
+        <button class="load-btn" id="video-gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
+        <button class="del-btn" id="video-gallery-delete-selected-btn" type="button" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
+        <button class="modal-btn-secondary" id="video-gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg><span class="btn-label">해제</span></button>
       </div>
       <div class="upload-error" id="video-gallery-error"></div>
       <div class="vgallery-grid" id="video-gallery-grid"></div>
@@ -3213,6 +3230,7 @@
       <button class="modal-btn-secondary" id="gallery-lightbox-download-btn" type="button" title="다운로드" aria-label="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
       <button class="modal-btn-secondary" id="gallery-lightbox-load-job-btn" type="button" title="이 이미지를 생성한 작업 설정 불러오기" aria-label="작업 불러오기"><svg class="ico"><use href="#i-history"/></svg><span class="btn-label">작업 불러오기</span></button>
       <button class="modal-btn-secondary" id="gallery-lightbox-send-to-pose-btn" type="button" title="참조 세트로 보내기" aria-label="세트 추가"><svg class="ico"><use href="#i-bookmark-plus"/></svg><span class="btn-label">세트 추가</span></button>
+      <button class="modal-btn-secondary" id="gallery-lightbox-i2v-btn" type="button" title="이 이미지를 시작 이미지로 영상 만들기 (WAN2.2 i2v)" aria-label="영상 만들기"><svg class="ico"><use href="#i-clapperboard"/></svg><span class="btn-label">영상 만들기</span></button>
       <button class="modal-btn-secondary" id="gallery-lightbox-move-btn" type="button" title="이 이미지를 다른 프로젝트로 옮기기" aria-label="프로젝트로 이동"><svg class="ico"><use href="#i-folder-input"/></svg><span class="btn-label">이동</span></button>
       <button class="modal-btn-secondary" id="gallery-lightbox-rotate-btn" type="button" title="이 이미지를 시계 방향으로 90도 돌려요 (원본을 실제로 바꿔요)" aria-label="회전"><svg class="ico"><use href="#i-rotate-cw"/></svg><span class="btn-label">회전</span></button>
       <button class="danger-btn" id="gallery-lightbox-delete-btn" type="button" title="삭제" aria-label="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
@@ -7919,6 +7937,10 @@ function applyHashRoute(){
 document.querySelectorAll('.tab-bar .tab-btn').forEach(btn => {
   btn.addEventListener('click', () => showTab(btn.dataset.tab));
 });
+document.getElementById('brand-home').addEventListener('click', (e) => {
+  e.preventDefault();
+  showTab('dashboard');
+});
 document.getElementById('pod-bar-back').addEventListener('click', () => showTab('pods'));
 document.getElementById('pod-bar-settings').addEventListener('click', () => {
   if(currentPodId) openPodEditModal(currentPodId);
@@ -8727,7 +8749,7 @@ window.addEventListener('hashchange', applyHashRoute);
 let galleryImages = [];
 let lightboxIndex = -1;
 let selectedGalleryNames = new Set();
-let galleryViewMode = 'all'; // 'all' | 'byjob' | 'bydate'
+let galleryViewMode = 'all'; // 'all' | 'byjob' | 'byproject' | 'bydate'
 let galleryDisplayMode = 'grid'; // 'grid' | 'details' — 그룹 방식(galleryViewMode)과는 별개로, 카드/한 줄 목록 중 어떻게 그릴지
 let galleryJobLabels = {}; // job_id -> 사람이 읽을 수 있는 라벨(템플릿명 · 옵션)
 // 현재 화면에 실제로 그려진 순서 — 전체 보기는 galleryImages와 같고, 작업별 보기는
@@ -8846,7 +8868,7 @@ async function rotateThenDownloadGalleryImages(names){
   errorEl.textContent = '';
   const btn = document.getElementById('gallery-rotate-download-selected-btn');
   const originalLabel = btn.innerHTML;
-  const setBusy = (text) => { btn.disabled = true; btn.innerHTML = `<span class="btn-spinner"></span> ${text}`; };
+  const setBusy = (text) => { btn.disabled = true; btn.innerHTML = `<span class="btn-spinner"></span><span class="btn-label"> ${text}</span>`; };
   const setIdle = () => { btn.disabled = false; btn.innerHTML = originalLabel; };
 
   setBusy('회전 및 다운로드 준비 중…');
@@ -8882,7 +8904,7 @@ async function rotateGalleryImages(names){
   const btn = document.getElementById('gallery-rotate-selected-btn');
   const originalLabel = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = `<span class="btn-spinner"></span> 회전 중…`;
+  btn.innerHTML = `<span class="btn-spinner"></span><span class="btn-label"> 회전 중…</span>`;
   try{
     const res = await fetch('/api/output-images/rotate-selected', {
       method: 'POST',
@@ -9061,6 +9083,7 @@ function wireGalleryGroupCheckboxes(){
 // bydate는 mtime을 로컬 날짜로 뭉친 문자열("YYYY-MM-DD").
 function galleryGroupKeyFor(img){
   if(galleryViewMode === 'byjob') return img.job_id || '';
+  if(galleryViewMode === 'byproject') return projectGroupKey(img);
   if(galleryViewMode === 'bydate') return fmtDateKey(img.mtime);
   return '';
 }
@@ -9069,8 +9092,29 @@ function galleryGroupLabelFor(key){
   if(galleryViewMode === 'byjob'){
     return key ? (galleryJobLabels[key] || `알 수 없는 작업 (${key})`) : '작업 정보 없음';
   }
+  if(galleryViewMode === 'byproject') return projectGroupLabel(key);
   if(galleryViewMode === 'bydate') return fmtDateLabel(key);
   return '';
+}
+
+// 프로젝트별 보기의 그룹 — 프로젝트가 없는 것은 "미분류", 지워졌거나 아직 못 읽은 프로젝트를
+// 가리키는 것은 번호로만 알 수 있어 따로 묶는다(이미지·영상 갤러리 공용).
+function projectGroupKey(item){ return item.project_id == null ? '' : String(item.project_id); }
+function projectGroupLabel(key){
+  if(key === '') return UNASSIGNED_LABEL;
+  return projectName(Number(key)) || `알 수 없는 프로젝트 (${key})`;
+}
+
+// 프로젝트 안에서 보는 갤러리는 전부 한 프로젝트라 "프로젝트별"이 의미가 없다 — 버튼을 숨기고,
+// 그 보기 중이었다면 전체 보기로 돌린다. 바뀐 보기 방식을 돌려준다.
+function applyProjectViewScope(toggleId, projectScoped, mode){
+  const btn = document.querySelector(`#${toggleId} [data-view="byproject"]`);
+  if(btn) btn.style.display = projectScoped ? 'none' : '';
+  if(projectScoped && mode === 'byproject'){
+    mode = 'all';
+    document.querySelectorAll(`#${toggleId} .enhance-mode-btn`).forEach(b => b.classList.toggle('active', b.dataset.view === mode));
+  }
+  return mode;
 }
 
 // galleryImages(전체 목록)를 galleryViewMode에 맞춰 그린다. byjob/bydate는 각각
@@ -9088,7 +9132,7 @@ function renderGalleryGrid(){
   // 이 행을 그냥 지나친다.
   const headerHtml = isDetails ? galleryDetailsHeaderHtml() : '';
 
-  if(galleryViewMode === 'byjob' || galleryViewMode === 'bydate'){
+  if(galleryViewMode !== 'all'){
     const groups = new Map();
     for(const img of galleryImages){
       const key = galleryGroupKeyFor(img);
@@ -9173,6 +9217,7 @@ function podIdForVideo(vid){
 // showTab()이 galleryPodFilter를 정한 직후, 그리고 상태 폴링(fetchComfyStatus)마다
 // 부른다 — 둘 다 곧바로 반영돼야 5초씩 기다리다 헷갈리지 않는다.
 function updateGalleryScopeUI(){
+  galleryViewMode = applyProjectViewScope('gallery-view-toggle', galleryProjectFilter !== null, galleryViewMode);
   const label = document.getElementById('gallery-section-label');
   if(label){
     label.innerHTML = galleryPodFilter
@@ -9188,6 +9233,7 @@ function updateGalleryScopeUI(){
 // 제목만 맞춘다 — applyPullOutputsVisibility는 이미지·영상 버튼을 한 번에
 // 처리하므로 여기서 다시 부르지 않는다(showTab이 둘 다 순서대로 호출한다).
 function updateVideoGalleryScopeUI(){
+  videoGalleryViewMode = applyProjectViewScope('video-gallery-view-toggle', videoGalleryProjectFilter !== null, videoGalleryViewMode);
   const label = document.getElementById('video-gallery-section-label');
   if(label){
     label.innerHTML = ico('clapperboard') + ' ' + escapeHtml(videoGalleryPodFilter
@@ -9635,6 +9681,74 @@ async function moveCurrentLightboxImage(){
   renderLightbox();
 }
 document.getElementById('gallery-lightbox-move-btn').addEventListener('click', moveCurrentLightboxImage);
+
+// 이 이미지를 시작 이미지로 WAN2.2 i2v 작업을 만들 준비를 한다 — 입력 이미지 풀에 사본을 두고 "새 작업"
+// 폼을 템플릿(wan22_i2v_batch)과 시작 이미지가 채워진 채로 열어 준다. 큐에 넣는 것은 사용자가 영상
+// 프롬프트를 적고 "큐에 추가"를 눌러서 한다. 이 파드에서 돌아갈 워크플로우인지는 폼이 워크플로우를
+// 붙일 때 하는 호환성 검사(checkWorkflowCompatibility)가 알려 준다.
+const I2V_TEMPLATE_ID = 'wan22_i2v_batch';
+async function startI2vFromImage(img){
+  const errorEl = document.getElementById('gallery-lightbox-error');
+  errorEl.textContent = '';
+  const btn = document.getElementById('gallery-lightbox-i2v-btn');
+  btn.disabled = true;
+  let stored;
+  try{
+    const res = await fetch('/api/input-images/import-from-output', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names: [img.name] }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !(data.added || []).length){
+      throw new Error(data.detail || (data.skipped && data.skipped[0] && data.skipped[0].reason) || '시작 이미지를 준비하지 못했어요.');
+    }
+    stored = data.added[0];
+    await fetchInputImages(true);
+  }catch(e){
+    errorEl.textContent = e.message || '시작 이미지를 준비하지 못했어요.';
+    return;
+  }finally{
+    btn.disabled = false;
+  }
+
+  closeLightbox();
+  // 결과 영상이 이 이미지와 같은 프로젝트에 쌓이도록 그 프로젝트의 작업 화면으로 간다. 파드 갤러리에서
+  // 보고 있었다면 그 파드에 그대로 머물고, 프로젝트만 폼의 선택값으로 맞춘다.
+  const projectScope = img.project_id == null ? 'unassigned' : (resolveProjectId(img.project_id) ?? 'unassigned');
+  if(currentPodId){
+    showTab('jobs', { podId: currentPodId });
+    try{ localStorage.setItem(FORM_PROJECT_KEY, projectScope === 'unassigned' ? '' : String(projectScope)); }catch(e){ /* 무시 */ }
+    updateJobTargetRow();
+  }else{
+    showTab('jobs', { projectId: projectScope });
+  }
+
+  const loadError = document.getElementById('load-error');
+  const loadNotice = document.getElementById('load-notice');
+  loadError.textContent = '';
+  loadNotice.textContent = '';
+  if(Object.keys(templatesById).length === 0) await fetchTemplates();
+  const panel = document.getElementById('new-job-panel');
+  if(!selectHasOptionValue(templateSelect, I2V_TEMPLATE_ID)){
+    loadError.textContent = '이 파드에서는 영상 생성(WAN2.2 i2v) 템플릿을 쓸 수 없어요 — ComfyUI 파드를 골라 주세요.';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  resetForm();
+  templateSelect.value = I2V_TEMPLATE_ID;
+  await onTemplateChange();
+  const startEl = optionsFields.querySelector('[data-name="start_image"]');
+  if(startEl) startEl.value = stored;
+  loadNotice.textContent = `'${stored}'을(를) 시작 이미지로 골랐어요. 영상 프롬프트를 적고 "추가"를 누르세요.`;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const promptEl = optionsFields.querySelector('[data-name="user_prompt"]');
+  if(promptEl) promptEl.focus({ preventScroll: true });
+}
+document.getElementById('gallery-lightbox-i2v-btn').addEventListener('click', () => {
+  const img = displayedGalleryImages[lightboxIndex];
+  if(img) startI2vFromImage(img);
+});
 document.getElementById('gallery-lightbox-rotate-btn').addEventListener('click', rotateCurrentLightboxImage);
 document.getElementById('gallery-lightbox-delete-btn').addEventListener('click', deleteCurrentLightboxImage);
 galleryLightbox.addEventListener('click', (e) => {
@@ -9660,7 +9774,7 @@ document.addEventListener('keydown', (e) => {
 let galleryVideos = [];
 let vLightboxIndex = -1;
 let selectedGalleryVideoNames = new Set();
-let videoGalleryViewMode = 'all'; // 'all' | 'byjob' | 'bydate'
+let videoGalleryViewMode = 'all'; // 'all' | 'byjob' | 'byproject' | 'bydate'
 let displayedGalleryVideos = [];
 const videoGalleryLightbox = document.getElementById('video-gallery-lightbox');
 
@@ -9819,6 +9933,7 @@ function wireVideoGalleryGroupCheckboxes(){
 
 function videoGalleryGroupKeyFor(vid){
   if(videoGalleryViewMode === 'byjob') return vid.job_id || '';
+  if(videoGalleryViewMode === 'byproject') return projectGroupKey(vid);
   if(videoGalleryViewMode === 'bydate') return fmtDateKey(vid.mtime);
   return '';
 }
@@ -9827,6 +9942,7 @@ function videoGalleryGroupLabelFor(key){
   if(videoGalleryViewMode === 'byjob'){
     return key ? (galleryJobLabels[key] || `알 수 없는 작업 (${key})`) : '작업 정보 없음';
   }
+  if(videoGalleryViewMode === 'byproject') return projectGroupLabel(key);
   if(videoGalleryViewMode === 'bydate') return fmtDateLabel(key);
   return '';
 }
@@ -9835,7 +9951,7 @@ function renderVideoGalleryGrid(){
   const grid = document.getElementById('video-gallery-grid');
   displayedGalleryVideos = [];
 
-  if(videoGalleryViewMode === 'byjob' || videoGalleryViewMode === 'bydate'){
+  if(videoGalleryViewMode !== 'all'){
     const groups = new Map();
     for(const vid of galleryVideos){
       const key = videoGalleryGroupKeyFor(vid);

@@ -1654,7 +1654,14 @@ async def import_output_images_to_input_pool(request: Request):
         dest_filename = f"{parts[0]}_{parts[-1]}" if len(parts) > 1 else parts[0]
         try:
             content = await asyncio.to_thread(path.read_bytes)
-            stored_name = await asyncio.to_thread(save_input_image, dest_filename, content)
+            # 같은 이미지로 영상을 여러 번 만들 때마다 _2, _3 사본이 쌓이지 않게, 이미 같은 이름·같은
+            # 내용의 파일이 풀에 있으면 그걸 그대로 쓴다.
+            try:
+                existing = resolve_input_image(dest_filename)
+                same = await asyncio.to_thread(existing.read_bytes) == content
+            except InputAssetError:
+                same = False
+            stored_name = dest_filename if same else await asyncio.to_thread(save_input_image, dest_filename, content)
         except (OSError, InputAssetError) as e:
             skipped.append({"name": name, "reason": f"저장 실패: {e}"})
             continue
