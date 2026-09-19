@@ -8,6 +8,10 @@ import json
 
 import db
 
+# est_cost = 각 작업의 실행 시간(시작~종료) x 그 작업이 돈 파드의 시간당 비용(작업을 만들 때 찍어둔
+# 스냅샷)의 합 — 파드가 실제로 켜져 있던 시간이 아니라 "이 작업이 차지한 시간"의 추정치다. 비용을 모르는
+# 작업(예전 작업, RunPod 정보를 못 얻은 경우)은 합계에서 빠지고 uncosted_jobs로 센다. 삭제한 작업도
+# (돈은 이미 썼으므로) 포함한다.
 _STATS_SQL = """
 SELECT p.*,
   (SELECT COUNT(*) FROM jobs j WHERE j.project_id = p.id AND j.deleted_at IS NULL) AS job_count,
@@ -21,6 +25,13 @@ SELECT p.*,
     (SELECT a.path FROM assets a WHERE a.project_id = p.id AND a.kind = 'image'
         AND a.deleted_at IS NULL ORDER BY a.created_at DESC LIMIT 1)
   ) AS cover_path,
+  (SELECT COALESCE(SUM((julianday(j.finished_at) - julianday(j.started_at)) * 24.0 * j.pod_cost_per_hr), 0)
+     FROM jobs j WHERE j.project_id = p.id AND j.started_at IS NOT NULL AND j.finished_at IS NOT NULL
+        AND j.pod_cost_per_hr IS NOT NULL) AS est_cost,
+  (SELECT COALESCE(SUM((julianday(j.finished_at) - julianday(j.started_at)) * 86400.0), 0)
+     FROM jobs j WHERE j.project_id = p.id AND j.started_at IS NOT NULL AND j.finished_at IS NOT NULL) AS run_seconds,
+  (SELECT COUNT(*) FROM jobs j WHERE j.project_id = p.id AND j.started_at IS NOT NULL
+        AND j.finished_at IS NOT NULL AND j.pod_cost_per_hr IS NULL) AS uncosted_jobs,
   (SELECT MAX(t) FROM (
       SELECT MAX(j.queued_at) AS t FROM jobs j WHERE j.project_id = p.id
       UNION ALL
@@ -58,7 +69,17 @@ def unassigned_summary() -> dict:
         cover = conn.execute(
             "SELECT path FROM assets WHERE project_id IS NULL AND kind='image' AND deleted_at IS NULL "
             "ORDER BY created_at DESC LIMIT 1").fetchone()
+        favorites = conn.execute(
+            "SELECT COUNT(*) FROM assets WHERE project_id IS NULL AND deleted_at IS NULL AND favorite = 1").fetchone()[0]
+        cost = conn.execute(
+            "SELECT COALESCE(SUM((julianday(finished_at) - julianday(started_at)) * 24.0 * pod_cost_per_hr), 0) "
+            "FROM jobs WHERE project_id IS NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL "
+            "AND pod_cost_per_hr IS NOT NULL").fetchone()[0]
+        uncosted = conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE project_id IS NULL AND started_at IS NOT NULL "
+            "AND finished_at IS NOT NULL AND pod_cost_per_hr IS NULL").fetchone()[0]
     return {"job_count": job_count, "active_jobs": active, "asset_count": asset_count,
+            "favorite_count": favorites, "est_cost": cost, "uncosted_jobs": uncosted,
             "cover_path": cover["path"] if cover else None}
 
 

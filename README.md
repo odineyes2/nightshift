@@ -862,7 +862,11 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/projects` | 프로젝트를 만든다(`{"name"(필수), "description", "defaults"}`). 프로젝트는 파드와 무관하게 작업과 결과물을 묶는다 |
 | `GET`/`PATCH`/`DELETE` | `/api/projects/{id}` | 조회 / 부분 수정(`name`·`description`·`defaults`·`archived`·`cover_asset_id`) / 삭제 — 삭제해도 그 안의 작업·결과물은 지워지지 않고 미분류로 돌아온다 |
 | `PUT` | `/api/jobs/{job_id}/project` | 작업을 다른 프로젝트로 옮긴다(`{"project_id": 3}`, 미분류로는 `null`). 그 작업이 만든 결과물도 같이 옮겨간다 |
-| `GET` | `/api/output-assets` | 결과물 색인(SQLite) 조회 — `?project_id=`(숫자 또는 `unassigned`)·`kind`(`image`/`video`)·`job_id`·`favorite`·`limit`·`offset`. 시드/프롬프트/체크포인트 등 PNG 메타데이터에서 뽑은 값이 함께 온다 |
+| `GET` | `/api/output-assets` | 결과물 색인(SQLite) 조회 — `?project_id=`(숫자 또는 `unassigned`)·`kind`(`image`/`video`)·`job_id`·`favorite`·`q`(공백으로 나눈 단어가 프롬프트·메모·태그·파일명·체크포인트·시드 어딘가에 모두 들어 있는 것)·`tag`(쉼표로 여러 개, 모두 붙은 것)·`min_rating`·`limit`·`offset`. 시드/프롬프트/체크포인트 등 PNG 메타데이터에서 뽑은 값과 태그·평점·메모가 함께 온다 |
+| `GET` | `/api/output-assets/detail?path=` | 결과물 하나의 전체 정보(프롬프트·네거티브·시드·체크포인트·샘플링 파라미터·LoRA·메모·평점·태그·작업/파드). 라이트박스의 정보 패널이 쓴다 |
+| `POST` | `/api/output-assets/update` | 즐겨찾기/평점/메모를 바꾼다 — `{"paths": [...] 또는 "path", "favorite": bool, "rating": 0~5(0=해제), "note": "..."}` (보낸 필드만 바뀜, 메모는 한 장씩만) |
+| `POST` | `/api/output-assets/tags` | 태그를 붙이고/뗀다 — `{"paths": [...], "add": [...], "remove": [...]}`. 바뀐 결과물의 태그 목록을 돌려주고, 아무 데도 안 붙은 태그는 자동으로 사라진다 |
+| `GET` | `/api/tags` | 태그 목록과 붙은 개수(자동완성/필터용) |
 | `POST` | `/api/pods/{pod_id}/queue/start` | **그 파드만** 자동 실행을 켜고, 그 파드로 배정된 대기 작업을 큐에 넣음(작업 화면의 "▶ 시작"이 부르는 것). 다른 파드에 배정된 작업은 건드리지 않고, 배정된 파드가 사라졌거나 꺼진 작업만 — 그것도 워커 종류가 맞을 때만 — 이 파드로 되돌림. 응답 `{"pod_id", "running": true, "started": N}` |
 | `POST` | `/api/pods/{pod_id}/queue/stop` | **그 파드만** 멈춤(다른 파드는 계속 돎). 그 파드에서 실행 중인 작업에 종료 요청. 응답 `{"pod_id", "running": false, "stopped_job_ids": [...]}` |
 | `POST` | `/api/jobs/{job_id}/move` | 작업을 다른 파드로 옮김(요청 본문 `{"pod_id": "..."}`). `pending`/`queued`/`interrupted`만 가능하고 실행 중이면 400, 없는 파드면 404, 사용 안 함 파드면 400 |

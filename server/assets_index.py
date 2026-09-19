@@ -205,35 +205,3 @@ def sync(force: bool = False) -> dict | None:
         return {"added": added, "updated": updated, "removed": removed, "total": len(found)}
     finally:
         _sync_lock.release()
-
-
-def list_assets(project: str | int | None = None, kind: str | None = None, job_id: str | None = None,
-                favorite: bool | None = None, limit: int = 200, offset: int = 0) -> list[dict]:
-    """project: 프로젝트 id, 또는 "unassigned"(미분류). None이면 전체."""
-    where, params = ["a.deleted_at IS NULL"], []
-    if project == "unassigned":
-        where.append("a.project_id IS NULL")
-    elif project is not None:
-        where.append("a.project_id = ?")
-        params.append(int(project))
-    if kind:
-        where.append("a.kind = ?")
-        params.append(kind)
-    if job_id:
-        where.append("a.job_id = ?")
-        params.append(job_id)
-    if favorite is not None:
-        where.append("a.favorite = ?")
-        params.append(1 if favorite else 0)
-    sql = ("SELECT a.* FROM assets a WHERE " + " AND ".join(where)
-           + " ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?")
-    with db.connect() as conn:
-        rows = conn.execute(sql, (*params, limit, offset)).fetchall()
-    return [dict(r) for r in rows]
-
-
-def project_ids_by_path() -> dict[str, int | None]:
-    """{상대경로: project_id} — 갤러리 목록이 항목마다 프로젝트를 붙일 때 쓴다."""
-    with db.connect() as conn:
-        rows = conn.execute("SELECT path, project_id FROM assets WHERE deleted_at IS NULL").fetchall()
-    return {r["path"]: r["project_id"] for r in rows}

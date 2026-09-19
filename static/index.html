@@ -422,6 +422,86 @@
   .pod-bar-back, .pod-subtab-btn, .lightbox-actions button, #pod-bar-settings, #project-bar-settings{
     display:inline-flex; align-items:center; justify-content:center; gap:6px;
   }
+  /* ---- 결과물 메타(즐겨찾기·평점·태그·메모): 갤러리 필터/별/라이트박스 정보 패널 ---- */
+  .gallery-filter-row{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px; }
+  .gallery-filter-row .gf-search{ flex:1 1 200px; min-width:150px; max-width:340px; padding:7px 10px; font-size:13px; cursor:text; }
+  .gallery-filter-row select{ font-size:12.5px; }
+  .gf-toggle{ display:inline-flex; align-items:center; gap:6px; }
+  .gf-toggle.on{ color:var(--queued); border-color:var(--queued); background:rgba(var(--queued-rgb),0.08); }
+  .gf-toggle.on .ico{ fill:currentColor; }
+  .gallery-item-fav, .vgallery-item-fav{
+    position:absolute; top:34px; right:6px; z-index:2;
+    width:22px; height:22px; padding:0; border:none; border-radius:50%;
+    background:rgba(0,0,0,0.45); color:#fff; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    opacity:0; transition:opacity .12s ease, transform .12s ease;
+  }
+  .gallery-item-fav .ico, .vgallery-item-fav .ico{ width:13px; height:13px; vertical-align:0; }
+  .gallery-item:hover .gallery-item-fav, .vgallery-item:hover .vgallery-item-fav,
+  .gallery-item-fav.on, .vgallery-item-fav.on, .gallery-item-fav:focus-visible, .vgallery-item-fav:focus-visible{ opacity:1; }
+  .gallery-item-fav.on, .vgallery-item-fav.on{ color:#FBBF24; }
+  .gallery-item-fav.on .ico, .vgallery-item-fav.on .ico{ fill:currentColor; }
+  .gallery-item-fav:hover, .vgallery-item-fav:hover{ transform:scale(1.1); }
+  @media (hover:none){ .gallery-item-fav, .vgallery-item-fav{ opacity:0.85; } }
+  .gallery-details-col.name .ico.fav{ color:#F59E0B; fill:currentColor; width:12px; height:12px; }
+
+  .lightbox-img-wrap .lightbox-img{ max-height:calc(100vh - 190px); }
+  .lightbox-img-wrap.meta-open .lightbox-img{ max-height:calc(100vh - 190px - 40vh); }
+  .asset-meta{ width:100%; max-width:640px; color:#E5E7EB; font-size:12.5px; }
+  .am-bar{ display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; }
+  .am-fav, .am-star{ background:none; border:none; padding:2px; cursor:pointer; color:rgba(255,255,255,0.4); display:inline-flex; }
+  .am-fav .ico{ width:20px; height:20px; }
+  .am-star .ico{ width:17px; height:17px; }
+  .am-fav:hover, .am-star:hover{ color:#FCD34D; }
+  .am-fav.on, .am-star.on{ color:#FBBF24; }
+  .am-fav.on .ico, .am-star.on .ico{ fill:currentColor; }
+  .am-stars{ display:inline-flex; gap:2px; }
+  .am-status{ min-width:5.5em; font-family:var(--mono); font-size:11px; color:#9CA3AF; }
+  .am-toggle{
+    display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px;
+    background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); color:#E5E7EB;
+    font-family:var(--mono); font-size:11.5px; cursor:pointer;
+  }
+  .am-toggle .ico{ transition:transform .15s ease; }
+  .am-toggle.open .ico{ transform:rotate(180deg); }
+  .am-toggle:hover{ background:rgba(255,255,255,0.14); }
+  .am-body{
+    margin-top:8px; padding:10px 12px; display:flex; flex-direction:column; gap:8px;
+    background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px;
+    max-height:36vh; overflow-y:auto; text-align:left;
+  }
+  .am-body[hidden]{ display:none; }
+  /* .option-input(input.option-input / textarea.option-input)보다 특이도가 높아야 이긴다 */
+  .am-body input.am-tag-input, .am-body textarea.am-note{
+    width:100%; max-width:none; background:rgba(0,0,0,0.35); color:#fff;
+    border-color:rgba(255,255,255,0.2); cursor:text; font-size:12.5px; padding:7px 10px;
+  }
+  .am-body input.am-tag-input::placeholder, .am-body textarea.am-note::placeholder{ color:#9CA3AF; }
+  .am-body textarea.am-note{ resize:vertical; min-height:2.6em; }
+  .am-tags{ display:flex; flex-wrap:wrap; gap:6px; }
+  .am-chip{
+    display:inline-flex; align-items:center; gap:3px; padding:2px 4px 2px 9px; border-radius:999px;
+    background:rgba(var(--queued-rgb),0.28); color:#DBEAFE; font-family:var(--mono); font-size:11.5px;
+  }
+  .am-chip button{ background:none; border:none; color:inherit; cursor:pointer; padding:2px; display:inline-flex; opacity:0.8; }
+  .am-chip button:hover{ opacity:1; }
+  .am-chip .ico{ width:12px; height:12px; }
+  .am-empty{ color:#9CA3AF; font-size:12px; }
+  .am-facts{ display:grid; grid-template-columns:auto 1fr; gap:3px 12px; margin:0; }
+  .am-kv{ display:contents; }
+  .am-facts dt{ color:#9CA3AF; }
+  .am-facts dd{ margin:0; word-break:break-all; font-family:var(--mono); font-size:11.5px; }
+  .am-prompt-head{ display:flex; align-items:center; justify-content:space-between; color:#9CA3AF; margin-top:2px; }
+  .am-prompt{
+    font-family:var(--mono); font-size:11.5px; line-height:1.55; white-space:pre-wrap; word-break:break-word;
+    background:rgba(0,0,0,0.35); padding:8px 10px; border-radius:6px; max-height:130px; overflow:auto; margin-top:4px;
+  }
+  .am-neg summary{ cursor:pointer; color:#9CA3AF; }
+  @media (max-width:640px){
+    .am-status{ min-width:0; }
+    .gallery-filter-row .gf-search{ flex:1 1 100%; max-width:none; }
+  }
+
   /* ---- 프로젝트 (홈 대시보드 / 새 작업 폼의 대상 선택) ---- */
   .home-archived-toggle{
     display:inline-flex; align-items:center; gap:6px;
@@ -2443,6 +2523,8 @@
   <symbol id="i-archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
   <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
   <symbol id="i-folder-input" viewBox="0 0 24 24"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 16 3-3-3-3"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
 </svg>
 
 <div class="login-screen" id="login-screen">
@@ -2792,8 +2874,19 @@
       </div>
     </div>
     <div class="panel-body">
+      <div class="gallery-filter-row" id="gf-image-row">
+        <input type="search" class="option-input gf-search" id="gf-image-q" placeholder="프롬프트 · 메모 · 태그 · 시드 검색" autocomplete="off" aria-label="검색">
+        <button class="load-btn gf-toggle" id="gf-image-fav" type="button" aria-pressed="false" title="즐겨찾기만 보기"><svg class="ico"><use href="#i-star"/></svg> 즐겨찾기</button>
+        <select class="pod-bar-select" id="gf-image-tag" title="태그로 거르기" aria-label="태그"><option value="">모든 태그</option></select>
+        <select class="pod-bar-select" id="gf-image-rating" title="평점으로 거르기" aria-label="평점">
+          <option value="0">평점 전체</option><option value="3">★ 3 이상</option><option value="4">★ 4 이상</option><option value="5">★ 5</option>
+        </select>
+        <button class="modal-btn-secondary" id="gf-image-clear" type="button" style="display:none;" title="필터 지우기"><svg class="ico"><use href="#i-x"/></svg> 필터 지우기</button>
+      </div>
       <div class="gallery-toolbar" id="gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="gallery-toolbar-count"></span>
+        <button class="load-btn" id="gallery-fav-selected-btn" type="button" title="선택한 이미지를 즐겨찾기에 넣기/빼기 (전부 즐겨찾기면 빼요)"><svg class="ico"><use href="#i-star"/></svg> 즐겨찾기</button>
+        <button class="load-btn" id="gallery-tag-selected-btn" type="button" title="선택한 이미지에 태그 붙이기/떼기"><svg class="ico"><use href="#i-tag"/></svg> 태그</button>
         <button class="load-btn" id="gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg> 다운로드</button>
         <button class="load-btn" id="gallery-rotate-download-selected-btn" type="button" title="선택한 이미지 중 가로형만 시계 방향으로 90도 돌린 사본을 다운로드 (세로형은 그대로, 원본 파일은 건드리지 않음)"><svg class="ico"><use href="#i-rotate-cw"/></svg><svg class="ico"><use href="#i-download"/></svg> 회전 후 다운로드</button>
         <button class="load-btn" id="gallery-rotate-selected-btn" type="button" title="선택한 이미지를 전부 시계 방향으로 90도 돌려요 (원본을 실제로 바꿔요)"><svg class="ico"><use href="#i-rotate-cw"/></svg> 회전</button>
@@ -2831,8 +2924,19 @@
       </div>
     </div>
     <div class="panel-body">
+      <div class="gallery-filter-row" id="gf-video-row">
+        <input type="search" class="option-input gf-search" id="gf-video-q" placeholder="프롬프트 · 메모 · 태그 · 시드 검색" autocomplete="off" aria-label="검색">
+        <button class="load-btn gf-toggle" id="gf-video-fav" type="button" aria-pressed="false" title="즐겨찾기만 보기"><svg class="ico"><use href="#i-star"/></svg> 즐겨찾기</button>
+        <select class="pod-bar-select" id="gf-video-tag" title="태그로 거르기" aria-label="태그"><option value="">모든 태그</option></select>
+        <select class="pod-bar-select" id="gf-video-rating" title="평점으로 거르기" aria-label="평점">
+          <option value="0">평점 전체</option><option value="3">★ 3 이상</option><option value="4">★ 4 이상</option><option value="5">★ 5</option>
+        </select>
+        <button class="modal-btn-secondary" id="gf-video-clear" type="button" style="display:none;" title="필터 지우기"><svg class="ico"><use href="#i-x"/></svg> 필터 지우기</button>
+      </div>
       <div class="gallery-toolbar" id="video-gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="video-gallery-toolbar-count"></span>
+        <button class="load-btn" id="video-gallery-fav-selected-btn" type="button" title="선택한 영상을 즐겨찾기에 넣기/빼기 (전부 즐겨찾기면 빼요)"><svg class="ico"><use href="#i-star"/></svg> 즐겨찾기</button>
+        <button class="load-btn" id="video-gallery-tag-selected-btn" type="button" title="선택한 영상에 태그 붙이기/떼기"><svg class="ico"><use href="#i-tag"/></svg> 태그</button>
         <button class="load-btn" id="video-gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg> 다운로드</button>
         <button class="del-btn" id="video-gallery-delete-selected-btn" type="button" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>
         <button class="modal-btn-secondary" id="video-gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg> 해제</button>
@@ -3102,6 +3206,7 @@
       <button class="modal-btn-secondary" id="gallery-lightbox-rotate-btn" type="button" title="이 이미지를 시계 방향으로 90도 돌려요 (원본을 실제로 바꿔요)" aria-label="회전"><svg class="ico"><use href="#i-rotate-cw"/></svg><span class="btn-label">회전</span></button>
       <button class="danger-btn" id="gallery-lightbox-delete-btn" type="button" title="삭제" aria-label="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
     </div>
+    <div class="asset-meta" id="gallery-lightbox-meta"></div>
     <div class="lightbox-error" id="gallery-lightbox-error"></div>
   </div>
   <button class="lightbox-nav lightbox-next" id="gallery-next" aria-label="다음 이미지" type="button">&rsaquo;</button>
@@ -3117,6 +3222,7 @@
       <button class="modal-btn-secondary" id="video-gallery-lightbox-download-btn" type="button" title="다운로드" aria-label="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
       <button class="danger-btn" id="video-gallery-lightbox-delete-btn" type="button" title="삭제" aria-label="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
     </div>
+    <div class="asset-meta" id="video-gallery-lightbox-meta"></div>
     <div class="lightbox-error" id="video-gallery-lightbox-error"></div>
   </div>
   <button class="lightbox-nav lightbox-next" id="video-gallery-next" aria-label="다음 영상" type="button">&rsaquo;</button>
@@ -3339,6 +3445,8 @@
     </div>
   </div>
 </div>
+
+<datalist id="am-tag-list"></datalist>
 
 <div class="modal-overlay" id="project-modal" style="display:none;">
   <div class="modal-panel">
@@ -7716,6 +7824,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'gallery' || tab === 'pgallery' || tab === 'prgallery') fetchGalleryImages();
   if(tab === 'video-gallery' || tab === 'pvideo' || tab === 'prvideo') fetchGalleryVideos();
   if(tab === 'dashboard' || scopedProjectId !== null) fetchProjects();
+  if(['gallery', 'pgallery', 'prgallery', 'video-gallery', 'pvideo', 'prvideo'].includes(tab)) refreshTagOptions();
   if(tab === 'builder') initBuilderTab();
   if(tab === 'lora') initLoraTab();
   if(tab === 'jobs') fetchJobs();
@@ -7791,6 +7900,329 @@ document.getElementById('pod-bar-subtabs').addEventListener('click', (e) => {
 document.getElementById('pod-bar-select').addEventListener('change', (e) => {
   showTab(currentTab, { podId: e.target.value });
 });
+// ---- 결과물 메타: 즐겨찾기·평점·태그·메모, 그리고 그걸로 하는 필터/검색 ----
+// 서버(asset_meta.py)가 결과물 색인(assets)에 저장하고, 갤러리 목록 항목에도 favorite/rating/tags가
+// 같이 온다. 식별은 갤러리가 다루는 이름(출력 폴더 기준 상대경로)이다.
+const galleryFilters = { q: '', favorite: false, tag: '', minRating: 0 };
+const videoGalleryFilters = { q: '', favorite: false, tag: '', minRating: 0 };
+const AM_OPEN_KEY = 'nightshift-meta-open';
+let assetMetaOpen = false;
+try{ assetMetaOpen = localStorage.getItem(AM_OPEN_KEY) === '1'; }catch(e){ /* 기본값 유지 */ }
+let allTagsCache = [];
+
+function galleryFilterQs(f){
+  const p = new URLSearchParams();
+  if(f.q.trim()) p.set('q', f.q.trim());
+  if(f.favorite) p.set('favorite', 'true');
+  if(f.tag) p.set('tag', f.tag);
+  if(f.minRating) p.set('min_rating', String(f.minRating));
+  const s = p.toString();
+  return s ? `?${s}` : '';
+}
+function galleryFiltersActive(f){ return !!(f.q.trim() || f.favorite || f.tag || f.minRating); }
+
+function assetJson(url, body){
+  return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+// 목록에 있는 항목(과 지금 그려진 항목)의 값을 바꾸고, 화면에 이미 그려진 별 표시도 같이 맞춘다.
+function applyAssetPatch(kind, names, patch){
+  const list = kind === 'image' ? galleryImages : galleryVideos;
+  const shown = kind === 'image' ? displayedGalleryImages : displayedGalleryVideos;
+  const wanted = new Set(names);
+  for(const arr of [list, shown]) for(const it of arr) if(wanted.has(it.name)) Object.assign(it, patch);
+  const itemSel = kind === 'image' ? '#gallery-grid .gallery-item' : '#video-gallery-grid .vgallery-item';
+  document.querySelectorAll(itemSel).forEach(el => {
+    const it = shown[Number(el.dataset.index)];
+    if(!it || !wanted.has(it.name) || !('favorite' in patch)) return;
+    const btn = el.querySelector('.gallery-item-fav, .vgallery-item-fav');
+    if(btn){ btn.classList.toggle('on', !!it.favorite); btn.setAttribute('aria-pressed', it.favorite ? 'true' : 'false'); }
+  });
+}
+
+// 즐겨찾기 — 화면을 먼저 바꾸고(낙관적) 서버가 거절하면 되돌린다.
+async function setAssetsFavorite(kind, names, favorite){
+  const list = kind === 'image' ? galleryImages : galleryVideos;
+  const before = names.map(n => !!(list.find(i => i.name === n) || {}).favorite);
+  applyAssetPatch(kind, names, { favorite });
+  try{
+    const res = await assetJson('/api/output-assets/update', { paths: names, favorite });
+    if(!res.ok) throw new Error('failed');
+    return true;
+  }catch(e){
+    names.forEach((n, i) => applyAssetPatch(kind, [n], { favorite: before[i] }));
+    return false;
+  }
+}
+
+async function setAssetRating(kind, name, rating){
+  const list = kind === 'image' ? galleryImages : galleryVideos;
+  const before = (list.find(i => i.name === name) || {}).rating || null;
+  applyAssetPatch(kind, [name], { rating: rating || null });
+  try{
+    const res = await assetJson('/api/output-assets/update', { path: name, rating });
+    if(!res.ok) throw new Error('failed');
+    return true;
+  }catch(e){
+    applyAssetPatch(kind, [name], { rating: before });
+    return false;
+  }
+}
+
+async function changeAssetTags(kind, names, add, remove){
+  try{
+    const res = await assetJson('/api/output-assets/tags', { paths: names, add, remove });
+    if(!res.ok) throw new Error('failed');
+    const data = await res.json();
+    for(const [name, tags] of Object.entries(data.tags || {})) applyAssetPatch(kind, [name], { tags });
+    refreshTagOptions();
+    return data.tags || {};
+  }catch(e){
+    return null;
+  }
+}
+
+async function refreshTagOptions(){
+  try{
+    const res = await fetch('/api/tags');
+    if(res.ok) allTagsCache = (await res.json()).tags || [];
+  }catch(e){ /* 이전 목록 유지 */ }
+  for(const [prefix, f] of [['image', galleryFilters], ['video', videoGalleryFilters]]){
+    const sel = document.getElementById(`gf-${prefix}-tag`);
+    if(!sel) continue;
+    const html = '<option value="">모든 태그</option>'
+      + allTagsCache.map(t => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)} (${t.count})</option>`).join('');
+    if(sel.dataset.html !== html){ sel.innerHTML = html; sel.dataset.html = html; }
+    if(f.tag && !allTagsCache.some(t => t.name === f.tag)) f.tag = '';   // 사라진 태그로 계속 거르지 않게
+    sel.value = f.tag;
+  }
+  const dl = document.getElementById('am-tag-list');
+  if(dl) dl.innerHTML = allTagsCache.map(t => `<option value="${escapeHtml(t.name)}"></option>`).join('');
+}
+
+// ---- 갤러리 필터 줄 (이미지/영상 공용) ----
+function setupGalleryFilters(prefix, filters, refetch){
+  const q = document.getElementById(`gf-${prefix}-q`);
+  const fav = document.getElementById(`gf-${prefix}-fav`);
+  const tag = document.getElementById(`gf-${prefix}-tag`);
+  const rating = document.getElementById(`gf-${prefix}-rating`);
+  const clear = document.getElementById(`gf-${prefix}-clear`);
+  const sync = () => { clear.style.display = galleryFiltersActive(filters) ? '' : 'none'; };
+  let timer = null;
+  q.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { filters.q = q.value; sync(); refetch(); }, 300);
+  });
+  fav.addEventListener('click', () => {
+    filters.favorite = !filters.favorite;
+    fav.classList.toggle('on', filters.favorite);
+    fav.setAttribute('aria-pressed', filters.favorite ? 'true' : 'false');
+    sync(); refetch();
+  });
+  tag.addEventListener('change', () => { filters.tag = tag.value; sync(); refetch(); });
+  rating.addEventListener('change', () => { filters.minRating = Number(rating.value) || 0; sync(); refetch(); });
+  clear.addEventListener('click', () => {
+    Object.assign(filters, { q: '', favorite: false, tag: '', minRating: 0 });
+    q.value = ''; tag.value = ''; rating.value = '0';
+    fav.classList.remove('on'); fav.setAttribute('aria-pressed', 'false');
+    sync(); refetch();
+  });
+  sync();
+}
+setupGalleryFilters('image', galleryFilters, () => fetchGalleryImages());
+setupGalleryFilters('video', videoGalleryFilters, () => fetchGalleryVideos());
+
+// ---- 일괄 작업 (선택한 여러 장) ----
+function parseTagInput(text){
+  const add = [], remove = [];
+  for(const raw of text.split(',')){
+    const t = raw.trim();
+    if(!t) continue;
+    if(t.startsWith('-') && t.length > 1) remove.push(t.slice(1).trim()); else add.push(t);
+  }
+  return { add, remove };
+}
+
+async function bulkFavorite(kind, names){
+  if(names.length === 0) return;
+  const list = kind === 'image' ? galleryImages : galleryVideos;
+  const allFav = names.every(n => (list.find(i => i.name === n) || {}).favorite);
+  await setAssetsFavorite(kind, names, !allFav);
+}
+
+async function bulkTags(kind, names){
+  if(names.length === 0) return;
+  const text = window.prompt(`선택한 ${names.length}장에 붙일 태그를 쉼표로 적으세요.\n앞에 -를 붙이면 그 태그를 뗍니다. 예) 손좋음, -실패작`, '');
+  if(text === null) return;
+  const { add, remove } = parseTagInput(text);
+  if(add.length === 0 && remove.length === 0) return;
+  const result = await changeAssetTags(kind, names, add, remove);
+  if(result === null) window.alert('태그를 바꾸지 못했어요.');
+}
+
+document.getElementById('gallery-fav-selected-btn').addEventListener('click', () => bulkFavorite('image', Array.from(selectedGalleryNames)));
+document.getElementById('gallery-tag-selected-btn').addEventListener('click', () => bulkTags('image', Array.from(selectedGalleryNames)));
+document.getElementById('video-gallery-fav-selected-btn').addEventListener('click', () => bulkFavorite('video', Array.from(selectedGalleryVideoNames)));
+document.getElementById('video-gallery-tag-selected-btn').addEventListener('click', () => bulkTags('video', Array.from(selectedGalleryVideoNames)));
+
+// ---- 라이트박스 정보 패널 ----
+// 접힌 상태에선 ★ 즐겨찾기 · 평점 한 줄만 보이고, 펼치면 태그·메모·생성 정보(프롬프트/시드 등)가 나온다.
+// 같은 코드를 이미지/영상 라이트박스가 각자의 컨테이너에 붙여 쓴다.
+function createAssetMetaPanel(root, kind){
+  root.innerHTML = `
+    <div class="am-bar">
+      <button type="button" class="am-fav" aria-pressed="false" title="즐겨찾기" aria-label="즐겨찾기">${ico('star')}</button>
+      <span class="am-stars" role="group" aria-label="평점">${[1, 2, 3, 4, 5].map(n =>
+        `<button type="button" class="am-star" data-star="${n}" aria-label="${n}점" title="${n}점">${ico('star')}</button>`).join('')}</span>
+      <span class="am-status" aria-live="polite"></span>
+      <button type="button" class="am-toggle" aria-expanded="false" title="태그 · 메모 · 생성 정보">${ico('chevron-down')}<span class="am-toggle-label">정보</span><span class="am-toggle-count"></span></button>
+    </div>
+    <div class="am-body" hidden>
+      <div class="am-tags"></div>
+      <input type="text" class="option-input am-tag-input" list="am-tag-list" maxlength="40" placeholder="태그 추가 — Enter 또는 쉼표로 확정" autocomplete="off">
+      <textarea class="option-input am-note" rows="2" maxlength="4000" placeholder="메모"></textarea>
+      <div class="am-info"></div>
+    </div>`;
+  const $ = (sel) => root.querySelector(sel);
+  const favBtn = $('.am-fav'), starBtns = [...root.querySelectorAll('.am-star')], statusEl = $('.am-status');
+  const toggle = $('.am-toggle'), body = $('.am-body'), tagsEl = $('.am-tags'), tagInput = $('.am-tag-input');
+  const noteEl = $('.am-note'), infoEl = $('.am-info'), countEl = $('.am-toggle-count');
+  const wrap = root.closest('.lightbox-img-wrap');
+  let path = null, state = { favorite: false, rating: 0, tags: [] }, savedNote = '', statusTimer = null;
+
+  function say(text){
+    statusEl.textContent = text;
+    clearTimeout(statusTimer);
+    if(text) statusTimer = setTimeout(() => { statusEl.textContent = ''; }, 1500);
+  }
+  function paintBar(){
+    favBtn.classList.toggle('on', state.favorite);
+    favBtn.setAttribute('aria-pressed', state.favorite ? 'true' : 'false');
+    starBtns.forEach((b, i) => b.classList.toggle('on', i < state.rating));
+    countEl.textContent = state.tags.length ? ` · 태그 ${state.tags.length}` : '';
+  }
+  function paintTags(){
+    tagsEl.innerHTML = state.tags.length
+      ? state.tags.map(t => `<span class="am-chip">${escapeHtml(t)}<button type="button" data-remove="${escapeHtml(t)}" aria-label="${escapeHtml(t)} 태그 떼기">${ico('x')}</button></span>`).join('')
+      : '<span class="am-empty">태그가 없어요</span>';
+  }
+  function setOpen(open){
+    assetMetaOpen = open;
+    try{ localStorage.setItem(AM_OPEN_KEY, open ? '1' : '0'); }catch(e){ /* 무시 */ }
+    body.hidden = !open;
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.classList.toggle('open', open);
+    if(wrap) wrap.classList.toggle('meta-open', open);
+  }
+  function row(label, value){
+    return value == null || value === '' ? '' : `<div class="am-kv"><dt>${label}</dt><dd>${escapeHtml(String(value))}</dd></div>`;
+  }
+  function paintInfo(d){
+    let params = {};
+    try{ params = d.params_json ? JSON.parse(d.params_json) : {}; }catch(e){ /* 못 읽으면 빈 값 */ }
+    const paramText = [
+      params.sampler_name, params.scheduler, params.steps != null ? `${params.steps} steps` : null,
+      params.cfg != null ? `cfg ${params.cfg}` : null, params.denoise != null && params.denoise !== 1 ? `denoise ${params.denoise}` : null,
+    ].filter(Boolean).join(' · ');
+    const dims = d.width && d.height ? `${d.width}×${d.height}` : null;
+    const prompt = d.prompt
+      ? `<div class="am-prompt-head"><span>프롬프트</span><button type="button" class="load-btn am-copy" data-copy="prompt">${ico('copy')} 복사</button></div><div class="am-prompt">${escapeHtml(d.prompt)}</div>`
+      : '';
+    const negative = d.negative_prompt
+      ? `<details class="am-neg"><summary>네거티브 프롬프트</summary><div class="am-prompt">${escapeHtml(d.negative_prompt)}</div></details>`
+      : '';
+    const facts = row('작업', d.job_label) + row('파드', d.pod_name) + row('체크포인트', d.checkpoint)
+      + row('시드', d.seed) + row('샘플링', paramText) + row('LoRA', (params.loras || []).join(', ')) + row('해상도', dims);
+    infoEl.innerHTML = (facts ? `<dl class="am-facts">${facts}</dl>` : '') + prompt + negative
+      || '<span class="am-empty">ComfyUI가 남긴 생성 정보가 없어요(회전·편집으로 지워졌거나 직접 넣은 파일일 수 있어요).</span>';
+    infoEl._detail = d;
+  }
+
+  favBtn.addEventListener('click', async () => {
+    if(!path) return;
+    const next = !state.favorite;
+    state.favorite = next; paintBar();
+    if(!await setAssetsFavorite(kind, [path], next)){ state.favorite = !next; paintBar(); say('저장 실패'); }
+  });
+  starBtns.forEach(btn => btn.addEventListener('click', async () => {
+    if(!path) return;
+    const n = Number(btn.dataset.star);
+    const next = state.rating === n ? 0 : n;    // 같은 별을 다시 누르면 평점 해제
+    const prev = state.rating;
+    state.rating = next; paintBar();
+    if(!await setAssetRating(kind, path, next)){ state.rating = prev; paintBar(); say('저장 실패'); }
+  }));
+  toggle.addEventListener('click', () => setOpen(body.hidden));
+
+  async function addTags(text){
+    const { add } = parseTagInput(text.replace(/^\s*-/, ''));
+    if(!path || add.length === 0) return;
+    const result = await changeAssetTags(kind, [path], add, []);
+    if(result === null){ say('태그 저장 실패'); return; }
+    state.tags = result[path] || state.tags; paintBar(); paintTags(); say('저장됨');
+  }
+  tagInput.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter' || e.key === ','){
+      e.preventDefault();
+      const value = tagInput.value;
+      tagInput.value = '';
+      addTags(value);
+    }
+  });
+  tagInput.addEventListener('change', () => {   // 자동완성 목록에서 고른 경우
+    if(tagInput.value.trim()){ const value = tagInput.value; tagInput.value = ''; addTags(value); }
+  });
+  tagsEl.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-remove]');
+    if(!btn || !path) return;
+    const result = await changeAssetTags(kind, [path], [], [btn.dataset.remove]);
+    if(result === null){ say('태그 저장 실패'); return; }
+    state.tags = result[path] || []; paintBar(); paintTags(); say('저장됨');
+  });
+  async function saveNote(){
+    if(!path || noteEl.value === savedNote) return;
+    const target = path, value = noteEl.value;
+    try{
+      const res = await assetJson('/api/output-assets/update', { path: target, note: value });
+      if(!res.ok) throw new Error('failed');
+      savedNote = value; say('저장됨');
+    }catch(e){ say('메모 저장 실패'); }
+  }
+  noteEl.addEventListener('blur', saveNote);
+  noteEl.addEventListener('keydown', (e) => { if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); saveNote(); } });
+  infoEl.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-copy]');
+    if(!btn || !infoEl._detail) return;
+    try{ await copyTextToClipboard(infoEl._detail.prompt || ''); say('복사됨'); }catch(err){ say('복사 실패'); }
+  });
+
+  return {
+    async show(item){
+      saveNote();
+      path = item.name;
+      state = { favorite: !!item.favorite, rating: item.rating || 0, tags: (item.tags || []).slice() };
+      savedNote = ''; noteEl.value = ''; infoEl.innerHTML = '<span class="am-empty">불러오는 중…</span>'; infoEl._detail = null;
+      statusEl.textContent = '';
+      paintBar(); paintTags(); setOpen(assetMetaOpen);
+      const requested = path;
+      try{
+        const res = await fetch(`/api/output-assets/detail?path=${encodeURIComponent(requested)}`);
+        if(!res.ok) throw new Error('failed');
+        const d = await res.json();
+        if(path !== requested) return;   // 그 사이 다른 이미지로 넘어갔으면 버린다
+        state.tags = d.tags || state.tags; state.favorite = !!d.favorite; state.rating = d.rating || 0;
+        savedNote = d.note || ''; noteEl.value = savedNote;
+        paintBar(); paintTags(); paintInfo(d);
+      }catch(e){
+        if(path === requested) infoEl.innerHTML = '<span class="am-empty">정보를 불러오지 못했어요.</span>';
+      }
+    },
+  };
+}
+
+const imageMetaPanel = createAssetMetaPanel(document.getElementById('gallery-lightbox-meta'), 'image');
+const videoMetaPanel = createAssetMetaPanel(document.getElementById('video-gallery-lightbox-meta'), 'video');
+
 // ---- 프로젝트 ----
 // 프로젝트는 파드와 무관하게 작업(job)과 결과물(asset)을 묶는다(서버 db.py/projects.py).
 // project_id가 없는 것은 "미분류"다. 홈이 프로젝트 대시보드이고, 프로젝트 안
@@ -7843,6 +8275,8 @@ async function fetchProjects(){
 }
 
 // ---- 홈 (프로젝트 대시보드) ----
+function fmtUsd(v){ return v < 0.01 ? '<$0.01' : `$${v.toFixed(2)}`; }
+
 function projectCardHtml(p){
   const inbox = p === null;
   const d = inbox
@@ -7856,6 +8290,11 @@ function projectCardHtml(p){
     ? `<span class="badge running"><span class="bdot"></span>실행 중 ${d.active_jobs}</span>` : '';
   const edit = inbox ? '' : `<button class="load-btn project-card-edit" type="button" data-project-edit="${d.id}" title="프로젝트 설정" aria-label="프로젝트 설정">${ico('settings')}</button>`;
   const last = d.last_activity ? `<span>마지막 활동 ${escapeHtml(fmtGalleryDateTime(d.last_activity))}</span>` : '';
+  const favs = d.favorite_count > 0 ? `<span title="즐겨찾기한 결과물">${ico('star')}<b>${d.favorite_count}</b></span>` : '';
+  // 추정 비용 = 작업 실행 시간 × 그 작업이 돈 파드의 시간당 비용. 비용을 모르는 작업은 빠지므로 "+"로 표시한다.
+  const costText = d.est_cost > 0
+    ? `<span title="${d.uncosted_jobs > 0 ? `비용을 모르는 작업 ${d.uncosted_jobs}개는 빠진 값이에요 — ` : ''}작업 실행 시간 × 파드 시간당 비용">추정 <b>${fmtUsd(d.est_cost)}${d.uncosted_jobs > 0 ? '+' : ''}</b></span>`
+    : '';
   return `
     <div class="project-card${inbox ? ' inbox' : ''}${d.archived ? ' archived' : ''}" data-project-open="${d.id}" role="button" tabindex="0">
       <div class="project-cover">${cover}</div>
@@ -7868,6 +8307,7 @@ function projectCardHtml(p){
         <div class="project-card-stats">
           <span>작업 <b>${d.job_count}</b></span>
           <span>결과물 <b>${d.asset_count}</b></span>
+          ${favs}${costText}
           ${last}
         </div>
       </div>
@@ -8383,7 +8823,7 @@ function galleryItemHtml(img, index){
         <div class="gallery-item-thumb">
           <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=80&v=${encodeURIComponent(img.mtime)}`)}" alt="${escapeHtml(img.name)}" loading="lazy">
         </div>
-        <div class="gallery-details-col name" title="${escapeHtml(img.name)}">${escapeHtml(img.name)}</div>
+        <div class="gallery-details-col name" title="${escapeHtml(img.name)}">${img.favorite ? '<svg class="ico fav"><use href="#i-star"/></svg> ' : ''}${escapeHtml(img.name)}</div>
         <div class="gallery-details-col job" title="${escapeHtml(jobLabel)}">${escapeHtml(jobLabel)}</div>
         <div class="gallery-details-col dim">${dims}</div>
         <div class="gallery-details-col size">${fmtBytes(img.size)}</div>
@@ -8398,6 +8838,7 @@ function galleryItemHtml(img, index){
         <input type="checkbox" ${selected ? 'checked' : ''}>
       </label>
       <button class="gallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
+      <button class="gallery-item-fav${img.favorite ? ' on' : ''}" type="button" aria-label="즐겨찾기" aria-pressed="${img.favorite ? 'true' : 'false'}" title="즐겨찾기">${ico('star')}</button>
       <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=300&v=${encodeURIComponent(img.mtime)}`)}" alt="${escapeHtml(img.name)}" loading="lazy">
       <div class="gallery-item-name">${escapeHtml(img.name)}</div>
     </div>
@@ -8428,6 +8869,11 @@ function wireGalleryItems(){
     el.querySelector('.gallery-item-delete').addEventListener('click', (e) => {
       e.stopPropagation();
       deleteGalleryImages([name]);
+    });
+    const favBtn = el.querySelector('.gallery-item-fav');
+    if(favBtn) favBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setAssetsFavorite('image', [name], !favBtn.classList.contains('on'));
     });
   });
 }
@@ -8620,7 +9066,7 @@ async function fetchGalleryImages(){
   const countEl = document.getElementById('gallery-count');
   try{
     const [imgRes, labels] = await Promise.all([
-      fetch('/api/output-images'),
+      fetch('/api/output-images' + galleryFilterQs(galleryFilters)),
       fetchGalleryJobLabels(),
     ]);
     const data = await imgRes.json();
@@ -8651,7 +9097,8 @@ async function fetchGalleryImages(){
   if(galleryImages.length === 0){
     grid.innerHTML = '';
     displayedGalleryImages = [];
-    emptyMsg.textContent = galleryPodFilter ? '이 파드가 만든 이미지가 아직 없어요'
+    emptyMsg.textContent = galleryFiltersActive(galleryFilters) ? '조건에 맞는 이미지가 없어요'
+      : galleryPodFilter ? '이 파드가 만든 이미지가 아직 없어요'
       : (galleryProjectFilter !== null ? '이 프로젝트의 이미지가 아직 없어요' : '서버에 저장된 이미지가 없어요');
     emptyMsg.style.display = 'block';
     return;
@@ -8896,6 +9343,7 @@ function renderLightbox(){
   imgEl.alt = img.name;
   document.getElementById('gallery-lightbox-info').textContent =
     `${img.name} · ${fmtBytes(img.size)} · ${fmtGalleryDateTime(img.mtime)} (${lightboxIndex + 1}/${displayedGalleryImages.length})`;
+  imageMetaPanel.show(img);
   document.getElementById('gallery-prev').disabled = lightboxIndex <= 0;
   document.getElementById('gallery-next').disabled = lightboxIndex >= displayedGalleryImages.length - 1;
 }
@@ -8930,7 +9378,7 @@ let lightboxTouchStartX = null;
 let lightboxTouchStartY = null;
 const DRAG_DAMPING = 0.4;
 galleryLightbox.addEventListener('touchstart', (e) => {
-  if(e.touches.length !== 1) return;
+  if(e.touches.length !== 1 || e.target.closest('.asset-meta')) return;
   lightboxTouchStartX = e.touches[0].clientX;
   lightboxTouchStartY = e.touches[0].clientY;
   document.getElementById('gallery-lightbox-img').classList.add('dragging');
@@ -9043,6 +9491,8 @@ galleryLightbox.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if(galleryLightbox.style.display === 'none') return;
+  // 태그/메모 입력 중의 Backspace·화살표가 삭제/이동으로 새면 안 된다.
+  if(e.target.closest && e.target.closest('input, textarea, select')) return;
   if(e.key === 'Escape') closeLightbox();
   else if(e.key === 'ArrowLeft') showPrevImage();
   else if(e.key === 'ArrowRight') showNextImage();
@@ -9144,6 +9594,7 @@ function videoGalleryItemHtml(vid, index){
         <input type="checkbox" ${selected ? 'checked' : ''}>
       </label>
       <button class="vgallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
+      <button class="vgallery-item-fav${vid.favorite ? ' on' : ''}" type="button" aria-label="즐겨찾기" aria-pressed="${vid.favorite ? 'true' : 'false'}" title="즐겨찾기">${ico('star')}</button>
       <video src="${src}" preload="metadata" muted playsinline></video>
       <div class="vgallery-item-play"><svg class="ico"><use href="#i-play"/></svg></div>
       <div class="vgallery-item-name">${escapeHtml(vid.name)}</div>
@@ -9172,6 +9623,11 @@ function wireVideoGalleryItems(){
     el.querySelector('.vgallery-item-delete').addEventListener('click', (e) => {
       e.stopPropagation();
       deleteGalleryVideos([name]);
+    });
+    const favBtn = el.querySelector('.vgallery-item-fav');
+    if(favBtn) favBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setAssetsFavorite('video', [name], !favBtn.classList.contains('on'));
     });
   });
 }
@@ -9280,7 +9736,7 @@ async function fetchGalleryVideos(){
   const countEl = document.getElementById('video-gallery-count');
   try{
     const [vidRes, labels] = await Promise.all([
-      fetch('/api/output-videos'),
+      fetch('/api/output-videos' + galleryFilterQs(videoGalleryFilters)),
       fetchGalleryJobLabels(),
     ]);
     const data = await vidRes.json();
@@ -9309,7 +9765,8 @@ async function fetchGalleryVideos(){
   if(galleryVideos.length === 0){
     grid.innerHTML = '';
     displayedGalleryVideos = [];
-    emptyMsg.textContent = videoGalleryPodFilter ? '이 파드가 만든 영상이 아직 없어요'
+    emptyMsg.textContent = galleryFiltersActive(videoGalleryFilters) ? '조건에 맞는 영상이 없어요'
+      : videoGalleryPodFilter ? '이 파드가 만든 영상이 아직 없어요'
       : (videoGalleryProjectFilter !== null ? '이 프로젝트의 영상이 아직 없어요' : '서버에 저장된 영상이 없어요');
     emptyMsg.style.display = 'block';
     return;
@@ -9381,6 +9838,7 @@ function renderVideoLightbox(){
   videoEl.src = window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(vid.name)}`);
   document.getElementById('video-gallery-lightbox-info').textContent =
     `${vid.name} · ${fmtBytes(vid.size)} · ${fmtGalleryDateTime(vid.mtime)} (${vLightboxIndex + 1}/${displayedGalleryVideos.length})`;
+  videoMetaPanel.show(vid);
   document.getElementById('video-gallery-prev').disabled = vLightboxIndex <= 0;
   document.getElementById('video-gallery-next').disabled = vLightboxIndex >= displayedGalleryVideos.length - 1;
 }
@@ -9435,6 +9893,7 @@ videoGalleryLightbox.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if(videoGalleryLightbox.style.display === 'none') return;
+  if(e.target.closest && e.target.closest('input, textarea, select')) return;
   if(e.key === 'Escape') closeVideoLightbox();
   else if(e.key === 'ArrowLeft') showPrevVideo();
   else if(e.key === 'ArrowRight') showNextVideo();

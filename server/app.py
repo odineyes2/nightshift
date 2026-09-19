@@ -58,6 +58,7 @@ from drivers.comfyui import (
     ComfyUIDriver,
     check_url,
 )
+import asset_meta
 import assets_index
 import db
 import pod_registry
@@ -2867,20 +2868,96 @@ async def set_job_project(job_id: str, request: Request):
     return snapshot
 
 
+def _split_tags(value: str | None) -> list[str]:
+    return [t for t in (value or "").split(",") if t.strip()]
+
+
 @app.get("/api/output-assets")
 def list_assets_api(project_id: str | None = None, kind: str | None = None,
                     job_id: str | None = None, favorite: bool | None = None,
+                    q: str | None = None, tag: str | None = None, min_rating: int | None = None,
                     limit: int = 200, offset: int = 0):
-    # 결과물 색인 조회 — project_id는 숫자 또는 "unassigned"(미분류). 아직 갤러리 화면이
-    # 쓰지는 않는다(갤러리는 여전히 폴더를 직접 훑는다).
+    # 결과물 색인 조회 — project_id는 숫자 또는 "unassigned"(미분류). 프롬프트 등 PNG 메타데이터와
+    # 태그·평점·메모까지 담아 온다. q는 공백으로 나눈 단어가 모두 (프롬프트·메모·태그·파일명·
+    # 체크포인트·시드) 중 어딘가에 들어 있는 것만 남긴다.
     if kind not in (None, "image", "video"):
         raise HTTPException(400, "kind는 image 또는 video여야 해요.")
     project: str | int | None = None
     if project_id is not None:
         project = "unassigned" if project_id == "unassigned" else parse_project_id(project_id)
     _sync_assets_quietly()
-    return {"assets": assets_index.list_assets(project, kind, job_id, favorite,
-                                               max(1, min(limit, 1000)), max(0, offset))}
+    return {"assets": asset_meta.list_assets(q, _split_tags(tag), favorite, min_rating, kind, project, job_id,
+                                             max(1, min(limit, 1000)), max(0, offset))}
+
+
+def _asset_paths_from(body: dict) -> list[str]:
+    paths = body.get("paths")
+    if paths is None and isinstance(body.get("path"), str):
+        paths = [body["path"]]
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p for p in paths):
+        raise HTTPException(400, "paths(결과물 경로 목록)가 필요해요.")
+    return paths
+
+
+@app.get("/api/output-assets/detail")
+def asset_detail_api(path: str):
+    # 라이트박스의 정보 패널용 — 프롬프트/시드/체크포인트/파라미터와 메모·평점·태그 전부.
+    _sync_assets_quietly()
+    try:
+        return asset_meta.get_detail(path)
+    except asset_meta.AssetNotFound:
+        raise HTTPException(404, "결과물을 찾을 수 없어요.")
+
+
+@app.post("/api/output-assets/update")
+async def update_assets_api(request: Request):
+    # 즐겨찾기/평점/메모를 바꾼다(paths 여러 개면 전부 같은 값으로). 메모는 한 장씩만.
+    body = await read_json_object(request, allow_empty=False)
+    paths = _asset_paths_from(body)
+    if "note" in body and len(paths) > 1:
+        raise HTTPException(400, "메모는 결과물 한 장씩만 바꿀 수 있어요.")
+    if "note" in body and not isinstance(body["note"], str):
+        raise HTTPException(400, "note는 문자열이어야 해요.")
+    if "favorite" in body and not isinstance(body["favorite"], bool):
+        raise HTTPException(400, "favorite은 true/false여야 해요.")
+    kwargs = {}
+    if "favorite" in body:
+        kwargs["favorite"] = body["favorite"]
+    if "rating" in body:
+        r = body["rating"]
+        if r is not None and (not isinstance(r, int) or isinstance(r, bool)):
+            raise HTTPException(400, "rating은 0~5 숫자여야 해요.")
+        kwargs["rating"] = r
+    if "note" in body:
+        kwargs["note"] = body["note"]
+    try:
+        changed = await asyncio.to_thread(asset_meta.update_assets, paths, **kwargs)
+    except asset_meta.AssetNotFound:
+        raise HTTPException(404, "결과물을 찾을 수 없어요.")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"updated": changed}
+
+
+@app.post("/api/output-assets/tags")
+async def change_asset_tags_api(request: Request):
+    # 태그를 붙이고(add)/떼고(remove) 바뀐 결과물의 태그 목록을 돌려준다.
+    body = await read_json_object(request, allow_empty=False)
+    paths = _asset_paths_from(body)
+    for key in ("add", "remove"):
+        if key in body and not (isinstance(body[key], list) and all(isinstance(t, str) for t in body[key])):
+            raise HTTPException(400, f"{key}는 문자열 목록이어야 해요.")
+    try:
+        tags = await asyncio.to_thread(asset_meta.change_tags, paths, body.get("add"), body.get("remove"))
+    except asset_meta.AssetNotFound:
+        raise HTTPException(404, "결과물을 찾을 수 없어요.")
+    return {"tags": tags}
+
+
+@app.get("/api/tags")
+def list_tags_api():
+    # 태그 자동완성/필터 후보 — 결과물에 붙은 개수 순.
+    return {"tags": asset_meta.list_tags()}
 
 
 @app.post("/api/queue/start")
@@ -3252,23 +3329,26 @@ async def send_email(request: Request):
     return result
 
 
-def _project_resolver():
-    """갤러리 항목이 어느 프로젝트 것인지 알려주는 함수를 돌려준다(name, job_id) -> project_id.
-    결과물 색인(assets)이 진실이고, 아직 색인에 없는 새 파일은 그 job의 프로젝트로 본다."""
+def _meta_resolver():
+    """갤러리 항목에 붙일 결과물 메타(프로젝트·즐겨찾기·평점·태그)를 돌려주는 함수를 만든다
+    (name, job_id) -> dict. 결과물 색인(assets)이 진실이고, 아직 색인에 없는 새 파일은 그 job의
+    프로젝트만 물려받은 기본값으로 본다."""
     try:
-        by_path = assets_index.project_ids_by_path()
+        by_path = asset_meta.meta_by_path()
     except Exception:
         by_path = {}
 
-    def resolve(name: str, job_id: str | None):
-        if name in by_path:
-            return by_path[name]
+    def resolve(name: str, job_id: str | None) -> dict:
+        found = by_path.get(name)
+        if found:
+            return found
+        project_id = None
         if job_id:
             with lock:
                 job = jobs.get(job_id)
             if job:
-                return job.get("project_id")
-        return None
+                project_id = job.get("project_id")
+        return {"asset_id": None, "favorite": False, "rating": None, "project_id": project_id, "tags": []}
     return resolve
 
 
@@ -3285,7 +3365,7 @@ def list_output_images_meta() -> list[dict]:
     # "⬇ 결과 가져오기"가 남긴 동기화 기록(comfy_output_sync.json)에 이제 파드
     # 정보가 있으니, job_id가 없을 때 쓸 수 있게 같이 넘긴다.
     pod_ids = synced_pod_ids()
-    project_of = _project_resolver()
+    meta_of = _meta_resolver()
     items = []
     for f in files:
         stat = f.stat()
@@ -3310,7 +3390,7 @@ def list_output_images_meta() -> list[dict]:
             "name": name,
             "job_id": job_id,
             "synced_pod_id": pod_ids.get(name),
-            "project_id": project_of(name, job_id),
+            **meta_of(name, job_id),
             "size": stat.st_size,
             "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
             "width": width,
@@ -3321,11 +3401,18 @@ def list_output_images_meta() -> list[dict]:
 
 
 @app.get("/api/output-images")
-def list_output_images_api():
+def list_output_images_api(q: str | None = None, tag: str | None = None,
+                           favorite: bool | None = None, min_rating: int | None = None):
     # 갤러리가 4초마다 부르는 곳 — 색인(assets)이 디스크와 어긋나지 않게 짧은 간격
     # 안에서는 건너뛰는 sync를 같이 돌린다(회전/삭제/직접 넣은 파일이 여기서 따라잡힌다).
+    # q(프롬프트·메모·태그·파일명·체크포인트·시드)/tag(쉼표로 여러 개, 모두 붙은 것)/favorite/
+    # min_rating을 주면 그 조건에 맞는 것만 남긴다.
     _sync_assets_quietly()
-    return {"images": list_output_images_meta()}
+    items = list_output_images_meta()
+    allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="image")
+    if allowed is not None:
+        items = [i for i in items if i["name"] in allowed]
+    return {"images": items}
 
 
 async def read_json_object(request: Request, allow_empty: bool = True) -> dict:
@@ -3674,7 +3761,7 @@ def list_output_videos_meta() -> list[dict]:
         return []
     base = Path(OUTPUT_DIR)
     pod_ids = synced_pod_ids()  # list_output_images_meta 참고 — job_id 없는 영상용.
-    project_of = _project_resolver()
+    meta_of = _meta_resolver()
     items = []
     for f in files:
         stat = f.stat()
@@ -3685,7 +3772,7 @@ def list_output_videos_meta() -> list[dict]:
             "name": name,
             "job_id": job_id,
             "synced_pod_id": pod_ids.get(name),
-            "project_id": project_of(name, job_id),
+            **meta_of(name, job_id),
             "size": stat.st_size,
             "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
         })
@@ -3694,9 +3781,14 @@ def list_output_videos_meta() -> list[dict]:
 
 
 @app.get("/api/output-videos")
-def list_output_videos_api():
+def list_output_videos_api(q: str | None = None, tag: str | None = None,
+                           favorite: bool | None = None, min_rating: int | None = None):
     _sync_assets_quietly()
-    return {"videos": list_output_videos_meta()}
+    items = list_output_videos_meta()
+    allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="video")
+    if allowed is not None:
+        items = [i for i in items if i["name"] in allowed]
+    return {"videos": items}
 
 
 def resolve_output_video(filename: str) -> Path:
