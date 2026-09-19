@@ -355,7 +355,13 @@
     padding:0 28px;
     display:flex;
     gap:4px;
+    /* 탭이 화면 폭보다 많아지면(좁은 모바일) 줄바꿈 대신 가로 스크롤 — 탭 줄은
+       세로로 쌓이면 오히려 어색해서, 카드 목록과 달리 스크롤 쪽을 택했다. */
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
   }
+  .tab-bar-inner::-webkit-scrollbar{ display:none; }
   .tab-btn{
     background:none;
     border:none;
@@ -367,6 +373,8 @@
     padding:12px 6px;
     cursor:pointer;
     margin-bottom:-1px;
+    white-space:nowrap;
+    flex-shrink:0;
   }
   .tab-btn:hover{ color:var(--text); }
   .tab-btn.active{ color:var(--queued); border-bottom-color:var(--queued); }
@@ -902,6 +910,16 @@
   .panel-header-title:hover .collapse-btn{ color:var(--queued); }
   .panel-header-title:hover .section-label{ color:var(--text); }
   .panel-header-actions{ display:flex; align-items:center; gap:var(--gap-md); flex-shrink:0; }
+  /* 갤러리/영상/Danbooru 탭 제목 줄 — actions가 flex-shrink:0이라 좁은 화면에서
+     줄어들 곳이 제목(section-label)뿐이라 글자가 한 자씩 세로로 쪼개지고
+     actions는 화면 밖으로 넘어갔다. 좁은 화면에서는 아래 줄로 넘기고, actions
+     자신도 필요하면 여러 줄로 접히게 한다. */
+  @media (max-width:640px){
+    .panel-header{ flex-wrap:wrap; }
+    /* flex-shrink:0을 그대로 두면 넓어진 채로 화면 밖까지 넘어가버려서, 줄 하나를
+       통째로 차지하게(width:100%) 만들어야 그 안에서 다시 flex-wrap이 걸린다. */
+    .panel-header-actions{ flex-wrap:wrap; flex-shrink:1; width:100%; }
+  }
   .collapse-btn{
     background:none;
     border:none;
@@ -1463,6 +1481,13 @@
     background:rgba(var(--queued-rgb),0.06);
     border:1px solid rgba(var(--queued-rgb),0.25);
     border-radius:var(--radius-md);
+  }
+  /* 이미지/영상 갤러리에서 여러 개를 선택했을 때 뜨는 줄 — 버튼이 줄어들지도
+     줄바꿈되지도 않아 "N개 선택됨" 글자만 세로로 쪼개지고 버튼들은 화면 밖으로
+     넘어가던 문제. panel-header-actions와 같은 이유라 같은 방식으로 고친다. */
+  @media (max-width:640px){
+    .gallery-toolbar{ flex-wrap:wrap; }
+    .gallery-toolbar-count{ margin-right:0; flex-basis:100%; }
   }
   .gallery-toolbar-count{
     font-family:var(--mono);
