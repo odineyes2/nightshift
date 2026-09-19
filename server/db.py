@@ -114,8 +114,22 @@ CREATE INDEX asset_tags_tag ON asset_tags(tag_id);
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
+# v2: 원격 ComfyUI에서 "이미 받아온 파일" 기록을 comfy_output_sync.json에서 옮겨 온다. 이 기록은
+# 한 번 받은 파일을 사용자가 지워도 다시 받지 않게 하는 장치이자(comfy_outputs.py), 갤러리가
+# job_id 없는 파일의 파드를 알아보는 단서다. assets.origin_key는 같은 목적으로 미리 만들어 둔
+# 칸이었지만 결과물 행이 아직 없는 파일(받기만 하고 색인 전에 지운 것)도 기록해야 해서 이
+# 테이블이 맡고, 쓰이지 않는 그 칸은 지운다.
+SCHEMA_V2 = """
+CREATE TABLE comfy_downloads (
+  key           TEXT PRIMARY KEY,
+  downloaded_at TEXT NOT NULL,
+  pod_id        TEXT
+);
+ALTER TABLE assets DROP COLUMN origin_key
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
-MIGRATIONS = [(1, SCHEMA_V1)]
+MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2)]
 
 
 def now_iso() -> str:
@@ -280,6 +294,82 @@ def import_legacy_jobs(state_file: Path) -> int:
                 )
                 count += 1
         set_meta(conn, "legacy_jobs_imported", now_iso())
+    if state_file.exists():
+        target = state_file.with_name(state_file.name + ".migrated")
+        try:
+            if target.exists():
+                target.unlink()
+            state_file.rename(target)
+        except OSError:
+            pass
+    return count
+
+
+# ---- 원격 ComfyUI 동기화 기록 (comfy_outputs.py) -------------------------------------------------
+
+def load_comfy_sync() -> dict:
+    """{"downloaded": {"<subfolder>/<파일명>": {"at", "pod_id"}}, "last_sync"} — 예전
+    comfy_output_sync.json과 같은 모양이라 comfy_outputs.py의 동기화 로직이 그대로 쓴다."""
+    with connect() as conn:
+        rows = conn.execute("SELECT key, downloaded_at, pod_id FROM comfy_downloads").fetchall()
+        last_sync = get_meta(conn, "comfy_last_sync")
+    return {
+        "downloaded": {r["key"]: {"at": r["downloaded_at"], "pod_id": r["pod_id"]} for r in rows},
+        "last_sync": last_sync,
+    }
+
+
+def save_comfy_sync(state: dict) -> None:
+    """state 전체에 DB를 맞춘다 — 바뀐 항목만 쓰고, 없어진 항목은 지운다(forget). 파드가
+    새로 적힌 항목은 결과물 색인(assets)의 origin_pod_id도 같이 맞춘다."""
+    downloaded = state.get("downloaded") or {}
+    with connect() as conn:
+        existing = {r["key"]: (r["downloaded_at"], r["pod_id"])
+                    for r in conn.execute("SELECT key, downloaded_at, pod_id FROM comfy_downloads")}
+        for key, value in downloaded.items():
+            at = (value.get("at") if isinstance(value, dict) else value) or now_iso()
+            pod_id = value.get("pod_id") if isinstance(value, dict) else None
+            if existing.get(key) == (at, pod_id):
+                continue
+            conn.execute(
+                "INSERT INTO comfy_downloads(key, downloaded_at, pod_id) VALUES(?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET downloaded_at=excluded.downloaded_at, pod_id=excluded.pod_id",
+                (key, at, pod_id),
+            )
+            if pod_id:
+                conn.execute(
+                    "UPDATE assets SET origin_pod_id=? WHERE path=? AND (origin_pod_id IS NULL OR origin_pod_id != ?)",
+                    (pod_id, key, pod_id),
+                )
+        for key in set(existing) - set(downloaded):
+            conn.execute("DELETE FROM comfy_downloads WHERE key=?", (key,))
+        if state.get("last_sync"):
+            set_meta(conn, "comfy_last_sync", state["last_sync"])
+
+
+def import_legacy_comfy_sync(state_file: Path) -> int:
+    """comfy_output_sync.json이 있고 아직 안 가져왔으면 한 번만 DB로 옮기고 원본은
+    .migrated로 보존한다(import_legacy_jobs와 같은 방식). 가져온 개수를 돌려준다."""
+    with connect() as conn:
+        if get_meta(conn, "legacy_comfy_sync_imported"):
+            return 0
+        count = 0
+        if state_file.exists():
+            try:
+                with open(state_file, encoding="utf-8") as f:
+                    legacy = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                legacy = {}   # 깨진 기록은 예전에도 "빈 상태로 시작"이었다
+            downloaded = legacy.get("downloaded") if isinstance(legacy, dict) else None
+            for key, value in (downloaded or {}).items():
+                at = (value.get("at") if isinstance(value, dict) else value) or now_iso()
+                pod_id = value.get("pod_id") if isinstance(value, dict) else None
+                conn.execute("INSERT OR IGNORE INTO comfy_downloads(key, downloaded_at, pod_id) VALUES(?,?,?)",
+                             (key, str(at), pod_id))
+                count += 1
+            if isinstance(legacy, dict) and legacy.get("last_sync"):
+                set_meta(conn, "comfy_last_sync", str(legacy["last_sync"]))
+        set_meta(conn, "legacy_comfy_sync_imported", now_iso())
     if state_file.exists():
         target = state_file.with_name(state_file.name + ".migrated")
         try:

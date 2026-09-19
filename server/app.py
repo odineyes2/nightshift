@@ -2939,6 +2939,23 @@ async def update_assets_api(request: Request):
     return {"updated": changed}
 
 
+@app.post("/api/output-assets/move")
+async def move_assets_api(request: Request):
+    # 결과물(이미지/영상)을 다른 프로젝트로 옮긴다 — project_id가 null이면 미분류. 파일은 그대로다.
+    body = await read_json_object(request, allow_empty=False)
+    paths = _asset_paths_from(body)
+    if "project_id" not in body:
+        raise HTTPException(400, "project_id가 필요해요(미분류로 옮기려면 null).")
+    project_id = parse_project_id(body["project_id"])
+    if project_id is not None and not project_store.project_exists(project_id):
+        raise HTTPException(400, "없는 프로젝트예요.")
+    try:
+        moved = await asyncio.to_thread(asset_meta.move_assets, paths, project_id)
+    except asset_meta.AssetNotFound:
+        raise HTTPException(404, "결과물을 찾을 수 없어요.")
+    return {"moved": moved, "project_id": project_id}
+
+
 @app.post("/api/output-assets/tags")
 async def change_asset_tags_api(request: Request):
     # 태그를 붙이고(add)/떼고(remove) 바뀐 결과물의 태그 목록을 돌려준다.

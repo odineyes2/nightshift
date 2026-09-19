@@ -28,14 +28,16 @@ zip/이메일까지 전부 한 줄도 안 고치고 그대로 동작한다. 이 
 
 ## 지운 이미지가 되살아나지 않게 하기
 
-한 번 받아온 파일은 comfy_output_sync.json에 기록해 둔다. 사용자가 갤러리에서 이미지를
+한 번 받아온 파일은 DB(comfy_downloads 테이블, db.py)에 기록해 둔다 — 예전에는
+comfy_output_sync.json이었고, 있으면 첫 실행 때 한 번 옮겨 담는다. 사용자가 갤러리에서 이미지를
 지운 뒤 다시 동기화해도, 원격 ComfyUI의 히스토리에는 그 이미지가 그대로 남아 있으므로
 기록이 없으면 매번 되살아난다. "이미 한 번 받아온 것"은 로컬에 지금 있든 없든 다시
 받지 않는다 — 삭제는 사용자의 의사 표시이기 때문이다. 정말 다시 받고 싶을 때를 위한
 탈출구가 force=True(그리고 forget_downloaded())다.
 
 환경변수:
-    NIGHTSHIFT_OUTPUT_SYNC_FILE  동기화 기록 파일 경로 (기본 <저장소>/data/comfy_output_sync.json)
+    NIGHTSHIFT_OUTPUT_SYNC_FILE  (옛 형식) 동기화 기록 JSON 경로 — DB로 옮기는 마이그레이션이 읽는다
+                                 (기본 <저장소>/data/comfy_output_sync.json)
     NIGHTSHIFT_SYNC_MAX_ITEMS    /history에서 훑어볼 최근 프롬프트 개수 (기본 500)
     NIGHTSHIFT_SYNC_TIMEOUT_SEC  ComfyUI HTTP 요청 타임아웃 (기본 60)
 """
@@ -48,6 +50,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+import db
 from data_paths import data_path
 from output_images import IMAGE_EXTENSIONS, OUTPUT_DIR
 from output_videos import VIDEO_EXTENSIONS
@@ -94,28 +97,21 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_legacy_checked = False
+
+
 def load_sync_state() -> dict:
-    """{"downloaded": {"<subfolder>/<파일명>": 받은 시각}, "last_sync": ...} 형태.
-    파일이 없거나 깨져 있으면 빈 상태로 시작한다 — 기록이 없으면 최악의 경우 한 번
-    더 받아올 뿐이라, 여기서 예외를 던져 동기화 자체를 막을 이유가 없다."""
-    try:
-        with open(SYNC_STATE_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    downloaded = data.get("downloaded")
-    if not isinstance(downloaded, dict):
-        downloaded = {}
-    return {"downloaded": downloaded, "last_sync": data.get("last_sync")}
+    """{"downloaded": {"<subfolder>/<파일명>": {"at", "pod_id"}}, "last_sync": ...} 형태.
+    처음 부를 때 옛 comfy_output_sync.json이 있으면 DB로 한 번 옮겨 담는다."""
+    global _legacy_checked
+    if not _legacy_checked:
+        db.import_legacy_comfy_sync(SYNC_STATE_FILE)
+        _legacy_checked = True
+    return db.load_comfy_sync()
 
 
 def save_sync_state(state: dict):
-    tmp = SYNC_STATE_FILE.with_suffix(SYNC_STATE_FILE.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, SYNC_STATE_FILE)
+    db.save_comfy_sync(state)
 
 
 def sync_state_summary() -> dict:

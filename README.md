@@ -496,7 +496,7 @@ ComfyUI가 같은 머신에 있으면 그 폴더가 곧 ComfyUI의 출력 폴더
   때문에 ComfyUI는 결과를 job_id 이름의 하위 폴더에 저장하고, `/history` 응답의 `subfolder`에도 그 job_id를 그대로
   실어 줍니다. 받아온 파일을 `출력폴더/<job_id>/<파일명>`에 떨궈 주기만 하면 갤러리의 "작업별 보기"부터 zip·이메일까지
   한 줄도 안 고치고 그대로 동작합니다.
-- **지운 이미지는 되살아나지 않습니다**: 한 번 받아온 파일은 `comfy_output_sync.json`에 기록해 두고, 로컬에 지금
+- **지운 이미지는 되살아나지 않습니다**: 한 번 받아온 파일은 DB(`comfy_downloads` 테이블)에 기록해 두고, 로컬에 지금
   있든 없든 다시 받지 않습니다(원격 히스토리에는 그 이미지가 계속 남아 있으므로 이 기록이 없으면 지울 때마다 되살아납니다).
   정말 다시 받고 싶으면 `POST /api/comfy-outputs/sync`에 `{"force": true}`를 보내세요.
 - 자동 가져오기가 실패해도 작업 상태는 바뀌지 않습니다 — 이미지는 원격에 그대로 있고 나중에 수동으로 받을 수 있으니
@@ -865,6 +865,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/output-assets` | 결과물 색인(SQLite) 조회 — `?project_id=`(숫자 또는 `unassigned`)·`kind`(`image`/`video`)·`job_id`·`favorite`·`q`(공백으로 나눈 단어가 프롬프트·메모·태그·파일명·체크포인트·시드 어딘가에 모두 들어 있는 것)·`tag`(쉼표로 여러 개, 모두 붙은 것)·`min_rating`·`limit`·`offset`. 시드/프롬프트/체크포인트 등 PNG 메타데이터에서 뽑은 값과 태그·평점·메모가 함께 온다 |
 | `GET` | `/api/output-assets/detail?path=` | 결과물 하나의 전체 정보(프롬프트·네거티브·시드·체크포인트·샘플링 파라미터·LoRA·메모·평점·태그·작업/파드). 라이트박스의 정보 패널이 쓴다 |
 | `POST` | `/api/output-assets/update` | 즐겨찾기/평점/메모를 바꾼다 — `{"paths": [...] 또는 "path", "favorite": bool, "rating": 0~5(0=해제), "note": "..."}` (보낸 필드만 바뀜, 메모는 한 장씩만) |
+| `POST` | `/api/output-assets/move` | 결과물(이미지/영상)을 다른 프로젝트로 옮긴다 — `{"paths": [...] 또는 "path", "project_id": 숫자 또는 null(미분류)}`. 파일은 그대로고 소속만 바뀌며, 만든 작업의 프로젝트는 건드리지 않는다. 없는 프로젝트면 400, 없는 결과물이면 404 |
 | `POST` | `/api/output-assets/tags` | 태그를 붙이고/뗀다 — `{"paths": [...], "add": [...], "remove": [...]}`. 바뀐 결과물의 태그 목록을 돌려주고, 아무 데도 안 붙은 태그는 자동으로 사라진다 |
 | `GET` | `/api/tags` | 태그 목록과 붙은 개수(자동완성/필터용) |
 | `POST` | `/api/pods/{pod_id}/queue/start` | **그 파드만** 자동 실행을 켜고, 그 파드로 배정된 대기 작업을 큐에 넣음(작업 화면의 "▶ 시작"이 부르는 것). 다른 파드에 배정된 작업은 건드리지 않고, 배정된 파드가 사라졌거나 꺼진 작업만 — 그것도 워커 종류가 맞을 때만 — 이 파드로 되돌림. 응답 `{"pod_id", "running": true, "started": N}` |
@@ -872,7 +873,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/jobs/{job_id}/move` | 작업을 다른 파드로 옮김(요청 본문 `{"pod_id": "..."}`). `pending`/`queued`/`interrupted`만 가능하고 실행 중이면 400, 없는 파드면 404, 사용 안 함 파드면 400 |
 | `POST` | `/api/pods/{pod_id}/test` | 저장된 그대로의 파드가 응답하는지 확인(설정은 안 건드림). 응답 `{"pod_id", "ok", "url", "source", "detail"}`. 사람이 기다리는 동작이라 폴링보다 넉넉한 타임아웃(8초)을 씀 |
 | `POST` | `/api/pods/{pod_id}/runpod-test` | RunPod API 조회를 캐시 없이 즉시 다시 하고, 실패해도 이유를 그대로 돌려줌(카드의 `get_runpod_info()`는 실패를 삼키므로 이걸로 원인 확인). 응답 `{"url", "api_key_set", "extracted_pod_id", "status_code"?, "raw_response"?, "normalized"?, "error"?}` |
-| `POST` | `/api/comfy-outputs/sync` | 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(요청 본문 `{"job_id": "..."(선택, 그 작업 것만), "force": bool(선택), "pod_id": "..."(선택)}`). `pod_id`를 주면 그 파드에서 가져오고(파드 갤러리의 "⬇ 결과 가져오기"가 이렇게 부름), 생략하면 기본 파드다. 응답 `{"url", "checked", "downloaded": [...], "skipped_known", "skipped_existing", "skipped_invalid", "errors", "last_sync"}`. **한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않는다**(`comfy_output_sync.json`) — 정말 다시 받고 싶으면 `force: true`. 로컬에 이미 있는 파일은 어느 경우에도 덮어쓰지 않는다. ComfyUI에 연결이 안 되면 503, 히스토리 조회에 실패하면 502 |
+| `POST` | `/api/comfy-outputs/sync` | 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(요청 본문 `{"job_id": "..."(선택, 그 작업 것만), "force": bool(선택), "pod_id": "..."(선택)}`). `pod_id`를 주면 그 파드에서 가져오고(파드 갤러리의 "⬇ 결과 가져오기"가 이렇게 부름), 생략하면 기본 파드다. 응답 `{"url", "checked", "downloaded": [...], "skipped_known", "skipped_existing", "skipped_invalid", "errors", "last_sync"}`. **한 번 받아온 이미지는 갤러리에서 지워도 다시 받지 않는다**(DB `comfy_downloads` 테이블) — 정말 다시 받고 싶으면 `force: true`. 로컬에 이미 있는 파일은 어느 경우에도 덮어쓰지 않는다. ComfyUI에 연결이 안 되면 503, 히스토리 조회에 실패하면 502 |
 | `POST` | `/api/comfy-outputs/forget` | "이미 받아왔다"는 기록을 지운다(요청 본문 `{"job_id": "..."}`를 주면 그 작업 것만, 없으면 전부). 응답 `{"forgotten": N, "last_sync", "known"}`. 한 번만 다시 받으면 되는 경우라면 위의 `force: true`가 더 간단하다 |
 | `POST` | `/api/comfy-endpoint/test` | 저장하지 않고 주소만 확인한다(요청 본문 `{"url": "..."}`, 비워 보내면 지금 적용 중인 주소를 확인). 응답 `{"url", "connected"}`. 폴링(2초)보다 넉넉한 타임아웃(8초)을 써서 원격 pod의 첫 TLS 핸드셰이크까지 기다린다 |
 | `GET` | `/api/comfy-object-info?refresh=false&pod_id=` | **그 파드**(생략하면 기본 파드, ComfyUI 파드가 아니면 기본 파드로 폴백)에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
@@ -1043,11 +1044,11 @@ nightshift/
     ├── recent_workflows/       # "🕘 최근" 워크플로우 사본
     ├── recent_csvs/            # "🕘 최근" CSV 사본
     ├── workflow_presets/       # family별 ControlNet 프리셋 워크플로우
-    ├── nightshift.db           # SQLite — 프로젝트·작업 이력·결과물 색인·태그 (옛 jobs_state.json은
-    │                           #   첫 실행 때 여기로 옮겨지고 jobs_state.json.migrated로 보존됨)
+    ├── nightshift.db           # SQLite — 프로젝트·작업 이력·결과물 색인·태그·ComfyUI 동기화 기록 (옛
+    │                           #   jobs_state.json / comfy_output_sync.json은 첫 실행 때 여기로 옮겨지고
+    │                           #   각각 *.migrated로 보존됨)
     ├── pods.json               # 파드(워커) 목록
     ├── comfy_endpoint.json     # (옛 형식) ComfyUI 접속 주소 — 있으면 pods.json으로 이관됨
-    ├── comfy_output_sync.json  # 원격 ComfyUI에서 어디까지 받아왔는지의 기록
     ├── lora_triggers.json      # LoRA 트리거 워드 + 호환 베이스 모델
     ├── base_model_families.json # 베이스 모델(family) 정의
     ├── danbooru_tag_edits.json # Danbooru 태그 풀 편집

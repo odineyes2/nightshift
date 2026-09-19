@@ -191,6 +191,20 @@ def update_assets(paths: list[str], favorite=None, rating="unset", note=None) ->
         return cur.rowcount
 
 
+def move_assets(paths: list[str], project_id: int | None) -> int:
+    """결과물을 다른 프로젝트(None이면 미분류)로 옮긴다. 파일은 그대로고 색인만 바뀐다 —
+    만든 작업(job)의 프로젝트는 건드리지 않는다(그 작업의 다른 결과물은 제자리에 남는다)."""
+    paths = list(dict.fromkeys(paths))
+    if not paths:
+        return 0
+    _ensure_indexed(paths)
+    with db.connect() as conn:
+        ids = _asset_ids(conn, paths)
+        marks = ",".join("?" * len(ids))
+        cur = conn.execute(f"UPDATE assets SET project_id=? WHERE id IN ({marks})", (project_id, *ids.values()))
+        return cur.rowcount
+
+
 def change_tags(paths: list[str], add=None, remove=None) -> dict[str, list[str]]:
     """여러 결과물에 태그를 붙이고/뗀다. 바뀐 결과물의 태그 목록을 {경로: [태그]}로 돌려준다."""
     paths = list(dict.fromkeys(paths))
