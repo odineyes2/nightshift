@@ -410,6 +410,31 @@
   .pod-subtab-btn:hover{ color:var(--text); }
   .pod-subtab-btn.active{ color:var(--queued); border-color:var(--queued); background:rgba(var(--queued-rgb),0.08); }
 
+  /* Lucide SVG 아이콘(body 맨 위 스프라이트) — 글자 크기에 맞춰 커지고 글자색을 따른다. */
+  .ico{
+    width:1.2em; height:1.2em; flex:none;
+    fill:none; stroke:currentColor; stroke-width:2;
+    stroke-linecap:round; stroke-linejoin:round;
+    vertical-align:-0.22em;
+  }
+  .ico-spin{ animation: enhance-spin .8s linear infinite; }
+  .collapse-btn .ico{ width:14px; height:14px; vertical-align:middle; }
+  .pod-bar-back, .pod-subtab-btn, .lightbox-actions button, #pod-bar-settings{
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  }
+  /* 폰에서는 파드 바/서브탭/라이트박스 버튼의 글자를 숨기고 아이콘만 남긴다 — 폭이
+     좁아 글자가 한 자씩 세로로 쪼개지던 문제. 서브탭은 한 줄을 똑같은 폭으로 나눠 쓴다. */
+  @media (max-width:640px){
+    .pod-bar-back .btn-label, .pod-subtab-btn .btn-label, .lightbox-actions .btn-label{ display:none; }
+    .pod-bar-back{ padding:7px 10px; }
+    .pod-bar-subtabs{ flex:1 1 100%; margin-left:0; gap:6px; }
+    .pod-subtab-btn{ flex:1; padding:9px 0; }
+    .pod-subtab-btn .ico{ width:20px; height:20px; }
+    .lightbox-actions{ flex-wrap:wrap; justify-content:center; }
+    .lightbox-actions button{ width:46px; height:46px; padding:0; }
+    .lightbox-actions .ico{ width:20px; height:20px; }
+  }
+
   main{
     max-width:1180px;
     margin:0 auto;
@@ -1315,7 +1340,7 @@
     font-size:11.5px; font-weight:600; cursor:pointer; padding:2px 6px;
   }
   .family-quick-register-btn:hover{ text-decoration:underline; }
-  /* "🎛 모델" 탭의 베이스 모델(family) 목록 줄 — 이름/체크포인트 다중선택/삭제. */
+  /* "모델" 탭의 베이스 모델(family) 목록 줄 — 이름/체크포인트 다중선택/삭제. */
   .family-row{
     display:flex;
     align-items:flex-start;
@@ -1804,6 +1829,7 @@
     text-shadow:0 1px 4px rgba(0,0,0,0.5);
     pointer-events:none;
   }
+  .vgallery-item-play .ico{ fill:currentColor; filter:drop-shadow(0 1px 4px rgba(0,0,0,0.5)); }
 
   /* ---- Danbooru 프롬프트 조립 탭 ---- */
   .danbooru-prompt-box{
@@ -2004,6 +2030,7 @@
     border-radius:50%;
     animation: enhance-spin .7s linear infinite;
     pointer-events:none;
+    z-index:2;
   }
   .lightbox-info{
     font-family:var(--mono);
@@ -2308,6 +2335,64 @@
 </head>
 <body>
 
+<!-- 아이콘 스프라이트 — Lucide(https://lucide.dev, ISC License). 쓸 때는
+     <svg class="ico"><use href="#i-이름"/></svg>. 색은 글자색(currentColor)을 따른다. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+  <symbol id="i-bookmark-plus" viewBox="0 0 24 24"><path d="M12 7v6"/><path d="M15 10H9"/><path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"/></symbol>
+  <symbol id="i-boxes" viewBox="0 0 24 24"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></symbol>
+  <symbol id="i-calendar-days" viewBox="0 0 24 24"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M8 13h.01"/><path d="M12 13h.01"/><path d="M16 13h.01"/><path d="M8 17h.01"/><path d="M12 17h.01"/><path d="M16 17h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/></symbol>
+  <symbol id="i-clapperboard" viewBox="0 0 24 24"><path d="m12.296 3.464 3.02 3.956"/><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3z"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="m6.18 5.276 3.1 3.899"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="i-dices" viewBox="0 0 24 24"><rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+  <symbol id="i-eraser" viewBox="0 0 24 24"><path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21"/><path d="m5.082 11.09 8.828 8.828"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4"/></symbol>
+  <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-folders" viewBox="0 0 24 24"><path d="M20 5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2.5a1.5 1.5 0 0 1 1.2.6l.6.8a1.5 1.5 0 0 0 1.2.6z"/><path d="M3 8.268a2 2 0 0 0-1 1.738V19a2 2 0 0 0 2 2h11a2 2 0 0 0 1.732-1"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+  <symbol id="i-house" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-images" viewBox="0 0 24 24"><path d="m22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16"/><path d="M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2"/><circle cx="13" cy="7" r="1" fill="currentColor"/><rect x="8" y="2" width="14" height="14" rx="2"/></symbol>
+  <symbol id="i-layout-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></symbol>
+  <symbol id="i-list-checks" viewBox="0 0 24 24"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/></symbol>
+  <symbol id="i-loader-circle" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
+  <symbol id="i-package" viewBox="0 0 24 24"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><polyline points="3.29 7 12 12 20.71 7"/><path d="m7.5 4.27 9 5.15"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></symbol>
+  <symbol id="i-plug-zap" viewBox="0 0 24 24"><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="m2 22 3-3"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m18 3-4 4h6l-4 4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+  <symbol id="i-rotate-cw" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></symbol>
+  <symbol id="i-square-check-big" viewBox="0 0 24 24"><path d="M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344"/><path d="m9 11 3 3L22 4"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+  <symbol id="i-table" viewBox="0 0 24 24"><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+  <symbol id="i-trash-2" viewBox="0 0 24 24"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-triangle-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></symbol>
+  <symbol id="i-wand-sparkles" viewBox="0 0 24 24"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></symbol>
+  <symbol id="i-workflow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+</svg>
+
 <div class="login-screen" id="login-screen">
   <div class="login-content">
     <svg class="login-mark" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -2366,11 +2451,11 @@
      구분선 뒤에 둔다. -->
 <div class="tab-bar" id="global-tab-bar">
   <div class="tab-bar-inner">
-    <button class="tab-btn active" data-tab="dashboard" type="button" title="홈 — 파드(워커) 대시보드">🏠 Home</button>
-    <button class="tab-btn" data-tab="gallery" type="button">🖼 갤러리</button>
-    <button class="tab-btn" data-tab="video-gallery" type="button" title="영상 갤러리 — 출력 폴더에 쌓인 영상 파일을 확인">🎬 영상</button>
+    <button class="tab-btn active" data-tab="dashboard" type="button" title="홈 — 파드(워커) 대시보드"><svg class="ico"><use href="#i-house"/></svg> Home</button>
+    <button class="tab-btn" data-tab="gallery" type="button"><svg class="ico"><use href="#i-images"/></svg> 갤러리</button>
+    <button class="tab-btn" data-tab="video-gallery" type="button" title="영상 갤러리 — 출력 폴더에 쌓인 영상 파일을 확인"><svg class="ico"><use href="#i-clapperboard"/></svg> 영상</button>
     <span class="tab-bar-sep"></span>
-    <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 파드와 무관한 프롬프트 작업대">🏷 Danbooru</button>
+    <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 파드와 무관한 프롬프트 작업대"><svg class="ico"><use href="#i-tag"/></svg> Danbooru</button>
   </div>
 </div>
 
@@ -2378,11 +2463,11 @@
      그 파드에서 무엇을 할 수 있는지(서브탭 구성은 파드 종류가 정한다)를 한 줄에 담는다. -->
 <div class="pod-bar" id="pod-bar" style="display:none;">
   <div class="pod-bar-inner">
-    <button class="pod-bar-back" id="pod-bar-back" type="button" title="홈으로 돌아가기">🏠 Home</button>
+    <button class="pod-bar-back" id="pod-bar-back" type="button" title="홈으로 돌아가기" aria-label="홈으로 돌아가기"><svg class="ico"><use href="#i-house"/></svg><span class="btn-label">Home</span></button>
     <span class="dash-dot" id="pod-bar-dot"></span>
     <select class="pod-bar-select" id="pod-bar-select" title="다른 파드로 이동"></select>
     <span class="pod-bar-kind" id="pod-bar-kind"></span>
-    <button class="load-btn" id="pod-bar-settings" type="button" title="이 파드 설정">⚙</button>
+    <button class="load-btn" id="pod-bar-settings" type="button" title="이 파드 설정" aria-label="이 파드 설정"><svg class="ico"><use href="#i-settings"/></svg></button>
     <div class="pod-bar-subtabs" id="pod-bar-subtabs"></div>
   </div>
 </div>
@@ -2391,8 +2476,8 @@
   <div class="dash-totals" id="dash-totals"></div>
 
   <div class="dash-actions">
-    <button class="submit-btn" id="pod-add-btn" type="button">➕ 파드 추가</button>
-    <button class="load-btn" id="dash-refresh-btn" type="button" title="새로고침">🔄</button>
+    <button class="submit-btn" id="pod-add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg> 파드 추가</button>
+    <button class="load-btn" id="dash-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
   </div>
 
   <!-- 카드 캔버스 — 카드마다 타입(data-card-type)이 있고 타입별 렌더러가 그린다.
@@ -2407,13 +2492,13 @@
   <div class="panel" id="new-job-panel">
     <div class="panel-header">
       <div class="panel-header-title">
-        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true">▾</button>
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
         <div class="section-label">새 작업 추가</div>
       </div>
     </div>
     <div class="panel-body">
       <div class="wizard-bar" id="wizard-bar">
-        <div class="wizard-bar-title">🧙 새 작업 마법사
+        <div class="wizard-bar-title"><svg class="ico"><use href="#i-wand-sparkles"/></svg> 새 작업 마법사
           <span class="opt">순서대로 고르고 "적용"을 누르면 아래 템플릿/옵션/워크플로우가 자동으로 채워져요 — 마법사 없이 직접 템플릿을 골라도 돼요.</span>
         </div>
         <div class="wizard-steps">
@@ -2431,8 +2516,8 @@
           </button>
         </div>
         <div class="wizard-bar-actions">
-          <button type="button" class="submit-btn" id="wizard-apply-btn" disabled>✅ 아래 폼에 적용</button>
-          <button type="button" class="modal-btn-secondary" id="wizard-reset-btn">↺ 마법사 초기화</button>
+          <button type="button" class="submit-btn" id="wizard-apply-btn" disabled><svg class="ico"><use href="#i-circle-check"/></svg> 아래 폼에 적용</button>
+          <button type="button" class="modal-btn-secondary" id="wizard-reset-btn"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 마법사 초기화</button>
         </div>
         <div class="upload-error" id="wizard-error"></div>
       </div>
@@ -2451,7 +2536,7 @@
         <div class="field" id="workflow-field">
           <div class="field-label-row">
             <label class="field-label" id="workflow-field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
-            <button class="load-btn" id="recent-workflows-btn" type="button" title="최근 워크플로우">🕘 최근</button>
+            <button class="load-btn" id="recent-workflows-btn" type="button" title="최근 워크플로우"><svg class="ico"><use href="#i-history"/></svg> 최근</button>
           </div>
           <div class="opt" id="workflow-field-hint" style="display:none;"></div>
           <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
@@ -2471,8 +2556,8 @@
         <div class="field" id="csv-field" style="display:none;">
           <div class="field-label-row">
             <label class="field-label">CSV <span class="opt">— 이 템플릿에 필수</span></label>
-            <button class="load-btn" id="csv-editor-btn" type="button" title="표 편집기로 CSV를 직접 작성/수정" style="display:none;">📊 CSV 편집</button>
-            <button class="load-btn" id="recent-csvs-btn" type="button" title="최근 CSV">🕘 최근</button>
+            <button class="load-btn" id="csv-editor-btn" type="button" title="표 편집기로 CSV를 직접 작성/수정" style="display:none;"><svg class="ico"><use href="#i-table"/></svg> CSV 편집</button>
+            <button class="load-btn" id="recent-csvs-btn" type="button" title="최근 CSV"><svg class="ico"><use href="#i-history"/></svg> 최근</button>
           </div>
           <div class="slot" id="csv-slot">.csv 파일을 끌어다 놓거나 클릭</div>
           <input type="file" class="slot-input" id="csv-input" accept=".csv">
@@ -2480,8 +2565,8 @@
 
         <div>
           <div class="new-job-actions">
-            <button class="submit-btn" id="submit-btn" title="큐에 추가">➕ 추가</button>
-            <button class="modal-btn-secondary" id="reset-form-btn" type="button" title="초기화">↺ 초기화</button>
+            <button class="submit-btn" id="submit-btn" title="큐에 추가"><svg class="ico"><use href="#i-plus"/></svg> 추가</button>
+            <button class="modal-btn-secondary" id="reset-form-btn" type="button" title="초기화"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 초기화</button>
           </div>
           <div class="upload-error" id="upload-error"></div>
         </div>
@@ -2492,12 +2577,12 @@
   <div class="panel">
     <div class="panel-header">
       <div class="panel-header-title">
-        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true">▾</button>
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
         <div class="section-label">작업 목록</div>
       </div>
       <div class="panel-header-actions">
-        <button class="del-btn" id="clear-completed-btn" type="button" disabled title="완료/실패/중단된 작업을 한꺼번에 삭제">🗑 완료 삭제</button>
-        <button class="start-queue-btn" id="start-queue-btn" type="button" disabled title="대기중 작업 시작">▶ 시작 (<span id="pending-batch-count">0</span>)</button>
+        <button class="del-btn" id="clear-completed-btn" type="button" disabled title="완료/실패/중단된 작업을 한꺼번에 삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 완료 삭제</button>
+        <button class="start-queue-btn" id="start-queue-btn" type="button" disabled title="대기중 작업 시작"><svg class="ico"><use href="#i-play"/></svg> 시작 (<span id="pending-batch-count">0</span>)</button>
       </div>
     </div>
     <div class="panel-body">
@@ -2528,13 +2613,13 @@
   <div class="panel deleted-jobs-row" id="deleted-jobs-panel">
     <div class="section-label">삭제된 작업 설정 불러오기</div>
     <select id="deleted-jobs-select" class="option-input" disabled title="삭제된 작업"></select>
-    <button class="submit-btn" id="deleted-jobs-load-btn" disabled title="이 설정 불러오기">📂 불러오기</button>
+    <button class="submit-btn" id="deleted-jobs-load-btn" disabled title="이 설정 불러오기"><svg class="ico"><use href="#i-folder-open"/></svg> 불러오기</button>
   </div>
 
   <div class="panel" id="output-images-panel">
     <div class="panel-header">
       <div class="panel-header-title">
-        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true">▾</button>
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
         <div class="section-label">결과 이미지 관리</div>
       </div>
     </div>
@@ -2542,16 +2627,16 @@
       <div class="email-hint">가로로 생성된 이미지(hires-fix/USDU 등, 1536×704와 같은 비율)를 시계 방향으로 90도 돌려서 저장하거나, 서버에 쌓인 이미지를 한 번에 정리합니다.</div>
       <div class="output-actions">
         <div>
-          <button class="submit-btn" id="zip-download-btn" title="ZIP으로 다운로드">📦 ZIP</button>
+          <button class="submit-btn" id="zip-download-btn" title="ZIP으로 다운로드"><svg class="ico"><use href="#i-package"/></svg> ZIP</button>
           <div class="upload-error" id="zip-error"></div>
         </div>
         <div>
-          <button class="submit-btn" id="rotate-btn" title="가로형 이미지 자동 회전">🔄 회전</button>
+          <button class="submit-btn" id="rotate-btn" title="가로형 이미지 자동 회전"><svg class="ico"><use href="#i-rotate-cw"/></svg> 회전</button>
           <div class="upload-error" id="rotate-error"></div>
           <div class="email-result" id="rotate-result"></div>
         </div>
         <div>
-          <button class="danger-btn" id="delete-images-btn" title="이미지 전체 삭제">🗑 전체 삭제</button>
+          <button class="danger-btn" id="delete-images-btn" title="이미지 전체 삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 전체 삭제</button>
           <div class="upload-error" id="delete-error"></div>
           <div class="email-result" id="delete-result"></div>
         </div>
@@ -2562,7 +2647,7 @@
   <div class="panel collapsed" id="output-email-panel">
     <div class="panel-header">
       <div class="panel-header-title">
-        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
         <div class="section-label">결과 이미지 이메일 전송</div>
       </div>
     </div>
@@ -2586,7 +2671,7 @@
           <input type="number" class="option-input" id="email-max-mb" value="20" min="1" style="max-width:100px;">
         </div>
         <div>
-          <button class="submit-btn" id="email-send-btn" title="보내기">✉️ 보내기</button>
+          <button class="submit-btn" id="email-send-btn" title="보내기"><svg class="ico"><use href="#i-mail"/></svg> 보내기</button>
           <div class="upload-error" id="email-error"></div>
           <div class="email-result" id="email-result"></div>
         </div>
@@ -2602,29 +2687,29 @@
       <div class="panel-header-actions">
         <span class="gallery-count" id="gallery-count"></span>
         <div class="enhance-mode" id="gallery-view-toggle">
-          <button class="enhance-mode-btn active" type="button" data-view="all" title="전체 보기">🖼 전체</button>
-          <button class="enhance-mode-btn" type="button" data-view="byjob" title="작업별 보기">🗂 작업별</button>
-          <button class="enhance-mode-btn" type="button" data-view="bydate" title="날짜별 보기">📅 날짜별</button>
+          <button class="enhance-mode-btn active" type="button" data-view="all" title="전체 보기"><svg class="ico"><use href="#i-images"/></svg> 전체</button>
+          <button class="enhance-mode-btn" type="button" data-view="byjob" title="작업별 보기"><svg class="ico"><use href="#i-folders"/></svg> 작업별</button>
+          <button class="enhance-mode-btn" type="button" data-view="bydate" title="날짜별 보기"><svg class="ico"><use href="#i-calendar-days"/></svg> 날짜별</button>
         </div>
         <div class="enhance-mode" id="gallery-display-toggle">
-          <button class="enhance-mode-btn active" type="button" data-display="grid" title="썸네일 격자로 보기">🖼 격자</button>
-          <button class="enhance-mode-btn" type="button" data-display="details" title="탐색기처럼 파일명·해상도·용량 등 정보 위주로 한 줄씩 보기">📋 자세히</button>
+          <button class="enhance-mode-btn active" type="button" data-display="grid" title="썸네일 격자로 보기"><svg class="ico"><use href="#i-layout-grid"/></svg> 격자</button>
+          <button class="enhance-mode-btn" type="button" data-display="details" title="탐색기처럼 파일명·해상도·용량 등 정보 위주로 한 줄씩 보기"><svg class="ico"><use href="#i-list"/></svg> 자세히</button>
         </div>
-        <button class="load-btn" id="gallery-select-all-btn" type="button" disabled title="전체 선택">☑ 전체선택</button>
+        <button class="load-btn" id="gallery-select-all-btn" type="button" disabled title="전체 선택"><svg class="ico"><use href="#i-square-check-big"/></svg> 전체선택</button>
         <button class="load-btn" id="gallery-pull-btn" type="button" style="display:none;"
-                title="원격 ComfyUI가 만든 결과 이미지를 이 서버로 가져와요. 작업이 끝날 때마다 자동으로도 가져오지만, pod를 껐다 켠 뒤 밀린 것을 한꺼번에 받을 때 쓰세요.">⬇ 결과 가져오기</button>
-        <button class="load-btn" id="gallery-refresh-btn" type="button" title="새로고침">🔄</button>
+                title="원격 ComfyUI가 만든 결과 이미지를 이 서버로 가져와요. 작업이 끝날 때마다 자동으로도 가져오지만, pod를 껐다 켠 뒤 밀린 것을 한꺼번에 받을 때 쓰세요."><svg class="ico"><use href="#i-download"/></svg> 결과 가져오기</button>
+        <button class="load-btn" id="gallery-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
       </div>
     </div>
     <div class="panel-body">
       <div class="gallery-toolbar" id="gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="gallery-toolbar-count"></span>
-        <button class="load-btn" id="gallery-download-selected-btn" type="button" title="다운로드">⬇ 다운로드</button>
-        <button class="load-btn" id="gallery-rotate-download-selected-btn" type="button" title="선택한 이미지 중 가로형만 시계 방향으로 90도 돌린 사본을 다운로드 (세로형은 그대로, 원본 파일은 건드리지 않음)">🔄⬇ 회전 후 다운로드</button>
-        <button class="load-btn" id="gallery-rotate-selected-btn" type="button" title="선택한 이미지를 전부 시계 방향으로 90도 돌려요 (원본을 실제로 바꿔요)">🔄 회전</button>
-        <button class="load-btn" id="gallery-send-to-pose-btn" type="button" title="참조 세트로 보내기">📌 세트 추가</button>
-        <button class="del-btn" id="gallery-delete-selected-btn" type="button" title="삭제">🗑 삭제</button>
-        <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button" title="선택 해제">✕ 해제</button>
+        <button class="load-btn" id="gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg> 다운로드</button>
+        <button class="load-btn" id="gallery-rotate-download-selected-btn" type="button" title="선택한 이미지 중 가로형만 시계 방향으로 90도 돌린 사본을 다운로드 (세로형은 그대로, 원본 파일은 건드리지 않음)"><svg class="ico"><use href="#i-rotate-cw"/></svg><svg class="ico"><use href="#i-download"/></svg> 회전 후 다운로드</button>
+        <button class="load-btn" id="gallery-rotate-selected-btn" type="button" title="선택한 이미지를 전부 시계 방향으로 90도 돌려요 (원본을 실제로 바꿔요)"><svg class="ico"><use href="#i-rotate-cw"/></svg> 회전</button>
+        <button class="load-btn" id="gallery-send-to-pose-btn" type="button" title="참조 세트로 보내기"><svg class="ico"><use href="#i-bookmark-plus"/></svg> 세트 추가</button>
+        <button class="del-btn" id="gallery-delete-selected-btn" type="button" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>
+        <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg> 해제</button>
       </div>
       <div class="upload-error" id="gallery-error"></div>
       <div class="gallery-grid" id="gallery-grid"></div>
@@ -2634,33 +2719,33 @@
 </main>
 
 <!-- 영상 갤러리 — 이미지 갤러리와 구조가 같되(격자/작업별·날짜별 보기/선택/다운로드/삭제/
-     라이트박스), 영상 전용이 아닌 기능은 뺐다: 회전(이미지 전용 후처리), "📌 세트 추가"
-     (포즈 참조용, 이미지 전용), "📂 작업 불러오기"(영상 작업 템플릿이 아직 없어 불러올
-     설정이 없음), "📋 자세히"(폭/높이/길이를 읽으려면 ffprobe가 필요한데 새 시스템
+     라이트박스), 영상 전용이 아닌 기능은 뺐다: 회전(이미지 전용 후처리), "세트 추가"
+     (포즈 참조용, 이미지 전용), "작업 불러오기"(영상 작업 템플릿이 아직 없어 불러올
+     설정이 없음), "자세히"(폭/높이/길이를 읽으려면 ffprobe가 필요한데 새 시스템
      의존성을 안 늘리기로 했음). -->
 <main id="tab-video-gallery" style="display:none;">
   <div class="panel">
     <div class="panel-header">
-      <div class="section-label" id="video-gallery-section-label">🎬 영상 갤러리</div>
+      <div class="section-label" id="video-gallery-section-label"><svg class="ico"><use href="#i-clapperboard"/></svg> 영상 갤러리</div>
       <div class="panel-header-actions">
         <span class="gallery-count" id="video-gallery-count"></span>
         <div class="enhance-mode" id="video-gallery-view-toggle">
-          <button class="enhance-mode-btn active" type="button" data-view="all" title="전체 보기">🖼 전체</button>
-          <button class="enhance-mode-btn" type="button" data-view="byjob" title="작업별 보기">🗂 작업별</button>
-          <button class="enhance-mode-btn" type="button" data-view="bydate" title="날짜별 보기">📅 날짜별</button>
+          <button class="enhance-mode-btn active" type="button" data-view="all" title="전체 보기"><svg class="ico"><use href="#i-images"/></svg> 전체</button>
+          <button class="enhance-mode-btn" type="button" data-view="byjob" title="작업별 보기"><svg class="ico"><use href="#i-folders"/></svg> 작업별</button>
+          <button class="enhance-mode-btn" type="button" data-view="bydate" title="날짜별 보기"><svg class="ico"><use href="#i-calendar-days"/></svg> 날짜별</button>
         </div>
-        <button class="load-btn" id="video-gallery-select-all-btn" type="button" disabled title="전체 선택">☑ 전체선택</button>
+        <button class="load-btn" id="video-gallery-select-all-btn" type="button" disabled title="전체 선택"><svg class="ico"><use href="#i-square-check-big"/></svg> 전체선택</button>
         <button class="load-btn" id="video-gallery-pull-btn" type="button" style="display:none;"
-                title="원격 ComfyUI가 만든 결과 영상을 이 서버로 가져와요. nightshift를 거치지 않고 ComfyUI에서 직접 돌린 작업도 ComfyUI 히스토리에 남아있으면 함께 가져와요.">⬇ 결과 가져오기</button>
-        <button class="load-btn" id="video-gallery-refresh-btn" type="button" title="새로고침">🔄</button>
+                title="원격 ComfyUI가 만든 결과 영상을 이 서버로 가져와요. nightshift를 거치지 않고 ComfyUI에서 직접 돌린 작업도 ComfyUI 히스토리에 남아있으면 함께 가져와요."><svg class="ico"><use href="#i-download"/></svg> 결과 가져오기</button>
+        <button class="load-btn" id="video-gallery-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
       </div>
     </div>
     <div class="panel-body">
       <div class="gallery-toolbar" id="video-gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="video-gallery-toolbar-count"></span>
-        <button class="load-btn" id="video-gallery-download-selected-btn" type="button" title="다운로드">⬇ 다운로드</button>
-        <button class="del-btn" id="video-gallery-delete-selected-btn" type="button" title="삭제">🗑 삭제</button>
-        <button class="modal-btn-secondary" id="video-gallery-clear-selection-btn" type="button" title="선택 해제">✕ 해제</button>
+        <button class="load-btn" id="video-gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg> 다운로드</button>
+        <button class="del-btn" id="video-gallery-delete-selected-btn" type="button" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>
+        <button class="modal-btn-secondary" id="video-gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg> 해제</button>
       </div>
       <div class="upload-error" id="video-gallery-error"></div>
       <div class="vgallery-grid" id="video-gallery-grid"></div>
@@ -2672,9 +2757,9 @@
 <main id="tab-results" style="display:none;">
   <div class="panel">
     <div class="panel-header">
-      <div class="section-label">📝 결과</div>
+      <div class="section-label"><svg class="ico"><use href="#i-file-text"/></svg> 결과</div>
       <div class="panel-header-actions">
-        <button class="load-btn" id="results-refresh-btn" type="button" title="새로고침">🔄</button>
+        <button class="load-btn" id="results-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
       </div>
     </div>
     <div class="panel-body">
@@ -2690,11 +2775,11 @@
       <div class="section-label">Danbooru 프롬프트 조립</div>
       <div class="panel-header-actions">
         <div class="enhance-mode" id="danbooru-nsfw-toggle">
-          <button class="enhance-mode-btn" type="button" data-mode="sfw" title="무작위 조합에서 NSFW 태그를 제외해요">🟢 SFW</button>
-          <button class="enhance-mode-btn active" type="button" data-mode="nsfw" title="무작위 조합에 NSFW 태그도 포함해요">🔞 NSFW</button>
+          <button class="enhance-mode-btn" type="button" data-mode="sfw" title="무작위 조합에서 NSFW 태그를 제외해요"><svg class="ico"><use href="#i-shield-check"/></svg> SFW</button>
+          <button class="enhance-mode-btn active" type="button" data-mode="nsfw" title="무작위 조합에 NSFW 태그도 포함해요"><svg class="ico"><use href="#i-flame"/></svg> NSFW</button>
         </div>
-        <button class="load-btn" id="danbooru-randomize-btn" type="button" title="무작위 조합">🎲 무작위</button>
-        <button class="modal-btn-secondary" id="danbooru-reset-btn" type="button" title="선택한 태그와 입력한 텍스트를 모두 지워요">🧹 초기화</button>
+        <button class="load-btn" id="danbooru-randomize-btn" type="button" title="무작위 조합"><svg class="ico"><use href="#i-dices"/></svg> 무작위</button>
+        <button class="modal-btn-secondary" id="danbooru-reset-btn" type="button" title="선택한 태그와 입력한 텍스트를 모두 지워요"><svg class="ico"><use href="#i-eraser"/></svg> 초기화</button>
       </div>
     </div>
     <div class="panel-body">
@@ -2702,7 +2787,7 @@
         <div class="danbooru-prompt-row">
           <div class="danbooru-prompt-label">조립된 프롬프트</div>
           <div class="danbooru-prompt-row-actions">
-            <button class="load-btn" id="danbooru-send-btn" type="button" title="작업 관리 → 메인 프롬프트로 보내기">📤 프롬프트로 전송</button>
+            <button class="load-btn" id="danbooru-send-btn" type="button" title="작업 관리 → 메인 프롬프트로 보내기"><svg class="ico"><use href="#i-send"/></svg> 프롬프트로 전송</button>
             <span id="danbooru-copy-slot"></span>
           </div>
         </div>
@@ -2725,14 +2810,14 @@
   <div class="panel collapsed" id="danbooru-history-panel">
     <div class="panel-header">
       <div class="panel-header-title">
-        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
         <div class="section-label">기록</div>
       </div>
     </div>
     <div class="panel-body">
       <div class="danbooru-history-save-row">
         <input type="text" class="option-input danbooru-history-name-input" id="danbooru-history-name" placeholder="이름 (비우면 프롬프트 앞부분)">
-        <button class="load-btn" id="danbooru-history-save-btn" type="button" title="현재 조합 저장">💾 저장</button>
+        <button class="load-btn" id="danbooru-history-save-btn" type="button" title="현재 조합 저장"><svg class="ico"><use href="#i-save"/></svg> 저장</button>
       </div>
       <div style="height:12px;"></div>
       <div id="danbooru-history-list"></div>
@@ -2746,7 +2831,7 @@
     <div class="panel-header">
       <div class="section-label">워크플로우 만들기</div>
       <div class="panel-header-actions">
-        <button class="load-btn" id="builder-refresh-models-btn" type="button" title="설치 목록 새로고침">🔄 목록</button>
+        <button class="load-btn" id="builder-refresh-models-btn" type="button" title="설치 목록 새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg> 목록</button>
       </div>
     </div>
     <div class="panel-body">
@@ -2760,7 +2845,7 @@
         <div class="field">
           <div class="field-label-row">
             <label class="field-label">LoRA <span class="opt">— 없어도 됨. 위에서부터 순서대로 체인으로 걸려요</span></label>
-            <button class="load-btn" id="builder-add-lora-btn" type="button" title="LoRA 추가">➕ 추가</button>
+            <button class="load-btn" id="builder-add-lora-btn" type="button" title="LoRA 추가"><svg class="ico"><use href="#i-plus"/></svg> 추가</button>
           </div>
           <div id="builder-lora-list"></div>
         </div>
@@ -2834,9 +2919,9 @@
 
         <div>
           <div class="new-job-actions">
-            <button class="submit-btn" id="builder-send-btn" type="button" title="작업 관리 탭의 워크플로우 슬롯에 채우기">📤 작업 관리로 보내기</button>
-            <button class="load-btn" id="builder-preview-btn" type="button" title="만들어질 JSON 미리보기">👁 미리보기</button>
-            <button class="load-btn" id="builder-download-btn" type="button" title="JSON 파일로 저장">⬇ 다운로드</button>
+            <button class="submit-btn" id="builder-send-btn" type="button" title="작업 관리 탭의 워크플로우 슬롯에 채우기"><svg class="ico"><use href="#i-send"/></svg> 작업 관리로 보내기</button>
+            <button class="load-btn" id="builder-preview-btn" type="button" title="만들어질 JSON 미리보기"><svg class="ico"><use href="#i-eye"/></svg> 미리보기</button>
+            <button class="load-btn" id="builder-download-btn" type="button" title="JSON 파일로 저장"><svg class="ico"><use href="#i-download"/></svg> 다운로드</button>
           </div>
           <div class="upload-error" id="builder-error"></div>
           <div class="load-notice" id="builder-notice"></div>
@@ -2848,7 +2933,7 @@
   <div class="panel collapsed" id="builder-preview-panel">
     <div class="panel-header">
       <div class="panel-header-title">
-        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false">▾</button>
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="false"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
         <div class="section-label">만들어진 워크플로우 JSON</div>
       </div>
       <div class="panel-header-actions">
@@ -2876,7 +2961,7 @@
       <div class="lora-tab-row" style="margin-top:8px;">
         <input type="text" class="option-input" id="family-new-id" placeholder="family id (영문/숫자/-/_, 예: wai-illustrious)" style="max-width:220px;">
         <input type="text" class="option-input" id="family-new-label" placeholder="표시 이름 (예: WAI-Illustrious)" style="max-width:220px;">
-        <button class="load-btn" id="family-new-add-btn" type="button">➕ 추가</button>
+        <button class="load-btn" id="family-new-add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg> 추가</button>
       </div>
     </div>
   </div>
@@ -2885,12 +2970,12 @@
     <div class="panel-header">
       <div class="section-label">LoRA 트리거 워드 / 호환 베이스 모델</div>
       <div class="panel-header-actions">
-        <button class="load-btn" id="lora-tab-refresh-btn" type="button" title="설치 목록 새로고침">🔄 새로고침</button>
+        <button class="load-btn" id="lora-tab-refresh-btn" type="button" title="설치 목록 새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg> 새로고침</button>
       </div>
     </div>
     <div class="panel-body">
       <div class="email-hint">ComfyUI에 설치된 LoRA마다 트리거 워드(그 LoRA를 쓰려면 프롬프트에 넣어야 하는 단어/문구 — civitai 등
-        배포처에 적혀 있는 값)를 입력해두면, "🧩 워크플로우" 탭과 "새 작업 추가" 마법사에서 그 LoRA를 고를 때 긍정
+        배포처에 적혀 있는 값)를 입력해두면, "워크플로우" 탭과 "새 작업 추가" 마법사에서 그 LoRA를 고를 때 긍정
         프롬프트에 자동으로 덧붙어요. 호환 베이스 모델을 하나도 안 고르면 모든 베이스 모델과 호환되는 것으로 취급돼요
         (마법사에서 항상 보임) — 특정 family에서만 써야 하는 LoRA라면 체크해두세요. 입력/체크하면 바로 저장돼요.</div>
       <input type="text" class="option-input" id="lora-tab-filter" placeholder="이름으로 거르기" style="max-width:320px;">
@@ -2921,11 +3006,11 @@
     <div class="lightbox-spinner" id="gallery-lightbox-spinner" style="display:none;"></div>
     <div class="lightbox-info" id="gallery-lightbox-info"></div>
     <div class="lightbox-actions">
-      <button class="modal-btn-secondary" id="gallery-lightbox-download-btn" type="button" title="다운로드">⬇ 다운로드</button>
-      <button class="modal-btn-secondary" id="gallery-lightbox-load-job-btn" type="button" title="이 이미지를 생성한 작업 설정 불러오기">📂 작업 불러오기</button>
-      <button class="modal-btn-secondary" id="gallery-lightbox-send-to-pose-btn" type="button" title="참조 세트로 보내기">📌 세트 추가</button>
-      <button class="modal-btn-secondary" id="gallery-lightbox-rotate-btn" type="button" title="이 이미지를 시계 방향으로 90도 돌려요 (원본을 실제로 바꿔요)">🔄 회전</button>
-      <button class="danger-btn" id="gallery-lightbox-delete-btn" type="button" title="삭제">🗑 삭제</button>
+      <button class="modal-btn-secondary" id="gallery-lightbox-download-btn" type="button" title="다운로드" aria-label="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
+      <button class="modal-btn-secondary" id="gallery-lightbox-load-job-btn" type="button" title="이 이미지를 생성한 작업 설정 불러오기" aria-label="작업 불러오기"><svg class="ico"><use href="#i-history"/></svg><span class="btn-label">작업 불러오기</span></button>
+      <button class="modal-btn-secondary" id="gallery-lightbox-send-to-pose-btn" type="button" title="참조 세트로 보내기" aria-label="세트 추가"><svg class="ico"><use href="#i-bookmark-plus"/></svg><span class="btn-label">세트 추가</span></button>
+      <button class="modal-btn-secondary" id="gallery-lightbox-rotate-btn" type="button" title="이 이미지를 시계 방향으로 90도 돌려요 (원본을 실제로 바꿔요)" aria-label="회전"><svg class="ico"><use href="#i-rotate-cw"/></svg><span class="btn-label">회전</span></button>
+      <button class="danger-btn" id="gallery-lightbox-delete-btn" type="button" title="삭제" aria-label="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
     </div>
     <div class="lightbox-error" id="gallery-lightbox-error"></div>
   </div>
@@ -2939,8 +3024,8 @@
     <video class="lightbox-img" id="video-gallery-lightbox-video" src="" controls></video>
     <div class="lightbox-info" id="video-gallery-lightbox-info"></div>
     <div class="lightbox-actions">
-      <button class="modal-btn-secondary" id="video-gallery-lightbox-download-btn" type="button" title="다운로드">⬇ 다운로드</button>
-      <button class="danger-btn" id="video-gallery-lightbox-delete-btn" type="button" title="삭제">🗑 삭제</button>
+      <button class="modal-btn-secondary" id="video-gallery-lightbox-download-btn" type="button" title="다운로드" aria-label="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
+      <button class="danger-btn" id="video-gallery-lightbox-delete-btn" type="button" title="삭제" aria-label="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
     </div>
     <div class="lightbox-error" id="video-gallery-lightbox-error"></div>
   </div>
@@ -2976,8 +3061,8 @@
       <div class="enhance-status" id="pose-import-status" style="text-align:left; max-width:none;"></div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="pose-import-cancel-btn">✕ 취소</button>
-      <button class="submit-btn" id="pose-import-confirm-btn">➕ 추가</button>
+      <button class="modal-btn-secondary" id="pose-import-cancel-btn"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
+      <button class="submit-btn" id="pose-import-confirm-btn"><svg class="ico"><use href="#i-plus"/></svg> 추가</button>
     </div>
   </div>
 </div>
@@ -2988,7 +3073,7 @@
 <div class="modal-overlay" id="input-image-picker-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
-      <div class="modal-title">🖼 갤러리에서 이미지 선택</div>
+      <div class="modal-title"><svg class="ico"><use href="#i-images"/></svg> 갤러리에서 이미지 선택</div>
       <button class="modal-close" id="input-image-picker-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
@@ -3010,8 +3095,8 @@
       <div class="workflow-error" id="workflow-editor-error"></div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="workflow-cancel-btn">✕ 취소</button>
-      <button class="submit-btn" id="workflow-save-btn">💾 저장</button>
+      <button class="modal-btn-secondary" id="workflow-cancel-btn"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
+      <button class="submit-btn" id="workflow-save-btn"><svg class="ico"><use href="#i-save"/></svg> 저장</button>
     </div>
   </div>
 </div>
@@ -3029,7 +3114,7 @@
       <div class="empty" id="recent-workflows-empty" style="display:none;">최근 사용한 워크플로우가 없어요</div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="recent-workflows-modal-cancel">✕ 닫기</button>
+      <button class="modal-btn-secondary" id="recent-workflows-modal-cancel"><svg class="ico"><use href="#i-x"/></svg> 닫기</button>
     </div>
   </div>
 </div>
@@ -3047,15 +3132,15 @@
       <div class="empty" id="recent-csvs-empty" style="display:none;">최근 사용한 CSV가 없어요</div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="recent-csvs-modal-cancel">✕ 닫기</button>
+      <button class="modal-btn-secondary" id="recent-csvs-modal-cancel"><svg class="ico"><use href="#i-x"/></svg> 닫기</button>
     </div>
   </div>
 </div>
 
 <!-- CSV 편집 — 표 형태로 직접 CSV를 작성/수정한다. 첫 줄(열)은 지금 고른 템플릿의
      csv_columns(manifest.json)로 고정돼 있어 손댈 수 없고, 행만 자유롭게 추가/삭제/
-     편집할 수 있다. "💾 저장"은 위 CSV 슬롯에 바로 채우고(setCsvFile, 파일 업로드와
-     완전히 같은 자격), "⬇ 다운로드"는 지금 표 내용을 .csv 파일로 내려받는다. -->
+     편집할 수 있다. "저장"은 위 CSV 슬롯에 바로 채우고(setCsvFile, 파일 업로드와
+     완전히 같은 자격), "다운로드"는 지금 표 내용을 .csv 파일로 내려받는다. -->
 <div class="modal-overlay" id="csv-editor-modal" style="display:none;">
   <div class="modal-panel modal-panel-wide">
     <div class="modal-header">
@@ -3065,7 +3150,7 @@
     <div class="modal-body">
       <div class="email-hint" id="csv-editor-hint"></div>
       <div class="csv-editor-toolbar">
-        <button class="load-btn" id="csv-editor-add-row-btn" type="button">➕ 행 추가</button>
+        <button class="load-btn" id="csv-editor-add-row-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg> 행 추가</button>
         <span class="csv-editor-hint" id="csv-editor-row-count"></span>
       </div>
       <div class="csv-editor-table-wrap">
@@ -3077,9 +3162,9 @@
       <div class="upload-error" id="csv-editor-error"></div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="csv-editor-download-btn" type="button">⬇ 다운로드</button>
-      <button class="modal-btn-secondary" id="csv-editor-cancel-btn" type="button">✕ 취소</button>
-      <button class="submit-btn" id="csv-editor-save-btn" type="button">💾 저장</button>
+      <button class="modal-btn-secondary" id="csv-editor-download-btn" type="button"><svg class="ico"><use href="#i-download"/></svg> 다운로드</button>
+      <button class="modal-btn-secondary" id="csv-editor-cancel-btn" type="button"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
+      <button class="submit-btn" id="csv-editor-save-btn" type="button"><svg class="ico"><use href="#i-save"/></svg> 저장</button>
     </div>
   </div>
 </div>
@@ -3102,8 +3187,8 @@
       <div class="login-error" id="api-key-modal-error"></div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="api-key-modal-clear">🗑 지우기</button>
-      <button class="submit-btn" id="api-key-modal-save" type="button">💾 저장</button>
+      <button class="modal-btn-secondary" id="api-key-modal-clear"><svg class="ico"><use href="#i-trash-2"/></svg> 지우기</button>
+      <button class="submit-btn" id="api-key-modal-save" type="button"><svg class="ico"><use href="#i-save"/></svg> 저장</button>
     </div>
   </div>
 </div>
@@ -3111,7 +3196,7 @@
 <div class="modal-overlay" id="pod-edit-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
-      <div class="modal-title" id="pod-edit-title">➕ 파드 추가</div>
+      <div class="modal-title" id="pod-edit-title"><svg class="ico"><use href="#i-plus"/></svg> 파드 추가</div>
       <button class="modal-close" id="pod-edit-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
@@ -3149,18 +3234,18 @@
         <div class="email-hint">끄면 새 작업을 보낼 수 없어요(기록은 남습니다). 파드를 잠시 쉬게 할 때 씁니다.</div>
       </div>
       <div class="field runpod-info-box" id="pod-edit-runpod-box" style="display:none;">
-        <label class="field-label">🛰 RunPod 정보</label>
+        <label class="field-label"><svg class="ico"><use href="#i-cloud"/></svg> RunPod 정보</label>
         <div class="runpod-info-grid" id="pod-edit-runpod-fields"></div>
       </div>
       <div class="enhance-status" id="pod-edit-status" style="text-align:left; max-width:none;"></div>
       <div class="upload-error" id="pod-edit-error"></div>
     </div>
     <div class="modal-footer">
-      <button class="del-btn" id="pod-edit-delete" type="button" style="margin-right:auto;">🗑 삭제</button>
-      <button class="modal-btn-secondary" id="pod-edit-test" type="button">🔌 연결 테스트</button>
-      <button class="modal-btn-secondary" id="pod-edit-runpod-test" type="button">🛰 RunPod 정보 테스트</button>
-      <button class="modal-btn-secondary" id="pod-edit-cancel" type="button">✕ 취소</button>
-      <button class="submit-btn" id="pod-edit-save" type="button">💾 저장</button>
+      <button class="del-btn" id="pod-edit-delete" type="button" style="margin-right:auto;"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>
+      <button class="modal-btn-secondary" id="pod-edit-test" type="button"><svg class="ico"><use href="#i-plug-zap"/></svg> 연결 테스트</button>
+      <button class="modal-btn-secondary" id="pod-edit-runpod-test" type="button"><svg class="ico"><use href="#i-cloud"/></svg> RunPod 정보 테스트</button>
+      <button class="modal-btn-secondary" id="pod-edit-cancel" type="button"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
+      <button class="submit-btn" id="pod-edit-save" type="button"><svg class="ico"><use href="#i-save"/></svg> 저장</button>
     </div>
   </div>
 </div>
@@ -3182,8 +3267,8 @@
       <div class="upload-error" id="job-move-error"></div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="job-move-cancel" type="button">✕ 취소</button>
-      <button class="submit-btn" id="job-move-confirm" type="button">➡ 옮기기</button>
+      <button class="modal-btn-secondary" id="job-move-cancel" type="button"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
+      <button class="submit-btn" id="job-move-confirm" type="button"><svg class="ico"><use href="#i-arrow-right"/></svg> 옮기기</button>
     </div>
   </div>
 </div>
@@ -3196,7 +3281,7 @@
     </div>
     <div class="modal-body" id="wizard-family-modal-body"></div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="wizard-family-modal-cancel">✕ 닫기</button>
+      <button class="modal-btn-secondary" id="wizard-family-modal-cancel"><svg class="ico"><use href="#i-x"/></svg> 닫기</button>
     </div>
   </div>
 </div>
@@ -3209,8 +3294,8 @@
     </div>
     <div class="modal-body" id="wizard-type-modal-body"></div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="wizard-type-modal-cancel">✕ 취소</button>
-      <button class="submit-btn" id="wizard-type-modal-done" type="button">✓ 완료</button>
+      <button class="modal-btn-secondary" id="wizard-type-modal-cancel"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
+      <button class="submit-btn" id="wizard-type-modal-done" type="button"><svg class="ico"><use href="#i-check"/></svg> 완료</button>
     </div>
   </div>
 </div>
@@ -3223,8 +3308,8 @@
     </div>
     <div class="modal-body" id="wizard-lora-modal-body"></div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="wizard-lora-modal-cancel">✕ 취소</button>
-      <button class="submit-btn" id="wizard-lora-modal-done" type="button">✓ 완료</button>
+      <button class="modal-btn-secondary" id="wizard-lora-modal-cancel"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
+      <button class="submit-btn" id="wizard-lora-modal-done" type="button"><svg class="ico"><use href="#i-check"/></svg> 완료</button>
     </div>
   </div>
 </div>
@@ -3237,7 +3322,7 @@
     </div>
     <div class="modal-body" id="wizard-batchmode-modal-body"></div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="wizard-batchmode-modal-cancel">✕ 닫기</button>
+      <button class="modal-btn-secondary" id="wizard-batchmode-modal-cancel"><svg class="ico"><use href="#i-x"/></svg> 닫기</button>
     </div>
   </div>
 </div>
@@ -3380,6 +3465,12 @@ function escapeHtml(str){
   }[c]));
 }
 
+// Lucide 아이콘(body 맨 위 SVG 스프라이트) 마크업 — 버튼 라벨 등을 JS로 바꿀 때 쓴다.
+// 이름은 sprite의 #i-이름과 같다. spin=true면 빙글빙글 돈다(로딩 표시용).
+function ico(name, spin){
+  return `<svg class="ico${spin ? ' ico-spin' : ''}"><use href="#i-${name}"/></svg>`;
+}
+
 async function fetchJobs(){
   const res = await fetch('/api/jobs');
   // 401(API 키 없음/오류) 등으로 실패하면 목록을 비우지 않고 마지막으로 받아온
@@ -3422,11 +3513,11 @@ function render(jobs, pendingCount, running, perPod){
     // 켜져 있는 동안에는 새로 추가하는 작업도 서버가 알아서 계속 큐에 넣어주므로
     // (auto_run) 대기 개수를 보여줄 필요가 없다 — 헤더의 "대기 N건"이 실행 큐
     // 깊이를 실시간으로 보여준다.
-    startBtn.textContent = '⏸ 정지';
+    startBtn.innerHTML = ico('pause') + ' 정지';
     startBtn.title = '자동 실행 정지 (지금 실행 중인 작업도 즉시 중단돼요 — 상태가 "중단됨"으로 바뀌어요)';
     startBtn.disabled = false;
   }else{
-    startBtn.innerHTML = `▶ 시작 (<span id="pending-batch-count">${pendingBatchCount}</span>)`;
+    startBtn.innerHTML = `<svg class="ico"><use href="#i-play"/></svg> 시작 (<span id="pending-batch-count">${pendingBatchCount}</span>)`;
     startBtn.title = '대기중 작업 시작 (켜두는 동안 새로 추가하는 작업도 자동으로 이어서 실행돼요)';
     startBtn.disabled = pendingBatchCount === 0;
   }
@@ -3469,7 +3560,7 @@ function render(jobs, pendingCount, running, perPod){
     const movable = multiPod() && ['pending', 'queued', 'interrupted'].includes(j.status);
     let rows = `
       <tr data-id="${j.id}" class="job-row">
-        <td>${isOpen ? '▾' : '▸'}</td>
+        <td>${isOpen ? '<svg class="ico"><use href="#i-chevron-down"/></svg>' : '<svg class="ico"><use href="#i-chevron-right"/></svg>'}</td>
         <td class="fname" title="${escapeHtml(templateText)}">${escapeHtml(templateText)}</td>
         <td class="fname${Object.keys(j.options || {}).length ? '' : ' dim'}" title="${escapeHtml(optionsText)}">${escapeHtml(optionsText)}</td>
         <td class="fname${j.workflow_original_name ? '' : ' dim'}" title="${escapeHtml(workflowText)}">${escapeHtml(workflowText)}</td>
@@ -3489,18 +3580,18 @@ function render(jobs, pendingCount, running, perPod){
         <td class="time-cell${est.finishIso == null ? ' dim' : ''}">${fmtTime(est.finishIso)}</td>
         <td>
           <div class="row-actions">
-            <button class="load-btn" data-loadid="${j.id}" title="설정 불러오기">📂 불러오기</button>
-            ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}" title="워크플로우 수정">✎ 워크플로우</button>` : ''}
-            ${j.status === 'pending' && j.csv_filename ? `<button class="edit-btn" data-editkind="csv" data-editid="${j.id}" title="CSV 수정">✎ CSV</button>` : ''}
-            ${j.status === 'interrupted' ? `<button class="retry-btn" data-retry="${j.id}" title="서버 재시작으로 중단된 작업을 다시 큐에 올려요">🔁 재시작</button>` : ''}
-            ${movable ? `<button class="load-btn move-btn" data-move="${j.id}" title="이 작업을 다른 파드로 옮겨요">➡ 파드 이동</button>` : ''}
-            ${j.status !== 'running' && j.status !== 'queued' ? `<button class="del-btn" data-del="${j.id}" title="삭제">🗑 삭제</button>` : ''}
+            <button class="load-btn" data-loadid="${j.id}" title="설정 불러오기"><svg class="ico"><use href="#i-folder-open"/></svg> 불러오기</button>
+            ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}" title="워크플로우 수정"><svg class="ico"><use href="#i-pencil"/></svg> 워크플로우</button>` : ''}
+            ${j.status === 'pending' && j.csv_filename ? `<button class="edit-btn" data-editkind="csv" data-editid="${j.id}" title="CSV 수정"><svg class="ico"><use href="#i-pencil"/></svg> CSV</button>` : ''}
+            ${j.status === 'interrupted' ? `<button class="retry-btn" data-retry="${j.id}" title="서버 재시작으로 중단된 작업을 다시 큐에 올려요"><svg class="ico"><use href="#i-refresh-cw"/></svg> 재시작</button>` : ''}
+            ${movable ? `<button class="load-btn move-btn" data-move="${j.id}" title="이 작업을 다른 파드로 옮겨요"><svg class="ico"><use href="#i-arrow-right"/></svg> 파드 이동</button>` : ''}
+            ${j.status !== 'running' && j.status !== 'queued' ? `<button class="del-btn" data-del="${j.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>` : ''}
           </div>
         </td>
       </tr>`;
     if(isOpen){
       rows += `<tr class="log-row"><td colspan="11">
-        <div class="log-toolbar"><button type="button" class="load-btn log-copy-btn" data-copyid="${j.id}" title="로그 전체를 클립보드로 복사">📋 로그 복사</button></div>
+        <div class="log-toolbar"><button type="button" class="load-btn log-copy-btn" data-copyid="${j.id}" title="로그 전체를 클립보드로 복사"><svg class="ico"><use href="#i-copy"/></svg> 로그 복사</button></div>
         <pre class="log" id="log-${j.id}">불러오는 중…</pre>
       </td></tr>`;
     }
@@ -3634,12 +3725,12 @@ document.getElementById('job-rows').addEventListener('click', async (e) => {
   e.stopPropagation();
   const el = document.getElementById('log-' + btn.dataset.copyid);
   const text = el ? el.textContent : '';
-  const original = btn.textContent;
+  const original = btn.innerHTML;
   try{
     await navigator.clipboard.writeText(text);
-    btn.textContent = '✅ 복사됨';
+    btn.innerHTML = ico('circle-check') + ' 복사됨';
   }catch(err){
-    btn.textContent = '⚠ 복사 실패 — 직접 드래그해서 복사해주세요';
+    btn.innerHTML = ico('triangle-alert') + ' 복사 실패 — 직접 드래그해서 복사해주세요';
   }
   setTimeout(() => { btn.textContent = original; }, 1500);
 });
@@ -3816,24 +3907,24 @@ function createCopyButton(getText){
   btn.type = 'button';
   btn.className = 'copy-btn';
   btn.title = '복사';
-  btn.textContent = '📋 복사';
+  btn.innerHTML = ico('copy') + ' 복사';
   let resetTimer = null;
   btn.addEventListener('click', async () => {
     const text = getText();
     if(!text) return;
     try{
       await copyTextToClipboard(text);
-      btn.textContent = '✅ 복사됨';
+      btn.innerHTML = ico('circle-check') + ' 복사됨';
       btn.classList.remove('copy-error');
       btn.classList.add('copied');
     }catch(e){
-      btn.textContent = '⚠ 실패';
+      btn.innerHTML = ico('triangle-alert') + ' 실패';
       btn.classList.remove('copied');
       btn.classList.add('copy-error');
     }
     clearTimeout(resetTimer);
     resetTimer = setTimeout(() => {
-      btn.textContent = '📋 복사';
+      btn.innerHTML = ico('copy') + ' 복사';
       btn.classList.remove('copied', 'copy-error');
     }, 1500);
   });
@@ -3850,16 +3941,16 @@ function createSendToDanbooruButton(getText){
   btn.type = 'button';
   btn.className = 'copy-btn';
   btn.title = 'Danbooru 탭의 "자유 추가"로 보내기 (쉼표 기준으로 태그를 나눠 추가·선택해요)';
-  btn.textContent = '📤 Danbooru로';
+  btn.innerHTML = ico('send') + ' Danbooru로';
   let resetTimer = null;
   btn.addEventListener('click', () => {
     const ok = danbooruSendTextToExtra(getText());
-    btn.textContent = ok ? '✅ 보냄' : '⚠ 내용 없음';
+    btn.innerHTML = ok ? ico('circle-check') + ' 보냄' : ico('triangle-alert') + ' 내용 없음';
     btn.classList.remove('copied', 'copy-error');
     btn.classList.add(ok ? 'copied' : 'copy-error');
     clearTimeout(resetTimer);
     resetTimer = setTimeout(() => {
-      btn.textContent = '📤 Danbooru로';
+      btn.innerHTML = ico('send') + ' Danbooru로';
       btn.classList.remove('copied', 'copy-error');
     }, 1500);
   });
@@ -3925,7 +4016,7 @@ function buildPromptEnhanceControl(opt){
     function makePerSeedRow(mode, labelText){
       const row = document.createElement('label');
       row.className = 'danbooru-per-seed-row';
-      row.title = `켜면 시드마다 독립적으로 ${mode === 'sfw' ? 'SFW(NSFW 제외)' : 'NSFW 포함'} 무작위 조합을 다시 뽑아요 — Danbooru 탭에서 고정(🔒)해둔 항목은 모든 시드에서 그대로 유지됩니다.`;
+      row.title = `켜면 시드마다 독립적으로 ${mode === 'sfw' ? 'SFW(NSFW 제외)' : 'NSFW 포함'} 무작위 조합을 다시 뽑아요 — Danbooru 탭에서 고정해둔 항목은 모든 시드에서 그대로 유지됩니다.`;
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       const text = document.createElement('span');
@@ -3996,7 +4087,7 @@ function buildPromptEnhanceControl(opt){
   middle.className = 'prompt-enhance-middle';
 
   // Danbooru 프롬프트 탭의 카테고리/규칙/랜덤 로직(danbooruRandomizeAll)을 그대로
-  // 재사용해서 왼쪽 "직접 입력"을 채운다 — 그 탭에서 고정(🔒)해둔 카테고리는
+  // 재사용해서 왼쪽 "직접 입력"을 채운다 — 그 탭에서 고정해둔 카테고리는
   // 손대지 않고 나머지만 새로 뽑고, 모순 태그를 피하는 검증도 그대로 적용된다
   // (danbooruRandomizeAll/danbooruDrawRange/danbooruSetNsfwMode 등은 이 함수보다
   // 아래에서 정의되지만 function 선언이라 호이스팅되어 여기서 바로 참조해도
@@ -4007,8 +4098,8 @@ function buildPromptEnhanceControl(opt){
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'load-btn';
-    btn.textContent = label;
-    btn.title = `Danbooru 프롬프트 탭에서 고정(🔒)해둔 항목은 그대로 두고 나머지만 ${mode === 'sfw' ? 'SFW(NSFW 제외)' : 'NSFW 포함'}로 무작위로 뽑아 왼쪽에 채워요`;
+    btn.innerHTML = ico('dices') + ' ' + label;
+    btn.title = `Danbooru 프롬프트 탭에서 고정해둔 항목은 그대로 두고 나머지만 ${mode === 'sfw' ? 'SFW(NSFW 제외)' : 'NSFW 포함'}로 무작위로 뽑아 왼쪽에 채워요`;
     btn.addEventListener('click', () => {
       danbooruSetNsfwMode(mode);
       danbooruRandomizeAll();
@@ -4017,8 +4108,8 @@ function buildPromptEnhanceControl(opt){
     });
     return btn;
   }
-  middle.appendChild(makeRandomizeBtn('sfw', '🎲 랜덤생성(SFW)'));
-  middle.appendChild(makeRandomizeBtn('nsfw', '🎲 랜덤생성(NSFW)'));
+  middle.appendChild(makeRandomizeBtn('sfw', '랜덤생성(SFW)'));
+  middle.appendChild(makeRandomizeBtn('nsfw', '랜덤생성(NSFW)'));
 
   const modeToggle = document.createElement('div');
   modeToggle.className = 'enhance-mode';
@@ -4046,7 +4137,7 @@ function buildPromptEnhanceControl(opt){
   enhanceSpinner.className = 'enhance-spinner';
   enhanceSpinner.hidden = true;
   const enhanceLabel = document.createElement('span');
-  enhanceLabel.textContent = '✨ Enhance';
+  enhanceLabel.innerHTML = ico('sparkles') + ' Enhance';
   enhanceBtn.appendChild(enhanceSpinner);
   enhanceBtn.appendChild(enhanceLabel);
 
@@ -4126,7 +4217,7 @@ function buildPromptEnhanceControl(opt){
       enhanceBtn.disabled = false;
       modeBtns.forEach(b => { b.disabled = false; });
       enhanceSpinner.hidden = true;
-      enhanceLabel.textContent = '✨ Enhance';
+      enhanceLabel.innerHTML = ico('sparkles') + ' Enhance';
     }
   });
 
@@ -4333,7 +4424,7 @@ function buildInputImageControl(opt){
   const uploadBtn = document.createElement('button');
   uploadBtn.type = 'button';
   uploadBtn.className = 'load-btn';
-  uploadBtn.textContent = '⬆ 업로드';
+  uploadBtn.innerHTML = ico('upload') + ' 업로드';
   uploadBtn.title = '내 컴퓨터에서 이미지 업로드';
 
   const fileInput = document.createElement('input');
@@ -4346,8 +4437,8 @@ function buildInputImageControl(opt){
     fileInput.value = '';
     if(!file) return;
     uploadBtn.disabled = true;
-    const original = uploadBtn.textContent;
-    uploadBtn.textContent = '⏳ 업로드 중…';
+    const original = uploadBtn.innerHTML;
+    uploadBtn.innerHTML = ico('loader-circle', true) + ' 업로드 중…';
     try{
       const form = new FormData();
       form.append('image', file);
@@ -4368,7 +4459,7 @@ function buildInputImageControl(opt){
   const galleryBtn = document.createElement('button');
   galleryBtn.type = 'button';
   galleryBtn.className = 'load-btn';
-  galleryBtn.textContent = '🖼 갤러리에서 선택';
+  galleryBtn.innerHTML = ico('images') + ' 갤러리에서 선택';
   galleryBtn.title = '결과 이미지 갤러리에서 사본으로 가져오기';
   galleryBtn.addEventListener('click', () => openInputImageGalleryPicker(async (name) => {
     const res = await fetch('/api/input-images/import-from-output', {
@@ -4956,8 +5047,8 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   // 하기 위함이다. 필요할 때는 "↺ 초기화" 버튼으로 직접 비운다. 대신 방금 추가됐다는
   // 걸 버튼 라벨을 잠깐 바꿔서 알려준다.
   const submitBtnEl = document.getElementById('submit-btn');
-  const originalLabel = submitBtnEl.textContent;
-  submitBtnEl.textContent = '✅ 추가됨';
+  const originalLabel = submitBtnEl.innerHTML;
+  submitBtnEl.innerHTML = ico('circle-check') + ' 추가됨';
   setTimeout(() => { submitBtnEl.textContent = originalLabel; }, 1200);
   fetchJobs();
 });
@@ -5037,8 +5128,8 @@ function setupRecentFilePicker({
         <div class="recent-workflow-item">
           <span class="recent-workflow-name" data-recent-id="${w.id}" title="${escapeHtml(w.filename)} (눌러서 선택)">${escapeHtml(w.filename)}</span>
           <span class="recent-workflow-time">${whenText}</span>
-          <button class="load-btn" data-recent-id="${w.id}" type="button" title="선택">✓ 선택</button>
-          ${downloadable ? `<button class="icon-btn icon-btn-neutral" data-recent-download-id="${w.id}" type="button" aria-label="다운로드" title="다운로드">⬇</button>` : ''}
+          <button class="load-btn" data-recent-id="${w.id}" type="button" title="선택"><svg class="ico"><use href="#i-check"/></svg> 선택</button>
+          ${downloadable ? `<button class="icon-btn icon-btn-neutral" data-recent-download-id="${w.id}" type="button" aria-label="다운로드" title="다운로드"><svg class="ico"><use href="#i-download"/></svg></button>` : ''}
           <button class="icon-btn" data-recent-remove-id="${w.id}" type="button" aria-label="목록에서 삭제" title="목록에서 삭제">${TRASH_ICON_SVG}</button>
         </div>`;
     }).join('');
@@ -5443,7 +5534,7 @@ function getLoraEntry(name){
 
 // ---- 베이스 모델 family (예: wai-illustrious, krea.2) ----
 // "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/ControlNet
-// 프리셋을 걸러서 보여준다. GET은 페이지를 열 때 한 번, PUT은 "🎛 모델" 탭에서
+// 프리셋을 걸러서 보여준다. GET은 페이지를 열 때 한 번, PUT은 "모델" 탭에서
 // family를 추가/편집할 때마다(디바운스) — lora-triggers와 같은 whole-blob 패턴.
 let baseModelFamilies = {};
 
@@ -5512,7 +5603,7 @@ async function fetchInputImages(force){
   return inputImagesCache;
 }
 
-// ---- "🎛 모델" 탭 — LoRA 트리거 워드 + 호환 family ----
+// ---- "모델" 탭 — LoRA 트리거 워드 + 호환 family ----
 document.getElementById('lora-tab-list').addEventListener('input', (e) => {
   const input = e.target;
   if(!input.classList.contains('lora-tab-trigger-input')) return;
@@ -5586,7 +5677,7 @@ async function initLoraTab(force){
 document.getElementById('lora-tab-refresh-btn').addEventListener('click', () => initLoraTab(true));
 document.getElementById('lora-tab-filter').addEventListener('input', renderLoraTab);
 
-// ---- "🎛 모델" 탭 — 베이스 모델(family) 관리 ----
+// ---- "모델" 탭 — 베이스 모델(family) 관리 ----
 // family id로 쓸 수 있는 글자만 남기고, 겹치면 -2, -3...을 붙인다. 체크포인트
 // 파일명(예: "krea2_turbo_fp8_scaled.safetensors")을 그대로 넣어도 안전한 id가
 // 나오게 하려고 둔다.
@@ -5644,7 +5735,7 @@ function renderFamilyTab(){
               title="Ctrl/Cmd+클릭으로 여러 개 선택">
         ${optionsHtml || '<option value="" disabled>설치된 체크포인트 없음</option>'}
       </select>
-      <button class="del-btn family-delete-btn" type="button" data-family-id="${escapeHtml(familyId)}" title="이 베이스 모델 삭제">✕</button>
+      <button class="del-btn family-delete-btn" type="button" data-family-id="${escapeHtml(familyId)}" title="이 베이스 모델 삭제"><svg class="ico"><use href="#i-x"/></svg></button>
     </div>`;
   }).join('');
 }
@@ -5686,7 +5777,7 @@ document.getElementById('family-tab-unregistered').addEventListener('click', (e)
   if(!btn) return;
   const name = btn.dataset.name;
   const familyId = slugifyFamilyId(name);
-  // 표시 이름은 확장자를 뗀 파일명 그대로 둔다 — 나중에 "🎛 모델" 탭에서 언제든
+  // 표시 이름은 확장자를 뗀 파일명 그대로 둔다 — 나중에 "모델" 탭에서 언제든
   // 바꿀 수 있으니 여기서는 빠르게 등록하는 게 우선이다.
   baseModelFamilies[familyId] = { label: name.replace(/\.[^.]+$/, ''), checkpoints: [name] };
   scheduleSaveBaseModelFamilies();
@@ -5721,7 +5812,7 @@ document.getElementById('family-new-add-btn').addEventListener('click', () => {
   renderLoraTab();
 });
 
-// ---- "🎛 모델" 탭 — ControlNet 프리셋 워크플로우 관리 ----
+// ---- "모델" 탭 — ControlNet 프리셋 워크플로우 관리 ----
 async function initPresetTab(){
   document.getElementById('preset-tab-error').textContent = '';
   await fetchWorkflowTypes();
@@ -5745,9 +5836,9 @@ function renderPresetTab(){
       <div class="preset-table-row" data-family-id="${escapeHtml(familyId)}" data-type-id="${escapeHtml(type.id)}">
         <div class="preset-table-family">${escapeHtml(family.label || familyId)}</div>
         <div class="preset-table-type">${escapeHtml(type.label)}</div>
-        <div class="preset-table-status ${exists ? 'ok' : 'missing'}">${exists ? '✓ 있음' : '없음'}</div>
+        <div class="preset-table-status ${exists ? 'ok' : 'missing'}">${exists ? '<svg class="ico"><use href="#i-check"/></svg> 있음' : '없음'}</div>
         <input type="file" class="preset-upload-input" accept=".json" style="max-width:200px;">
-        ${exists ? '<button class="del-btn preset-delete-btn" type="button" title="프리셋 삭제">✕</button>' : ''}
+        ${exists ? '<button class="del-btn preset-delete-btn" type="button" title="프리셋 삭제"><svg class="ico"><use href="#i-x"/></svg></button>' : ''}
       </div>`);
     }
   }
@@ -5923,7 +6014,7 @@ function renderWizardFamilyModal(){
   const body = document.getElementById('wizard-family-modal-body');
   const entries = Object.entries(baseModelFamilies);
   if(entries.length === 0){
-    body.innerHTML = '<div class="comfy-model-empty">등록된 베이스 모델이 없어요 — "🎛 모델" 탭에서 먼저 등록하세요.</div>';
+    body.innerHTML = '<div class="comfy-model-empty">등록된 베이스 모델이 없어요 — "모델" 탭에서 먼저 등록하세요.</div>';
     return;
   }
   body.innerHTML = `<div class="wizard-pick-list">${entries.map(([familyId, family]) => {
@@ -5933,7 +6024,7 @@ function renderWizardFamilyModal(){
     const header = `
       <div class="wizard-pick-row${disabled ? ' disabled' : ''}${headerSelected ? ' selected' : ''}" data-family-id="${escapeHtml(familyId)}">
         <div class="wizard-pick-row-label">${escapeHtml(family.label || familyId)}
-          ${disabled ? '<span class="wizard-pick-row-hint">체크포인트가 지정되지 않았어요 — "🎛 모델" 탭에서 지정하세요</span>' : ''}
+          ${disabled ? '<span class="wizard-pick-row-hint">체크포인트가 지정되지 않았어요 — "모델" 탭에서 지정하세요</span>' : ''}
         </div>
       </div>`;
     const rows = checkpoints.length > 1 ? checkpoints.map(ckpt => `
@@ -6004,7 +6095,7 @@ function renderWizardTypeModal(){
   const postRows = posts.map(t => {
     const checked = !!wizard.post[t.id];
     const missingNode = t.requires_node && nodeTypes && !nodeTypes.includes(t.requires_node);
-    const badge = missingNode ? `<span class="wizard-pick-row-badge">⚠ 설치 필요 (${escapeHtml(t.requires_node)})</span>` : '';
+    const badge = missingNode ? `<span class="wizard-pick-row-badge"><svg class="ico"><use href="#i-triangle-alert"/></svg> 설치 필요 (${escapeHtml(t.requires_node)})</span>` : '';
     return `
       <div class="wizard-pick-row${checked ? ' selected' : ''}${wizard.base ? '' : ' disabled'}" data-group="post" data-type-id="${escapeHtml(t.id)}">
         <div class="wizard-pick-row-label">${escapeHtml(t.label)}</div>
@@ -6093,7 +6184,7 @@ function renderWizardLoraModal(){
     ? '<div class="email-hint">이 워크플로우 유형은 프리셋에 이미 배선된 LoRA 로더 하나에만 덮어쓸 수 있어서, 여기서는 하나만 고를 수 있어요.</div>'
     : '<div class="email-hint">여러 개를 고를 수 있어요. 강도는 고른 줄에 나타나는 입력칸에서 바꾸세요(기본 1).</div>';
   if(compatible.length === 0){
-    body.innerHTML = hint + '<div class="comfy-model-empty">이 베이스 모델과 호환되는 LoRA가 없어요("🎛 모델" 탭에서 호환 베이스 모델을 비워두면 항상 보여요).</div>';
+    body.innerHTML = hint + '<div class="comfy-model-empty">이 베이스 모델과 호환되는 LoRA가 없어요("모델" 탭에서 호환 베이스 모델을 비워두면 항상 보여요).</div>';
     return;
   }
   body.innerHTML = hint + `<div class="wizard-pick-list">${compatible.map(name => {
@@ -6183,7 +6274,7 @@ document.getElementById('wizard-apply-btn').addEventListener('click', async () =
   try{
     if(isPreset){
       const res = await fetch(`/api/workflow-presets/${encodeURIComponent(wizard.familyId)}/${encodeURIComponent(wizard.preset)}`);
-      if(!res.ok) throw new Error('이 조합의 프리셋 워크플로우를 찾을 수 없어요 — "🎛 모델" 탭에서 먼저 올려주세요.');
+      if(!res.ok) throw new Error('이 조합의 프리셋 워크플로우를 찾을 수 없어요 — "모델" 탭에서 먼저 올려주세요.');
       workflow = await res.json();
     }else{
       const spec = {
@@ -6235,7 +6326,7 @@ document.getElementById('wizard-apply-btn').addEventListener('click', async () =
   setWorkflowFile(new File([JSON.stringify(workflow)], `wizard_${typeSlug}_workflow.json`, { type: 'application/json' }));
 
   document.getElementById('load-notice').textContent =
-    '마법사 설정을 적용했어요 — 아래에서 프롬프트/세부 옵션을 확인하고(CSV 순회라면 CSV 파일도 첨부), 준비되면 "➕ 추가"를 눌러 큐에 등록하세요.';
+    '마법사 설정을 적용했어요 — 아래에서 프롬프트/세부 옵션을 확인하고(CSV 순회라면 CSV 파일도 첨부), 준비되면 "추가"를 눌러 큐에 등록하세요.';
   optionsFields.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
@@ -6252,7 +6343,8 @@ function renderWorkflowCheck(tone, text){
   const el = document.getElementById('workflow-check');
   el.hidden = false;
   el.className = `workflow-check ${tone}`;
-  el.textContent = text;
+  const toneIcon = tone === 'ok' ? 'circle-check' : tone === 'warn' ? 'triangle-alert' : null;
+  el.innerHTML = (toneIcon ? ico(toneIcon) + ' ' : '') + escapeHtml(text);
 }
 
 function summarizeList(items, limit = 5){
@@ -6280,7 +6372,7 @@ async function checkWorkflowCompatibility(file){
   try{
     JSON.parse(text);
   }catch(e){
-    if(token === workflowCheckToken) renderWorkflowCheck('warn', '⚠ JSON 형식이 아니에요 — ComfyUI에서 "API 형식으로 저장"한 파일인지 확인해 주세요.');
+    if(token === workflowCheckToken) renderWorkflowCheck('warn', 'JSON 형식이 아니에요 — ComfyUI에서 "API 형식으로 저장"한 파일인지 확인해 주세요.');
     return;
   }
   let data;
@@ -6302,16 +6394,16 @@ async function checkWorkflowCompatibility(file){
     return;
   }
   if(data.ok){
-    renderWorkflowCheck('ok', `✅ 이 서버에서 돌아갈 수 있어요 (노드 ${data.checked_nodes}개 확인)`);
+    renderWorkflowCheck('ok', `이 서버에서 돌아갈 수 있어요 (노드 ${data.checked_nodes}개 확인)`);
     return;
   }
   const lines = [];
   if(data.missing_nodes.length > 0){
-    lines.push(`⚠ 이 서버에 없는 노드: ${summarizeList(data.missing_nodes)}`);
+    lines.push(`이 서버에 없는 노드: ${summarizeList(data.missing_nodes)}`);
   }
   if(data.missing_values.length > 0){
     const labels = data.missing_values.map(v => `${v.field}="${v.value}"`);
-    lines.push(`⚠ 이 서버에 없는 모델/설정값: ${summarizeList(labels)}`);
+    lines.push(`이 서버에 없는 모델/설정값: ${summarizeList(labels)}`);
   }
   lines.push('그대로 큐에 넣을 수는 있지만 실행 중 실패할 가능성이 높아요.');
   renderWorkflowCheck('warn', lines.join('\n'));
@@ -6480,7 +6572,7 @@ document.getElementById('email-send-btn').addEventListener('click', async () => 
     errorEl.textContent = '발송에 실패했어요.';
   }finally{
     btn.disabled = false;
-    btn.textContent = '✉️ 보내기';
+    btn.innerHTML = ico('mail') + ' 보내기';
   }
 });
 
@@ -6507,7 +6599,7 @@ document.getElementById('zip-download-btn').addEventListener('click', async () =
     errorEl.textContent = '다운로드에 실패했어요.';
   }finally{
     btn.disabled = false;
-    btn.textContent = '📦 ZIP';
+    btn.innerHTML = ico('package') + ' ZIP';
   }
 });
 
@@ -6531,7 +6623,7 @@ document.getElementById('rotate-btn').addEventListener('click', async () => {
     errorEl.textContent = '회전에 실패했어요.';
   }finally{
     btn.disabled = false;
-    btn.textContent = '🔄 회전';
+    btn.innerHTML = ico('rotate-cw') + ' 회전';
   }
 });
 
@@ -6560,7 +6652,7 @@ document.getElementById('delete-images-btn').addEventListener('click', async () 
     errorEl.textContent = '삭제에 실패했어요.';
   }finally{
     btn.disabled = false;
-    btn.textContent = '🗑 전체 삭제';
+    btn.innerHTML = ico('trash-2') + ' 전체 삭제';
   }
 });
 
@@ -6580,7 +6672,7 @@ function getEffectiveTheme(){
 }
 
 function updateThemeToggleLabel(theme){
-  themeToggleBtn.textContent = theme === 'dark' ? '☀' : '🌙';
+  themeToggleBtn.innerHTML = ico(theme === 'dark' ? 'sun' : 'moon');
   themeToggleBtn.title = theme === 'dark' ? '낮 모드(밝은 화면)로 전환' : '밤 모드(어두운 화면)로 전환';
 }
 
@@ -6719,7 +6811,7 @@ apiKeyModalSaveBtn.addEventListener('click', async () => {
   apiKeyModalSaveBtn.textContent = '확인 중…';
   const ok = await window.__nightshiftVerifyApiKey(value);
   apiKeyModalSaveBtn.disabled = false;
-  apiKeyModalSaveBtn.textContent = '💾 저장';
+  apiKeyModalSaveBtn.innerHTML = ico('save') + ' 저장';
 
   if(ok === false){
     apiKeyModalError.textContent = 'API 키가 올바르지 않아요.';
@@ -6914,7 +7006,7 @@ function renderPodCard(p){
             <span class="dash-card-name">${escapeHtml(p.name)}</span>
             <span class="dash-card-kind">${escapeHtml((p.card && p.card.runpod) ? 'RunPod 이미지 생성 모델' : (p.kind_label || p.kind))}</span>
             <div class="dash-card-head-right">
-              <button class="load-btn" data-pod-edit="${escapeHtml(p.id)}" title="파드 설정">⚙</button>
+              <button class="load-btn" data-pod-edit="${escapeHtml(p.id)}" title="파드 설정"><svg class="ico"><use href="#i-settings"/></svg></button>
             </div>
           </div>
           <div class="dash-card-url">${podSpecLine(p)}</div>
@@ -6939,8 +7031,8 @@ function renderPodCard(p){
       ${thumbs ? `<div class="dash-thumbs">${thumbs}</div>` : ''}
       <div class="dash-card-actions">
         ${p.auto_run
-          ? `<button class="del-btn" data-pod-stop="${escapeHtml(p.id)}">⏸ 정지</button>`
-          : `<button class="load-btn" data-pod-start="${escapeHtml(p.id)}"${p.enabled ? '' : ' disabled'}>▶ 시작</button>`}
+          ? `<button class="del-btn" data-pod-stop="${escapeHtml(p.id)}"><svg class="ico"><use href="#i-pause"/></svg> 정지</button>`
+          : `<button class="load-btn" data-pod-start="${escapeHtml(p.id)}"${p.enabled ? '' : ' disabled'}><svg class="ico"><use href="#i-play"/></svg> 시작</button>`}
       </div>
     </div>`;
 }
@@ -7083,7 +7175,7 @@ function updatePodNameSuggest(runpodName){
 function openPodEditModal(podId){
   podEditId = podId || null;
   const pod = podId ? (podsById[podId] || {}) : {};
-  document.getElementById('pod-edit-title').textContent = podId ? '⚙ 파드 설정' : '➕ 파드 추가';
+  document.getElementById('pod-edit-title').innerHTML = podId ? ico('settings') + ' 파드 설정' : ico('plus') + ' 파드 추가';
   document.getElementById('pod-edit-name').value = pod.name || '';
   document.getElementById('pod-edit-url').value = pod.url || '';
   document.getElementById('pod-edit-concurrent').value = pod.max_concurrent || 1;
@@ -7160,9 +7252,9 @@ document.getElementById('pod-edit-test').addEventListener('click', async () => {
     const res = await fetch(`/api/pods/${podEditId}/test`, { method: 'POST' });
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || '확인하지 못했어요.');
-    statusEl.textContent = data.ok
-      ? `✅ 응답했어요 — ${data.url}`
-      : `⚠ ${data.detail || '응답이 없어요.'}${data.url ? ` (${data.url})` : ''}`;
+    statusEl.innerHTML = data.ok
+      ? ico('circle-check') + ' ' + escapeHtml(`응답했어요 — ${data.url}`)
+      : ico('triangle-alert') + ' ' + escapeHtml(`${data.detail || '응답이 없어요.'}${data.url ? ` (${data.url})` : ''}`);
   }catch(e){
     statusEl.textContent = '';
     errorEl.textContent = e.message || '확인하지 못했어요.';
@@ -7189,16 +7281,16 @@ document.getElementById('pod-edit-runpod-test').addEventListener('click', async 
     if(!res.ok) throw new Error(data.detail || '확인하지 못했어요.');
     console.log('[runpod-test]', data);
     if(data.error){
-      statusEl.textContent = `⚠ ${data.error}${data.status_code ? ` (HTTP ${data.status_code})` : ''} — 자세한 응답은 브라우저 콘솔(F12)에 남겨뒀어요.`;
+      statusEl.innerHTML = ico('triangle-alert') + ' ' + escapeHtml(`${data.error}${data.status_code ? ` (HTTP ${data.status_code})` : ''} — 자세한 응답은 브라우저 콘솔(F12)에 남겨뒀어요.`);
     }else{
       const n = data.normalized || {};
       const parts = [
         n.pod_name, n.gpu_type,
         n.cost_per_hr != null ? `$${Number(n.cost_per_hr).toFixed(2)}/hr` : null,
       ].filter(Boolean);
-      statusEl.textContent = parts.length
-        ? `✅ ${parts.join(' · ')} — 원본 응답은 콘솔(F12)에 남겨뒀어요.`
-        : '⚠ 응답은 받았지만 알아본 필드가 없어요 — 콘솔(F12)의 원본 응답을 확인해주세요.';
+      statusEl.innerHTML = parts.length
+        ? ico('circle-check') + ' ' + escapeHtml(`${parts.join(' · ')} — 원본 응답은 콘솔(F12)에 남겨뒀어요.`)
+        : ico('triangle-alert') + ' 응답은 받았지만 알아본 필드가 없어요 — 콘솔(F12)의 원본 응답을 확인해주세요.';
       renderRunpodInfoBox(n);
       updatePodNameSuggest(n.pod_name);
     }
@@ -7264,7 +7356,15 @@ const TAB_MAINS = {
 };
 
 const POD_TABS = ['jobs', 'builder', 'lora', 'pgallery', 'pvideo', 'results'];
-const POD_TAB_LABEL = { jobs: '🗂 작업', builder: '🧩 워크플로우', lora: '🎛 모델', pgallery: '🖼 갤러리', pvideo: '🎬 영상', results: '📝 결과' };
+// 폰에서는 글자를 숨기고 아이콘만 보이므로(CSS .btn-label), 라벨은 title/aria-label에도 넣는다.
+const POD_TAB_META = {
+  jobs:     { icon: 'list-checks', label: '작업' },
+  builder:  { icon: 'workflow',    label: '워크플로우' },
+  lora:     { icon: 'boxes',       label: '모델' },
+  pgallery: { icon: 'images',      label: '갤러리' },
+  pvideo:   { icon: 'clapperboard', label: '영상' },
+  results:  { icon: 'file-text',   label: '결과' },
+};
 // 파드 종류가 서브탭 구성을 정한다 — 셸 파드에는 워크플로우도 설치된 모델도 없다.
 // (예전에는 셸 파드만 등록해도 상단에 🧩·🎛 탭이 그대로 보였고, 눌러봐야 빈
 // 목록이었다.) 새 종류의 워커를 붙일 때 여기 한 줄이 그 워커의 화면 구성이 된다.
@@ -7436,7 +7536,7 @@ function renderPodBar(){
   document.getElementById('pod-bar-kind').textContent = pod.kind_label || pod.kind || '';
 
   document.getElementById('pod-bar-subtabs').innerHTML = podSubtabs(pod).map(t =>
-    `<button class="pod-subtab-btn${t === currentTab ? ' active' : ''}" data-pod-tab="${t}" type="button">${POD_TAB_LABEL[t]}</button>`).join('');
+    `<button class="pod-subtab-btn${t === currentTab ? ' active' : ''}" data-pod-tab="${t}" type="button" title="${POD_TAB_META[t].label}" aria-label="${POD_TAB_META[t].label}"><svg class="ico"><use href="#i-${POD_TAB_META[t].icon}"/></svg><span class="btn-label">${POD_TAB_META[t].label}</span></button>`).join('');
 
   updatePodBarStatus();
 }
@@ -7926,8 +8026,8 @@ function podIdForVideo(vid){
 function updateGalleryScopeUI(){
   const label = document.getElementById('gallery-section-label');
   if(label){
-    label.textContent = galleryPodFilter
-      ? `🖼 갤러리 · ${podName(galleryPodFilter) || galleryPodFilter}`
+    label.innerHTML = galleryPodFilter
+      ? ico('images') + ' ' + escapeHtml(`갤러리 · ${podName(galleryPodFilter) || galleryPodFilter}`)
       : '갤러리';
   }
   applyPullOutputsVisibility();
@@ -7939,9 +8039,9 @@ function updateGalleryScopeUI(){
 function updateVideoGalleryScopeUI(){
   const label = document.getElementById('video-gallery-section-label');
   if(label){
-    label.textContent = videoGalleryPodFilter
-      ? `🎬 영상 갤러리 · ${podName(videoGalleryPodFilter) || videoGalleryPodFilter}`
-      : '🎬 영상 갤러리';
+    label.innerHTML = ico('clapperboard') + ' ' + escapeHtml(videoGalleryPodFilter
+      ? `영상 갤러리 · ${podName(videoGalleryPodFilter) || videoGalleryPodFilter}`
+      : '영상 갤러리');
   }
 }
 
@@ -7997,9 +8097,9 @@ document.getElementById('gallery-pull-btn').addEventListener('click', async () =
   const btn = document.getElementById('gallery-pull-btn');
   const errorEl = document.getElementById('gallery-error');
   errorEl.textContent = '';
-  const original = btn.textContent;
+  const original = btn.innerHTML;
   btn.disabled = true;
-  btn.textContent = '⏳ 가져오는 중…';
+  btn.innerHTML = ico('loader-circle', true) + ' 가져오는 중…';
   try{
     const res = await fetch('/api/comfy-outputs/sync', {
       method: 'POST',
@@ -8472,7 +8572,7 @@ function videoGalleryItemHtml(vid, index){
       </label>
       <button class="vgallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
       <video src="${src}" preload="metadata" muted playsinline></video>
-      <div class="vgallery-item-play">▶</div>
+      <div class="vgallery-item-play"><svg class="ico"><use href="#i-play"/></svg></div>
       <div class="vgallery-item-name">${escapeHtml(vid.name)}</div>
     </div>
   `;
@@ -8651,9 +8751,9 @@ document.getElementById('video-gallery-pull-btn').addEventListener('click', asyn
   const btn = document.getElementById('video-gallery-pull-btn');
   const errorEl = document.getElementById('video-gallery-error');
   errorEl.textContent = '';
-  const original = btn.textContent;
+  const original = btn.innerHTML;
   btn.disabled = true;
-  btn.textContent = '⏳ 가져오는 중…';
+  btn.innerHTML = ico('loader-circle', true) + ' 가져오는 중…';
   try{
     const res = await fetch('/api/comfy-outputs/sync', {
       method: 'POST',
@@ -9196,7 +9296,7 @@ function danbooruRenderCategoryChips(key){
   const selected = new Set(danbooruState.selections[key] || []);
   const offending = danbooruOffendingTagSet();
   if(pool.length === 0){
-    container.innerHTML = `<div class="danbooru-empty-pool">${key === 'artist' ? '태그가 없어요 — 아래 편집(✎)에서 "by artistname" 형식으로 추가하세요' : '태그가 없어요 — 아래 편집(✎)에서 추가하세요'}</div>`;
+    container.innerHTML = `<div class="danbooru-empty-pool">${key === 'artist' ? '태그가 없어요 — 아래 편집(<svg class="ico"><use href="#i-pencil"/></svg>)에서 "by artistname" 형식으로 추가하세요' : '태그가 없어요 — 아래 편집(<svg class="ico"><use href="#i-pencil"/></svg>)에서 추가하세요'}</div>`;
     return;
   }
   container.innerHTML = pool.map(tag => {
@@ -9227,7 +9327,7 @@ function danbooruRenderConflicts(){
   el.hidden = false;
   el.innerHTML = violations.map(v => `
     <div class="danbooru-conflict">
-      <span class="danbooru-conflict-msg">⚠ ${escapeHtml(v.message)}</span>
+      <span class="danbooru-conflict-msg"><svg class="ico"><use href="#i-triangle-alert"/></svg> ${escapeHtml(v.message)}</span>
       <span class="danbooru-conflict-tags">${v.offendingTags.map(escapeHtml).join(', ')}</span>
     </div>
   `).join('');
@@ -9358,8 +9458,8 @@ function danbooruRenderHistoryList(){
           <div class="danbooru-history-time">${whenText}</div>
         </div>
         <div class="danbooru-history-actions">
-          <button type="button" class="load-btn danbooru-history-load-btn" title="불러오기">📂 불러오기</button>
-          <button type="button" class="del-btn danbooru-history-delete-btn" title="삭제">🗑 삭제</button>
+          <button type="button" class="load-btn danbooru-history-load-btn" title="불러오기"><svg class="ico"><use href="#i-folder-open"/></svg> 불러오기</button>
+          <button type="button" class="del-btn danbooru-history-delete-btn" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>
         </div>
       </div>
     `;
@@ -9458,9 +9558,9 @@ function danbooruCategoryCardHtml(cat){
       <div class="danbooru-cat-header">
         <div class="danbooru-cat-label">${escapeHtml(cat.label)}</div>
         <div class="danbooru-cat-actions">
-          <button type="button" class="danbooru-icon-btn danbooru-lock-btn${cat.lockedByDefault ? ' active' : ''}" data-key="${cat.key}" title="고정 (랜덤 조합에서 제외)">🔒</button>
-          <button type="button" class="danbooru-icon-btn danbooru-reroll-btn" data-key="${cat.key}" title="이 항목만 다시 뽑기">🎲</button>
-          <button type="button" class="danbooru-icon-btn danbooru-edit-toggle-btn" data-key="${cat.key}" title="태그 풀 편집">✎</button>
+          <button type="button" class="danbooru-icon-btn danbooru-lock-btn${cat.lockedByDefault ? ' active' : ''}" data-key="${cat.key}" title="고정 (랜덤 조합에서 제외)"><svg class="ico"><use href="#i-lock"/></svg></button>
+          <button type="button" class="danbooru-icon-btn danbooru-reroll-btn" data-key="${cat.key}" title="이 항목만 다시 뽑기"><svg class="ico"><use href="#i-dices"/></svg></button>
+          <button type="button" class="danbooru-icon-btn danbooru-edit-toggle-btn" data-key="${cat.key}" title="태그 풀 편집"><svg class="ico"><use href="#i-pencil"/></svg></button>
         </div>
       </div>
       <div class="danbooru-chips" data-key="${cat.key}"></div>
@@ -9471,7 +9571,7 @@ function danbooruCategoryCardHtml(cat){
         <div class="danbooru-pool-chips" data-key="${cat.key}"></div>
         <div class="danbooru-pool-add-row">
           <input type="text" class="option-input danbooru-pool-add-input" data-key="${cat.key}" placeholder="쉼표로 구분해 여러 개 추가">
-          <button type="button" class="load-btn danbooru-pool-add-btn" data-key="${cat.key}" title="추가">➕ 추가</button>
+          <button type="button" class="load-btn danbooru-pool-add-btn" data-key="${cat.key}" title="추가"><svg class="ico"><use href="#i-plus"/></svg> 추가</button>
         </div>
       </div>
     </div>
@@ -9714,7 +9814,7 @@ function builderAddLoraRow(){
   const remove = document.createElement('button');
   remove.type = 'button';
   remove.className = 'del-btn';
-  remove.textContent = '✕';
+  remove.innerHTML = ico('x') + '';
   remove.title = '이 LoRA 빼기';
   remove.addEventListener('click', () => {
     if(row.dataset.insertedTrigger) removeTriggerFromPrompt(row.dataset.insertedTrigger);
