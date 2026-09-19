@@ -9,6 +9,8 @@
 <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32">
 <link rel="icon" href="/favicon-16x16.png" type="image/png" sizes="16x16">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#14161B">
 <style>
   :root{
     --bg: #F7F8FA;
@@ -1972,6 +1974,7 @@
     padding:40px;
   }
   .lightbox-img-wrap{
+    position:relative;
     max-width:100%;
     max-height:100%;
     display:flex;
@@ -1984,6 +1987,23 @@
     max-height:calc(100vh - 140px);
     border-radius:8px;
     box-shadow:0 10px 40px rgba(0,0,0,0.5);
+    /* 스와이프 중엔 손가락을 그대로 따라가야(dragging) 해서 트랜지션을 끄고,
+       손을 떼면(놓친 스와이프든 넘어가는 스와이프든) 다시 트랜지션을 켜서
+       원위치로 스르륵 돌아온다. */
+    transition: transform .22s cubic-bezier(.22,.61,.36,1), filter .15s ease, opacity .15s ease;
+  }
+  .lightbox-img.dragging{ transition:none; }
+  .lightbox-img.lightbox-loading{ filter:blur(6px); opacity:.55; }
+  .lightbox-spinner{
+    position:absolute;
+    top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    width:30px; height:30px;
+    border:3px solid rgba(255,255,255,0.3);
+    border-top-color:#fff;
+    border-radius:50%;
+    animation: enhance-spin .7s linear infinite;
+    pointer-events:none;
   }
   .lightbox-info{
     font-family:var(--mono);
@@ -2898,6 +2918,7 @@
   <button class="lightbox-nav lightbox-prev" id="gallery-prev" aria-label="이전 이미지" type="button">&lsaquo;</button>
   <div class="lightbox-img-wrap">
     <img class="lightbox-img" id="gallery-lightbox-img" src="" alt="">
+    <div class="lightbox-spinner" id="gallery-lightbox-spinner" style="display:none;"></div>
     <div class="lightbox-info" id="gallery-lightbox-info"></div>
     <div class="lightbox-actions">
       <button class="modal-btn-secondary" id="gallery-lightbox-download-btn" type="button" title="다운로드">⬇ 다운로드</button>
@@ -8167,11 +8188,34 @@ document.getElementById('pose-import-confirm-btn').addEventListener('click', asy
   }
 });
 
+// 다음/이전 이미지를 실제로 받아오는 동안 화면이 멈춘 것처럼 보이지 않게,
+// 살짝 흐리고 어둡게 + 스피너를 보여준다. 로딩이 아주 빠르면(로컬 네트워크라
+// 대부분 그렇다) 깜빡임만 남으니, 150ms 넘게 걸릴 때만 실제로 보여준다.
+let lightboxLoadingTimer = null;
+function showLightboxLoading(){
+  clearTimeout(lightboxLoadingTimer);
+  lightboxLoadingTimer = setTimeout(() => {
+    document.getElementById('gallery-lightbox-img').classList.add('lightbox-loading');
+    document.getElementById('gallery-lightbox-spinner').style.display = '';
+  }, 150);
+}
+function hideLightboxLoading(){
+  clearTimeout(lightboxLoadingTimer);
+  document.getElementById('gallery-lightbox-img').classList.remove('lightbox-loading');
+  document.getElementById('gallery-lightbox-spinner').style.display = 'none';
+}
+(() => {
+  const imgEl = document.getElementById('gallery-lightbox-img');
+  imgEl.addEventListener('load', hideLightboxLoading);
+  imgEl.addEventListener('error', hideLightboxLoading);
+})();
+
 function renderLightbox(){
   const img = displayedGalleryImages[lightboxIndex];
   if(!img) return;
   document.getElementById('gallery-lightbox-error').textContent = '';
   const imgEl = document.getElementById('gallery-lightbox-img');
+  showLightboxLoading();
   // 파일명이 그대로라 URL도 그대로면 브라우저가 캐시를 그냥 쓸 수 있어서(회전
   // 등으로 파일이 바뀌어도 안 보임), mtime을 쿼리에 붙여 내용이 바뀔 때마다
   // 다른 URL이 되게 한다 — 썸네일(galleryItemHtml)도 같은 이유로 이렇게 한다.
@@ -8201,6 +8245,44 @@ function showPrevImage(){
 function showNextImage(){
   if(lightboxIndex < displayedGalleryImages.length - 1){ lightboxIndex++; renderLightbox(); }
 }
+
+// 모바일에서 화살표 버튼 대신 스와이프로도 이미지를 넘길 수 있게 — 왼쪽으로
+// 밀면 다음, 오른쪽으로 밀면 이전. 세로로 더 많이 움직였으면(스크롤 의도로
+// 보고) 무시하고, 임계값(50px)을 넘어야만 넘긴다. 손가락을 움직이는 동안
+// 이미지가 그 방향으로 살짝 따라와서(damped) "지금 스와이프가 인식되고
+// 있다"는 걸 눈으로 바로 알 수 있게 하고, 손을 떼면 놓친 스와이프든 넘어가는
+// 스와이프든 일단 트랜지션과 함께 원위치로 돌아온다(넘어갈 땐 그사이 다음
+// 이미지가 로딩 상태로 바뀐다).
+let lightboxTouchStartX = null;
+let lightboxTouchStartY = null;
+const DRAG_DAMPING = 0.4;
+galleryLightbox.addEventListener('touchstart', (e) => {
+  if(e.touches.length !== 1) return;
+  lightboxTouchStartX = e.touches[0].clientX;
+  lightboxTouchStartY = e.touches[0].clientY;
+  document.getElementById('gallery-lightbox-img').classList.add('dragging');
+}, { passive: true });
+galleryLightbox.addEventListener('touchmove', (e) => {
+  if(lightboxTouchStartX === null || e.touches.length !== 1) return;
+  const dx = e.touches[0].clientX - lightboxTouchStartX;
+  const dy = e.touches[0].clientY - lightboxTouchStartY;
+  if(Math.abs(dx) < Math.abs(dy)) return; // 세로 스크롤 의도로 보이면 따라가지 않음
+  document.getElementById('gallery-lightbox-img').style.transform = `translateX(${dx * DRAG_DAMPING}px)`;
+}, { passive: true });
+galleryLightbox.addEventListener('touchend', (e) => {
+  const imgEl = document.getElementById('gallery-lightbox-img');
+  imgEl.classList.remove('dragging');
+  imgEl.style.transform = '';
+  if(lightboxTouchStartX === null) return;
+  const touch = e.changedTouches[0];
+  const dx = touch.clientX - lightboxTouchStartX;
+  const dy = touch.clientY - lightboxTouchStartY;
+  lightboxTouchStartX = null;
+  lightboxTouchStartY = null;
+  const SWIPE_THRESHOLD = 50;
+  if(Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy)) return;
+  if(dx < 0) showNextImage(); else showPrevImage();
+}, { passive: true });
 
 document.getElementById('gallery-lightbox-close').addEventListener('click', closeLightbox);
 document.getElementById('gallery-prev').addEventListener('click', showPrevImage);
