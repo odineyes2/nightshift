@@ -63,6 +63,14 @@ def is_landscape_hiresfix_size(width: int, height: int) -> bool:
     return abs(ratio - target_ratio) / target_ratio <= LANDSCAPE_RATIO_TOLERANCE
 
 
+def rotate_image_file(path: Path) -> None:
+    """이미지 파일 하나를 시계 방향 90도 회전해 같은 파일에 덮어쓴다. 갤러리
+    라이트박스/선택 회전처럼 사용자가 직접 고른 이미지를 돌릴 때 쓴다 —
+    rotate_landscape_images(비율로 자동 판단)와 달리 방향 판단 없이 무조건 돈다."""
+    with Image.open(path) as img:
+        img.transpose(Image.Transpose.ROTATE_270).save(path)
+
+
 def rotate_landscape_images(search_dir: str | None = None) -> dict:
     """LANDSCAPE_BASE_SIZE와 같은 비율(24:11)의 가로형 이미지를 시계 방향으로 90도
     회전해서 같은 파일에 덮어쓴다 (아래쪽 변이 왼쪽으로 오도록 — PIL의 ROTATE_270이

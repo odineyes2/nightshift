@@ -68,6 +68,7 @@ from output_images import (
     OutputFolderError,
     delete_output_images,
     list_output_images,
+    rotate_image_file,
     rotate_landscape_images,
 )
 from output_videos import (
@@ -3240,6 +3241,16 @@ def delete_output_image(filename: str):
     return {"ok": True}
 
 
+@app.post("/api/output-images/{filename:path}/rotate")
+async def rotate_output_image(filename: str):
+    # 갤러리 라이트박스에서 지금 보고 있는 이미지 한 장을 시계 방향 90도로 돌린다 —
+    # rotate-landscape/download-selected-rotated와 달리 원본을 그 자리에서 실제로
+    # 덮어쓴다(사용자가 직접 누른 명시적인 동작이므로).
+    path = resolve_output_image(filename)
+    await asyncio.to_thread(rotate_image_file, path)
+    return {"ok": True}
+
+
 def parse_image_names_body(data: dict) -> list[str]:
     names = data.get("names")
     if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
@@ -3372,6 +3383,34 @@ async def delete_selected_images(request: Request):
         path.unlink()
         deleted += 1
     return {"deleted": deleted}
+
+
+@app.post("/api/output-images/rotate-selected")
+async def rotate_selected_images(request: Request):
+    # 갤러리에서 여러 장을 선택해 한 번에 돌리는 용도 — download-selected-rotated와
+    # 달리 원본을 그 자리에서 실제로 덮어쓴다. 잘못된 이름이나 그 사이 지워진 파일은
+    # 조용히 건너뛴다.
+    body = await request.body()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    names = parse_image_names_body(data)
+
+    rotated = 0
+    errors = []
+    for name in names:
+        try:
+            path = resolve_output_image(name)
+        except HTTPException:
+            continue
+        try:
+            await asyncio.to_thread(rotate_image_file, path)
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+            continue
+        rotated += 1
+    return {"rotated": rotated, "errors": errors}
 
 
 @app.post("/api/output-images/rotate-landscape")
