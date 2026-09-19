@@ -68,12 +68,20 @@
     --log-text: #B8C0CC;
   }
   *{ box-sizing: border-box; }
+  html{
+    /* 문서 어딘가가 뷰포트보다 넓어지면(줄바꿈 안 되는 요소 등) 일부 모바일
+       브라우저에서 position:fixed 요소(로그인 화면 등)의 정렬 기준 폭이 실제 화면
+       보다 넓게 잡혀 중앙 정렬된 내용이 옆으로 밀려 잘려 보일 수 있다. 항상 화면
+       폭에 고정되도록 가로 오버플로를 막아둔다. */
+    overflow-x:hidden;
+  }
   body{
     margin:0;
     background:var(--bg);
     color:var(--text);
     font-family:var(--sans);
     min-height:100vh;
+    overflow-x:hidden;
   }
   header{
     display:flex;
@@ -150,9 +158,6 @@
     transition: border-color .15s ease, color .15s ease, background .15s ease;
   }
   .theme-toggle-btn:hover{ border-color:var(--queued); color:var(--queued); }
-  /* API 키 버튼 — 서버가 NIGHTSHIFT_API_KEY를 요구하는데 이 브라우저에 저장된 키가
-     없거나 틀려서 401을 받은 적이 있으면 위험색으로 바뀌어 눈에 띄게 한다. */
-  .api-key-btn.unauthorized{ color:var(--failed); border-color:currentColor; background:rgba(var(--failed-rgb),0.08); }
 
   /* ---- 로그인 화면 (미니멀 센터드형) ---- */
   /* 아직 별도 로그인 시스템은 없다 — 서버가 NIGHTSHIFT_API_KEY를 요구할 수 있으니,
@@ -1008,6 +1013,13 @@
     grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));
     gap:12px;
   }
+  /* 폰 화면에서는 grid의 auto-fill 열 계산을 아예 안 쓴다 — 카드가 비동기로
+     나중에 채워지는데(fetchDashboard), 실제 기기 일부에서 grid-template-columns가
+     그 시점의 열 개수를 다시 안 맞추고 예전 값을 들고 있는 문제가 있었다. flex
+     column은 그런 재계산 여지 자체가 없어 카드가 항상 한 장씩 세로로 쌓인다. */
+  @media (max-width:640px){
+    .card-canvas{ display:flex; flex-direction:column; }
+  }
   .dash-card{
     display:flex; flex-direction:column; gap:10px;
     padding:14px 16px;
@@ -1207,42 +1219,11 @@
   .workflow-check.ok{ border-left-color:var(--done); color:var(--done); }
   .workflow-check.warn{ border-left-color:var(--failed); color:var(--failed); }
   .workflow-check.unknown{ border-left-color:var(--border); }
-  /* "설치된 모델" 모달 — 종류별 섹션 + 목록. 모델이 수백 개인 서버도 있어서
-     목록마다 따로 스크롤되게 하고, 위쪽 입력으로 이름을 걸러볼 수 있게 한다. */
-  .comfy-model-group{ margin-top:14px; }
-  /* 다른 라벨들과 달리 uppercase를 쓰지 않는다 — "LoRA"/"ControlNet"처럼 대소문자가
-     의미 있는 고유명사가 섞여 있어서 전부 대문자로 만들면 어색해진다. */
-  .comfy-model-group-title{
-    font-family:var(--mono);
-    font-size:11px;
-    font-weight:600;
-    letter-spacing:0.05em;
-    color:var(--text-dim);
-    margin-bottom:6px;
-  }
-  .comfy-model-items{
-    display:flex;
-    flex-direction:column;
-    gap:2px;
-    max-height:180px;
-    overflow-y:auto;
-    border:1px solid var(--border);
-    border-radius:var(--radius-sm);
-    padding:6px 8px;
-  }
-  .comfy-model-item{
-    font-family:var(--mono);
-    font-size:11.5px;
-    color:var(--text);
-    overflow:hidden;
-    text-overflow:ellipsis;
-    white-space:nowrap;
-  }
   .comfy-model-empty{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
 
-  /* "LoRA" 탭 — 설치된 LoRA마다 트리거 워드를 입력하는 줄. "📋 모델" 모달의
-     좁은 목록 칸(180px 높이, 11.5px 글자) 안에 넣었더니 이름도 입력칸도 제대로
-     안 보인다는 문제가 있어서, 탭 하나를 통째로 써서 넉넉하게 보여준다. */
+  /* "LoRA" 탭 — 설치된 LoRA마다 트리거 워드를 입력하는 줄. 목록 칸이 좁으면
+     이름도 입력칸도 제대로 안 보이는 문제가 있어서, 탭 하나를 통째로 써서
+     넉넉하게 보여준다. */
   .lora-tab-list{
     display:flex;
     flex-direction:column;
@@ -2330,8 +2311,6 @@
   <div class="brand"><span class="dot"></span> <img class="brand-logo" src="/nightshift-wordmark.svg" alt="Nightshift"></div>
   <div class="header-right">
     <button class="theme-toggle-btn" id="theme-toggle-btn" type="button"></button>
-    <button class="theme-toggle-btn api-key-btn" id="api-key-btn" type="button" title="서버 API 키 설정 (NIGHTSHIFT_API_KEY)">🔑 API 키</button>
-    <button class="load-btn" id="comfy-models-btn" type="button" title="이 ComfyUI 서버에 설치된 체크포인트·LoRA 목록 보기">📋 모델</button>
     <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
   </div>
 </header>
@@ -2985,25 +2964,6 @@
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="workflow-cancel-btn">✕ 취소</button>
       <button class="submit-btn" id="workflow-save-btn">💾 저장</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-overlay" id="comfy-models-modal" style="display:none;">
-  <div class="modal-panel">
-    <div class="modal-header">
-      <div class="modal-title">설치된 모델</div>
-      <button class="modal-close" id="comfy-models-modal-close" aria-label="닫기">&times;</button>
-    </div>
-    <div class="modal-body">
-      <div class="email-hint">지금 연결된 ComfyUI 서버(<span id="comfy-models-url">확인 중…</span>)에 실제로 설치돼 있는 목록이에요. 워크플로우가 여기 없는 모델을 가리키면 그 작업은 실패해요.</div>
-      <input type="text" class="option-input" id="comfy-models-filter" placeholder="이름으로 거르기">
-      <div class="upload-error" id="comfy-models-error"></div>
-      <div id="comfy-models-list"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="load-btn" id="comfy-models-refresh-btn" type="button" title="서버에서 다시 받아오기">🔄 새로고침</button>
-      <button class="modal-btn-secondary" id="comfy-models-modal-cancel">✕ 닫기</button>
     </div>
   </div>
 </div>
@@ -5394,17 +5354,6 @@ async function fetchComfyObjectInfo(force){
   return comfyObjectInfoCache;
 }
 
-const COMFY_MODEL_GROUPS = [
-  { key: 'checkpoints', label: '체크포인트' },
-  { key: 'loras', label: 'LoRA' },
-  { key: 'vae', label: 'VAE' },
-  { key: 'controlnet', label: 'ControlNet' },
-  { key: 'upscale_models', label: '업스케일 모델' },
-  { key: 'clip_vision', label: 'CLIP Vision' },
-];
-
-const comfyModelsModal = document.getElementById('comfy-models-modal');
-
 // LoRA 파일명 -> 트리거 워드. 서버에 저장돼 있는 걸 그대로 캐시해두고, "설치된
 // 모델" 모달에서 입력할 때마다 로컬 캐시를 즉시 갱신 + 서버에는 살짝 늦게(디바운스)
 // 저장한다 — "워크플로우" 탭에서 LoRA를 고를 때 바로 조회해서 쓴다.
@@ -5514,65 +5463,6 @@ async function fetchInputImages(force){
   }catch(e){ inputImagesCache = []; }
   return inputImagesCache;
 }
-
-function renderComfyModels(){
-  const listEl = document.getElementById('comfy-models-list');
-  const info = comfyObjectInfoCache;
-  if(!info) return;
-  document.getElementById('comfy-models-url').textContent = info.url || '연결 안 됨';
-  if(!info.connected){
-    listEl.innerHTML = '<div class="comfy-model-empty">ComfyUI에 연결되지 않아 목록을 가져오지 못했어요.</div>';
-    return;
-  }
-  const filter = document.getElementById('comfy-models-filter').value.trim().toLowerCase();
-  const sections = COMFY_MODEL_GROUPS.map(({ key, label }) => {
-    const all = info.models[key] || [];
-    const shown = filter ? all.filter(name => name.toLowerCase().includes(filter)) : all;
-    const countText = filter ? `${shown.length} / ${all.length}` : `${all.length}`;
-    const body = shown.length === 0
-      ? `<div class="comfy-model-empty">${filter && all.length > 0 ? '거른 결과가 없어요' : '설치된 게 없어요'}</div>`
-      : `<div class="comfy-model-items">${shown.map(name => `<div class="comfy-model-item" title="${escapeHtml(name)}">${escapeHtml(name)}</div>`).join('')}</div>`;
-    // LoRA는 트리거 워드까지 같이 관리하는 전용 탭이 따로 있다(이 모달 목록 칸은
-    // 좁아서 이름+입력칸을 같이 넣으면 둘 다 안 보일 정도로 cramped 했다).
-    const hint = key === 'loras'
-      ? '<div class="comfy-model-empty" style="margin-bottom:6px;">트리거 워드/호환 베이스 모델은 상단 "🎛 모델" 탭에서 관리해요.</div>'
-      : '';
-    return `
-      <div class="comfy-model-group">
-        <div class="comfy-model-group-title">${escapeHtml(label)} (${countText})</div>
-        ${hint}
-        ${body}
-      </div>`;
-  }).join('');
-  listEl.innerHTML = `<div class="comfy-model-empty">설치된 노드 타입 ${info.node_types.length}개</div>${sections}`;
-}
-
-async function openComfyModelsModal(force){
-  const errorEl = document.getElementById('comfy-models-error');
-  const listEl = document.getElementById('comfy-models-list');
-  errorEl.textContent = '';
-  comfyModelsModal.style.display = 'flex';
-  listEl.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
-  try{
-    await fetchComfyObjectInfo(force);
-  }catch(e){
-    listEl.innerHTML = '';
-    errorEl.textContent = e.message || '모델 목록을 가져오지 못했어요.';
-    return;
-  }
-  renderComfyModels();
-}
-
-document.getElementById('comfy-models-btn').addEventListener('click', () => openComfyModelsModal(false));
-document.getElementById('comfy-models-refresh-btn').addEventListener('click', () => openComfyModelsModal(true));
-document.getElementById('comfy-models-filter').addEventListener('input', renderComfyModels);
-function closeComfyModelsModal(){ comfyModelsModal.style.display = 'none'; }
-document.getElementById('comfy-models-modal-close').addEventListener('click', closeComfyModelsModal);
-document.getElementById('comfy-models-modal-cancel').addEventListener('click', closeComfyModelsModal);
-comfyModelsModal.addEventListener('click', (e) => { if(e.target === comfyModelsModal) closeComfyModelsModal(); });
-document.addEventListener('keydown', (e) => {
-  if(e.key === 'Escape' && comfyModelsModal.style.display !== 'none') closeComfyModelsModal();
-});
 
 // ---- "🎛 모델" 탭 — LoRA 트리거 워드 + 호환 family ----
 document.getElementById('lora-tab-list').addEventListener('input', (e) => {
@@ -6672,9 +6562,8 @@ applyTheme(getEffectiveTheme(), false);
 
 // ---- API 키 ----
 // 헤더 스크립트(<head>)가 fetch()를 감싸서 저장된 키를 자동으로 실어 보낸다.
-// 여기서는 "키 설정" 모달과, 401을 받았을 때 헤더 버튼을 위험색으로 바꿔
-// 알려주는 부분만 담당한다.
-const apiKeyBtn = document.getElementById('api-key-btn');
+// 여기서는 "키 설정" 모달만 담당한다 — 여는 경로는 로그인 화면의
+// "키 확인·삭제 등 자세히 설정하기" 링크뿐이다(헤더 버튼은 없앴다).
 const apiKeyModal = document.getElementById('api-key-modal');
 const apiKeyInput = document.getElementById('api-key-input');
 const apiKeyShowCheckbox = document.getElementById('api-key-show');
@@ -6705,7 +6594,6 @@ function showLoginScreen(message){
   loginScreen.style.display = 'flex';
 }
 
-apiKeyBtn.addEventListener('click', openApiKeyModal);
 document.getElementById('login-screen-api-key-btn').addEventListener('click', openApiKeyModal);
 document.getElementById('api-key-modal-close').addEventListener('click', closeApiKeyModal);
 
@@ -6809,13 +6697,9 @@ document.getElementById('api-key-modal-clear').addEventListener('click', () => {
 });
 
 // GET /api/jobs 폴링(2초 간격)이 401을 물어올 때마다 매번 모달을 띄우면 성가시므로,
-// 헤더 버튼 색만 바꿔서 "인증이 필요하다"는 걸 계속 보여주고 모달은 버튼을 눌러야
-// 연다. 이후 아무 /api/ 요청이 200으로 성공하면 다시 정상 색으로 돌아온다.
+// 여기서는 로그인 게이트로 돌려보내는 것만 담당한다(헤더에 상태를 보여주는
+// 버튼은 없앴다). 이후 아무 /api/ 요청이 200으로 성공하면 다시 게이트를 벗어난다.
 window.__nightshiftOnApiAuthResult = function(authorized){
-  apiKeyBtn.classList.toggle('unauthorized', !authorized);
-  apiKeyBtn.title = authorized
-    ? '서버 API 키 설정 (NIGHTSHIFT_API_KEY)'
-    : 'API 키가 없거나 틀렸어요 — 눌러서 입력하세요';
   // 로그인 화면을 지난 뒤 서버 키가 바뀌는 등으로 다시 401을 받으면 게이트로
   // 돌려보낸다 — 계속 본 화면에 남아있어봤자 모든 API 호출이 막혀 있으니까.
   if(!authorized) showLoginScreen('API 키가 없거나 틀렸어요 — 다시 입력하세요.');
@@ -9829,6 +9713,7 @@ setInterval(() => {
   if(videoGalleryLightbox.style.display !== 'none') return;
   fetchGalleryVideos();
 }, 4000);
+
 </script>
 </body>
 </html>
