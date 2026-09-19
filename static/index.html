@@ -1662,6 +1662,10 @@
     #video-gallery-view-toggle .enhance-mode-btn{ letter-spacing:0.06em; }
     #gallery-view-toggle .ico, #gallery-display-toggle .ico, #video-gallery-view-toggle .ico{ display:none; }
   }
+  /* 이미지/영상 갤러리는 홈의 프로젝트 카드처럼 바깥 카드(패널) 없이 페이지 위에 바로 놓는다. */
+  #tab-gallery > .panel, #tab-video-gallery > .panel{
+    background:none; border:none; box-shadow:none; border-radius:0; padding:0;
+  }
   .gallery-toolbar-count{
     font-family:var(--mono);
     font-size:12.5px;
@@ -1671,8 +1675,8 @@
   }
   .gallery-grid{
     display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
-    gap:10px;
+    grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
+    gap:8px;
   }
   /* 작업별/날짜별 보기 — 그룹(작업 또는 날짜)마다 소제목과 그 그룹의 이미지 격자를
      세로로 나열한다. #gallery-grid 자체가 grid라서(전체 보기용), grid-column을
@@ -1703,8 +1707,8 @@
   }
   .gallery-group-grid{
     display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
-    gap:10px;
+    grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
+    gap:8px;
   }
   .gallery-item{
     position:relative;
@@ -1868,8 +1872,8 @@
      읽을 수 없어 넣지 않았으므로 details 관련 스타일은 옮기지 않는다. */
   .vgallery-grid{
     display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
-    gap:10px;
+    grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
+    gap:8px;
   }
   .vgallery-group{ grid-column:1 / -1; margin-bottom:20px; }
   .vgallery-group:last-child{ margin-bottom:0; }
@@ -1895,8 +1899,14 @@
   }
   .vgallery-group-grid{
     display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
-    gap:10px;
+    grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
+    gap:8px;
+  }
+  /* 갤러리 격자는 폰에서(네 격자 정의보다 뒤에 있어야 이긴다) 3열로 촘촘하게(details 보기는 자체 규칙이 더 구체적이라 그대로다). */
+  @media (max-width:640px){
+    .gallery-grid, .gallery-group-grid, .vgallery-grid, .vgallery-group-grid{
+      grid-template-columns:repeat(3, 1fr); gap:6px;
+    }
   }
   .vgallery-item{
     position:relative;
@@ -9014,7 +9024,7 @@ function galleryItemHtml(img, index){
       </label>
       <button class="gallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
       <button class="gallery-item-fav${img.favorite ? ' on' : ''}" type="button" aria-label="즐겨찾기" aria-pressed="${img.favorite ? 'true' : 'false'}" title="즐겨찾기">${ico('star')}</button>
-      <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=300&v=${encodeURIComponent(img.mtime)}`)}" alt="${escapeHtml(img.name)}" loading="lazy">
+      <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=400&fit=cover&v=${encodeURIComponent(img.mtime)}`)}" alt="${escapeHtml(img.name)}" loading="lazy">
       <div class="gallery-item-name">${escapeHtml(img.name)}</div>
     </div>
   `;

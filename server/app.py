@@ -44,7 +44,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
-from PIL import Image
+from PIL import Image, ImageOps
 
 from comfy_outputs import OutputSyncError, forget_downloaded, sync_outputs, sync_state_summary, synced_pod_ids
 from data_paths import data_dir, data_path
@@ -3516,7 +3516,7 @@ def resolve_output_image(filename: str) -> Path:
 # "job_id/파일.png/thumbnail" 요청도 원본 이미지 라우트(filename:path)가 먼저
 # 통째로 집어삼켜서 404가 난다(FastAPI/Starlette는 등록 순서대로 첫 매치를 씀).
 @app.get("/api/output-images/{filename:path}/thumbnail")
-def get_output_image_thumbnail(filename: str, request: Request, size: int = 320):
+def get_output_image_thumbnail(filename: str, request: Request, size: int = 320, fit: str = "inside"):
     # 갤러리 격자를 채우는 용도 — 원본을 그대로 내려받으면 느리고 대역폭을 낭비하므로,
     # 매 요청마다 그 자리에서 축소본을 만들어 돌려준다(디스크에 캐시하지 않음 — 이
     # 도구 규모에서는 매번 다시 만들어도 충분히 빠름). 대신 브라우저 캐시는 쓴다 —
@@ -3525,18 +3525,26 @@ def get_output_image_thumbnail(filename: str, request: Request, size: int = 320)
     # 보내게 된다. ETag는 파일 mtime+size+요청한 size로 만들어서, 파일이 바뀌면
     # (예: "가로형 이미지 자동 회전"이 같은 파일에 덮어쓰면 mtime이 바뀜) 자동으로
     # 무효화된다.
+    # fit=cover면 긴 변이 아니라 정사각형으로 가운데를 잘라 size×size로 만든다 — 갤러리 칸이
+    # 정사각형(object-fit:cover)이라 어차피 그렇게 잘려 보이는데, 긴 변 기준으로 줄이면 세로로
+    # 긴 이미지의 짧은 변이 칸보다 작아져 CSS가 늘려 그리는 바람에 흐릿해졌다.
+    if fit not in ("inside", "cover"):
+        raise HTTPException(400, "fit은 inside 또는 cover여야 해요.")
     path = resolve_output_image(filename)
     size = max(64, min(size, 800))
     stat = path.stat()
-    etag = f'"{stat.st_mtime_ns:x}-{stat.st_size:x}-{size}"'
+    etag = f'"{stat.st_mtime_ns:x}-{stat.st_size:x}-{size}-{fit}"'
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=86400"})
     try:
         with Image.open(path) as img:
             img = img.convert("RGB")
-            img.thumbnail((size, size))
+            if fit == "cover":
+                img = ImageOps.fit(img, (size, size), method=Image.LANCZOS, centering=(0.5, 0.5))
+            else:
+                img.thumbnail((size, size))
             buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=80)
+            img.save(buf, format="JPEG", quality=82)
     except Exception as e:
         raise HTTPException(500, f"썸네일을 만들지 못했어요: {e}")
     return Response(
