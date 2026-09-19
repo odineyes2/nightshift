@@ -419,9 +419,53 @@
   }
   .ico-spin{ animation: enhance-spin .8s linear infinite; }
   .collapse-btn .ico{ width:14px; height:14px; vertical-align:middle; }
-  .pod-bar-back, .pod-subtab-btn, .lightbox-actions button, #pod-bar-settings{
+  .pod-bar-back, .pod-subtab-btn, .lightbox-actions button, #pod-bar-settings, #project-bar-settings{
     display:inline-flex; align-items:center; justify-content:center; gap:6px;
   }
+  /* ---- 프로젝트 (홈 대시보드 / 새 작업 폼의 대상 선택) ---- */
+  .home-archived-toggle{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:12.5px; color:var(--text-dim); cursor:pointer; margin-left:auto;
+  }
+  .home-strip-pods{ align-self:center; margin-left:auto; }
+  .project-card{
+    position:relative; display:flex; flex-direction:column; overflow:hidden;
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    cursor:pointer; transition:border-color .12s ease, box-shadow .12s ease;
+  }
+  .project-card:hover, .project-card:focus-visible{
+    border-color:var(--queued); box-shadow:0 2px 10px rgba(var(--queued-rgb),0.12); outline:none;
+  }
+  .project-card.inbox{ border-style:dashed; }
+  .project-card.archived{ opacity:0.6; }
+  .project-cover{
+    height:150px; background:var(--bg); display:flex; align-items:center; justify-content:center;
+    border-bottom:1px solid var(--border);
+  }
+  .project-cover-img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .project-cover-empty{ color:var(--text-dim); opacity:0.45; }
+  .project-cover-empty .ico{ width:36px; height:36px; }
+  .project-card-body{ padding:12px 14px; display:flex; flex-direction:column; gap:6px; }
+  .project-card-head{ display:flex; align-items:center; gap:8px; }
+  .project-card-name{
+    flex:1; min-width:0; font-weight:600; font-size:14px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .project-card-edit{ flex:none; padding:4px 7px; }
+  .project-card-desc{
+    font-size:12px; color:var(--text-dim); line-height:1.5;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .project-card-stats{
+    display:flex; flex-wrap:wrap; gap:2px 12px;
+    font-family:var(--mono); font-size:11.5px; color:var(--text-dim);
+  }
+  .project-card-stats b{ color:var(--text); font-weight:600; }
+  .project-badge{ display:inline-flex; align-items:center; gap:4px; }
+  .job-target-row{ display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px; }
+  .job-target-field{ display:flex; flex-direction:column; gap:6px; flex:1 1 220px; max-width:360px; }
+  .job-target-field .pod-bar-select{ max-width:none; width:100%; }
+
   /* 폰에서는 파드 바/서브탭/라이트박스 버튼의 글자를 숨기고 아이콘만 남긴다 — 폭이
      좁아 글자가 한 자씩 세로로 쪼개지던 문제. 서브탭은 한 줄을 똑같은 폭으로 나눠 쓴다. */
   @media (max-width:640px){
@@ -2391,6 +2435,14 @@
   <symbol id="i-wand-sparkles" viewBox="0 0 24 24"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></symbol>
   <symbol id="i-workflow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-folder-kanban" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M8 10v4"/><path d="M12 10v2"/><path d="M16 10v6"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-folder-input" viewBox="0 0 24 24"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 16 3-3-3-3"/></symbol>
 </svg>
 
 <div class="login-screen" id="login-screen">
@@ -2451,7 +2503,8 @@
      구분선 뒤에 둔다. -->
 <div class="tab-bar" id="global-tab-bar">
   <div class="tab-bar-inner">
-    <button class="tab-btn active" data-tab="dashboard" type="button" title="홈 — 파드(워커) 대시보드"><svg class="ico"><use href="#i-house"/></svg> Home</button>
+    <button class="tab-btn active" data-tab="dashboard" type="button" title="홈 — 프로젝트"><svg class="ico"><use href="#i-house"/></svg> Home</button>
+    <button class="tab-btn" data-tab="pods" type="button" title="파드(워커) — 연결 상태와 큐"><svg class="ico"><use href="#i-server"/></svg> 파드</button>
     <button class="tab-btn" data-tab="gallery" type="button"><svg class="ico"><use href="#i-images"/></svg> 갤러리</button>
     <button class="tab-btn" data-tab="video-gallery" type="button" title="영상 갤러리 — 출력 폴더에 쌓인 영상 파일을 확인"><svg class="ico"><use href="#i-clapperboard"/></svg> 영상</button>
     <span class="tab-bar-sep"></span>
@@ -2463,7 +2516,7 @@
      그 파드에서 무엇을 할 수 있는지(서브탭 구성은 파드 종류가 정한다)를 한 줄에 담는다. -->
 <div class="pod-bar" id="pod-bar" style="display:none;">
   <div class="pod-bar-inner">
-    <button class="pod-bar-back" id="pod-bar-back" type="button" title="홈으로 돌아가기" aria-label="홈으로 돌아가기"><svg class="ico"><use href="#i-house"/></svg><span class="btn-label">Home</span></button>
+    <button class="pod-bar-back" id="pod-bar-back" type="button" title="파드 목록으로 돌아가기" aria-label="파드 목록으로 돌아가기"><svg class="ico"><use href="#i-server"/></svg><span class="btn-label">파드</span></button>
     <span class="dash-dot" id="pod-bar-dot"></span>
     <select class="pod-bar-select" id="pod-bar-select" title="다른 파드로 이동"></select>
     <span class="pod-bar-kind" id="pod-bar-kind"></span>
@@ -2472,7 +2525,32 @@
   </div>
 </div>
 
-<main id="tab-dashboard">
+<!-- 프로젝트 스코프 바 — #project/{id}로 들어왔을 때만 보인다. 프로젝트는 파드와 무관하게
+     작업과 결과물을 묶는다(project_id가 없는 것은 "미분류"). -->
+<div class="pod-bar" id="project-bar" style="display:none;">
+  <div class="pod-bar-inner">
+    <button class="pod-bar-back" id="project-bar-back" type="button" title="프로젝트 목록으로" aria-label="프로젝트 목록으로"><svg class="ico"><use href="#i-house"/></svg><span class="btn-label">Home</span></button>
+    <select class="pod-bar-select" id="project-bar-select" title="다른 프로젝트로 이동"></select>
+    <button class="load-btn" id="project-bar-settings" type="button" title="프로젝트 설정" aria-label="프로젝트 설정"><svg class="ico"><use href="#i-settings"/></svg></button>
+    <div class="pod-bar-subtabs" id="project-bar-subtabs"></div>
+  </div>
+</div>
+
+<!-- 홈 = 프로젝트 대시보드. 파드 그리드는 "파드" 탭(#tab-dashboard)으로 옮겼다. -->
+<main id="tab-home">
+  <div class="dash-totals" id="home-strip"></div>
+
+  <div class="dash-actions">
+    <button class="submit-btn" id="project-add-btn" type="button"><svg class="ico"><use href="#i-folder-plus"/></svg> 새 프로젝트</button>
+    <button class="load-btn" id="home-refresh-btn" type="button" title="새로고침" aria-label="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
+    <label class="home-archived-toggle"><input type="checkbox" id="home-show-archived"> 보관된 프로젝트도 보기</label>
+  </div>
+
+  <div class="card-canvas" id="project-canvas"></div>
+  <div class="empty" id="project-empty" style="display:none;">아직 프로젝트가 없어요 — "새 프로젝트"로 작업과 결과물을 묶어보세요</div>
+</main>
+
+<main id="tab-dashboard" style="display:none;">
   <div class="dash-totals" id="dash-totals"></div>
 
   <div class="dash-actions">
@@ -2497,6 +2575,18 @@
       </div>
     </div>
     <div class="panel-body">
+      <!-- 이 작업이 어느 프로젝트에 속하고 어느 파드에서 도는지. 지금 들어와 있는 스코프가 이미
+           정한 쪽은 숨긴다 — 프로젝트 안에서는 프로젝트가, 파드 안에서는 파드가 정해져 있다. -->
+      <div class="job-target-row" id="job-target-row">
+        <label class="job-target-field" id="job-project-field">
+          <span class="field-label"><svg class="ico"><use href="#i-folder"/></svg> 프로젝트</span>
+          <select class="pod-bar-select" id="job-project-select"></select>
+        </label>
+        <label class="job-target-field" id="job-pod-field">
+          <span class="field-label"><svg class="ico"><use href="#i-server"/></svg> 실행 파드</span>
+          <select class="pod-bar-select" id="job-pod-select"></select>
+        </label>
+      </div>
       <div class="wizard-bar" id="wizard-bar">
         <div class="wizard-bar-title"><svg class="ico"><use href="#i-wand-sparkles"/></svg> 새 작업 마법사
           <span class="opt">순서대로 고르고 "적용"을 누르면 아래 템플릿/옵션/워크플로우가 자동으로 채워져요 — 마법사 없이 직접 템플릿을 골라도 돼요.</span>
@@ -3250,6 +3340,54 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="project-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title" id="project-modal-title">새 프로젝트</div>
+      <button class="modal-close" id="project-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label class="field-label" for="project-name-input">이름</label>
+        <input type="text" class="option-input" id="project-name-input" maxlength="80" style="max-width:none;">
+      </div>
+      <div class="field">
+        <label class="field-label" for="project-desc-input">설명 <span class="opt">— 선택</span></label>
+        <textarea class="option-input" id="project-desc-input" rows="3" style="max-width:none;"></textarea>
+      </div>
+      <label class="home-archived-toggle" id="project-archive-row" style="display:none;"><input type="checkbox" id="project-archive-input"> 보관 (홈에서 숨김 — 작업과 결과물은 그대로 남아요)</label>
+      <div class="upload-error" id="project-modal-error"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="del-btn" id="project-delete-btn" type="button" style="margin-right:auto; display:none;"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>
+      <button class="modal-btn-secondary" id="project-modal-cancel" type="button"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
+      <button class="submit-btn" id="project-modal-save" type="button"><svg class="ico"><use href="#i-save"/></svg> 저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="job-project-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">프로젝트로 옮기기</div>
+      <button class="modal-close" id="job-project-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint">이 작업과, 이 작업이 만든 결과물이 함께 옮겨가요.</div>
+      <div class="comfy-endpoint-current" id="job-project-current"></div>
+      <div class="field">
+        <label class="field-label" for="job-project-move-select">옮길 프로젝트</label>
+        <select id="job-project-move-select"></select>
+      </div>
+      <div class="upload-error" id="job-project-error"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="job-project-cancel" type="button"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
+      <button class="submit-btn" id="job-project-confirm" type="button"><svg class="ico"><use href="#i-arrow-right"/></svg> 옮기기</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="job-move-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
@@ -3353,6 +3491,17 @@ let currentPodId = null;
 // 엉뚱한 파드로 떨어지지 않게 하는 용도다.
 let lastPodId = null;
 let currentTab = 'dashboard';
+// 프로젝트 스코프(#project/{id}/...). null이면 프로젝트 밖, 'unassigned'면 "미분류".
+// 프로젝트는 파드와 무관하게 작업·결과물을 묶는다 — 파드 스코프와는 서로 배타적이다.
+let currentProjectId = null;
+let lastProjectId = null;
+let lastScopeKind = null;   // 마지막으로 들어가 있던 스코프 종류('pod'|'project') — Danbooru 등 밖에서 돌아올 때 쓴다
+let jobProjectFilter = null;
+let galleryProjectFilter = null;
+let videoGalleryProjectFilter = null;
+// 프로젝트 스코프의 새 작업 폼에서 고른 "실행 파드"(파드 스코프에서는 그 파드가 정해져 있다).
+let formPodChoice = null;
+let lastPerPod = {};
 
 function multiPod(){ return podsCache.length > 1; }
 function podName(podId){ return (podsById[podId] || {}).name || ''; }
@@ -3498,10 +3647,18 @@ function render(jobs, pendingCount, running, perPod){
   if(currentTab === 'results') renderResultsList();
   // 작업 목록은 언제나 지금 들어와 있는 파드 것만 보여준다(파드 스코프 바 참고).
   if(jobPodFilter) jobs = jobs.filter(j => j.pod_id === jobPodFilter);
+  if(jobProjectFilter !== null) jobs = jobs.filter(j => projectMatches(j.project_id, jobProjectFilter));
+  if(perPod) lastPerPod = perPod;
   // 그래서 "▶ 시작/⏸ 정지"도 그 파드의 큐만 켜고 끈다 — 화면에 안 보이는 다른
   // 파드까지 같이 움직이면 버튼이 거짓말을 하는 셈이 된다.
   const podRuntime = (perPod || {})[jobPodFilter] || null;
-  queueRunning = podRuntime ? !!podRuntime.running : !!running;
+  if(jobProjectFilter !== null){
+    // 프로젝트 안의 작업은 여러 파드에 걸쳐 있다 — 이 목록에 나온 파드 중 하나라도 켜져 있으면 켜진 것으로 본다.
+    const pp = perPod || lastPerPod || {};
+    queueRunning = [...new Set(jobs.map(j => j.pod_id))].some(pid => !!(pp[pid] || {}).running);
+  }else{
+    queueRunning = podRuntime ? !!podRuntime.running : !!running;
+  }
   document.getElementById('pending-count').textContent = pendingCount;
   const tbody = document.getElementById('job-rows');
   const emptyMsg = document.getElementById('empty-msg');
@@ -3538,6 +3695,7 @@ function render(jobs, pendingCount, running, perPod){
   const rowsSignature = JSON.stringify(jobs.map(j => [
     j.id, j.status, j.waiting_for_comfy, j.pod_id, j.started_at, j.finished_at,
     j.progress && j.progress.done, j.progress && j.progress.total,
+    j.project_id, j.project_id != null ? projectName(j.project_id) : '',
   ])) + '|' + expandedId;
   if(rowsSignature === lastJobsRowsSignature) return;
   lastJobsRowsSignature = rowsSignature;
@@ -3554,10 +3712,14 @@ function render(jobs, pendingCount, running, perPod){
     // 서버가 ComfyUI 연결을 기다리며 붙잡아 둔 작업(app.py의 wait_for_comfy).
     const waitingForComfy = !!j.waiting_for_comfy;
     // 파드가 둘 이상일 때만 "어느 워커에서 도는지"를 보여준다.
-    const podBadge = multiPod() && j.pod_id
+    const podBadge = (multiPod() || jobProjectFilter !== null) && j.pod_id
       ? `<span class="pod-badge" title="이 작업이 배정된 파드">${escapeHtml(podName(j.pod_id) || j.pod_id)}</span>`
       : '';
     const movable = multiPod() && ['pending', 'queued', 'interrupted'].includes(j.status);
+    // 프로젝트 안에서는 어차피 다 그 프로젝트 것이라 칩을 생략한다.
+    const projectBadge = (jobProjectFilter === null && j.project_id != null && projectsById[j.project_id])
+      ? `<span class="pod-badge project-badge" title="이 작업이 속한 프로젝트">${ico('folder')} ${escapeHtml(projectName(j.project_id))}</span>`
+      : '';
     let rows = `
       <tr data-id="${j.id}" class="job-row">
         <td>${isOpen ? '<svg class="ico"><use href="#i-chevron-down"/></svg>' : '<svg class="ico"><use href="#i-chevron-right"/></svg>'}</td>
@@ -3566,7 +3728,7 @@ function render(jobs, pendingCount, running, perPod){
         <td class="fname${j.workflow_original_name ? '' : ' dim'}" title="${escapeHtml(workflowText)}">${escapeHtml(workflowText)}</td>
         <td class="fname${j.csv_original_name ? '' : ' dim'}" title="${escapeHtml(csvText)}">${escapeHtml(csvText)}</td>
         <td>
-          ${podBadge}
+          ${podBadge}${projectBadge}
           <span class="badge ${waitingForComfy ? 'waiting' : j.status}"${waitingForComfy ? ' title="ComfyUI(GPU) 서버에 연결되면 자동으로 이어서 시작해요. 헤더의 연결 상태를 눌러 주소를 확인할 수 있어요."' : ''}><span class="bdot"></span>${waitingForComfy ? 'GPU 대기' : (STATUS_LABEL[j.status] || j.status)}</span>
           ${progress ? `
             <div class="progress-wrap">
@@ -3584,6 +3746,7 @@ function render(jobs, pendingCount, running, perPod){
             ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}" title="워크플로우 수정"><svg class="ico"><use href="#i-pencil"/></svg> 워크플로우</button>` : ''}
             ${j.status === 'pending' && j.csv_filename ? `<button class="edit-btn" data-editkind="csv" data-editid="${j.id}" title="CSV 수정"><svg class="ico"><use href="#i-pencil"/></svg> CSV</button>` : ''}
             ${j.status === 'interrupted' ? `<button class="retry-btn" data-retry="${j.id}" title="서버 재시작으로 중단된 작업을 다시 큐에 올려요"><svg class="ico"><use href="#i-refresh-cw"/></svg> 재시작</button>` : ''}
+            <button class="load-btn project-move-btn" data-project-move="${j.id}" title="이 작업(과 결과물)을 다른 프로젝트로 옮겨요"><svg class="ico"><use href="#i-folder-input"/></svg> 프로젝트</button>
             ${movable ? `<button class="load-btn move-btn" data-move="${j.id}" title="이 작업을 다른 파드로 옮겨요"><svg class="ico"><use href="#i-arrow-right"/></svg> 파드 이동</button>` : ''}
             ${j.status !== 'running' && j.status !== 'queued' ? `<button class="del-btn" data-del="${j.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>` : ''}
           </div>
@@ -3645,6 +3808,12 @@ function render(jobs, pendingCount, running, perPod){
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       openJobMoveModal(btn.dataset.move);
+    });
+  });
+  tbody.querySelectorAll('.project-move-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openJobProjectModal(btn.dataset.projectMove);
     });
   });
 }
@@ -5027,6 +5196,8 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   // (비어 있으면 서버가 기본 파드로 보낸다.)
   const podId = formPodId();
   if(podId) form.append('pod_id', podId);
+  const projectId = formProjectId();
+  if(projectId !== null) form.append('project_id', String(projectId));
   if(needsWorkflow) form.append('workflow', selectedFiles.workflow);
   if(template && template.optional_video_workflow && selectedFiles.video_workflow){
     form.append('video_workflow', selectedFiles.video_workflow);
@@ -5056,15 +5227,26 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
 document.getElementById('start-queue-btn').addEventListener('click', async () => {
   const action = queueRunning ? 'stop' : 'start';
   // 파드 스코프 안에서는 그 파드의 큐만 — 전역 시작은 파드가 하나뿐일 때의 폴백이다.
-  const endpoint = jobPodFilter ? `/api/pods/${jobPodFilter}/queue/${action}` : `/api/queue/${action}`;
-  await fetch(endpoint, { method: 'POST' });
+  if(jobProjectFilter !== null){
+    // 프로젝트 안의 작업은 여러 파드에 걸쳐 있다 — 시작은 이 프로젝트의 대기 작업이 배정된 파드들의
+    // 큐를, 정지는 이 목록의 파드 중 켜져 있는 큐를 각각 켜고 끈다(큐는 파드마다 따로 돈다).
+    const mine = lastJobs.filter(j => !j.deleted && projectMatches(j.project_id, jobProjectFilter));
+    const podIds = action === 'start'
+      ? [...new Set(mine.filter(j => j.status === 'pending').map(j => j.pod_id))]
+      : [...new Set(mine.map(j => j.pod_id))].filter(pid => !!(lastPerPod[pid] || {}).running);
+    await Promise.all(podIds.map(pid => fetch(`/api/pods/${pid}/queue/${action}`, { method: 'POST' })));
+  }else{
+    const endpoint = jobPodFilter ? `/api/pods/${jobPodFilter}/queue/${action}` : `/api/queue/${action}`;
+    await fetch(endpoint, { method: 'POST' });
+  }
   fetchJobs();
 });
 
 document.getElementById('clear-completed-btn').addEventListener('click', async () => {
   // 소프트 삭제라 "삭제된 작업 설정 불러오기"에서 되돌릴 수 있으므로 확인창 없이 바로 지운다.
   // 보고 있는 파드 것만 지운다 — 화면에 없는 다른 파드의 작업까지 사라지면 안 된다.
-  const q = jobPodFilter ? `?pod_id=${encodeURIComponent(jobPodFilter)}` : '';
+  const q = jobPodFilter ? `?pod_id=${encodeURIComponent(jobPodFilter)}`
+    : (jobProjectFilter !== null ? `?project_id=${encodeURIComponent(jobProjectFilter)}` : '');
   await fetch(`/api/jobs/clear-completed${q}`, { method: 'POST' });
   fetchJobs();
   fetchDeletedJobs();
@@ -7119,6 +7301,7 @@ async function fetchDashboard(){
   }
   renderDashboard();
   updatePodBarStatus();
+  if(currentTab === 'dashboard') fetchProjects();   // 홈의 프로젝트 카드(실행 중 작업 수 등)도 같이 새로고침
 }
 
 document.getElementById('dash-refresh-btn').addEventListener('click', fetchDashboard);
@@ -7313,7 +7496,7 @@ document.getElementById('pod-edit-delete').addEventListener('click', async () =>
     const wasInside = currentPodId === podEditId;
     await fetchPods();
     // 방금 지운 파드 안에 서 있었으면 갈 곳이 없다 — 대시보드로 내보낸다.
-    if(wasInside) showTab('dashboard'); else fetchDashboard();
+    if(wasInside) showTab('pods'); else fetchDashboard();
   }catch(e){
     errorEl.textContent = e.message || '지우지 못했어요.';
   }
@@ -7332,7 +7515,8 @@ document.getElementById('pod-edit-delete').addEventListener('click', async () =>
 // 주소창 해시로 화면을 기억한다. 서버 라우트를 늘리지 않고도 새로고침·뒤로가기·링크
 // 공유가 되는 가장 가벼운 방법이라 해시를 쓴다.
 const TAB_MAINS = {
-  dashboard: document.getElementById('tab-dashboard'),
+  dashboard: document.getElementById('tab-home'),        // 홈 = 프로젝트 대시보드
+  pods: document.getElementById('tab-dashboard'),        // 파드(워커) 그리드
   jobs: document.getElementById('tab-jobs'),
   gallery: document.getElementById('tab-gallery'),
   'video-gallery': document.getElementById('tab-video-gallery'),
@@ -7349,6 +7533,10 @@ const TAB_MAINS = {
   // pvideo("그 파드가 만든 영상만")도 pgallery와 같은 이유로 전역 영상 갤러리
   // DOM을 그대로 쓴다 — videoGalleryPodFilter가 "전체"와 "이 파드 것만"을 가른다.
   pvideo: document.getElementById('tab-video-gallery'),
+  // 프로젝트 안의 갤러리/영상도 같은 DOM을 쓰고, galleryProjectFilter/videoGalleryProjectFilter가
+  // "이 프로젝트 것만"을 가른다.
+  prgallery: document.getElementById('tab-gallery'),
+  prvideo: document.getElementById('tab-video-gallery'),
   // Claude 글쓰기 파드의 결과는 이미지가 아니라 글이라 갤러리(썸네일 격자)로 못
   // 보여준다 — pgallery와 달리 이건 전용 DOM(#tab-results)과 전용 렌더러
   // (renderResultsList)를 쓰는 완전히 별개의 화면이다.
@@ -7451,9 +7639,9 @@ function resolvePodId(podId){
 // "지금 새 작업을 만들면 어느 파드로 가는가". 새 작업 폼은 파드 스코프 안에만 있어서
 // 보통 currentPodId와 같지만, Danbooru → "메인 프롬프트로 보내기"처럼 파드 밖에서
 // 폼을 건드리는 경로가 있어서 별도 함수로 둔다.
-function formPodId(){ return resolvePodId(currentPodId); }
+function formPodId(){ return resolvePodId(currentPodId || formPodChoice); }
 
-function showTab(tab, { podId = null } = {}){
+function showTab(tab, { podId = null, projectId = null } = {}){
   if(!TAB_MAINS[tab]) tab = 'dashboard';
   // 지금 "새 작업 추가" 폼이 겨냥하고 있는 파드의 종류. currentPodId가 아니라
   // formPodId()로 재는 이유는, 전역 화면(Danbooru 등)에서는 currentPodId가 null이라
@@ -7461,18 +7649,35 @@ function showTab(tab, { podId = null } = {}){
   // 그러면 Danbooru에서 보낸 프롬프트가 도착하자마자 지워진다.
   const prevKind = (podsById[formPodId()] || {}).kind;
 
+  // 프로젝트 스코프인지 먼저 정한다 — projectId를 명시했거나, 파드를 명시하지 않고 이미
+  // 프로젝트 안에서 그 프로젝트의 서브탭으로 옮겨갈 때, 혹은 어느 스코프도 아닌 곳(Danbooru
+  // 등)에서 "작업"으로 돌아올 때 마지막에 있던 스코프가 프로젝트였을 때다.
+  let scopedProjectId = null;
+  const explicitProject = projectId !== null;
+  const stayInProject = podId === null && currentProjectId !== null && PROJECT_TABS.includes(tab);
+  const returnToProject = podId === null && currentPodId === null && currentProjectId === null
+    && tab === 'jobs' && lastScopeKind === 'project' && lastProjectId !== null;
+  if(explicitProject || stayInProject || returnToProject){
+    scopedProjectId = resolveProjectId(explicitProject ? projectId : (stayInProject ? currentProjectId : lastProjectId));
+    if(scopedProjectId === null) tab = 'dashboard';   // 지워졌거나 아직 못 읽은 프로젝트
+    else if(!PROJECT_TABS.includes(tab)) tab = 'jobs';
+  }
+
   let scopedPodId = null;
-  if(POD_TABS.includes(tab)){
+  if(scopedProjectId === null && POD_TABS.includes(tab)){
     scopedPodId = resolvePodId(podId || currentPodId);
     // 파드 목록을 아직 못 읽었으면(첫 로드가 401이었다든지) 갈 곳이 없다.
     if(!scopedPodId) tab = 'dashboard';
     else if(!podSubtabs(podsById[scopedPodId]).includes(tab)) tab = 'jobs';
   }
   currentPodId = scopedPodId;
-  if(scopedPodId) lastPodId = scopedPodId;
+  currentProjectId = scopedProjectId;
+  if(scopedPodId){ lastPodId = scopedPodId; lastScopeKind = 'pod'; }
+  if(scopedProjectId !== null){ lastProjectId = scopedProjectId; lastScopeKind = 'project'; }
   currentTab = tab;
-  // 작업 목록은 언제나 지금 들어와 있는 파드 것만 보여준다.
+  // 작업 목록은 언제나 지금 들어와 있는 파드(또는 프로젝트) 것만 보여준다.
   jobPodFilter = (tab === 'jobs') ? scopedPodId : null;
+  jobProjectFilter = (tab === 'jobs') ? scopedProjectId : null;
 
   document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   const targetMain = TAB_MAINS[tab];
@@ -7484,9 +7689,13 @@ function showTab(tab, { podId = null } = {}){
   // 필터도 같이 풀린다.
   galleryPodFilter = (tab === 'pgallery') ? scopedPodId : null;
   videoGalleryPodFilter = (tab === 'pvideo') ? scopedPodId : null;
+  galleryProjectFilter = (tab === 'prgallery') ? scopedProjectId : null;
+  videoGalleryProjectFilter = (tab === 'prvideo') ? scopedProjectId : null;
   updateGalleryScopeUI();
   updateVideoGalleryScopeUI();
   renderPodBar();
+  renderProjectBar();
+  updateJobTargetRow();
 
   // 파드 종류가 바뀌면 그 종류에서 쓸 수 있는 템플릿만 남긴다. 종류가 그대로면
   // (ComfyUI 파드에서 다른 ComfyUI 파드로) 목록이 같으므로 손대지 않는다 — 여기서
@@ -7496,7 +7705,7 @@ function showTab(tab, { podId = null } = {}){
 
   // 파드 상태 폴링 — 대시보드 카드와 파드 스코프 바가 같은 데이터로 점을 그린다.
   // 둘 다 안 보이는 화면(갤러리·Danbooru)에서는 멈춘다.
-  if(tab === 'dashboard' || scopedPodId){
+  if(tab === 'dashboard' || tab === 'pods' || scopedPodId){
     fetchDashboard();
     if(!dashTimer) dashTimer = setInterval(fetchDashboard, 4000);
   }else if(dashTimer){
@@ -7504,14 +7713,16 @@ function showTab(tab, { podId = null } = {}){
     dashTimer = null;
   }
 
-  if(tab === 'gallery' || tab === 'pgallery') fetchGalleryImages();
-  if(tab === 'video-gallery' || tab === 'pvideo') fetchGalleryVideos();
+  if(tab === 'gallery' || tab === 'pgallery' || tab === 'prgallery') fetchGalleryImages();
+  if(tab === 'video-gallery' || tab === 'pvideo' || tab === 'prvideo') fetchGalleryVideos();
+  if(tab === 'dashboard' || scopedProjectId !== null) fetchProjects();
   if(tab === 'builder') initBuilderTab();
   if(tab === 'lora') initLoraTab();
   if(tab === 'jobs') fetchJobs();
   if(tab === 'results') renderResultsList();
 
-  const want = scopedPodId ? `#pod/${scopedPodId}/${tab}` : `#${tab}`;
+  const want = scopedPodId ? `#pod/${scopedPodId}/${tab}`
+    : (scopedProjectId !== null ? `#project/${scopedProjectId}/${tab}` : `#${tab}`);
   if(location.hash !== want) history.replaceState(null, '', want);
 }
 
@@ -7523,7 +7734,7 @@ function renderPodBar(){
   // 탭들은 "파드 밖" 개념이라, 파드 스코프 바와 같이 떠 있으면 지금 어느 층에
   // 있는지 헷갈린다. 대시보드로는 파드 스코프 바의 "🏠 Home"으로 돌아간다.
   const globalBar = document.getElementById('global-tab-bar');
-  if(globalBar) globalBar.style.display = currentPodId ? 'none' : '';
+  if(globalBar) globalBar.style.display = (currentPodId || currentProjectId !== null) ? 'none' : '';
   if(!currentPodId){ bar.style.display = 'none'; return; }
   bar.style.display = '';
   const pod = podsById[currentPodId] || {};
@@ -7555,7 +7766,9 @@ function updatePodBarStatus(){
 function applyHashRoute(){
   const raw = (location.hash || '').replace(/^#/, '');
   const podMatch = raw.match(/^pod\/([^/]+)(?:\/([^/]+))?$/);
+  const projectMatch = raw.match(/^project\/([^/]+)(?:\/([^/]+))?$/);
   if(podMatch) showTab(podMatch[2] || 'jobs', { podId: podMatch[1] });
+  else if(projectMatch) showTab(projectMatch[2] || 'jobs', { projectId: projectMatch[1] === 'unassigned' ? 'unassigned' : Number(projectMatch[1]) });
   // 파드 안으로 옮겨간 옛 링크(#jobs · #builder · #lora)는 마지막/기본 파드의 같은
   // 화면으로 보낸다 — showTab이 주소도 새 형태로 고쳐 쓴다.
   else showTab(raw || 'dashboard');
@@ -7564,7 +7777,7 @@ function applyHashRoute(){
 document.querySelectorAll('.tab-bar .tab-btn').forEach(btn => {
   btn.addEventListener('click', () => showTab(btn.dataset.tab));
 });
-document.getElementById('pod-bar-back').addEventListener('click', () => showTab('dashboard'));
+document.getElementById('pod-bar-back').addEventListener('click', () => showTab('pods'));
 document.getElementById('pod-bar-settings').addEventListener('click', () => {
   if(currentPodId) openPodEditModal(currentPodId);
 });
@@ -7578,6 +7791,358 @@ document.getElementById('pod-bar-subtabs').addEventListener('click', (e) => {
 document.getElementById('pod-bar-select').addEventListener('change', (e) => {
   showTab(currentTab, { podId: e.target.value });
 });
+// ---- 프로젝트 ----
+// 프로젝트는 파드와 무관하게 작업(job)과 결과물(asset)을 묶는다(서버 db.py/projects.py).
+// project_id가 없는 것은 "미분류"다. 홈이 프로젝트 대시보드이고, 프로젝트 안
+// (#project/{id}/...)에서는 그 프로젝트의 작업·갤러리·영상만 보인다. 파드는 새 작업 폼에서
+// 고르는 값이다(파드가 일시적이라 프로젝트가 파드에 종속되면 안 된다).
+const PROJECT_TABS = ['jobs', 'prgallery', 'prvideo'];
+const PROJECT_TAB_META = {
+  jobs:      { icon: 'list-checks',  label: '작업' },
+  prgallery: { icon: 'images',       label: '갤러리' },
+  prvideo:   { icon: 'clapperboard', label: '영상' },
+};
+const UNASSIGNED_LABEL = '미분류';
+let projectsCache = [];
+let projectsById = {};
+let unassignedSummary = { job_count: 0, active_jobs: 0, asset_count: 0, cover_path: null };
+
+function projectName(id){
+  return id === 'unassigned' ? UNASSIGNED_LABEL : ((projectsById[id] || {}).name || '');
+}
+
+// filter: null(전체) | 'unassigned'(미분류) | 프로젝트 id
+function projectMatches(itemProjectId, filter){
+  if(filter === null) return true;
+  return filter === 'unassigned' ? itemProjectId == null : itemProjectId === filter;
+}
+
+// 없는 프로젝트(지웠거나 아직 못 읽었거나 옛 링크)면 null — showTab이 홈으로 돌려보낸다.
+function resolveProjectId(id){
+  if(id === 'unassigned') return 'unassigned';
+  const n = Number(id);
+  return (Number.isInteger(n) && projectsById[n]) ? n : null;
+}
+
+async function fetchProjects(){
+  try{
+    const res = await fetch('/api/projects?include_archived=true');
+    if(res.ok){
+      const data = await res.json();
+      projectsCache = data.projects || [];
+      unassignedSummary = data.unassigned || unassignedSummary;
+    }
+  }catch(e){
+    // 못 받아오면 이전 값을 그대로 둔다.
+  }
+  projectsById = Object.fromEntries(projectsCache.map(p => [p.id, p]));
+  renderHome();
+  renderProjectBar();
+  updateJobTargetRow();
+  return projectsCache;
+}
+
+// ---- 홈 (프로젝트 대시보드) ----
+function projectCardHtml(p){
+  const inbox = p === null;
+  const d = inbox
+    ? { id: 'unassigned', name: UNASSIGNED_LABEL, description: '프로젝트에 속하지 않은 작업과 결과물',
+        archived: false, favorite_count: 0, last_activity: null, ...unassignedSummary }
+    : p;
+  const cover = d.cover_path
+    ? `<img class="project-cover-img" loading="lazy" alt="" src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(d.cover_path)}/thumbnail?size=400`)}">`
+    : `<div class="project-cover-empty">${ico(inbox ? 'inbox' : 'folder')}</div>`;
+  const active = d.active_jobs > 0
+    ? `<span class="badge running"><span class="bdot"></span>실행 중 ${d.active_jobs}</span>` : '';
+  const edit = inbox ? '' : `<button class="load-btn project-card-edit" type="button" data-project-edit="${d.id}" title="프로젝트 설정" aria-label="프로젝트 설정">${ico('settings')}</button>`;
+  const last = d.last_activity ? `<span>마지막 활동 ${escapeHtml(fmtGalleryDateTime(d.last_activity))}</span>` : '';
+  return `
+    <div class="project-card${inbox ? ' inbox' : ''}${d.archived ? ' archived' : ''}" data-project-open="${d.id}" role="button" tabindex="0">
+      <div class="project-cover">${cover}</div>
+      <div class="project-card-body">
+        <div class="project-card-head">
+          <span class="project-card-name" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}${d.archived ? ' (보관됨)' : ''}</span>
+          ${active}${edit}
+        </div>
+        ${d.description ? `<div class="project-card-desc">${escapeHtml(d.description)}</div>` : ''}
+        <div class="project-card-stats">
+          <span>작업 <b>${d.job_count}</b></span>
+          <span>결과물 <b>${d.asset_count}</b></span>
+          ${last}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderHome(){
+  const canvas = document.getElementById('project-canvas');
+  if(!canvas) return;
+  const t = (dashSummary && dashSummary.totals) || {};
+  document.getElementById('home-strip').innerHTML = [
+    ['파드', `${t.online ?? 0}/${t.pods ?? 0}`],
+    ['실행 중', `${t.running_jobs ?? 0}건`],
+    ['대기', `${t.pending ?? 0}건`],
+  ].map(([label, value]) => `
+    <div class="dash-total"><span class="dash-total-label">${label}</span><span class="dash-total-value">${escapeHtml(String(value))}</span></div>`).join('')
+    + `<button class="load-btn home-strip-pods" type="button" data-go-pods title="파드 탭으로">${ico('server')} 파드 보기</button>`;
+
+  const showArchived = document.getElementById('home-show-archived').checked;
+  const list = projectsCache.filter(p => showArchived || !p.archived);
+  const hasUnassigned = (unassignedSummary.job_count + unassignedSummary.asset_count) > 0;
+  const cards = list.map(projectCardHtml);
+  if(hasUnassigned) cards.push(projectCardHtml(null));
+  // 카드 이미지를 매번 다시 만들면 깜빡이므로 내용이 같으면 손대지 않는다.
+  const html = cards.join('');
+  if(canvas.dataset.html !== html){
+    canvas.innerHTML = html;
+    canvas.dataset.html = html;
+  }
+  document.getElementById('project-empty').style.display = (list.length === 0 && !hasUnassigned) ? '' : 'none';
+}
+
+document.getElementById('project-canvas').addEventListener('click', (e) => {
+  const edit = e.target.closest('[data-project-edit]');
+  if(edit){ e.stopPropagation(); openProjectModal(Number(edit.dataset.projectEdit)); return; }
+  const card = e.target.closest('[data-project-open]');
+  if(!card) return;
+  const raw = card.dataset.projectOpen;
+  showTab('jobs', { projectId: raw === 'unassigned' ? 'unassigned' : Number(raw) });
+});
+document.getElementById('project-canvas').addEventListener('keydown', (e) => {
+  if(e.key !== 'Enter' && e.key !== ' ') return;
+  const card = e.target.closest('[data-project-open]');
+  if(!card || e.target !== card) return;
+  e.preventDefault();
+  card.click();
+});
+document.getElementById('home-strip').addEventListener('click', (e) => {
+  if(e.target.closest('[data-go-pods]')) showTab('pods');
+});
+document.getElementById('home-refresh-btn').addEventListener('click', () => { fetchDashboard(); fetchProjects(); });
+document.getElementById('home-show-archived').addEventListener('change', renderHome);
+
+// ---- 프로젝트 스코프 바 ----
+let projectBarSignature = '';
+function renderProjectBar(){
+  const bar = document.getElementById('project-bar');
+  if(!bar) return;
+  if(currentProjectId === null){ bar.style.display = 'none'; projectBarSignature = ''; return; }
+  bar.style.display = '';
+  const options = projectsCache.filter(p => !p.archived || p.id === currentProjectId);
+  const signature = JSON.stringify([options.map(p => [p.id, p.name, p.archived]), currentProjectId, currentTab]);
+  if(signature === projectBarSignature) return;   // 4초/15초 갱신이 열어둔 드롭다운을 닫지 않게
+  projectBarSignature = signature;
+  const select = document.getElementById('project-bar-select');
+  select.innerHTML = options.map(p =>
+    `<option value="${p.id}">${escapeHtml(p.name)}${p.archived ? ' (보관됨)' : ''}</option>`).join('')
+    + `<option value="unassigned">${UNASSIGNED_LABEL}</option>`;
+  select.value = String(currentProjectId);
+  document.getElementById('project-bar-settings').style.display = currentProjectId === 'unassigned' ? 'none' : '';
+  document.getElementById('project-bar-subtabs').innerHTML = PROJECT_TABS.map(t =>
+    `<button class="pod-subtab-btn${t === currentTab ? ' active' : ''}" data-project-tab="${t}" type="button" title="${PROJECT_TAB_META[t].label}" aria-label="${PROJECT_TAB_META[t].label}"><svg class="ico"><use href="#i-${PROJECT_TAB_META[t].icon}"/></svg><span class="btn-label">${PROJECT_TAB_META[t].label}</span></button>`).join('');
+}
+
+document.getElementById('project-bar-back').addEventListener('click', () => showTab('dashboard'));
+document.getElementById('project-bar-settings').addEventListener('click', () => {
+  if(typeof currentProjectId === 'number') openProjectModal(currentProjectId);
+});
+document.getElementById('project-bar-subtabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-project-tab]');
+  if(btn) showTab(btn.dataset.projectTab, { projectId: currentProjectId });
+});
+document.getElementById('project-bar-select').addEventListener('change', (e) => {
+  const raw = e.target.value;
+  showTab(currentTab, { projectId: raw === 'unassigned' ? 'unassigned' : Number(raw) });
+});
+
+// ---- 새 작업 폼의 대상(프로젝트/파드) ----
+// 파드 스코프 안에서는 파드가 정해져 있으니 프로젝트만, 프로젝트 스코프 안에서는 프로젝트가
+// 정해져 있으니 실행 파드만 고른다.
+const FORM_PROJECT_KEY = 'nightshift-form-project';
+let jobTargetSignature = '';
+
+function updateJobTargetRow(){
+  const row = document.getElementById('job-target-row');
+  if(!row) return;
+  const inPod = currentPodId !== null;
+  const inProject = currentProjectId !== null;
+  row.style.display = (inPod || inProject) ? '' : 'none';
+  document.getElementById('job-project-field').style.display = inPod ? '' : 'none';
+  document.getElementById('job-pod-field').style.display = inProject ? '' : 'none';
+
+  const enabledPods = podsCache.filter(p => p.enabled);
+  const activeProjects = projectsCache.filter(p => !p.archived);
+  if(inProject){
+    const ok = formPodChoice && podsById[formPodChoice] && podsById[formPodChoice].enabled;
+    if(!ok){
+      const last = lastPodId && podsById[lastPodId] && podsById[lastPodId].enabled ? lastPodId : null;
+      formPodChoice = last || (enabledPods[0] || {}).id || null;
+    }
+  }
+  const signature = JSON.stringify([inPod, inProject, enabledPods.map(p => [p.id, p.name, p.kind_label]),
+                                    activeProjects.map(p => [p.id, p.name])]);
+  if(signature !== jobTargetSignature){
+    jobTargetSignature = signature;
+    document.getElementById('job-pod-select').innerHTML = enabledPods.map(p =>
+      `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.kind_label ? ' · ' + escapeHtml(p.kind_label) : ''}</option>`).join('');
+    document.getElementById('job-project-select').innerHTML =
+      `<option value="">${UNASSIGNED_LABEL}</option>`
+      + activeProjects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  }
+  if(inProject) document.getElementById('job-pod-select').value = formPodChoice || '';
+  if(inPod){
+    let stored = '';
+    try{ stored = localStorage.getItem(FORM_PROJECT_KEY) || ''; }catch(e){ /* 저장 못 해도 기능엔 지장 없음 */ }
+    const sel = document.getElementById('job-project-select');
+    sel.value = (stored !== '' && projectsById[Number(stored)] && !projectsById[Number(stored)].archived) ? stored : '';
+  }
+}
+
+// 새 작업이 어느 프로젝트로 갈지(null = 미분류).
+function formProjectId(){
+  if(currentProjectId !== null) return currentProjectId === 'unassigned' ? null : currentProjectId;
+  const v = document.getElementById('job-project-select').value;
+  const id = v === '' ? null : Number(v);
+  return (id !== null && projectsById[id]) ? id : null;
+}
+
+document.getElementById('job-project-select').addEventListener('change', (e) => {
+  try{ localStorage.setItem(FORM_PROJECT_KEY, e.target.value); }catch(err){ /* 무시 */ }
+});
+document.getElementById('job-pod-select').addEventListener('change', (e) => {
+  const prevKind = (podsById[formPodId()] || {}).kind;
+  formPodChoice = e.target.value;
+  const nextKind = (podsById[formPodId()] || {}).kind;
+  // 파드 종류가 바뀔 때만 템플릿 목록을 다시 그린다 — 안 바뀌었는데 그리면 채워둔 옵션이 날아간다.
+  if(allTemplates.length && prevKind !== nextKind) renderTemplateOptions();
+});
+
+// ---- 프로젝트 만들기/수정 모달 ----
+let projectModalId = null;   // null이면 "새 프로젝트"
+
+function openProjectModal(id){
+  projectModalId = (id === undefined || id === null) ? null : id;
+  const p = projectModalId === null ? null : projectsById[projectModalId];
+  document.getElementById('project-modal-title').textContent = p ? '프로젝트 설정' : '새 프로젝트';
+  document.getElementById('project-name-input').value = p ? p.name : '';
+  document.getElementById('project-desc-input').value = p ? (p.description || '') : '';
+  document.getElementById('project-archive-input').checked = !!(p && p.archived);
+  document.getElementById('project-archive-row').style.display = p ? '' : 'none';
+  document.getElementById('project-delete-btn').style.display = p ? '' : 'none';
+  document.getElementById('project-modal-error').textContent = '';
+  document.getElementById('project-modal').style.display = 'flex';
+  document.getElementById('project-name-input').focus();
+}
+
+function closeProjectModal(){
+  document.getElementById('project-modal').style.display = 'none';
+  projectModalId = null;
+}
+
+document.getElementById('project-add-btn').addEventListener('click', () => openProjectModal(null));
+document.getElementById('project-modal-close').addEventListener('click', closeProjectModal);
+document.getElementById('project-modal-cancel').addEventListener('click', closeProjectModal);
+document.getElementById('project-modal').addEventListener('click', (e) => {
+  if(e.target === document.getElementById('project-modal')) closeProjectModal();
+});
+document.getElementById('project-name-input').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter'){ e.preventDefault(); document.getElementById('project-modal-save').click(); }
+});
+document.getElementById('project-modal-save').addEventListener('click', async () => {
+  const errorEl = document.getElementById('project-modal-error');
+  const name = document.getElementById('project-name-input').value.trim();
+  if(!name){ errorEl.textContent = '이름을 입력하세요.'; return; }
+  const body = { name, description: document.getElementById('project-desc-input').value };
+  if(projectModalId !== null) body.archived = document.getElementById('project-archive-input').checked;
+  try{
+    const res = await fetch(projectModalId === null ? '/api/projects' : `/api/projects/${projectModalId}`, {
+      method: projectModalId === null ? 'POST' : 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '저장하지 못했어요.');
+    closeProjectModal();
+    await fetchProjects();
+    projectBarSignature = '';
+    renderProjectBar();
+  }catch(e){
+    errorEl.textContent = e.message || '저장하지 못했어요.';
+  }
+});
+document.getElementById('project-delete-btn').addEventListener('click', async () => {
+  const id = projectModalId;
+  const p = projectsById[id];
+  if(id === null || !p) return;
+  if(!confirm(`'${p.name}' 프로젝트를 지울까요? 안의 작업과 결과물은 지워지지 않고 "${UNASSIGNED_LABEL}"으로 돌아와요.`)) return;
+  const errorEl = document.getElementById('project-modal-error');
+  try{
+    const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '지우지 못했어요.');
+    closeProjectModal();
+    const wasInside = currentProjectId === id;
+    await fetchProjects();
+    if(wasInside) showTab('dashboard');
+    fetchJobs();
+  }catch(e){
+    errorEl.textContent = e.message || '지우지 못했어요.';
+  }
+});
+
+// ---- 작업을 다른 프로젝트로 옮기기 ----
+let jobProjectTargetId = null;
+
+function openJobProjectModal(jobId){
+  const job = lastJobs.find(j => j.id === jobId);
+  if(!job) return;
+  jobProjectTargetId = jobId;
+  document.getElementById('job-project-error').textContent = '';
+  const currentLabel = job.project_id != null ? (projectName(job.project_id) || '(알 수 없음)') : UNASSIGNED_LABEL;
+  document.getElementById('job-project-current').textContent =
+    `${job.template_label || job.template_id} · 지금 프로젝트: ${currentLabel}`;
+  const options = [];
+  if(job.project_id != null) options.push(`<option value="">${UNASSIGNED_LABEL}</option>`);
+  for(const p of projectsCache){
+    if(!p.archived && p.id !== job.project_id) options.push(`<option value="${p.id}">${escapeHtml(p.name)}</option>`);
+  }
+  document.getElementById('job-project-move-select').innerHTML = options.join('');
+  document.getElementById('job-project-modal').style.display = 'flex';
+}
+
+function closeJobProjectModal(){
+  document.getElementById('job-project-modal').style.display = 'none';
+  jobProjectTargetId = null;
+}
+
+document.getElementById('job-project-modal-close').addEventListener('click', closeJobProjectModal);
+document.getElementById('job-project-cancel').addEventListener('click', closeJobProjectModal);
+document.getElementById('job-project-modal').addEventListener('click', (e) => {
+  if(e.target === document.getElementById('job-project-modal')) closeJobProjectModal();
+});
+document.getElementById('job-project-confirm').addEventListener('click', async () => {
+  const select = document.getElementById('job-project-move-select');
+  const errorEl = document.getElementById('job-project-error');
+  if(!jobProjectTargetId || select.options.length === 0){ errorEl.textContent = '옮길 프로젝트가 없어요.'; return; }
+  const value = select.value;
+  try{
+    const res = await fetch(`/api/jobs/${jobProjectTargetId}/project`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_id: value === '' ? null : Number(value) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '옮기지 못했어요.');
+    closeJobProjectModal();
+    fetchJobs();
+    fetchProjects();
+    if(currentTab === 'prgallery') fetchGalleryImages();
+    if(currentTab === 'prvideo') fetchGalleryVideos();
+  }catch(e){
+    errorEl.textContent = e.message || '옮기지 못했어요.';
+  }
+});
+
 window.addEventListener('hashchange', applyHashRoute);
 
 // ---- 갤러리 ----
@@ -8028,7 +8593,9 @@ function updateGalleryScopeUI(){
   if(label){
     label.innerHTML = galleryPodFilter
       ? ico('images') + ' ' + escapeHtml(`갤러리 · ${podName(galleryPodFilter) || galleryPodFilter}`)
-      : '갤러리';
+      : (galleryProjectFilter !== null
+        ? ico('images') + ' ' + escapeHtml(`갤러리 · ${projectName(galleryProjectFilter)}`)
+        : '갤러리');
   }
   applyPullOutputsVisibility();
 }
@@ -8041,7 +8608,9 @@ function updateVideoGalleryScopeUI(){
   if(label){
     label.innerHTML = ico('clapperboard') + ' ' + escapeHtml(videoGalleryPodFilter
       ? `영상 갤러리 · ${podName(videoGalleryPodFilter) || videoGalleryPodFilter}`
-      : '영상 갤러리');
+      : (videoGalleryProjectFilter !== null
+        ? `영상 갤러리 · ${projectName(videoGalleryProjectFilter)}`
+        : '영상 갤러리'));
   }
 }
 
@@ -8059,6 +8628,9 @@ async function fetchGalleryImages(){
     // 파드 갤러리면 그 파드가 배정된 작업의 이미지만 남긴다.
     if(galleryPodFilter){
       galleryImages = galleryImages.filter(img => podIdForImage(img) === galleryPodFilter);
+    }
+    if(galleryProjectFilter !== null){
+      galleryImages = galleryImages.filter(img => projectMatches(img.project_id, galleryProjectFilter));
     }
     galleryJobLabels = labels;
   }catch(e){
@@ -8079,7 +8651,8 @@ async function fetchGalleryImages(){
   if(galleryImages.length === 0){
     grid.innerHTML = '';
     displayedGalleryImages = [];
-    emptyMsg.textContent = galleryPodFilter ? '이 파드가 만든 이미지가 아직 없어요' : '서버에 저장된 이미지가 없어요';
+    emptyMsg.textContent = galleryPodFilter ? '이 파드가 만든 이미지가 아직 없어요'
+      : (galleryProjectFilter !== null ? '이 프로젝트의 이미지가 아직 없어요' : '서버에 저장된 이미지가 없어요');
     emptyMsg.style.display = 'block';
     return;
   }
@@ -8716,6 +9289,9 @@ async function fetchGalleryVideos(){
     if(videoGalleryPodFilter){
       galleryVideos = galleryVideos.filter(vid => podIdForVideo(vid) === videoGalleryPodFilter);
     }
+    if(videoGalleryProjectFilter !== null){
+      galleryVideos = galleryVideos.filter(vid => projectMatches(vid.project_id, videoGalleryProjectFilter));
+    }
     galleryJobLabels = labels; // 이미지 갤러리와 공유하는 전역(작업 라벨은 미디어 종류와 무관)
   }catch(e){
     galleryVideos = [];
@@ -8733,7 +9309,8 @@ async function fetchGalleryVideos(){
   if(galleryVideos.length === 0){
     grid.innerHTML = '';
     displayedGalleryVideos = [];
-    emptyMsg.textContent = videoGalleryPodFilter ? '이 파드가 만든 영상이 아직 없어요' : '서버에 저장된 영상이 없어요';
+    emptyMsg.textContent = videoGalleryPodFilter ? '이 파드가 만든 영상이 아직 없어요'
+      : (videoGalleryProjectFilter !== null ? '이 프로젝트의 영상이 아직 없어요' : '서버에 저장된 영상이 없어요');
     emptyMsg.style.display = 'block';
     return;
   }
@@ -9965,7 +10542,7 @@ document.getElementById('builder-send-btn').addEventListener('click', async () =
 // 파드 목록 → 첫 화면 → 템플릿 목록 순서를 지킨다. 템플릿 목록은 "어느 파드에
 // 들어와 있는가"에 따라 달라지므로(셸 파드면 셸 명령만), 파드와 주소가 정해지기
 // 전에 먼저 받아버리면 잘못된 목록을 그린 뒤 다시 그리는 경합이 생긴다.
-fetchPods().then(applyHashRoute).then(fetchTemplates);
+fetchPods().then(fetchProjects).then(applyHashRoute).then(fetchTemplates);
 fetchJobs();
 fetchDeletedJobs();
 fetchComfyStatus();
@@ -9974,6 +10551,7 @@ fetchBaseModelFamilies();
 initDanbooru();
 setInterval(fetchJobs, 2000);
 setInterval(fetchPods, 15000);
+setInterval(() => { if(currentProjectId !== null) fetchProjects(); }, 15000);
 setInterval(() => { if(expandedId) loadLog(expandedId); }, 2000);
 setInterval(fetchComfyStatus, 5000);
 // 갤러리 탭이 보이는 동안에는 새 이미지가 생겨도 자동으로 반영되게 주기적으로 새로 받아온다.

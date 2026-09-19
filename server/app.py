@@ -2936,7 +2936,7 @@ def stop_pod_queue(pod_id: str):
 
 
 @app.post("/api/jobs/clear-completed")
-def clear_completed_jobs(pod_id: str | None = None):
+def clear_completed_jobs(pod_id: str | None = None, project_id: str | None = None):
     # 다 끝난 작업(성공/실패/중단)을 목록에서 한꺼번에 치우고 싶을 때 쓴다 —
     # delete_job()과 같은 소프트 삭제라 "삭제된 작업 설정 불러오기"로 실수로
     # 지운 작업도 되돌릴 수 있다. pending/queued/running은 여기서 건드리지
@@ -2944,11 +2944,17 @@ def clear_completed_jobs(pod_id: str | None = None):
     #
     # pod_id를 주면 그 파드의 작업만 치운다. 화면의 작업 목록이 파드 하나 것만
     # 보여주므로("#pod/{id}/jobs"), 거기 있는 "완료 삭제"가 화면에 보이지도 않는
-    # 다른 파드의 작업까지 지워버리면 안 된다.
+    # 다른 파드의 작업까지 지워버리면 안 된다. 프로젝트 화면의 "완료 삭제"도 같은 이유로
+    # project_id를 주면 그 프로젝트 것만("unassigned"면 미분류) 치운다.
+    wanted_project = None
+    if project_id is not None:
+        wanted_project = "unassigned" if project_id == "unassigned" else parse_project_id(project_id)
     with lock:
         completed = [j for j in jobs.values()
                      if j["status"] in ("done", "failed", "interrupted") and not j.get("deleted")
-                     and (pod_id is None or j.get("pod_id") == pod_id)]
+                     and (pod_id is None or j.get("pod_id") == pod_id)
+                     and (wanted_project is None
+                          or j.get("project_id") == (None if wanted_project == "unassigned" else wanted_project))]
         now = now_iso()
         for job in completed:
             job["deleted"] = True
@@ -3246,6 +3252,26 @@ async def send_email(request: Request):
     return result
 
 
+def _project_resolver():
+    """갤러리 항목이 어느 프로젝트 것인지 알려주는 함수를 돌려준다(name, job_id) -> project_id.
+    결과물 색인(assets)이 진실이고, 아직 색인에 없는 새 파일은 그 job의 프로젝트로 본다."""
+    try:
+        by_path = assets_index.project_ids_by_path()
+    except Exception:
+        by_path = {}
+
+    def resolve(name: str, job_id: str | None):
+        if name in by_path:
+            return by_path[name]
+        if job_id:
+            with lock:
+                job = jobs.get(job_id)
+            if job:
+                return job.get("project_id")
+        return None
+    return resolve
+
+
 def list_output_images_meta() -> list[dict]:
     # 갤러리 탭을 채우는 용도. zip/이메일 발송과 달리 폴더가 비어 있거나 아직 없는 것도
     # 정상 상태로 취급한다(뭔가 있어야 의미 있는 동작이 아니라, 그냥 목록을 보여줄 뿐이므로).
@@ -3259,6 +3285,7 @@ def list_output_images_meta() -> list[dict]:
     # "⬇ 결과 가져오기"가 남긴 동기화 기록(comfy_output_sync.json)에 이제 파드
     # 정보가 있으니, job_id가 없을 때 쓸 수 있게 같이 넘긴다.
     pod_ids = synced_pod_ids()
+    project_of = _project_resolver()
     items = []
     for f in files:
         stat = f.stat()
@@ -3283,6 +3310,7 @@ def list_output_images_meta() -> list[dict]:
             "name": name,
             "job_id": job_id,
             "synced_pod_id": pod_ids.get(name),
+            "project_id": project_of(name, job_id),
             "size": stat.st_size,
             "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
             "width": width,
@@ -3646,6 +3674,7 @@ def list_output_videos_meta() -> list[dict]:
         return []
     base = Path(OUTPUT_DIR)
     pod_ids = synced_pod_ids()  # list_output_images_meta 참고 — job_id 없는 영상용.
+    project_of = _project_resolver()
     items = []
     for f in files:
         stat = f.stat()
@@ -3656,6 +3685,7 @@ def list_output_videos_meta() -> list[dict]:
             "name": name,
             "job_id": job_id,
             "synced_pod_id": pod_ids.get(name),
+            "project_id": project_of(name, job_id),
             "size": stat.st_size,
             "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
         })

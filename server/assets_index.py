@@ -230,3 +230,10 @@ def list_assets(project: str | int | None = None, kind: str | None = None, job_i
     with db.connect() as conn:
         rows = conn.execute(sql, (*params, limit, offset)).fetchall()
     return [dict(r) for r in rows]
+
+
+def project_ids_by_path() -> dict[str, int | None]:
+    """{상대경로: project_id} — 갤러리 목록이 항목마다 프로젝트를 붙일 때 쓴다."""
+    with db.connect() as conn:
+        rows = conn.execute("SELECT path, project_id FROM assets WHERE deleted_at IS NULL").fetchall()
+    return {r["path"]: r["project_id"] for r in rows}
