@@ -7695,7 +7695,7 @@ function galleryItemHtml(img, index){
           <input type="checkbox" ${selected ? 'checked' : ''}>
         </label>
         <div class="gallery-item-thumb">
-          <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=80`)}" alt="${escapeHtml(img.name)}" loading="lazy">
+          <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=80&v=${encodeURIComponent(img.mtime)}`)}" alt="${escapeHtml(img.name)}" loading="lazy">
         </div>
         <div class="gallery-details-col name" title="${escapeHtml(img.name)}">${escapeHtml(img.name)}</div>
         <div class="gallery-details-col job" title="${escapeHtml(jobLabel)}">${escapeHtml(jobLabel)}</div>
@@ -7712,7 +7712,7 @@ function galleryItemHtml(img, index){
         <input type="checkbox" ${selected ? 'checked' : ''}>
       </label>
       <button class="gallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
-      <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=300`)}" alt="${escapeHtml(img.name)}" loading="lazy">
+      <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=300&v=${encodeURIComponent(img.mtime)}`)}" alt="${escapeHtml(img.name)}" loading="lazy">
       <div class="gallery-item-name">${escapeHtml(img.name)}</div>
     </div>
   `;
@@ -8172,7 +8172,10 @@ function renderLightbox(){
   if(!img) return;
   document.getElementById('gallery-lightbox-error').textContent = '';
   const imgEl = document.getElementById('gallery-lightbox-img');
-  imgEl.src = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}`);
+  // 파일명이 그대로라 URL도 그대로면 브라우저가 캐시를 그냥 쓸 수 있어서(회전
+  // 등으로 파일이 바뀌어도 안 보임), mtime을 쿼리에 붙여 내용이 바뀔 때마다
+  // 다른 URL이 되게 한다 — 썸네일(galleryItemHtml)도 같은 이유로 이렇게 한다.
+  imgEl.src = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}?v=${encodeURIComponent(img.mtime)}`);
   imgEl.alt = img.name;
   document.getElementById('gallery-lightbox-info').textContent =
     `${img.name} · ${fmtBytes(img.size)} · ${fmtGalleryDateTime(img.mtime)} (${lightboxIndex + 1}/${displayedGalleryImages.length})`;
@@ -8251,13 +8254,15 @@ async function rotateCurrentLightboxImage(){
   }finally{
     btn.disabled = false;
   }
-  // 파일명은 그대로라 브라우저가 캐시된 회전 전 이미지를 계속 보여줄 수 있어서,
-  // 라이트박스에 지금 당장 보여주는 큰 이미지만 타임스탬프를 붙여 강제로 다시
-  // 받는다 — 그리드 썸네일은 fetchGalleryImages가 목록을 통째로 다시 그리면서
-  // (서버 ETag가 mtime 기준이라) 자연스럽게 새 걸로 바뀐다.
+  // fetchGalleryImages가 목록을 다시 받아오면 이 이미지의 mtime도 바뀐 값으로
+  // 갱신되고, renderLightbox는 그 mtime을 URL 쿼리에 붙이므로(캐시 무효화)
+  // 다시 그리면 자동으로 회전된 새 이미지를 받아온다. 목록은 mtime 내림차순이라
+  // 방금 돈 이미지가 맨 앞으로 튈 수 있어, 같은 파일명을 다시 찾아 인덱스를
+  // 맞춘다(못 찾으면 — 이론상 없지만 — 그대로 둔다).
   await fetchGalleryImages();
-  const imgEl = document.getElementById('gallery-lightbox-img');
-  imgEl.src = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}?t=${Date.now()}`);
+  const newIndex = displayedGalleryImages.findIndex(i => i.name === img.name);
+  if(newIndex >= 0) lightboxIndex = newIndex;
+  renderLightbox();
 }
 async function deleteCurrentLightboxImage(){
   const img = displayedGalleryImages[lightboxIndex];
