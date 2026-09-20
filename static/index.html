@@ -4085,7 +4085,7 @@ document.getElementById('job-rows').addEventListener('click', async (e) => {
   }catch(err){
     btn.innerHTML = ico('triangle-alert') + ' 복사 실패 — 직접 드래그해서 복사해주세요';
   }
-  setTimeout(() => { btn.textContent = original; }, 1500);
+  setTimeout(() => { btn.innerHTML = original; }, 1500);
 });
 
 let templatesById = {};
@@ -4805,7 +4805,7 @@ function buildInputImageControl(opt){
       alert(e.message || '업로드에 실패했어요.');
     }finally{
       uploadBtn.disabled = false;
-      uploadBtn.textContent = original;
+      uploadBtn.innerHTML = original;
     }
   });
 
@@ -5404,7 +5404,7 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   const submitBtnEl = document.getElementById('submit-btn');
   const originalLabel = submitBtnEl.innerHTML;
   submitBtnEl.innerHTML = ico('circle-check') + ' 추가됨';
-  setTimeout(() => { submitBtnEl.textContent = originalLabel; }, 1200);
+  setTimeout(() => { submitBtnEl.innerHTML = originalLabel; }, 1200);
   fetchJobs();
 });
 
@@ -9347,7 +9347,7 @@ document.getElementById('gallery-pull-btn').addEventListener('click', async () =
     errorEl.textContent = e.message || '가져오지 못했어요.';
   }finally{
     btn.disabled = false;
-    btn.textContent = original;
+    btn.innerHTML = original;
   }
 });
 document.getElementById('gallery-select-all-btn').addEventListener('click', () => {
@@ -10108,7 +10108,7 @@ document.getElementById('video-gallery-pull-btn').addEventListener('click', asyn
     errorEl.textContent = e.message || '가져오지 못했어요.';
   }finally{
     btn.disabled = false;
-    btn.textContent = original;
+    btn.innerHTML = original;
   }
 });
 document.getElementById('video-gallery-select-all-btn').addEventListener('click', () => {
