@@ -490,7 +490,7 @@ nightshift를 홈서버에 상시 띄워두고 ComfyUI만 원격 GPU pod에서 �
 ComfyUI가 같은 머신에 있으면 그 폴더가 곧 ComfyUI의 출력 폴더라 그냥 맞아떨어지지만, ComfyUI만 원격 GPU pod에
 있으면 결과 이미지가 그쪽 디스크에만 쌓여서 갤러리가 비어 보입니다.
 
-파드 설정(⚙)의 **"결과 이미지를 이 서버로 가져오기"**를 켜면(`pull_outputs`), 작업이 끝날 때마다 그 작업의
+파드 설정(⚙)의 **"결과 이미지를 이 서버로 가져오기"**를 켜면(`pull_outputs` — 화면에서 새 파드를 만들 때는 기본으로 켜져 있습니다), 작업이 끝날 때마다 그 작업의
 이미지를 ComfyUI에서 HTTP로 받아 로컬 출력 폴더에 채워 넣습니다(`comfy_outputs.py`). 갤러리 탭의
 **"⬇ 결과 가져오기"** 버튼으로 밀린 것을 한꺼번에 받을 수도 있습니다(설정이 켜져 있을 때만 보입니다).
 
@@ -856,7 +856,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/comfy-endpoint` | 접속 주소 설정 상태를 `{"url"(저장된 설정값, 없으면 ""), "effective_url"(설정/환경변수로 정해진 주소, 자동 탐지면 null), "source", "env_url", "candidates", "updated_at", "pull_outputs"(결과 이미지를 HTTP로 끌어올지), "output_dir"(끌어온 이미지가 쌓이는 로컬 폴더), "output_sync": {"last_sync", "known"}}`로 반환 |
 | `PUT` | `/api/comfy-endpoint` | 접속 주소를 저장한다(요청 본문 `{"url": "...", "pull_outputs": bool(선택)}` — `pull_outputs`를 아예 안 보내면 지금 설정을 그대로 유지한다). **서버 재시작 없이 즉시 반영되고**, 이전 서버의 모델/노드 목록 캐시를 비운다. 빈 문자열을 보내면 설정을 지우고 환경변수/자동 탐지로 되돌린다. `http://`/`https://`로 시작하지 않으면 400. 응답은 GET과 같은 형태 + 저장 직후 실측한 `connected` |
 | `GET` | `/api/pods` | 등록된 파드 목록을 `{"pods": [...], "default_pod_id", "kinds"}`로 반환. 각 파드에는 레코드 + `kind_label`(드라이버 이름), `effective_url`(실제로 쓰일 주소), `url_source`(`setting`/`env`/`auto`)가 붙음 |
-| `POST` | `/api/pods` | 파드를 추가한다(요청 본문 = 파드 레코드, `name`만 필수). 이름이 비었거나 주소 형식이 틀리거나 `max_concurrent`가 1 미만이면 400 |
+| `POST` | `/api/pods` | 파드를 추가한다(요청 본문 = 파드 레코드). `name`을 비우면 만든 일시(`2026-09-20 21:35:07`)로 짓는다. 주소 형식이 틀리거나 `max_concurrent`가 1 미만이면 400 |
 | `PUT` | `/api/pods/{pod_id}` | 파드를 **부분 수정**한다 — 보낸 필드만 바뀐다(이름만 바꾸려는 요청이 주소를 지우면 안 되므로). 주소가 바뀌면 그 파드의 노드/모델 목록 캐시를 비운다. 없는 파드면 404 |
 | `DELETE` | `/api/pods/{pod_id}` | 파드를 지운다. 마지막 하나는 지울 수 없음(400) — 쓰지 않으려면 `enabled: false` |
 | `GET` | `/api/pods/summary` | 대시보드가 폴링할 파드별 요약 — 레코드(+`kind_label`/`effective_url`) + 연결 상태(캐시) + `auto_run`/`queue_len`/`running_jobs`/`waiting_for_pod`/`pending_count`/`images_today` + `card`(드라이버가 주는 카드 정보, ComfyUI는 GPU/VRAM — 20초 캐시에 백그라운드 갱신) + `recent_images`(최근 결과 3장의 상대 경로) + 전체 합계 `totals`. 파드 폴더만 들여다보므로 출력 폴더 전체를 훑지 않는다 |

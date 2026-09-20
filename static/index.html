@@ -3476,7 +3476,7 @@
         주소를 비워두면 <code>COMFY_URL</code> 환경변수 → <code>127.0.0.1</code> 자동 탐지 순으로 찾아요.</div>
       <div class="field">
         <label class="field-label" for="pod-edit-name">이름</label>
-        <input type="text" class="option-input" id="pod-edit-name" placeholder="예: a100-1" autocomplete="off" style="max-width:100%;">
+        <input type="text" class="option-input" id="pod-edit-name" placeholder="비워두면 만든 일시(예: 2026-09-20 21:35:07)로 지어져요" autocomplete="off" style="max-width:100%;">
         <div class="pod-name-suggest" id="pod-edit-name-suggest" style="display:none;"></div>
       </div>
       <div class="field">
@@ -7546,7 +7546,7 @@ function openPodEditModal(podId){
   document.getElementById('pod-edit-name').value = pod.name || '';
   document.getElementById('pod-edit-url').value = pod.url || '';
   document.getElementById('pod-edit-concurrent').value = pod.max_concurrent || 1;
-  document.getElementById('pod-edit-pull').checked = !!pod.pull_outputs;
+  document.getElementById('pod-edit-pull').checked = podId ? !!pod.pull_outputs : true;   // 새 파드는 기본으로 가져오기
   document.getElementById('pod-edit-enabled').checked = podId ? !!pod.enabled : true;
   document.getElementById('pod-edit-status').textContent = '';
   document.getElementById('pod-edit-error').textContent = '';

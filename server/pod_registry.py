@@ -211,6 +211,10 @@ def default_pod() -> dict:
 
 
 def create_pod(raw: dict) -> dict:
+    raw = dict(raw) if isinstance(raw, dict) else raw
+    # 이름을 비워두면 만든 일시를 이름으로 쓴다(수정할 때 이름을 비우는 건 여전히 오류).
+    if isinstance(raw, dict) and not str(raw.get("name") or "").strip():
+        raw["name"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     pod = normalize_pod({**raw, "id": ""})  # id는 항상 새로 발급한다
     with _lock:
         _pods.append(pod)
