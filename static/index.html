@@ -2599,6 +2599,10 @@
   <symbol id="i-star" viewBox="0 0 24 24"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></symbol>
   <symbol id="i-maximize" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
   <symbol id="i-minimize" viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></symbol>
+  <symbol id="i-skip-forward" viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/></symbol>
+  <symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
+  <symbol id="i-repeat-1" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
 </svg>
 
@@ -3309,6 +3313,7 @@
     <div class="lightbox-info" id="video-gallery-lightbox-info"></div>
     <div class="lightbox-actions">
       <button class="modal-btn-secondary" id="video-gallery-lightbox-download-btn" type="button" title="다운로드" aria-label="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
+      <button class="modal-btn-secondary" id="video-gallery-lightbox-repeat-btn" type="button"></button>
       <button class="modal-btn-secondary" id="video-gallery-lightbox-move-btn" type="button" title="이 영상을 다른 프로젝트로 옮기기" aria-label="프로젝트로 이동"><svg class="ico"><use href="#i-folder-input"/></svg><span class="btn-label">이동</span></button>
       <button class="danger-btn" id="video-gallery-lightbox-delete-btn" type="button" title="삭제" aria-label="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
     </div>
@@ -10278,7 +10283,12 @@ function renderVideoLightbox(){
   document.getElementById('video-gallery-lightbox-error').textContent = '';
   const videoEl = document.getElementById('video-gallery-lightbox-video');
   showVideoLightboxLoading();
+  videoEl.loop = videoRepeatMode === 'one';
   videoEl.src = window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(vid.name)}`);
+  if(videoAutoplayOnRender){
+    videoAutoplayOnRender = false;
+    videoEl.play().catch(() => { /* 자동 재생이 막히면 재생 버튼을 눌러 시작한다 */ });
+  }
   document.getElementById('video-gallery-lightbox-info').textContent =
     `${vid.name} · ${fmtBytes(vid.size)} · ${fmtGalleryDateTime(vid.mtime)} (${vLightboxIndex + 1}/${displayedGalleryVideos.length})`;
   videoMetaPanel.show(vid);
@@ -10296,6 +10306,7 @@ function closeVideoLightbox(){
   if(isLightboxFullscreen(videoGalleryLightbox)) setLightboxFullscreen(videoGalleryLightbox, false);
   videoGalleryLightbox.style.display = 'none';
   vLightboxIndex = -1;
+  videoAutoplayOnRender = false;
   hideVideoLightboxLoading();
   // 라이트박스를 닫아도 <video>가 계속 재생/버퍼링되지 않게 멈춘다.
   const videoEl = document.getElementById('video-gallery-lightbox-video');
@@ -10304,12 +10315,63 @@ function closeVideoLightbox(){
   videoEl.load();
 }
 
-function showPrevVideo(){
-  if(vLightboxIndex > 0){ vLightboxIndex--; renderVideoLightbox(); }
-}
+// ---- 영상 자동 재생 / 반복 방식 ----
+// 라이트박스에서 영상이 끝났을 때 무엇을 할지 — 다음 영상 자동 재생(기본) / 한 영상 반복 / 전체 반복 / 없음.
+// 선택은 브라우저에 기억한다. 손으로 다음·이전으로 넘길 때도, 재생 중이었다면 새 영상을 이어서 재생한다.
+const VIDEO_REPEAT_MODES = ['next', 'one', 'all', 'off'];
+const VIDEO_REPEAT_META = {
+  next: { icon: 'skip-forward', label: '다음 영상 자동', hint: '영상이 끝나면 다음 영상을 자동으로 재생해요' },
+  one:  { icon: 'repeat-1',     label: '한 영상 반복',   hint: '지금 영상을 계속 반복해요' },
+  all:  { icon: 'repeat',       label: '전체 반복',     hint: '다음 영상을 이어 재생하고, 마지막 뒤에는 처음부터 다시 시작해요' },
+  off:  { icon: 'ban',          label: '자동 재생 없음', hint: '한 번 재생하고 멈춰요' },
+};
+const VIDEO_REPEAT_KEY = 'nightshift-video-repeat';
+let videoRepeatMode = (() => {
+  try{ const v = localStorage.getItem(VIDEO_REPEAT_KEY); return VIDEO_REPEAT_MODES.includes(v) ? v : 'next'; }
+  catch(e){ return 'next'; }
+})();
+let videoAutoplayOnRender = false;
 
+function paintVideoRepeatButton(){
+  const meta = VIDEO_REPEAT_META[videoRepeatMode];
+  const btn = document.getElementById('video-gallery-lightbox-repeat-btn');
+  btn.innerHTML = ico(meta.icon) + `<span class="btn-label">${meta.label}</span>`;
+  btn.title = `${meta.label} — ${meta.hint} (눌러서 바꾸기)`;
+  btn.setAttribute('aria-label', `재생 방식: ${meta.label}`);
+  document.getElementById('video-gallery-lightbox-video').loop = videoRepeatMode === 'one';
+}
+document.getElementById('video-gallery-lightbox-repeat-btn').addEventListener('click', () => {
+  videoRepeatMode = VIDEO_REPEAT_MODES[(VIDEO_REPEAT_MODES.indexOf(videoRepeatMode) + 1) % VIDEO_REPEAT_MODES.length];
+  try{ localStorage.setItem(VIDEO_REPEAT_KEY, videoRepeatMode); }catch(e){ /* 무시 */ }
+  paintVideoRepeatButton();
+  flashNotice(`재생 방식: ${VIDEO_REPEAT_META[videoRepeatMode].label}`);
+});
+paintVideoRepeatButton();
+
+function videoIsPlaying(){
+  const v = document.getElementById('video-gallery-lightbox-video');
+  return !v.paused && !v.ended;
+}
+document.getElementById('video-gallery-lightbox-video').addEventListener('ended', () => {
+  if(videoGalleryLightbox.style.display === 'none') return;
+  const videoEl = document.getElementById('video-gallery-lightbox-video');
+  const last = displayedGalleryVideos.length - 1;
+  if(videoRepeatMode === 'next' && vLightboxIndex < last){
+    videoAutoplayOnRender = true; vLightboxIndex++; renderVideoLightbox();
+  }else if(videoRepeatMode === 'all'){
+    if(last === 0){ videoEl.currentTime = 0; videoEl.play().catch(() => {}); return; }
+    videoAutoplayOnRender = true;
+    vLightboxIndex = vLightboxIndex < last ? vLightboxIndex + 1 : 0;
+    renderVideoLightbox();
+  }
+  // 한 영상 반복은 <video loop>이 처리한다(끝났다는 이벤트가 오지 않는다).
+});
+
+function showPrevVideo(){
+  if(vLightboxIndex > 0){ videoAutoplayOnRender = videoIsPlaying(); vLightboxIndex--; renderVideoLightbox(); }
+}
 function showNextVideo(){
-  if(vLightboxIndex < displayedGalleryVideos.length - 1){ vLightboxIndex++; renderVideoLightbox(); }
+  if(vLightboxIndex < displayedGalleryVideos.length - 1){ videoAutoplayOnRender = videoIsPlaying(); vLightboxIndex++; renderVideoLightbox(); }
 }
 
 // 이미지 라이트박스와 같은 스와이프. 다만 <video controls>의 재생 막대(탐색·볼륨)를 끌 때 영상이
