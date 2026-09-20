@@ -3679,6 +3679,7 @@ let currentTab = 'dashboard';
 // 프로젝트는 파드와 무관하게 작업·결과물을 묶는다 — 파드 스코프와는 서로 배타적이다.
 let currentProjectId = null;
 let lastProjectId = null;
+let currentRouteHash = '';   // showTab이 주소창에 써 둔 현재 화면의 #경로 (뒤로 가기 처리에서 쓴다)
 let lastScopeKind = null;   // 마지막으로 들어가 있던 스코프 종류('pod'|'project') — Danbooru 등 밖에서 돌아올 때 쓴다
 let jobProjectFilter = null;
 let galleryProjectFilter = null;
@@ -7908,6 +7909,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
 
   const want = scopedPodId ? `#pod/${scopedPodId}/${tab}`
     : (scopedProjectId !== null ? `#project/${scopedProjectId}/${tab}` : `#${tab}`);
+  currentRouteHash = want;
   if(location.hash !== want) history.replaceState(null, '', want);
 }
 
@@ -8768,7 +8770,51 @@ document.getElementById('job-project-confirm').addEventListener('click', async (
   }
 });
 
-window.addEventListener('hashchange', applyHashRoute);
+let ignoreHashChangeUntil = 0;
+window.addEventListener('hashchange', () => {
+  if(Date.now() < ignoreHashChangeUntil) return;   // 뒤로 가기 가드가 만든 주소 변화는 화면 이동이 아니다
+  applyHashRoute();
+});
+
+// ---- 설치된 앱(standalone)에서 안드로이드 뒤로 가기 ----
+// 앱 창에서는 뒤로 가기가 곧바로 앱을 끝낸다(화면 이동은 주소창을 replaceState로만 바꿔서 기록이 안 쌓인다).
+// 기록에 가드 항목 하나를 더 쌓아 두고 뒤로 가기를 받으면: 열려 있는 창(라이트박스·모달)이 있으면 그걸 닫고,
+// 없으면 안내를 띄운 뒤 2초 안에 한 번 더 눌렀을 때만 진짜로 나간다. 브라우저 탭에서는 켜지 않는다.
+// Chrome은 사용자 조작 없이 쌓인 기록 항목을 뒤로 가기에서 건너뛰므로(뒤로 가기 가로채기 방지), 가드는
+// 페이지를 연 직후가 아니라 첫 터치·클릭·키 입력 때 쌓는다.
+(function setupBackToExit(){
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  if(!standalone) return;
+  const EXIT_WINDOW_MS = 2000;
+  let armedUntil = 0;
+  const pushGuard = () => history.pushState({ nsGuard: true }, '', location.pathname + location.search + (currentRouteHash || location.hash));
+  const closeTopOverlay = () => {
+    const isOpen = (el) => el.style.display !== 'none' && getComputedStyle(el).display !== 'none';
+    const modal = [...document.querySelectorAll('.modal-overlay')].find(isOpen);
+    const box = modal || [...document.querySelectorAll('.lightbox-overlay')].find(isOpen);
+    const closeBtn = box && box.querySelector('.modal-close, .lightbox-close');
+    if(!closeBtn) return false;
+    closeBtn.click();
+    return true;
+  };
+  let guardInstalled = false;
+  const installGuard = () => {
+    if(guardInstalled) return;
+    guardInstalled = true;
+    pushGuard();
+  };
+  if(window.navigator.userActivation && window.navigator.userActivation.hasBeenActive) installGuard();
+  else for(const ev of ['click', 'touchend', 'keydown']) window.addEventListener(ev, installGuard, { once: true, capture: true });
+  window.addEventListener('popstate', () => {
+    if(!guardInstalled) return;
+    ignoreHashChangeUntil = Date.now() + 300;
+    if(closeTopOverlay()){ pushGuard(); return; }
+    if(Date.now() < armedUntil){ history.back(); return; }   // 두 번째: 앱 종료
+    armedUntil = Date.now() + EXIT_WINDOW_MS;
+    flashNotice('한 번 더 누르면 앱이 종료돼요');
+    pushGuard();
+  });
+})();
 
 // ---- 갤러리 ----
 let galleryImages = [];
