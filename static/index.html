@@ -448,8 +448,10 @@
   @media (hover:none){ .gallery-item-fav, .vgallery-item-fav{ opacity:0.85; } }
   .gallery-details-col.name .ico.fav{ color:#F59E0B; fill:currentColor; width:12px; height:12px; }
 
-  .lightbox-img-wrap .lightbox-img{ max-height:calc(100vh - 190px); }
-  .lightbox-img-wrap.meta-open .lightbox-img{ max-height:calc(100vh - 190px - 40vh); }
+  /* 이미지/영상은 고정 높이(100vh - 얼마)로 줄이지 않고, 정보 줄·버튼·별점 줄이 차지하는 만큼을 뺀 나머지 칸을
+     채우게 한다(flex로 줄어듦, 비율은 object-fit). 세로로 긴 이미지나 폰 주소창 때문에 화면이 낮을 때도 별점·
+     정보 아코디언 줄이 화면 밖으로 밀려나지 않는다. */
+  .lightbox-img-wrap .lightbox-img{ max-height:none; min-height:96px; flex:0 1 auto; object-fit:contain; }
   .asset-meta{ width:100%; max-width:640px; color:#E5E7EB; font-size:12.5px; }
   .am-bar{ display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; }
   .am-fav, .am-star{ background:none; border:none; padding:2px; cursor:pointer; color:rgba(255,255,255,0.4); display:inline-flex; }
@@ -557,8 +559,8 @@
     .pod-bar-subtabs{ flex:1 1 100%; margin-left:0; gap:6px; }
     .pod-subtab-btn{ flex:1; padding:9px 0; }
     .pod-subtab-btn .ico{ width:20px; height:20px; }
-    .lightbox-actions{ flex-wrap:wrap; justify-content:center; }
-    .lightbox-actions button{ width:46px; height:46px; padding:0; }
+    .lightbox-actions{ flex-wrap:wrap; justify-content:center; gap:8px; }
+    .lightbox-actions button{ width:40px; height:40px; padding:0; }
     .lightbox-actions .ico{ width:20px; height:20px; }
   }
 
@@ -2159,6 +2161,7 @@
     position:relative;
     max-width:100%;
     max-height:100%;
+    min-height:0;
     display:flex;
     flex-direction:column;
     align-items:center;
@@ -2193,6 +2196,8 @@
     font-size:12px;
     color:#D1D5DB;
     text-align:center;
+    max-width:100%;
+    overflow-wrap:anywhere;
   }
   .lightbox-actions{ display:flex; gap:var(--gap-md); }
   .lightbox-error{ color:#FCA5A5; font-family:var(--mono); font-size:12px; min-height:1em; }
@@ -2209,6 +2214,30 @@
     transition: opacity .15s ease, transform .15s ease;
   }
   .lightbox-close:hover{ opacity:1; transform:scale(1.08); }
+  .lightbox-fs-btn{
+    position:absolute;
+    top:22px; right:66px;
+    background:none; border:none; color:#fff; cursor:pointer;
+    padding:2px; line-height:0; opacity:.8; z-index:3;
+    transition: opacity .15s ease, transform .15s ease;
+  }
+  .lightbox-fs-btn:hover{ opacity:1; transform:scale(1.08); }
+  /* 전체 화면에서는 이미지가 화면을 덮으므로 닫기·이동 버튼이 그 위에 떠야 하고, 밝은 이미지 위에서도 보이게 그림자를 준다. */
+  .lightbox-overlay.lightbox-fullscreen .lightbox-close, .lightbox-overlay.lightbox-fullscreen .lightbox-nav,
+  .lightbox-overlay.lightbox-fullscreen .lightbox-fs-btn{ z-index:3; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
+  .lightbox-fs-btn .ico{ width:24px; height:24px; }
+  /* 전체 화면 — 여백·정보·버튼 줄을 걷어내고 이미지/영상이 화면을 꽉 채운다(닫기 ×와 전체 화면 해제 버튼만 남는다).
+     Fullscreen API가 안 되는 브라우저(아이폰 등)에서도 이 클래스만으로 화면을 채운다. */
+  .lightbox-overlay.lightbox-fullscreen{ padding:0; background:#000; }
+  .lightbox-overlay.lightbox-fullscreen .lightbox-img-wrap{ width:100%; height:100%; max-width:none; max-height:none; gap:0; }
+  .lightbox-overlay.lightbox-fullscreen .lightbox-img-wrap .lightbox-img{
+    width:100%; height:100%; max-width:none; max-height:none; object-fit:contain; border-radius:0; box-shadow:none;
+  }
+  .lightbox-overlay.lightbox-fullscreen .lightbox-actions,
+  .lightbox-overlay.lightbox-fullscreen .asset-meta,
+  .lightbox-overlay.lightbox-fullscreen .lightbox-info,
+  .lightbox-overlay.lightbox-fullscreen .lightbox-error{ display:none; }
+  @media (hover:none){ .lightbox-overlay.lightbox-fullscreen .lightbox-nav{ display:none; } }
   .lightbox-nav{
     position:absolute;
     top:50%;
@@ -2229,6 +2258,8 @@
   .lightbox-nav:disabled{ opacity:.25; cursor:not-allowed; }
   .lightbox-prev{ left:20px; }
   .lightbox-next{ right:20px; }
+  /* 폰: 위쪽은 닫기·전체 화면 버튼 자리만 남기고 좌우·아래 여백을 줄여 이미지와 조작 줄에 화면을 더 준다. */
+  @media (max-width:640px){ .lightbox-overlay{ padding:44px 12px 12px; } }
 
   #flash-notice{
     position:fixed; left:50%; bottom:28px; transform:translate(-50%, 12px);
@@ -2566,6 +2597,8 @@
   <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
   <symbol id="i-folder-input" viewBox="0 0 24 24"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 16 3-3-3-3"/></symbol>
   <symbol id="i-star" viewBox="0 0 24 24"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></symbol>
+  <symbol id="i-maximize" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+  <symbol id="i-minimize" viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
 </svg>
 
@@ -3245,6 +3278,7 @@
 
 <div class="lightbox-overlay" id="gallery-lightbox" style="display:none;">
   <button class="lightbox-close" id="gallery-lightbox-close" aria-label="닫기" type="button">&times;</button>
+  <button class="lightbox-fs-btn" id="gallery-lightbox-fs-btn" aria-label="전체 화면" title="전체 화면 (F)" type="button"><svg class="ico"><use href="#i-maximize"/></svg></button>
   <button class="lightbox-nav lightbox-prev" id="gallery-prev" aria-label="이전 이미지" type="button">&lsaquo;</button>
   <div class="lightbox-img-wrap">
     <img class="lightbox-img" id="gallery-lightbox-img" src="" alt="">
@@ -3267,6 +3301,7 @@
 
 <div class="lightbox-overlay" id="video-gallery-lightbox" style="display:none;">
   <button class="lightbox-close" id="video-gallery-lightbox-close" aria-label="닫기" type="button">&times;</button>
+  <button class="lightbox-fs-btn" id="video-gallery-lightbox-fs-btn" aria-label="전체 화면" title="전체 화면 (F)" type="button"><svg class="ico"><use href="#i-maximize"/></svg></button>
   <button class="lightbox-nav lightbox-prev" id="video-gallery-prev" aria-label="이전 영상" type="button">&lsaquo;</button>
   <div class="lightbox-img-wrap">
     <video class="lightbox-img" id="video-gallery-lightbox-video" src="" controls></video>
@@ -9610,6 +9645,7 @@ function openLightbox(index){
 }
 
 function closeLightbox(){
+  if(isLightboxFullscreen(galleryLightbox)) setLightboxFullscreen(galleryLightbox, false);
   galleryLightbox.style.display = 'none';
   lightboxIndex = -1;
 }
@@ -9629,6 +9665,43 @@ function showNextImage(){
 // 있다"는 걸 눈으로 바로 알 수 있게 하고, 손을 떼면 놓친 스와이프든 넘어가는
 // 스와이프든 일단 트랜지션과 함께 원위치로 돌아온다(넘어갈 땐 그사이 다음
 // 이미지가 로딩 상태로 바뀐다).
+// ---- 라이트박스 전체 화면 (이미지·영상 공용) ----
+// 라이트박스 바깥 틀(overlay)을 브라우저 전체 화면으로 올리고, 클래스로 정보·버튼을 걷어낸다. 그 안에서도
+// 스와이프가 그대로 동작한다(터치를 overlay가 받으므로). Fullscreen API를 못 쓰면(아이폰 등) 클래스만으로
+// 창 안을 꽉 채우는 모드로 남는다.
+const lightboxFsApiUsed = new WeakMap();   // overlay -> 실제로 브라우저 전체 화면에 들어갔는지
+function isLightboxFullscreen(overlay){ return overlay.classList.contains('lightbox-fullscreen'); }
+function setLightboxFullscreen(overlay, on){
+  const btn = overlay.querySelector('.lightbox-fs-btn');
+  overlay.classList.toggle('lightbox-fullscreen', on);
+  if(btn){
+    btn.innerHTML = ico(on ? 'minimize' : 'maximize');
+    btn.title = on ? '전체 화면 끝내기 (F · Esc)' : '전체 화면 (F)';
+    btn.setAttribute('aria-label', on ? '전체 화면 끝내기' : '전체 화면');
+  }
+  if(on){
+    lightboxFsApiUsed.set(overlay, false);
+    const request = overlay.requestFullscreen || overlay.webkitRequestFullscreen;
+    if(request){
+      try{
+        const result = request.call(overlay);
+        if(result && result.then) result.then(() => lightboxFsApiUsed.set(overlay, true)).catch(() => {});
+        else lightboxFsApiUsed.set(overlay, true);
+      }catch(e){ /* 클래스만으로 채운다 */ }
+    }
+  }else{
+    lightboxFsApiUsed.set(overlay, false);
+    if(document.fullscreenElement === overlay && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  }
+}
+function toggleLightboxFullscreen(overlay){ setLightboxFullscreen(overlay, !isLightboxFullscreen(overlay)); }
+// 사용자가 Esc/뒤로 가기로 브라우저 전체 화면에서 나오면 클래스도 함께 끈다.
+document.addEventListener('fullscreenchange', () => {
+  document.querySelectorAll('.lightbox-overlay.lightbox-fullscreen').forEach(overlay => {
+    if(lightboxFsApiUsed.get(overlay) && document.fullscreenElement !== overlay) setLightboxFullscreen(overlay, false);
+  });
+});
+
 const DRAG_DAMPING = 0.4;
 const SWIPE_THRESHOLD = 50;
 // 이미지·영상 라이트박스 공용 — overlay 안에서 한 손가락으로 좌우로 밀면 onNext/onPrev를 부른다.
@@ -9671,6 +9744,7 @@ setupLightboxSwipe(galleryLightbox, document.getElementById('gallery-lightbox-im
 });
 
 document.getElementById('gallery-lightbox-close').addEventListener('click', closeLightbox);
+document.getElementById('gallery-lightbox-fs-btn').addEventListener('click', () => toggleLightboxFullscreen(galleryLightbox));
 document.getElementById('gallery-prev').addEventListener('click', showPrevImage);
 document.getElementById('gallery-next').addEventListener('click', showNextImage);
 document.getElementById('gallery-lightbox-download-btn').addEventListener('click', () => {
@@ -9839,7 +9913,8 @@ document.addEventListener('keydown', (e) => {
   if(galleryLightbox.style.display === 'none' || assetMoveModalOpen()) return;
   // 태그/메모 입력 중의 Backspace·화살표가 삭제/이동으로 새면 안 된다.
   if(e.target.closest && e.target.closest('input, textarea, select')) return;
-  if(e.key === 'Escape') closeLightbox();
+  if(e.key === 'Escape'){ if(isLightboxFullscreen(galleryLightbox)) setLightboxFullscreen(galleryLightbox, false); else closeLightbox(); }
+  else if(e.key === 'f' || e.key === 'F') toggleLightboxFullscreen(galleryLightbox);
   else if(e.key === 'ArrowLeft') showPrevImage();
   else if(e.key === 'ArrowRight') showNextImage();
   else if(e.key === 'Delete' || e.key === 'Backspace') deleteCurrentLightboxImage();
@@ -10218,6 +10293,7 @@ function openVideoLightbox(index){
 }
 
 function closeVideoLightbox(){
+  if(isLightboxFullscreen(videoGalleryLightbox)) setLightboxFullscreen(videoGalleryLightbox, false);
   videoGalleryLightbox.style.display = 'none';
   vLightboxIndex = -1;
   hideVideoLightboxLoading();
@@ -10237,19 +10313,20 @@ function showNextVideo(){
 }
 
 // 이미지 라이트박스와 같은 스와이프. 다만 <video controls>의 재생 막대(탐색·볼륨)를 끌 때 영상이
-// 넘어가면 안 되니, 영상 아래쪽 띠에서 시작한 터치와 전체 화면 중의 터치는 무시한다.
+// 넘어가면 안 되니, 영상 아래쪽 띠에서 시작한 터치와 <video> 자체의 네이티브 전체 화면 중의 터치는 무시한다.
 const VIDEO_CONTROLS_STRIP = 64;
 setupLightboxSwipe(videoGalleryLightbox, document.getElementById('video-gallery-lightbox-video'), {
   onNext: showNextVideo, onPrev: showPrevVideo,
   ignore: (e) => {
-    if(document.fullscreenElement || document.webkitFullscreenElement) return true;
     const videoEl = document.getElementById('video-gallery-lightbox-video');
+    if(document.fullscreenElement === videoEl || document.webkitFullscreenElement === videoEl) return true;   // 네이티브 영상 전체 화면
     if(e.target !== videoEl) return false;
     return e.touches[0].clientY > videoEl.getBoundingClientRect().bottom - VIDEO_CONTROLS_STRIP;
   },
 });
 
 document.getElementById('video-gallery-lightbox-close').addEventListener('click', closeVideoLightbox);
+document.getElementById('video-gallery-lightbox-fs-btn').addEventListener('click', () => toggleLightboxFullscreen(videoGalleryLightbox));
 document.getElementById('video-gallery-prev').addEventListener('click', showPrevVideo);
 document.getElementById('video-gallery-next').addEventListener('click', showNextVideo);
 document.getElementById('video-gallery-lightbox-download-btn').addEventListener('click', () => {
@@ -10287,7 +10364,8 @@ videoGalleryLightbox.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if(videoGalleryLightbox.style.display === 'none' || assetMoveModalOpen()) return;
   if(e.target.closest && e.target.closest('input, textarea, select')) return;
-  if(e.key === 'Escape') closeVideoLightbox();
+  if(e.key === 'Escape'){ if(isLightboxFullscreen(videoGalleryLightbox)) setLightboxFullscreen(videoGalleryLightbox, false); else closeVideoLightbox(); }
+  else if(e.key === 'f' || e.key === 'F') toggleLightboxFullscreen(videoGalleryLightbox);
   else if(e.key === 'ArrowLeft') showPrevVideo();
   else if(e.key === 'ArrowRight') showNextVideo();
   else if(e.key === 'Delete' || e.key === 'Backspace') deleteCurrentVideoLightboxItem();
