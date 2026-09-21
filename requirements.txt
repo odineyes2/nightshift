@@ -13,3 +13,6 @@ httpx
 
 # templates/claude_write.py(claude_writer 드라이버)가 Claude API를 부르는 데 쓴다.
 anthropic
+
+# server/video_edit.py(영상 자르기/이어 붙이기)가 쓰는 ffmpeg 바이너리 — 시스템에 ffmpeg가 없을 때의 대비책이다.
+imageio-ffmpeg

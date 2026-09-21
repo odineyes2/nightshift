@@ -239,6 +239,17 @@ nightshift는 여러 사람이 함께 쓸 수 있는 **회원제**입니다. 예
 - 격자 칸의 미리보기는 서버가 만드는 축소본이 아니라 브라우저의 `<video>` 태그가 `#t=0.1`(0.1초 지점) 프래그먼트로 직접 그리는 첫 프레임입니다 — 이미지처럼 요청마다 축소본을 만들지 않아 서버 부하가 없지만, 브라우저에 따라 프레임이 늦게 뜨거나 검은 화면일 수 있습니다.
 - 라이트박스는 `<video controls>`로 열려서 그 자리에서 재생·탐색(seek)할 수 있습니다 — 파일 응답이 HTTP Range 요청을 지원해서 앞으로 감기가 다운로드를 처음부터 다시 하지 않습니다.
 
+### 영상 편집 — 자르기 / 이어 붙이기 (`server/video_edit.py`)
+
+ComfyUI는 클립을 하나씩만 만들고 여러 클립을 잇는 기능이 코어에 없어서, 영상 갤러리에서 고른 영상으로 **서버가 ffmpeg로 새 영상**을 만듭니다(원본은 그대로). 폰에서도 갤러리에서 고르기만 하면 되도록 가볍게 만들었습니다.
+
+- **이어 붙이기**: 영상을 2개 이상 고르면 툴바에 "이어 붙이기"가 나옵니다. 고른 순서(체크한 순서)가 기본 순서이고 모달에서 ▲▼로 바꾸거나 빼고, 새 영상 이름을 줄 수 있습니다. 코덱·해상도·프레임률·오디오 구성이 전부 같으면 **재인코딩 없이**(concat demuxer, `-c copy`) 이어 붙여 화질 손실이 없고, 다르면 첫 영상의 해상도/프레임률에 맞춰(비율 유지, 여백은 검정) libx264(crf 18)로 다시 인코딩합니다. 오디오가 있는 클립과 없는 클립이 섞이면 없는 쪽에 무음을 채웁니다.
+- **자르기**: 영상을 하나만 고르면 "자르기"가 나옵니다. 재생하면서 "현재 위치 ⇥ 시작"/"현재 위치 ⇤ 끝"으로 구간을 정하거나 초 단위로 입력합니다(정확하게 자르려고 다시 인코딩).
+- **결과**: 출력 폴더의 `edits/`(일반 회원은 `u<id>/edits/`)에 `.mp4`로 저장되고 영상 갤러리에 바로 나타납니다. 원본이 모두 같은 프로젝트 소속이면 그 프로젝트로 들어가고, 메모에 어떤 영상으로 만들었는지 남습니다. 진행률은 폴링으로 보이고 취소할 수 있습니다.
+- **길이 없는 mp4**: ComfyUI가 스트리밍으로 만든 일부 mp4(`Duration: N/A`)는 복사만 하는 빠른 패스로 끝까지 읽어 길이를 재서 씁니다.
+- **ffmpeg**: 환경변수 `NIGHTSHIFT_FFMPEG` → `PATH` → `imageio-ffmpeg` 패키지가 들고 있는 바이너리 순으로 찾습니다(`requirements.txt`에 `imageio-ffmpeg`가 있어 따로 설치하지 않아도 됩니다). 동시에 도는 편집 수는 `NIGHTSHIFT_EDIT_CONCURRENCY`(기본 2).
+- API: `POST /api/video-edits`(`{op: "concat"|"trim", inputs: [영상 이름...], start?, end?, name?}` → `{id}`), `GET /api/video-edits/{id}`(`{status, progress, output, method, error}`), `POST /api/video-edits/{id}/cancel`. 남의 영상이나 없는 영상은 404, 잘못된 구간은 400.
+
 ### ComfyUI 접속 주소 (설정 / 환경변수 / 자동 감지) — 레거시, 파드가 여럿이면 각 파드 설정을 쓰세요
 
 파드가 여럿인 지금은 **주소는 각 파드 설정(⚙)에서 관리합니다** — 카드가 이미 그 파드의 연결 상태를
@@ -1018,6 +1029,9 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/output-videos` | 출력 폴더의 동영상(`.mp4`/`.webm`/`.mov`/`.m4v`) 목록을 `{"videos": [{"name", "job_id", "size", "mtime"}, ...]}`로 반환(수정 시각 내림차순). `width`/`height`는 `ffprobe` 없이는 읽을 수 없어 내지 않음(영상 갤러리에 "자세히 보기"가 없는 이유). 폴더가 아직 없어도 빈 배열 |
 | `GET` | `/api/output-videos/{filename}` | 그 동영상 원본을 그대로 반환(영상 갤러리 라이트박스의 `<video>`가 재생). `FileResponse`가 HTTP Range 요청을 지원해서 탐색(seek)이 다운로드를 처음부터 다시 하지 않음. `filename`은 이미지와 같은 방식으로 경로 조작을 막음, 없으면 404 |
 | `DELETE` | `/api/output-videos/{filename}` | 그 동영상 한 장만 삭제. 응답 `{"ok": true}`, 없으면 404 |
+| `POST` | `/api/video-edits` | 영상 자르기/이어 붙이기를 시작(본문 `{"op": "concat"|"trim", "inputs": [영상 이름...], "start"?, "end"?, "name"?}` → `{id}`) — 위 "영상 편집" 절 |
+| `GET` | `/api/video-edits/{id}` | 편집 진행 `{status(queued/running/done/error/cancelled), progress(0~1), output, method(copy/reencode), error}` |
+| `POST` | `/api/video-edits/{id}/cancel` | 편집 취소 |
 | `GET` | `/api/download-videos` | 출력 폴더의 동영상을 모두 zip으로 묶어 다운로드 응답으로 반환. 폴더가 없거나 동영상이 없으면 404 |
 | `POST` | `/api/output-videos/download-selected` | 요청 본문 `{"names": [파일명...]}`에 담긴 동영상만 zip으로 묶어 반환(영상 갤러리에서 여러 개 선택 후 다운로드용). 잘못된 이름이나 그 사이 지워진 파일은 조용히 건너뛰고, 하나도 안 남으면 404, `names`가 비어있거나 없으면 400 |
 | `DELETE` | `/api/output-videos` | 출력 폴더의 동영상을 모두 삭제. 응답 `{"deleted": N}`. 폴더 자체가 없으면 404, 동영상이 0개면 `{"deleted": 0}` (에러 아님) |

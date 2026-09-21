@@ -1321,6 +1321,15 @@
     white-space:nowrap;
   }
   .badge.waiting{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.12); }
+  .video-edit-panel{ max-width:560px; width:calc(100vw - 24px); }
+  .ve-list{ display:flex; flex-direction:column; gap:6px; max-height:46vh; overflow:auto; }
+  .ve-row{ display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--border); border-radius:var(--radius-sm); }
+  .ve-idx{ flex:0 0 18px; font-family:var(--mono); font-size:11px; color:var(--text-dim); text-align:center; }
+  .ve-thumb{ flex:0 0 52px; width:52px; height:36px; object-fit:cover; border-radius:4px; background:#000; }
+  .ve-name{ flex:1 1 auto; min-width:0; font-family:var(--mono); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ve-video{ width:100%; max-height:42vh; background:#000; border-radius:var(--radius-sm); }
+  .ve-trim-row{ display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .ve-trim-row .field-label{ display:flex; flex-direction:column; gap:4px; flex:1 1 120px; }
   .job-wait-reason{ font-size:11px; color:var(--text-dim); margin-top:4px; max-width:420px; white-space:normal; line-height:1.4; }
   .badge.waiting .bdot{ animation: pulse-run 1.6s infinite; }
   .badge .bdot{ width:5px; height:5px; border-radius:50%; background:currentColor; }
@@ -2552,6 +2561,8 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
   <symbol id="i-bookmark-plus" viewBox="0 0 24 24"><path d="M12 7v6"/><path d="M15 10H9"/><path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"/></symbol>
+  <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></symbol>
+  <symbol id="i-merge" viewBox="0 0 24 24"><path d="m8 6 4-4 4 4"/><path d="M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22"/><path d="m20 22-5-5"/></symbol>
   <symbol id="i-boxes" viewBox="0 0 24 24"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></symbol>
   <symbol id="i-calendar-days" viewBox="0 0 24 24"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M8 13h.01"/><path d="M12 13h.01"/><path d="M16 13h.01"/><path d="M8 17h.01"/><path d="M12 17h.01"/><path d="M16 17h.01"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
@@ -2987,6 +2998,8 @@
         <button class="load-btn" id="video-gallery-fav-selected-btn" type="button" title="선택한 영상을 즐겨찾기에 넣기/빼기 (전부 즐겨찾기면 빼요)"><svg class="ico"><use href="#i-star"/></svg><span class="btn-label">즐겨찾기</span></button>
         <button class="load-btn" id="video-gallery-tag-selected-btn" type="button" title="선택한 영상에 태그 붙이기/떼기"><svg class="ico"><use href="#i-tag"/></svg><span class="btn-label">태그</span></button>
         <button class="load-btn" id="video-gallery-move-selected-btn" type="button" title="선택한 영상을 다른 프로젝트로 옮기기"><svg class="ico"><use href="#i-folder-input"/></svg><span class="btn-label">이동</span></button>
+        <button class="load-btn" id="video-gallery-concat-btn" type="button" style="display:none;" title="선택한 영상을 순서대로 이어 붙여 새 영상 만들기"><svg class="ico"><use href="#i-merge"/></svg><span class="btn-label">이어 붙이기</span></button>
+        <button class="load-btn" id="video-gallery-trim-btn" type="button" style="display:none;" title="선택한 영상의 원하는 구간만 잘라 새 영상 만들기"><svg class="ico"><use href="#i-scissors"/></svg><span class="btn-label">자르기</span></button>
         <button class="load-btn" id="video-gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
         <button class="del-btn" id="video-gallery-delete-selected-btn" type="button" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
         <button class="modal-btn-secondary" id="video-gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg><span class="btn-label">해제</span></button>
@@ -3268,6 +3281,43 @@
     <div class="lightbox-error" id="video-gallery-lightbox-error"></div>
   </div>
   <button class="lightbox-nav lightbox-next" id="video-gallery-next" aria-label="다음 영상" type="button">&rsaquo;</button>
+</div>
+
+<div class="modal-overlay" id="video-edit-modal" style="display:none;">
+  <div class="modal-panel video-edit-panel">
+    <div class="modal-header">
+      <div class="modal-title" id="ve-title">Edit video</div>
+      <button class="modal-close" id="ve-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint" id="ve-hint"></div>
+      <div id="ve-concat" style="display:none;">
+        <div class="ve-list" id="ve-list"></div>
+      </div>
+      <div id="ve-trim" style="display:none;">
+        <video id="ve-video" class="ve-video" controls playsinline preload="metadata"></video>
+        <div class="ve-trim-row">
+          <label class="field-label">시작(초)<input type="number" class="option-input" id="ve-start" min="0" step="0.1" value="0"></label>
+          <button class="load-btn" type="button" id="ve-set-start" title="재생 위치를 시작으로">현재 위치 ⇥ 시작</button>
+        </div>
+        <div class="ve-trim-row">
+          <label class="field-label">끝(초)<input type="number" class="option-input" id="ve-end" min="0" step="0.1"></label>
+          <button class="load-btn" type="button" id="ve-set-end" title="재생 위치를 끝으로">현재 위치 ⇤ 끝</button>
+        </div>
+        <div class="dl-meta" id="ve-trim-info"></div>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label class="field-label" for="ve-name">새 영상 이름(선택)</label>
+        <input type="text" class="option-input" id="ve-name" maxlength="40" autocomplete="off" placeholder="비워두면 자동으로 정해요">
+      </div>
+      <div class="progress-track" id="ve-progress" style="display:none; margin-top:12px;"><div class="progress-fill running" id="ve-progress-fill" style="width:0%"></div></div>
+      <div class="enhance-status" id="ve-status" style="text-align:left; max-width:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="ve-cancel" type="button"><svg class="ico"><use href="#i-x"/></svg> 닫기</button>
+      <button class="submit-btn" id="ve-start-btn" type="button"><svg class="ico"><use href="#i-play"/></svg> 시작</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="asset-move-modal" style="display:none;">
@@ -10224,7 +10274,172 @@ function updateVideoGalleryToolbar(){
   }
   toolbar.style.display = 'flex';
   document.getElementById('video-gallery-toolbar-count').textContent = `${selectedGalleryVideoNames.size}개 선택됨`;
+  document.getElementById('video-gallery-concat-btn').style.display = selectedGalleryVideoNames.size >= 2 ? '' : 'none';
+  document.getElementById('video-gallery-trim-btn').style.display = selectedGalleryVideoNames.size === 1 ? '' : 'none';
 }
+
+// ---- 영상 편집(자르기 / 이어 붙이기) — 서버가 ffmpeg로 새 영상을 만든다(원본은 그대로) ----
+const veState = { op: null, names: [], jobId: null, timer: null, duration: 0 };
+const veEl = id => document.getElementById(id);
+
+function veMediaUrl(name){ return window.__nightshiftMediaUrl(`/api/output-videos/${encodeURI(name)}`); }
+
+function veSetStatus(text, isError){
+  const el = veEl('ve-status');
+  el.textContent = text || '';
+  el.classList.toggle('error', !!isError);
+}
+
+function veRenderConcatList(){
+  veEl('ve-list').innerHTML = veState.names.map((name, i) => `
+    <div class="ve-row" data-i="${i}">
+      <span class="ve-idx">${i + 1}</span>
+      <video class="ve-thumb" muted preload="metadata" playsinline src="${veMediaUrl(name)}#t=0.1"></video>
+      <span class="ve-name" title="${escapeHtml(name)}">${escapeHtml(name.split('/').pop())}</span>
+      <button class="load-btn ve-up" type="button" ${i === 0 ? 'disabled' : ''} title="위로">▲</button>
+      <button class="load-btn ve-down" type="button" ${i === veState.names.length - 1 ? 'disabled' : ''} title="아래로">▼</button>
+      <button class="del-btn ve-remove" type="button" ${veState.names.length <= 2 ? 'disabled' : ''} title="목록에서 빼기"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>`).join('');
+}
+
+function veTrimInfo(){
+  const start = parseFloat(veEl('ve-start').value) || 0;
+  const end = parseFloat(veEl('ve-end').value);
+  const len = Number.isFinite(end) ? end - start : NaN;
+  veEl('ve-trim-info').textContent = Number.isFinite(len)
+    ? `결과 길이 약 ${Math.max(0, len).toFixed(1)}초 (원본 ${veState.duration ? veState.duration.toFixed(1) + '초' : '?'})` : '';
+}
+
+function openVideoEditModal(op){
+  const names = Array.from(selectedGalleryVideoNames);
+  if(op === 'concat' ? names.length < 2 : names.length !== 1) return;
+  Object.assign(veState, { op, names, jobId: null, duration: 0 });
+  clearInterval(veState.timer);
+  veEl('ve-title').textContent = op === 'concat' ? 'Join videos' : 'Trim video';
+  veEl('ve-hint').textContent = op === 'concat'
+    ? '고른 순서대로 이어 붙여요. 같은 설정의 클립은 화질 손실 없이 바로 붙이고, 해상도·프레임률이 다르면 첫 영상에 맞춰 다시 인코딩해요. 원본은 그대로 남아요.'
+    : '재생하면서 시작/끝 위치를 정하세요. 새 영상으로 저장돼요(원본은 그대로).';
+  veEl('ve-concat').style.display = op === 'concat' ? '' : 'none';
+  veEl('ve-trim').style.display = op === 'trim' ? '' : 'none';
+  veEl('ve-name').value = '';
+  veEl('ve-progress').style.display = 'none';
+  veEl('ve-progress-fill').style.width = '0%';
+  veSetStatus('');
+  const startBtn = veEl('ve-start-btn');
+  startBtn.disabled = false;
+  startBtn.innerHTML = `${ico('play')} ${op === 'concat' ? '이어 붙이기' : '자르기'}`;
+  veEl('ve-cancel').innerHTML = `${ico('x')} 닫기`;
+  if(op === 'concat'){
+    veRenderConcatList();
+  }else{
+    const video = veEl('ve-video');
+    video.src = veMediaUrl(names[0]);
+    veEl('ve-start').value = '0';
+    veEl('ve-end').value = '';
+    veEl('ve-trim-info').textContent = '';
+    video.onloadedmetadata = () => {
+      veState.duration = video.duration || 0;
+      veEl('ve-end').value = veState.duration ? veState.duration.toFixed(1) : '';
+      veEl('ve-end').max = veState.duration || '';
+      veTrimInfo();
+    };
+  }
+  veEl('video-edit-modal').style.display = 'flex';
+}
+
+function closeVideoEditModal(){
+  clearInterval(veState.timer);
+  const video = veEl('ve-video');
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  veEl('video-edit-modal').style.display = 'none';
+}
+
+async function veStart(){
+  veSetStatus('');
+  const body = { op: veState.op, inputs: veState.names, name: veEl('ve-name').value.trim() };
+  if(veState.op === 'trim'){
+    body.start = parseFloat(veEl('ve-start').value) || 0;
+    const end = parseFloat(veEl('ve-end').value);
+    if(Number.isFinite(end)) body.end = end;
+    if(body.end !== undefined && body.end <= body.start){ veSetStatus('끝 시각이 시작 시각보다 뒤여야 해요.', true); return; }
+  }
+  const startBtn = veEl('ve-start-btn');
+  startBtn.disabled = true;
+  try{
+    const res = await fetch('/api/video-edits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '시작하지 못했어요.');
+    veState.jobId = data.id;
+  }catch(e){
+    veSetStatus(e.message, true);
+    startBtn.disabled = false;
+    return;
+  }
+  veEl('ve-progress').style.display = '';
+  veEl('ve-cancel').innerHTML = `${ico('x')} 취소`;
+  veSetStatus('만드는 중…');
+  veState.timer = setInterval(vePoll, 1000);
+}
+
+async function vePoll(){
+  if(!veState.jobId) return;
+  let job;
+  try{
+    const res = await fetch(`/api/video-edits/${veState.jobId}`);
+    if(!res.ok) throw new Error();
+    job = await res.json();
+  }catch(e){ return; }
+  veEl('ve-progress-fill').style.width = `${Math.round((job.progress || 0) * 100)}%`;
+  if(job.status === 'running' || job.status === 'queued'){
+    veSetStatus(`만드는 중… ${Math.round((job.progress || 0) * 100)}%`);
+    return;
+  }
+  clearInterval(veState.timer);
+  veState.jobId = null;
+  veEl('ve-cancel').innerHTML = `${ico('x')} 닫기`;
+  if(job.status === 'done'){
+    veEl('ve-progress-fill').style.width = '100%';
+    veSetStatus(`완료 — 새 영상 "${job.output}"이(가) 영상 갤러리에 추가됐어요${job.method === 'copy' ? ' (재인코딩 없이 이어 붙임)' : ''}.`);
+    flashNotice('새 영상을 만들었어요.');
+    veEl('ve-start-btn').disabled = true;
+    fetchGalleryVideos();
+  }else if(job.status === 'cancelled'){
+    veSetStatus('취소했어요.');
+    veEl('ve-start-btn').disabled = false;
+  }else{
+    veSetStatus(job.error || '편집에 실패했어요.', true);
+    veEl('ve-start-btn').disabled = false;
+  }
+}
+
+veEl('video-gallery-concat-btn').addEventListener('click', () => openVideoEditModal('concat'));
+veEl('video-gallery-trim-btn').addEventListener('click', () => openVideoEditModal('trim'));
+veEl('ve-close').addEventListener('click', closeVideoEditModal);
+veEl('ve-cancel').addEventListener('click', async () => {
+  if(veState.jobId){
+    try{ await fetch(`/api/video-edits/${veState.jobId}/cancel`, { method: 'POST' }); }catch(e){ /* 폴링이 결과를 알려준다 */ }
+    return;
+  }
+  closeVideoEditModal();
+});
+veEl('ve-start-btn').addEventListener('click', veStart);
+veEl('ve-set-start').addEventListener('click', () => { veEl('ve-start').value = veEl('ve-video').currentTime.toFixed(1); veTrimInfo(); });
+veEl('ve-set-end').addEventListener('click', () => { veEl('ve-end').value = veEl('ve-video').currentTime.toFixed(1); veTrimInfo(); });
+veEl('ve-start').addEventListener('input', veTrimInfo);
+veEl('ve-end').addEventListener('input', veTrimInfo);
+veEl('ve-list').addEventListener('click', (e) => {
+  const row = e.target.closest('.ve-row');
+  if(!row) return;
+  const i = Number(row.dataset.i);
+  const names = veState.names;
+  if(e.target.closest('.ve-up') && i > 0) [names[i - 1], names[i]] = [names[i], names[i - 1]];
+  else if(e.target.closest('.ve-down') && i < names.length - 1) [names[i + 1], names[i]] = [names[i], names[i + 1]];
+  else if(e.target.closest('.ve-remove') && names.length > 2) names.splice(i, 1);
+  else return;
+  veRenderConcatList();
+});
 
 async function deleteGalleryVideos(names){
   if(names.length === 0) return false;

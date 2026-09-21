@@ -64,6 +64,7 @@ from drivers.comfyui import (
 )
 import asset_meta
 import assets_index
+import video_edit
 import db
 import model_download
 import model_registry
@@ -4783,6 +4784,84 @@ def get_output_video(filename: str):
 @app.delete("/api/output-videos/{filename:path}")
 def delete_output_video(filename: str):
     resolve_output_video(filename).unlink()
+    return {"ok": True}
+
+
+# ---- 영상 편집(자르기 / 이어 붙이기) — video_edit.py ---------------------------------------
+# 갤러리에서 고른 영상으로 새 영상을 만든다(원본은 그대로). 작업은 백그라운드로 돌고 진행률을 폴링으로 본다.
+
+def _slug(text: str, fallback: str) -> str:
+    slug = re.sub(r"[^\w.-]+", "-", text.strip(), flags=re.UNICODE).strip("-._")[:40]
+    return slug or fallback
+
+
+@app.post("/api/video-edits")
+async def create_video_edit(request: Request):
+    user = me(request)
+    data = await read_json_object(request, allow_empty=False)
+    op = data.get("op")
+    if op not in ("concat", "trim"):
+        raise HTTPException(400, "op는 concat 또는 trim이어야 해요.")
+    names = data.get("inputs")
+    if not isinstance(names, list) or not names or not all(isinstance(n, str) and n for n in names):
+        raise HTTPException(400, "inputs(영상 이름 목록)가 필요해요.")
+    if len(names) > video_edit.MAX_INPUTS:
+        raise HTTPException(400, f"한 번에 {video_edit.MAX_INPUTS}개까지 이어 붙일 수 있어요.")
+    sources = [resolve_output_video(n) for n in names]   # 남의 영상/없는 영상은 여기서 404
+    start_s = end_s = None
+    if op == "trim":
+        try:
+            start_s = float(data.get("start") or 0)
+            end_s = float(data["end"]) if data.get("end") not in (None, "") else None
+        except (TypeError, ValueError):
+            raise HTTPException(400, "start/end는 초 단위 숫자여야 해요.")
+        if start_s < 0 or (end_s is not None and end_s <= start_s):
+            raise HTTPException(400, "끝 시각은 시작 시각보다 뒤여야 해요.")
+    base = Path(OUTPUT_DIR).resolve()
+    prefix = "" if auth.is_admin(user) else f"u{user['id']}/"
+    label = _slug(str(data.get("name") or ""), "concat" if op == "concat" else "trim")
+    rel = f"{prefix}edits/{datetime.now().strftime('%Y%m%d-%H%M%S')}_{label}_{uuid.uuid4().hex[:4]}.mp4"
+    out_path = base / rel
+    source_rels = [p.relative_to(base).as_posix() for p in sources]
+    scope = auth.owner_scope(user)
+
+    def post(_out: Path) -> None:
+        # 결과물을 색인에 넣고, 원본이 다 같은 프로젝트면 그 프로젝트로 넣는다. 어떤 실패도 편집 자체를 실패시키지 않는다.
+        assets_index.sync(force=True)
+        with db.connect() as conn:
+            rows = conn.execute(
+                f"SELECT DISTINCT project_id FROM assets WHERE path IN ({','.join('?' * len(source_rels))})", source_rels).fetchall()
+        projects = {r["project_id"] for r in rows}
+        if len(projects) == 1 and next(iter(projects)) is not None:
+            asset_meta.move_assets([rel], next(iter(projects)), scope)
+        label_names = ", ".join(Path(r).name for r in source_rels[:5]) + (" …" if len(source_rels) > 5 else "")
+        note = (f"{'이어 붙임' if op == 'concat' else '자름'}: {label_names}"
+                + (f" ({start_s:g}s~{end_s:g}s)" if op == "trim" and end_s is not None else ""))
+        asset_meta.update_assets([rel], note=note, owner_id=scope)
+
+    try:
+        job_id = video_edit.start(op, sources, out_path, user["id"], start_s=start_s, end_s=end_s, out_rel=rel, post=post)
+    except video_edit.EditError as e:
+        raise HTTPException(400, str(e))
+    return {"id": job_id}
+
+
+def _edit_job_or_404(user: dict, job_id: str) -> dict:
+    job = video_edit.get(job_id)
+    if job is None or not (auth.is_admin(user) or job["owner_id"] == user["id"]):
+        raise HTTPException(404, "없는 편집 작업이에요.")
+    return job
+
+
+@app.get("/api/video-edits/{job_id}")
+def get_video_edit(job_id: str, request: Request):
+    return video_edit.public(_edit_job_or_404(me(request), job_id))
+
+
+@app.post("/api/video-edits/{job_id}/cancel")
+def cancel_video_edit(job_id: str, request: Request):
+    _edit_job_or_404(me(request), job_id)
+    video_edit.cancel(job_id)
     return {"ok": True}
 
 
