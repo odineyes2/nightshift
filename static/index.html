@@ -1470,6 +1470,35 @@
   }
   .lora-tab-family-chip input{ margin:0; }
   .lora-tab-family-chip.checked{ color:var(--text); border-color:var(--queued); }
+
+  .model-kind-tabs{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+  .model-kind-tab{
+    font-family:var(--mono); font-size:12px; color:var(--text-dim); background:transparent;
+    border:1px solid var(--border); border-radius:999px; padding:4px 12px; cursor:pointer;
+  }
+  .model-kind-tab.active{ color:var(--text); border-color:var(--queued); }
+  .model-kind-count{ margin-left:6px; opacity:.6; }
+  .model-row{ border:1px solid var(--border); border-radius:var(--radius-sm); }
+  .model-row.uninstalled .lora-tab-name{ opacity:.6; }
+  .model-row-head{ display:flex; align-items:center; gap:12px; padding:10px 12px; cursor:pointer; }
+  .model-row-head .lora-tab-name{ flex:0 1 auto; min-width:0; max-width:46%; }
+  .model-badges{ flex:1 1 auto; display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
+  .model-badge{
+    font-family:var(--mono); font-size:11px; color:var(--text-dim); border:1px solid var(--border);
+    border-radius:999px; padding:1px 8px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .model-badge.arch{ color:var(--text); border-color:var(--queued); }
+  .model-badge.trig{ color:var(--text); }
+  .model-badge.missing{ color:var(--text-dim); border-style:dashed; }
+  .model-chevron{ flex:0 0 auto; transition:transform .15s; }
+  .model-row.open .model-chevron{ transform:rotate(180deg); }
+  .model-editor{ display:flex; flex-direction:column; gap:10px; padding:4px 12px 12px; border-top:1px solid var(--border); }
+  .model-field{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-dim); margin-top:6px; }
+  .model-field .option-input{ max-width:none; }
+  @media (max-width:640px){
+    .model-row-head{ flex-wrap:wrap; }
+    .model-row-head .lora-tab-name{ max-width:100%; flex:1 1 100%; }
+  }
   /* 아직 family로 등록 안 된, 설치된 체크포인트 안내 — family-row보다 눈에 덜
      띄게(점선 테두리) 둔다. "해도 되고 안 해도 되는" 편의 기능이라서다. */
   .family-unregistered{
@@ -3311,17 +3340,18 @@
 
   <div class="panel">
     <div class="panel-header">
-      <div class="section-label">LoRA triggers</div>
+      <div class="section-label">Model registry</div>
       <div class="panel-header-actions">
         <button class="load-btn" id="lora-tab-refresh-btn" type="button" title="설치 목록 새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg> 새로고침</button>
       </div>
     </div>
     <div class="panel-body">
-      <div class="email-hint">ComfyUI에 설치된 LoRA마다 트리거 워드(그 LoRA를 쓰려면 프롬프트에 넣어야 하는 단어/문구 — civitai 등
-        배포처에 적혀 있는 값)를 입력해두면, "워크플로우" 탭과 "새 작업 추가" 마법사에서 그 LoRA를 고를 때 긍정
-        프롬프트에 자동으로 덧붙어요. 호환 베이스 모델을 하나도 안 고르면 모든 베이스 모델과 호환되는 것으로 취급돼요
-        (마법사에서 항상 보임) — 특정 family에서만 써야 하는 LoRA라면 체크해두세요. 입력/체크하면 바로 저장돼요.</div>
-      <input type="text" class="option-input" id="lora-tab-filter" placeholder="이름으로 거르기" style="max-width:320px;">
+      <div class="email-hint">체크포인트·디퓨전 모델(UNet)·LoRA·VAE·텍스트 인코더 등 ComfyUI에 설치된 모델마다 계열, 태그, 메모, 출처를
+        적어둘 수 있어요. 항목을 눌러 펼치면 편집돼요(관리자만, 바로 저장). LoRA는 트리거 워드(워크플로우 탭과 마법사에서 고르면
+        긍정 프롬프트에 자동으로 붙어요)와 호환 베이스 모델을 정할 수 있고, 호환 베이스 모델을 하나도 안 고르면 모든 베이스 모델과
+        호환되는 것으로 취급돼요. "미설치"는 등록은 돼 있지만 지금 보고 있는 파드에는 없는 모델이에요.</div>
+      <div class="model-kind-tabs" id="model-kind-tabs"></div>
+      <input type="text" class="option-input" id="lora-tab-filter" placeholder="이름·계열·태그·메모로 거르기" style="width:100%; max-width:320px;">
       <div class="upload-error" id="lora-tab-error"></div>
       <div id="lora-tab-list"></div>
     </div>
@@ -6004,22 +6034,6 @@ async function fetchLoraTriggers(){
   }
 }
 
-let saveLoraTriggersTimer = null;
-function scheduleSaveLoraTriggers(){
-  clearTimeout(saveLoraTriggersTimer);
-  saveLoraTriggersTimer = setTimeout(async () => {
-    try{
-      await fetch('/api/lora-triggers', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loraTriggers),
-      });
-    }catch(e){
-      // 다음 입력이나 새로고침 때 다시 시도됨 — 여기서 사용자에게 굳이 알리지 않음
-    }
-  }, 600);
-}
-
 // {trigger, families} 형태를 항상 돌려준다 — 서버가 이미 이관해서 주지만, 아직
 // fetch가 안 됐거나 그 이름이 목록에 없을 때를 위한 기본값.
 function getLoraEntry(name){
@@ -6099,62 +6113,194 @@ async function fetchInputImages(force){
   return inputImagesCache;
 }
 
-// ---- "모델" 탭 — LoRA 트리거 워드 + 호환 family ----
-document.getElementById('lora-tab-list').addEventListener('input', (e) => {
-  const input = e.target;
-  if(!input.classList.contains('lora-tab-trigger-input')) return;
-  const name = input.dataset.loraName;
-  const value = input.value.trim();
-  const entry = getLoraEntry(name);
-  loraTriggers[name] = { trigger: value, families: entry.families };
-  scheduleSaveLoraTriggers();
+// ---- "모델" 탭 — 모델 등록부(종류별 계열/태그/메모/출처, LoRA는 트리거 워드+호환 베이스 모델) ----
+// 서버의 models 테이블이 원본. 설치 여부는 파드마다 달라서(comfyObjectInfoCache) 등록부 항목과
+// 설치된 파일을 파일명으로 합쳐 보여준다 — 등록만 되고 이 파드에 없는 건 "미설치"로 표시.
+let modelRegistry = { kinds: [], architectures: [], items: {} };
+let modelKindActive = 'checkpoints';
+let modelExpandedKey = null;
+const modelSaveTimers = {};
+
+function modelKey(kind, name){ return `${kind} ${name}`; }
+
+function rebuildLoraTriggersFromRegistry(){
+  const out = {};
+  for(const e of Object.values(modelRegistry.items)){
+    if(e.kind === 'loras' && (e.trigger || (e.families || []).length)) out[e.filename] = { trigger: e.trigger || '', families: e.families || [] };
+  }
+  loraTriggers = out;
+}
+
+async function fetchModelRegistry(){
+  try{
+    const res = await fetch('/api/models');
+    if(!res.ok) return;
+    const data = await res.json();
+    modelRegistry.kinds = data.kinds || [];
+    modelRegistry.architectures = data.architectures || [];
+    modelRegistry.items = {};
+    for(const e of data.items || []) modelRegistry.items[modelKey(e.kind, e.filename)] = e;
+    rebuildLoraTriggersFromRegistry();
+  }catch(e){
+    // 못 받아와도 목록만 메타데이터 없이 보일 뿐이다
+  }
+}
+
+function modelEntry(kind, name){
+  return modelRegistry.items[modelKey(kind, name)]
+    || { kind, filename: name, architecture: '', notes: '', tags: [], trigger: '', families: [], source_url: '' };
+}
+
+function scheduleSaveModelEntry(kind, name){
+  const key = modelKey(kind, name);
+  clearTimeout(modelSaveTimers[key]);
+  modelSaveTimers[key] = setTimeout(async () => {
+    const e = modelEntry(kind, name);
+    try{
+      const res = await fetch('/api/models', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, filename: name, architecture: e.architecture, notes: e.notes, tags: e.tags,
+                               trigger: e.trigger, families: e.families, source_url: e.source_url }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok){ document.getElementById('lora-tab-error').textContent = data.detail || '저장하지 못했어요.'; return; }
+      document.getElementById('lora-tab-error').textContent = '';
+      if(data.entry) modelRegistry.items[key] = data.entry; else delete modelRegistry.items[key];
+      rebuildLoraTriggersFromRegistry();
+    }catch(err){
+      document.getElementById('lora-tab-error').textContent = '저장하지 못했어요 — 연결을 확인하세요.';
+    }
+  }, 600);
+}
+
+function updateModelEntryField(kind, name, field, value){
+  const key = modelKey(kind, name);
+  const e = { ...modelEntry(kind, name) };
+  e[field] = value;
+  modelRegistry.items[key] = e;
+  if(kind === 'loras') rebuildLoraTriggersFromRegistry();
+  scheduleSaveModelEntry(kind, name);
+}
+
+function familiesOfCheckpoint(name){
+  return Object.values(baseModelFamilies).filter(f => (f.checkpoints || []).includes(name)).map(f => f.label);
+}
+
+function modelRowHtml(kind, name, installed, isAdmin){
+  const e = modelEntry(kind, name);
+  const key = modelKey(kind, name);
+  const open = modelExpandedKey === key;
+  const badges = [];
+  if(e.architecture) badges.push(`<span class="model-badge arch">${escapeHtml(e.architecture)}</span>`);
+  if(kind === 'checkpoints') familiesOfCheckpoint(name).forEach(l => badges.push(`<span class="model-badge fam">${escapeHtml(l)}</span>`));
+  if(kind === 'loras' && e.trigger) badges.push(`<span class="model-badge trig" title="트리거 워드">${escapeHtml(e.trigger)}</span>`);
+  (e.tags || []).forEach(t => badges.push(`<span class="model-badge">${escapeHtml(t)}</span>`));
+  if(!installed) badges.push('<span class="model-badge missing" title="지금 보고 있는 파드에는 없어요">미설치</span>');
+  let editor = '';
+  if(open){
+    const archList = `<datalist id="model-arch-list">${modelRegistry.architectures.map(a => `<option value="${escapeHtml(a)}">`).join('')}</datalist>`;
+    const famChips = kind === 'loras' ? Object.entries(baseModelFamilies).map(([fid, fam]) => {
+      const checked = (e.families || []).includes(fid);
+      return `<label class="lora-tab-family-chip${checked ? ' checked' : ''}" data-family-id="${escapeHtml(fid)}">
+        <input type="checkbox" ${checked ? 'checked' : ''}>${escapeHtml(fam.label || fid)}</label>`;
+    }).join('') : '';
+    const dis = isAdmin ? '' : 'disabled';
+    editor = `
+    <div class="model-editor" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}">
+      <label class="model-field"><span>계열 / 아키텍처</span>
+        <input type="text" class="option-input" data-field="architecture" list="model-arch-list" ${dis} placeholder="예: SDXL, Flux, Wan2.2" value="${escapeHtml(e.architecture)}">${archList}</label>
+      ${kind === 'loras' ? `
+      <label class="model-field"><span>트리거 워드</span>
+        <input type="text" class="option-input" data-field="trigger" ${dis} placeholder="없으면 비워둠 — 워크플로우에서 고르면 프롬프트에 자동으로 붙어요" value="${escapeHtml(e.trigger)}"></label>
+      <div class="model-field"><span>호환 베이스 모델 (하나도 안 고르면 전부 호환)</span>
+        <div class="lora-tab-families" style="max-width:none;">${famChips || '<span class="comfy-model-empty">(등록된 베이스 모델 없음)</span>'}</div></div>` : ''}
+      <label class="model-field"><span>태그 (쉼표로 구분)</span>
+        <input type="text" class="option-input" data-field="tags" ${dis} placeholder="예: 캐릭터, 스타일, 실사" value="${escapeHtml((e.tags || []).join(', '))}"></label>
+      <label class="model-field"><span>출처 주소</span>
+        <input type="text" class="option-input" data-field="source_url" ${dis} placeholder="civitai / huggingface 주소" value="${escapeHtml(e.source_url)}"></label>
+      <label class="model-field"><span>메모</span>
+        <textarea class="option-input" data-field="notes" rows="3" ${dis} placeholder="권장 가중치, 잘 어울리는 조합 등" style="max-width:none;">${escapeHtml(e.notes)}</textarea></label>
+      ${isAdmin ? '' : '<div class="email-hint">메모와 태그는 관리자만 고칠 수 있어요.</div>'}
+    </div>`;
+  }
+  return `
+  <div class="model-row${open ? ' open' : ''}${installed ? '' : ' uninstalled'}" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}">
+    <div class="model-row-head" role="button" tabindex="0">
+      <div class="lora-tab-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
+      <div class="model-badges">${badges.join('')}</div>
+      <svg class="ico model-chevron"><use href="#i-chevron-down"/></svg>
+    </div>
+    ${editor}
+  </div>`;
+}
+
+function renderModelRegistry(){
+  const tabsEl = document.getElementById('model-kind-tabs');
+  const listEl = document.getElementById('lora-tab-list');
+  const connected = comfyObjectInfoCache && comfyObjectInfoCache.connected;
+  const installedOf = kind => connected ? (comfyObjectInfoCache.models[kind] || []) : [];
+  const namesOf = kind => {
+    const set = new Set(installedOf(kind));
+    for(const e of Object.values(modelRegistry.items)) if(e.kind === kind) set.add(e.filename);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  };
+  tabsEl.innerHTML = modelRegistry.kinds.map(k =>
+    `<button type="button" class="model-kind-tab${k.id === modelKindActive ? ' active' : ''}" data-kind="${escapeHtml(k.id)}">${escapeHtml(k.label)}<span class="model-kind-count">${namesOf(k.id).length}</span></button>`
+  ).join('');
+  const all = namesOf(modelKindActive);
+  const filter = document.getElementById('lora-tab-filter').value.trim().toLowerCase();
+  const shown = filter ? all.filter(n => {
+    const e = modelEntry(modelKindActive, n);
+    return (n + ' ' + e.architecture + ' ' + (e.tags || []).join(' ') + ' ' + e.notes + ' ' + e.trigger).toLowerCase().includes(filter);
+  }) : all;
+  const notice = connected ? '' : '<div class="comfy-model-empty" style="margin-bottom:8px;">ComfyUI에 연결되지 않아 설치된 목록은 못 가져왔어요 — 등록해 둔 항목만 보여요.</div>';
+  if(shown.length === 0){
+    listEl.innerHTML = notice + `<div class="comfy-model-empty">${filter && all.length > 0 ? '거른 결과가 없어요' : '이 종류의 모델이 없어요'}</div>`;
+    return;
+  }
+  const installedSet = new Set(installedOf(modelKindActive));
+  const isAdmin = isAdminUser();
+  listEl.innerHTML = notice + `<div class="lora-tab-list">${shown.map(n => modelRowHtml(modelKindActive, n, !connected || installedSet.has(n), isAdmin)).join('')}</div>`;
+}
+
+document.getElementById('model-kind-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.model-kind-tab');
+  if(!btn) return;
+  modelKindActive = btn.dataset.kind;
+  modelExpandedKey = null;
+  renderModelRegistry();
 });
 
 document.getElementById('lora-tab-list').addEventListener('click', (e) => {
   const chip = e.target.closest('.lora-tab-family-chip');
-  if(!chip) return;
-  const checkbox = chip.querySelector('input[type="checkbox"]');
-  if(e.target !== checkbox) return; // 체크박스 자체 클릭만 처리(라벨 텍스트는 checkbox가 알아서 토글)
-  const name = chip.dataset.loraName;
-  const familyId = chip.dataset.familyId;
-  const entry = getLoraEntry(name);
-  const families = new Set(entry.families);
-  if(checkbox.checked) families.add(familyId); else families.delete(familyId);
-  loraTriggers[name] = { trigger: entry.trigger, families: Array.from(families) };
-  chip.classList.toggle('checked', checkbox.checked);
-  scheduleSaveLoraTriggers();
+  if(chip){
+    const checkbox = chip.querySelector('input[type="checkbox"]');
+    if(e.target !== checkbox) return;
+    const editor = chip.closest('.model-editor');
+    const name = editor.dataset.name;
+    const families = new Set(modelEntry('loras', name).families);
+    if(checkbox.checked) families.add(chip.dataset.familyId); else families.delete(chip.dataset.familyId);
+    chip.classList.toggle('checked', checkbox.checked);
+    updateModelEntryField('loras', name, 'families', Array.from(families));
+    return;
+  }
+  const head = e.target.closest('.model-row-head');
+  if(!head) return;
+  const row = head.closest('.model-row');
+  const key = modelKey(row.dataset.kind, row.dataset.name);
+  modelExpandedKey = modelExpandedKey === key ? null : key;
+  renderModelRegistry();
 });
 
-function renderLoraTab(){
-  const listEl = document.getElementById('lora-tab-list');
-  const all = builderModels().loras;
-  if(!comfyObjectInfoCache || !comfyObjectInfoCache.connected){
-    listEl.innerHTML = '<div class="comfy-model-empty">ComfyUI에 연결되지 않아 목록을 가져오지 못했어요.</div>';
-    return;
-  }
-  const filter = document.getElementById('lora-tab-filter').value.trim().toLowerCase();
-  const shown = filter ? all.filter(name => name.toLowerCase().includes(filter)) : all;
-  if(shown.length === 0){
-    listEl.innerHTML = `<div class="comfy-model-empty">${filter && all.length > 0 ? '거른 결과가 없어요' : '설치된 LoRA가 없어요'}</div>`;
-    return;
-  }
-  const familyEntries = Object.entries(baseModelFamilies);
-  listEl.innerHTML = `<div class="lora-tab-list">${shown.map(name => {
-    const entry = getLoraEntry(name);
-    const chips = familyEntries.map(([familyId, family]) => {
-      const checked = entry.families.includes(familyId);
-      return `<label class="lora-tab-family-chip${checked ? ' checked' : ''}" data-lora-name="${escapeHtml(name)}" data-family-id="${escapeHtml(familyId)}">
-        <input type="checkbox" ${checked ? 'checked' : ''}>${escapeHtml(family.label || familyId)}</label>`;
-    }).join('');
-    return `
-    <div class="lora-tab-row">
-      <div class="lora-tab-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
-      <input type="text" class="option-input lora-tab-trigger-input" data-lora-name="${escapeHtml(name)}"
-             placeholder="트리거 워드 (없으면 비워둠)" value="${escapeHtml(entry.trigger)}">
-      <div class="lora-tab-families">${chips || '<span class="comfy-model-empty">(등록된 베이스 모델 없음)</span>'}</div>
-    </div>`;
-  }).join('')}</div>`;
-}
+document.getElementById('lora-tab-list').addEventListener('input', (e) => {
+  const input = e.target.closest('[data-field]');
+  const editor = e.target.closest('.model-editor');
+  if(!input || !editor || !isAdminUser()) return;
+  const field = input.dataset.field;
+  const value = field === 'tags' ? input.value.split(',').map(t => t.trim()).filter(Boolean) : input.value;
+  updateModelEntryField(editor.dataset.kind, editor.dataset.name, field, value);
+});
 
 async function initLoraTab(force){
   const errorEl = document.getElementById('lora-tab-error');
@@ -6164,14 +6310,14 @@ async function initLoraTab(force){
   }catch(e){
     errorEl.textContent = e.message || 'LoRA 목록을 가져오지 못했어요.';
   }
-  await fetchBaseModelFamilies();
-  renderLoraTab();
+  await Promise.all([fetchBaseModelFamilies(), fetchModelRegistry()]);
+  renderModelRegistry();
   initFamilyTab();
   initPresetTab();
 }
 
 document.getElementById('lora-tab-refresh-btn').addEventListener('click', () => initLoraTab(true));
-document.getElementById('lora-tab-filter').addEventListener('input', renderLoraTab);
+document.getElementById('lora-tab-filter').addEventListener('input', renderModelRegistry);
 
 // ---- "모델" 탭 — 베이스 모델(family) 관리 ----
 // family id로 쓸 수 있는 글자만 남기고, 겹치면 -2, -3...을 붙인다. 체크포인트
@@ -6265,7 +6411,7 @@ document.getElementById('family-tab-list').addEventListener('click', (e) => {
   delete baseModelFamilies[familyId];
   scheduleSaveBaseModelFamilies();
   renderFamilyTab();
-  renderLoraTab();
+  renderModelRegistry();
 });
 
 document.getElementById('family-tab-unregistered').addEventListener('click', (e) => {
@@ -6278,7 +6424,7 @@ document.getElementById('family-tab-unregistered').addEventListener('click', (e)
   baseModelFamilies[familyId] = { label: name.replace(/\.[^.]+$/, ''), checkpoints: [name] };
   scheduleSaveBaseModelFamilies();
   renderFamilyTab();
-  renderLoraTab();
+  renderModelRegistry();
 });
 
 document.getElementById('family-new-add-btn').addEventListener('click', () => {
@@ -6305,7 +6451,7 @@ document.getElementById('family-new-add-btn').addEventListener('click', () => {
   idInput.value = '';
   labelInput.value = '';
   renderFamilyTab();
-  renderLoraTab();
+  renderModelRegistry();
 });
 
 // ---- "모델" 탭 — ControlNet 프리셋 워크플로우 관리 ----

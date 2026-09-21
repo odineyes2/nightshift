@@ -64,6 +64,7 @@ from drivers.comfyui import (
 import asset_meta
 import assets_index
 import db
+import model_registry
 import pod_registry
 import projects as project_store
 import runpod_api
@@ -272,49 +273,15 @@ def save_danbooru_history():
             json.dump(danbooru_history, f, indent=2, ensure_ascii=False)
 
 
-# LoRA 파일 이름 -> {trigger, families} 매핑. ComfyUI는 LoRA가 설치돼 있다는 것만
-# 알지 트리거 워드가 뭔지는 모르므로(그 LoRA를 만든 사람이 문서/civitai 페이지 등에
-# 적어둔 값이라 사용자가 직접 입력해야 함), 여기 저장해두고 "워크플로우" 탭에서 그
-# LoRA를 고르면 자동으로 긍정 프롬프트에 덧붙인다("🎛 LoRA" 탭에서 편집함).
-# families(베이스 모델 family id 목록)는 "새 작업 추가" 마법사가 지금 고른 베이스
-# 모델과 호환되는 LoRA만 보여주는 데 쓴다 — 빈 목록이면 "모든 베이스 모델과 호환"
-# 취급(과거 데이터를 자동 이관한 항목이 전부 이 상태다. 아래 load_lora_triggers 참고).
-#
-# 예전 스키마는 {lora_filename: "trigger_word"}(문자열)였다. load_lora_triggers()가
-# 시작할 때 문자열 값을 {trigger: 그 값, families: []}로 자동 이관하고 즉시 새
-# 형식으로 다시 저장해, 그 뒤로는 항상 새 형식만 디스크에 남는다.
+# LoRA 파일 이름 -> {trigger, families} 매핑. 예전에는 lora_triggers.json이었지만 이제
+# 모델 등록부(model_registry.py, models 테이블)가 원본이고, 여기는 마법사/워크플로우 탭이
+# 읽던 모양 그대로 돌려주는 뷰일 뿐이다. 옛 JSON은 시작할 때 한 번만 등록부로 옮기고
+# .migrated로 남긴다(load_lora_triggers).
 LORA_TRIGGERS_FILE = data_path("lora_triggers.json")
-lora_triggers: dict[str, dict] = {}  # {lora_filename: {"trigger": str, "families": [family_id, ...]}}
-
-
-def normalize_lora_trigger_entry(value) -> dict:
-    if isinstance(value, str):
-        return {"trigger": value, "families": []}
-    if isinstance(value, dict):
-        trigger = value.get("trigger")
-        families = value.get("families")
-        return {
-            "trigger": trigger if isinstance(trigger, str) else "",
-            "families": [f for f in families if isinstance(f, str)] if isinstance(families, list) else [],
-        }
-    return {"trigger": "", "families": []}
 
 
 def load_lora_triggers():
-    if not LORA_TRIGGERS_FILE.exists():
-        return
-    with open(LORA_TRIGGERS_FILE) as f:
-        raw = json.load(f)
-    migrated = any(not isinstance(v, dict) for v in raw.values())
-    lora_triggers.update({k: normalize_lora_trigger_entry(v) for k, v in raw.items()})
-    if migrated:
-        save_lora_triggers()
-
-
-def save_lora_triggers():
-    with lock:
-        with open(LORA_TRIGGERS_FILE, "w") as f:
-            json.dump(lora_triggers, f, indent=2, ensure_ascii=False)
+    model_registry.import_legacy_lora_triggers(LORA_TRIGGERS_FILE)
 
 
 # 베이스 모델 family(예: "wai-illustrious", "krea.2") 정의 — "새 작업 추가" 마법사의
@@ -519,8 +486,10 @@ def resolve_comfy_url() -> tuple[str | None, bool]:
 # 입력 선택지를 그대로 읽어 쓴다(그 노드가 없는 서버면 빈 목록).
 MODEL_LIST_SOURCES = {
     "checkpoints": ("CheckpointLoaderSimple", "ckpt_name"),
+    "diffusion_models": ("UNETLoader", "unet_name"),
     "loras": ("LoraLoader", "lora_name"),
     "vae": ("VAELoader", "vae_name"),
+    "text_encoders": ("CLIPLoader", "clip_name"),
     "controlnet": ("ControlNetLoader", "control_net_name"),
     "upscale_models": ("UpscaleModelLoader", "model_name"),
     "clip_vision": ("CLIPVisionLoader", "clip_name"),
@@ -1849,41 +1818,35 @@ async def comfy_object_info(refresh: bool = False, pod_id: str | None = None):
 
 @app.get("/api/lora-triggers")
 def get_lora_triggers():
-    return lora_triggers
+    return model_registry.lora_triggers()
 
 
-@app.put("/api/lora-triggers")
-async def put_lora_triggers(request: Request):
+@app.get("/api/models")
+def get_model_registry():
+    """모델 등록부 — 파일 종류 목록과 지금까지 정보를 적어 둔 항목들. 어느 파드에 뭐가 설치돼
+    있는지는 /api/comfy-object-info가 알려 주고, 화면이 둘을 파일명으로 합친다."""
+    return {
+        "kinds": [{"id": k, "label": label} for k, label in model_registry.KINDS],
+        "architectures": model_registry.ARCHITECTURES,
+        "items": model_registry.list_entries(),
+    }
+
+
+@app.put("/api/models")
+async def put_model_registry_entry(request: Request):
     admin_only(request)
-    # "🎛 LoRA" 탭이 편집할 때마다 전체 매핑을 통째로 보내서 그대로 덮어쓴다 —
-    # danbooru tag-edits와 같은 이유로(개수가 많지 않고 편집도 잦지 않아 부분
-    # patch를 둘 이유가 없음). 각 값은 {trigger: str, families: [family_id, ...]}
-    # 형태여야 한다(families가 빈 목록이면 모든 베이스 모델과 호환 취급).
-    body = await request.body()
     try:
-        data = json.loads(body.decode("utf-8"))
+        data = json.loads((await request.body()).decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
     if not isinstance(data, dict):
-        raise HTTPException(400, "{LoRA 파일명: {trigger, families}} 형태의 객체여야 해요.")
-
-    cleaned: dict[str, dict] = {}
-    for name, value in data.items():
-        if not isinstance(value, dict):
-            raise HTTPException(400, f"'{name}' 값은 {{trigger, families}} 형태의 객체여야 해요.")
-        trigger = value.get("trigger", "")
-        families = value.get("families", [])
-        if not isinstance(trigger, str):
-            raise HTTPException(400, f"'{name}'의 trigger는 문자열이어야 해요.")
-        if not isinstance(families, list) or not all(isinstance(f, str) for f in families):
-            raise HTTPException(400, f"'{name}'의 families는 문자열 목록이어야 해요.")
-        if trigger.strip() or families:
-            cleaned[name] = {"trigger": trigger, "families": families}
-
-    lora_triggers.clear()
-    lora_triggers.update(cleaned)
-    save_lora_triggers()
-    return lora_triggers
+        raise HTTPException(400, "{kind, filename, ...} 형태의 객체여야 해요.")
+    fields = {k: data[k] for k in ("architecture", "notes", "tags", "trigger", "families", "source_url") if k in data}
+    try:
+        entry = model_registry.upsert(str(data.get("kind") or ""), str(data.get("filename") or ""), fields)
+    except model_registry.RegistryError as e:
+        raise HTTPException(400, str(e))
+    return {"entry": entry}
 
 
 @app.get("/api/input-images")
@@ -1993,6 +1956,8 @@ async def put_base_model_families(request: Request):
             raise HTTPException(400, f"'{family_id}'의 checkpoints는 문자열 목록이어야 해요.")
         cleaned[family_id] = {"label": label, "checkpoints": checkpoints}
 
+    for removed in set(base_model_families) - set(cleaned):
+        model_registry.remove_family(removed)
     base_model_families.clear()
     base_model_families.update(cleaned)
     save_base_model_families()

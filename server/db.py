@@ -161,8 +161,26 @@ CREATE INDEX jobs_owner ON jobs(owner_id);
 CREATE INDEX assets_owner ON assets(owner_id, created_at DESC)
 """
 
+# v4: 모델 등록부. ComfyUI가 알려 주는 "설치된 파일 목록"에는 이름밖에 없어서, 사람이 붙이는
+# 정보(계열/메모/태그/트리거 워드/호환 베이스 모델/출처)를 (종류, 파일명)별로 따로 둔다. 파일이
+# 어느 파드에 있는지와 무관하게 파일명이 열쇠라, 같은 모델을 가진 여러 파드가 한 항목을 공유한다.
+SCHEMA_V4 = """
+CREATE TABLE models (
+  kind         TEXT NOT NULL,
+  filename     TEXT NOT NULL,
+  architecture TEXT NOT NULL DEFAULT '',
+  notes        TEXT NOT NULL DEFAULT '',
+  tags_json    TEXT NOT NULL DEFAULT '[]',
+  trigger      TEXT NOT NULL DEFAULT '',
+  families_json TEXT NOT NULL DEFAULT '[]',
+  source_url   TEXT NOT NULL DEFAULT '',
+  updated_at   TEXT NOT NULL,
+  PRIMARY KEY (kind, filename)
+)
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
-MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3)]
+MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4)]
 
 
 def now_iso() -> str:
