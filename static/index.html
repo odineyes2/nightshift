@@ -1424,28 +1424,6 @@
     gap:8px;
   }
   /* LoRA 행의 호환 family 체크박스들 — 트리거 입력칸 오른쪽에 칩 형태로 늘어놓는다. */
-  .lora-tab-families{
-    flex:0 0 auto;
-    display:flex;
-    flex-wrap:wrap;
-    gap:6px;
-    max-width:38%;
-  }
-  .lora-tab-family-chip{
-    display:inline-flex;
-    align-items:center;
-    gap:4px;
-    font-family:var(--mono);
-    font-size:11px;
-    color:var(--text-dim);
-    border:1px solid var(--border);
-    border-radius:999px;
-    padding:2px 8px;
-    cursor:pointer;
-    user-select:none;
-  }
-  .lora-tab-family-chip input{ margin:0; }
-  .lora-tab-family-chip.checked{ color:var(--text); border-color:var(--queued); }
 
   .model-badge{
     font-family:var(--mono); font-size:11px; color:var(--text-dim); border:1px solid var(--border);
@@ -5984,44 +5962,28 @@ async function fetchLoraTriggers(){
   }
 }
 
-// {trigger, families} 형태를 항상 돌려준다 — 서버가 이미 이관해서 주지만, 아직
-// fetch가 안 됐거나 그 이름이 목록에 없을 때를 위한 기본값.
+// {trigger, baseId} 형태를 항상 돌려준다 — 아직 fetch가 안 됐거나 그 이름이 목록에 없을 때를 위한 기본값.
+// baseId가 비어 있으면 어떤 베이스 모델을 골라도 보이는 LoRA다.
 function getLoraEntry(name){
   const entry = loraTriggers[name];
-  if(entry && typeof entry === 'object') return { trigger: entry.trigger || '', families: entry.families || [] };
-  return { trigger: '', families: [] };
+  if(entry && typeof entry === 'object') return { trigger: entry.trigger || '', baseId: entry.base_id || '' };
+  return { trigger: '', baseId: '' };
 }
 
-// ---- 베이스 모델 family (예: wai-illustrious, krea.2) ----
-// "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/ControlNet
-// 프리셋을 걸러서 보여준다. GET은 페이지를 열 때 한 번, PUT은 "모델" 탭에서
-// family를 추가/편집할 때마다(디바운스) — lora-triggers와 같은 whole-blob 패턴.
+// ---- 베이스 모델 그룹 ----
+// "새 작업 추가" 마법사가 이 그룹을 기준으로 워크플로우 유형/LoRA/ControlNet 프리셋을 걸러서 보여준다. 따로 관리하는
+// 데이터가 아니라, 모델 등록부에서 base_model이 적힌 체크포인트를 그 값으로 묶어 서버가 돌려준다
+// ({id: {label, checkpoints}} — 지금 들어가 있는 파드에 설치된 체크포인트만).
 let baseModelFamilies = {};
 
 async function fetchBaseModelFamilies(){
   try{
-    const res = await fetch('/api/base-model-families');
+    const res = await fetch(`/api/base-model-families${podQuery()}`);
     if(!res.ok) return;
     baseModelFamilies = await res.json();
   }catch(e){
     // 못 받아와도 마법사의 "베이스 모델" 단계가 비어있을 뿐 나머지 기능엔 영향 없음
   }
-}
-
-let saveFamiliesTimer = null;
-function scheduleSaveBaseModelFamilies(){
-  clearTimeout(saveFamiliesTimer);
-  saveFamiliesTimer = setTimeout(async () => {
-    try{
-      await fetch('/api/base-model-families', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(baseModelFamilies),
-      });
-    }catch(e){
-      // 다음 편집이나 새로고침 때 다시 시도됨
-    }
-  }, 600);
 }
 
 // ---- "새 작업 추가" 마법사 2단계(워크플로우 유형) 카탈로그 — 정적이라 세션당 한 번만 받는다 ----
@@ -6074,10 +6036,13 @@ const modelSaveTimers = {};
 
 function modelKey(kind, name){ return `${kind}\u0000${name}`; }
 
+// 서버의 model_registry.base_id와 같은 규칙 — 마법사가 LoRA를 걸러낼 때 체크포인트 그룹 id와 맞춰 본다.
+function baseIdOf(v){ return String(v || '').trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, ''); }
+
 function rebuildLoraTriggersFromRegistry(){
   const out = {};
   for(const e of Object.values(modelRegistry.items)){
-    if(e.kind === 'loras' && (e.trigger_keyword || (e.families || []).length)) out[e.filename] = { trigger: e.trigger_keyword || '', families: e.families || [] };
+    if(e.kind === 'loras' && (e.trigger_keyword || e.base_model)) out[e.filename] = { trigger: e.trigger_keyword || '', base_id: baseIdOf(e.base_model) };
   }
   loraTriggers = out;
 }
@@ -6144,13 +6109,13 @@ function usageHtml(kind, name){
 
 function modelEntry(kind, name){
   return modelRegistry.items[modelKey(kind, name)]
-    || { kind, filename: name, base_model: '', notes: '', tags: [], trigger_keyword: '', families: [], page_url: '', download_url: '' };
+    || { kind, filename: name, base_model: '', notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '' };
 }
 
 function modelEntryPayload(kind, name){
   const e = modelEntry(kind, name);
   return { kind, filename: name, base_model: e.base_model, notes: e.notes, tags: e.tags,
-           trigger_keyword: e.trigger_keyword, families: e.families, page_url: e.page_url, download_url: e.download_url };
+           trigger_keyword: e.trigger_keyword, page_url: e.page_url, download_url: e.download_url };
 }
 
 function setModelError(text){ document.getElementById('lora-tab-error').textContent = text || ''; }
@@ -6187,10 +6152,6 @@ function updateModelEntryField(kind, name, field, value){
   scheduleSaveModelEntry(kind, name);
 }
 
-function familiesOfCheckpoint(name){
-  return Object.values(baseModelFamilies).filter(f => (f.checkpoints || []).includes(name)).map(f => f.label);
-}
-
 // 파드별 설치 현황(modelInventory)에서 — 연결된 파드만 "있다/없다"를 말할 수 있다.
 function invPods(){ return (modelInventory && modelInventory.pods) || []; }
 function livePods(){ return invPods().filter(p => p.connected); }
@@ -6219,7 +6180,7 @@ function modelRowHtml(kind, name, isAdmin){
   const have = podsHaving(kind, name);
   const isLora = kind === 'loras';
   const usage = usageOf(kind, name);
-  const tagList = [...(kind === 'checkpoints' ? familiesOfCheckpoint(name) : []), ...(e.tags || [])];
+  const tagList = e.tags || [];
   const tagsHtml = tagList.length ? `<div class="gallery-details-col model-cell-tags">${tagList.map(t => `<span class="model-badge">${escapeHtml(t)}</span>`).join('')}</div>`
     : '<div class="gallery-details-col dim">-</div>';
   const podsHtml = live.length
@@ -6243,11 +6204,6 @@ function modelRowHtml(kind, name, isAdmin){
   let editor = '';
   if(open){
     const baseList = `<datalist id="model-base-list">${modelRegistry.base_models.map(a => `<option value="${escapeHtml(a)}">`).join('')}</datalist>`;
-    const famChips = isLora ? Object.entries(baseModelFamilies).map(([fid, fam]) => {
-      const checked = (e.families || []).includes(fid);
-      return `<label class="lora-tab-family-chip${checked ? ' checked' : ''}" data-family-id="${escapeHtml(fid)}">
-        <input type="checkbox" ${checked ? 'checked' : ''} ${isAdmin ? '' : 'disabled'}>${escapeHtml(fam.label || fid)}</label>`;
-    }).join('') : '';
     const dis = isAdmin ? '' : 'disabled';
     const link = u => isWebUrl(u) ? ` <a class="model-link" href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">열기</a>` : '';
     const podRows = invPods().map(p => {
@@ -6261,7 +6217,7 @@ function modelRowHtml(kind, name, isAdmin){
     editor = `
     <div class="model-editor" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}">
       ${usageHtml(kind, name)}
-      <label class="model-field"><span>베이스 모델</span>
+      <label class="model-field"><span>베이스 모델 <span style="opacity:.6">(마법사가 이 값으로 체크포인트를 묶고 LoRA를 걸러요)</span></span>
         <input type="text" class="option-input" data-field="base_model" list="model-base-list" ${dis} placeholder="예: SDXL, Illustrious, Flux, Wan 2.2" value="${escapeHtml(e.base_model)}">${baseList}</label>
       ${isLora ? `<label class="model-field"><span>트리거 키워드</span>
         <input type="text" class="option-input" data-field="trigger_keyword" ${dis} placeholder="없으면 비워둠 — 워크플로우에서 고르면 프롬프트에 자동으로 붙어요" value="${escapeHtml(e.trigger_keyword)}"></label>` : ''}
@@ -6271,8 +6227,6 @@ function modelRowHtml(kind, name, isAdmin){
         <input type="url" class="option-input" data-field="download_url" ${dis} placeholder="https://civitai.com/api/download/models/… 또는 https://huggingface.co/…/resolve/…" value="${escapeHtml(e.download_url)}"></label>
       <label class="model-field"><span>태그 (쉼표로 구분)</span>
         <input type="text" class="option-input" data-field="tags" ${dis} placeholder="예: 캐릭터, 스타일, 실사" value="${escapeHtml((e.tags || []).join(', '))}"></label>
-      ${isLora ? `<div class="model-field"><span>호환 베이스 모델 그룹 (하나도 안 고르면 전부 호환)</span>
-        <div class="lora-tab-families" style="max-width:none;">${famChips || '<span class="comfy-model-empty">(등록된 베이스 모델 그룹 없음)</span>'}</div></div>` : ''}
       <label class="model-field wide"><span>메모</span>
         <textarea class="option-input" data-field="notes" rows="3" ${dis} placeholder="권장 가중치, 잘 어울리는 조합 등" style="max-width:none;">${escapeHtml(e.notes)}</textarea></label>
       <div class="model-field wide"><span>파드별 설치</span>${podRows || '<span class="comfy-model-empty">ComfyUI 파드가 없어요.</span>'}</div>
@@ -6391,24 +6345,12 @@ document.getElementById('lora-tab-list').addEventListener('click', (e) => {
     const editor = clearBtn.closest('.model-editor');
     if(!confirm('이 모델의 등록 정보(주소·베이스 모델·트리거 키워드·태그·메모)를 모두 지울까요? 파일은 그대로예요.')) return;
     const kind = editor.dataset.kind, name = editor.dataset.name;
-    putModelEntry({ kind, filename: name, base_model: '', notes: '', tags: [], trigger_keyword: '', families: [], page_url: '', download_url: '' })
+    putModelEntry({ kind, filename: name, base_model: '', notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '' })
       .then(() => { modelExpandedKey = null; renderModelRegistry(); })
       .catch(err => setModelError(err.message));
     return;
   }
   if(e.target.closest('.model-link')) return;
-  const chip = e.target.closest('.lora-tab-family-chip');
-  if(chip){
-    const checkbox = chip.querySelector('input[type="checkbox"]');
-    if(e.target !== checkbox) return;
-    const editor = chip.closest('.model-editor');
-    const name = editor.dataset.name;
-    const families = new Set(modelEntry('loras', name).families);
-    if(checkbox.checked) families.add(chip.dataset.familyId); else families.delete(chip.dataset.familyId);
-    chip.classList.toggle('checked', checkbox.checked);
-    updateModelEntryField('loras', name, 'families', Array.from(families));
-    return;
-  }
   const head = e.target.closest('.model-row-head');
   if(!head) return;
   const row = head.closest('.model-row');
@@ -6438,7 +6380,7 @@ async function fetchModelInventory(force){
 
 async function initModelsTab(force){
   setModelError('');
-  await Promise.all([fetchBaseModelFamilies(), fetchModelRegistry(), fetchModelUsage(), fetchModelInventory(force)]);
+  await Promise.all([fetchModelRegistry(), fetchModelUsage(), fetchModelInventory(force)]);
   renderModelRegistry();
 }
 
@@ -6570,7 +6512,7 @@ function renderWizardFamilyModal(){
   const body = document.getElementById('wizard-family-modal-body');
   const entries = Object.entries(baseModelFamilies);
   if(entries.length === 0){
-    body.innerHTML = '<div class="comfy-model-empty">등록된 베이스 모델이 없어요 — "모델" 탭에서 먼저 등록하세요.</div>';
+    body.innerHTML = '<div class="comfy-model-empty">고를 수 있는 베이스 모델이 없어요 — "모델" 탭에서 이 파드에 설치된 체크포인트의 베이스 모델을 적어 주세요.</div>';
     return;
   }
   body.innerHTML = `<div class="wizard-pick-list">${entries.map(([familyId, family]) => {
@@ -6580,7 +6522,7 @@ function renderWizardFamilyModal(){
     const header = `
       <div class="wizard-pick-row${disabled ? ' disabled' : ''}${headerSelected ? ' selected' : ''}" data-family-id="${escapeHtml(familyId)}">
         <div class="wizard-pick-row-label">${escapeHtml(family.label || familyId)}
-          ${disabled ? '<span class="wizard-pick-row-hint">체크포인트가 지정되지 않았어요 — "모델" 탭에서 지정하세요</span>' : ''}
+          ${disabled ? '<span class="wizard-pick-row-hint">이 파드에 설치된 체크포인트가 없어요</span>' : ''}
         </div>
       </div>`;
     const rows = checkpoints.length > 1 ? checkpoints.map(ckpt => `
@@ -6729,18 +6671,17 @@ function renderWizardLoraModal(){
   }
   const isPreset = wizardIsPreset();
   const all = comfyObjectInfoCache.models.loras || [];
-  // 호환 family를 하나도 안 고른 LoRA는 모든 베이스 모델과 호환되는 것으로 취급한다
-  // (lora_triggers.json 마이그레이션 정책과 동일) — 나머지는 지금 고른 family가
-  // families 목록에 있을 때만 보여준다(비호환 LoRA는 아예 숨김).
+  // 등록부에 베이스 모델을 안 적은 LoRA는 모든 베이스 모델과 호환되는 것으로 취급한다 — 나머지는 자기 베이스 모델이
+  // 지금 고른 것과 같을 때만 보여준다(비호환 LoRA는 아예 숨김).
   const compatible = all.filter(name => {
     const entry = getLoraEntry(name);
-    return entry.families.length === 0 || entry.families.includes(wizard.familyId);
+    return !entry.baseId || entry.baseId === wizard.familyId;
   });
   const hint = isPreset
     ? '<div class="email-hint">이 워크플로우 유형은 프리셋에 이미 배선된 LoRA 로더 하나에만 덮어쓸 수 있어서, 여기서는 하나만 고를 수 있어요.</div>'
     : '<div class="email-hint">여러 개를 고를 수 있어요. 강도는 고른 줄에 나타나는 입력칸에서 바꾸세요(기본 1).</div>';
   if(compatible.length === 0){
-    body.innerHTML = hint + '<div class="comfy-model-empty">이 베이스 모델과 호환되는 LoRA가 없어요("모델" 탭에서 호환 베이스 모델을 비워두면 항상 보여요).</div>';
+    body.innerHTML = hint + '<div class="comfy-model-empty">이 베이스 모델과 호환되는 LoRA가 없어요("모델" 탭에서 LoRA의 베이스 모델을 맞추거나 비워두면 보여요).</div>';
     return;
   }
   body.innerHTML = hint + `<div class="wizard-pick-list">${compatible.map(name => {

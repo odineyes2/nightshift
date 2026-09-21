@@ -189,8 +189,14 @@ ALTER TABLE models RENAME COLUMN source_url TO page_url;
 ALTER TABLE models ADD COLUMN download_url TEXT NOT NULL DEFAULT ''
 """
 
+# v6: LoRA "호환 베이스 모델 그룹"(families)을 없앤다. 마법사의 베이스 모델은 이제 등록부의 base_model 값으로 묶고,
+# LoRA도 자기 base_model이 같은 것만 보여 준다 — 같은 정보를 두 곳(그룹 파일과 등록부)에 적을 이유가 없다.
+SCHEMA_V6 = """
+ALTER TABLE models DROP COLUMN families_json
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
-MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5)]
+MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6)]
 
 
 def now_iso() -> str:

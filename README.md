@@ -546,7 +546,7 @@ ComfyUI의 `GET /object_info`는 그 서버에 설치된 **모든 노드 타입*
   모델을 새로 설치했다면 "🔄 새로고침"으로 다시 받아옵니다.
 - **LoRA 트리거 워드 매핑 / 호환 베이스 모델**: 상단 **"🎛 모델"** 탭에서 설치된 LoRA마다 트리거 워드(그 LoRA를
   쓰려면 프롬프트에 넣어야 하는 단어/문구 — civitai 등 LoRA 배포처에 적혀 있는 값. ComfyUI는 LoRA가 설치돼
-  있다는 것만 알 뿐 이건 모름)와 호환되는 베이스 모델(family)을 함께 관리합니다. 입력/체크하면 바로 저장되고
+  있다는 것만 알 뿐 이건 모름)와 베이스 모델을 함께 관리합니다. 입력하면 바로 저장되고
   (별도 저장 버튼 없음), "🧩 워크플로우" 탭에서 그 LoRA를 고를 때 트리거 워드를 자동으로 불러와 씁니다(아래
   참고). 처음에는 "📋 모델" 모달의 LoRA 목록 옆에 트리거 워드만 바로 입력하게 했었는데, 그 모달 목록 칸이 여러
   종류를 한 좁은 칸에 몰아 보여주게 설계돼 있어 이름도 입력칸도 잘 안 보이는 문제가 있어 별도 탭으로 옮겼습니다
@@ -809,18 +809,13 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 - **결과**: 이미지는 `<JOB_ID>/<title>_img_<순번>_seed<이미지시드>`(flf2v는 `_img_start_`/`_img_end_`로 구분), 영상은 `<JOB_ID>/<title>_video_<순번>_seed<영상시드>`로 저장됩니다 — 같은 `JOB_ID` 폴더 아래 쌓이므로 이미지는 🖼 갤러리, 영상은 🎬 영상 갤러리에 각각 나타나고 "작업별 보기"로 함께 묶여 보입니다.
 - 노드 매칭/체이닝 로직 전체는 `templates/img2video_i2v_csv_batch.py`/`templates/img2video_flf2v_csv_batch.py`의 모듈 docstring에 자세히 적어뒀습니다.
 
-### 베이스 모델(family) / LoRA 호환성 / ControlNet·IPAdapter 프리셋 관리
+### 베이스 모델 / LoRA 호환성 / ControlNet·IPAdapter 프리셋
 
-> **화면 없음**: 예전에 "🎛 모델" 탭에 있던 베이스 모델(family)·ControlNet 프리셋 관리 화면은 전역 모델 탭을 모델 등록부 하나로 줄이면서 없어졌습니다. 아래 데이터와 API(`/api/base-model-families`, `/api/workflow-presets/...`)는 그대로 있어서 "새 작업 추가" 마법사는 지금 있는 family/프리셋을 계속 씁니다 — 추가·수정은 API(또는 `data/base_model_families.json`·`data/workflow_presets/`)로 합니다. 등록부의 LoRA 항목에서 호환 그룹 체크박스는 이미 있는 family를 보여 줍니다.
+"새 작업 추가" 마법사의 베이스 모델은 **따로 관리하는 데이터가 아니라 모델 등록부의 `base_model` 값**에서 만듭니다(예전의 `base_model_families.json`과 LoRA "호환 그룹"은 없어졌고, 옛 파일은 `data/base_model_families.json.migrated`로 남아 있습니다).
 
-체크포인트를 `wai-illustrious`, `krea.2`처럼 서로 호환되는 계열(family)로 묶어두면, "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/프리셋을 걸러서 보여줍니다. 관리는 전부 "🎛 모델" 탭에서 합니다(구 "🎛 LoRA" 탭을 확장한 것).
-
-- **베이스 모델(family)**: `base_model_families.json`에 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}` 형태로 저장됩니다. family 하나에 체크포인트를 여러 개(같은 계열의 다른 파인튜닝 등) 묶을 수 있고, 지정된 체크포인트가 하나뿐이면 마법사에서 family를 고르는 즉시 그 체크포인트로 확정되며, 여러 개면 그중 하나를 추가로 골라야 합니다.
-  **family는 "설치된 체크포인트"와 다른 개념입니다** — ComfyUI에 체크포인트가 있어도 family로
-  한 번 등록해야 마법사 1단계에 나타납니다(family는 사람이 붙이는 이름/그룹이라 nightshift가
-  대신 만들어줄 수 없습니다). 새 파드를 처음 연결하면 마법사 1단계가 비어 있는 게 정상입니다.
-- **LoRA 호환 family**: 모델 등록부(아래 "모델 등록부" 절)에 LoRA마다 `trigger_keyword`와 `families: [family_id, ...]`로 저장합니다. `families`가 빈 배열이면 모든 베이스 모델과 호환되는 것으로 취급되어 마법사에 항상 보이고, 채워두면 그 family를 골랐을 때만 보입니다(호환되지 않는 LoRA는 회색 처리가 아니라 목록에서 아예 숨겨집니다). 베이스 모델(family)을 지우면 모든 LoRA의 호환 목록에서도 빠집니다. 예전 `lora_triggers.json`(문자열 또는 `{trigger, families}`)은 서버가 시작할 때 한 번만 등록부로 옮기고 `lora_triggers.json.migrated`로 남깁니다.
-- **ControlNet/IPAdapter 프리셋 워크플로우**: 위 "워크플로우 유형의 조합 규칙" 절에서 설명한 프리셋 그룹(`openpose_cn`/`depth_cn`/`lineart_cn`/`ipadapter`) — family별로 미리 만들어둔 워크플로우 JSON을 `workflow_presets/<family_id>__<type_id>.json`에 업로드해두고 그대로 재사용합니다. family에 프리셋이 없는 유형은 마법사의 "워크플로우 유형" 목록에서 아예 숨겨집니다(LoRA 호환성 필터링과 같은 원칙 — 골라봤자 실행할 워크플로우가 없으므로).
+- **1단계(베이스 모델)**: `GET /api/base-model-families?pod_id=`가 등록부에서 `base_model`이 적힌 **체크포인트**를 그 값으로 묶어 `{id: {label, checkpoints}}`로 돌려줍니다. `label`은 `base_model` 값 그대로, `id`는 그 값의 식별자입니다(소문자, 영문/숫자/`-`/`_`/`.` 외는 `-`: `Wan 2.2`→`wan-2.2`, `Krea.2`→`krea.2`). 지금 들어가 있는 파드(없으면 내 연결된 파드 전체)에 **설치된 체크포인트만** 남기고, 파드에 연결하지 못하면 좁힐 기준이 없어 등록된 것을 전부 보여 줍니다. 체크포인트가 하나면 그룹을 고르는 즉시 확정되고, 여러 개면 그중 하나를 고릅니다. **체크포인트가 마법사에 나타나려면 모델 탭에서 그 체크포인트의 베이스 모델을 적어야 합니다**(베이스 모델이 비어 있으면 안 보임).
+- **3단계(LoRA)**: LoRA의 `base_model`이 고른 그룹과 같을 때만 보이고, LoRA의 `base_model`이 비어 있으면 모든 그룹에서 보입니다(호환 정보를 안 적은 LoRA는 항상 보임). 트리거 키워드도 등록부 값입니다.
+- **ControlNet/IPAdapter 프리셋 워크플로우**: 위 "워크플로우 유형의 조합 규칙" 절에서 설명한 프리셋 그룹(`openpose_cn`/`depth_cn`/`lineart_cn`/`ipadapter`) — 베이스 모델 그룹(위 `id`, 예: `illustrious`)별로 미리 만들어둔 워크플로우 JSON을 `PUT /api/workflow-presets/{그룹 id}/{유형}`으로 올려 두면(관리 화면은 없음) `workflow_presets/<그룹 id>__<유형>.json`에 저장되고 그대로 재사용합니다. 그룹에 프리셋이 없는 유형은 마법사의 "워크플로우 유형" 목록에서 아예 숨겨집니다(LoRA 호환성 필터링과 같은 원칙 — 골라봤자 실행할 워크플로우가 없으므로).
 
 ### 모델 등록부 · 파드별 설치 현황 · 사용 통계 · 내려받기 (`🎛 모델` 탭, 전역)
 
@@ -830,11 +825,10 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 | 필드 | 뜻 |
 |---|---|
-| `base_model` | 어느 베이스 모델용인지(SDXL/Illustrious/Flux/Wan 2.2… 자유 입력, 자동완성 제공) |
+| `base_model` | 어느 베이스 모델용인지(SDXL/Illustrious/Flux/Wan 2.2… 자유 입력, 자동완성 제공). **마법사가 체크포인트를 묶고 LoRA를 걸러내는 기준**입니다 |
 | `page_url` | 모델 소개 페이지(Civitai/Hugging Face 등) |
 | `download_url` | 파일을 받을 주소 — Civitai/Hugging Face 등(작업 전 점검이 누락 모델을 알릴 때 함께 알려 줌) |
 | `trigger_keyword` | (LoRA) 프롬프트에 넣을 키워드 — 워크플로우 탭/마법사에서 그 LoRA를 고르면 자동으로 붙습니다 |
-| `families` | (LoRA) 호환 베이스 모델 그룹 id(빈 배열이면 전부 호환) |
 | `tags` · `notes` | 태그·메모 |
 
 `page_url`/`download_url`은 화면이 링크로 그리므로 `http(s)://`만 받습니다(그 밖은 400). 정보를 하나도 안 채운 항목은 행을 만들지 않습니다. **파일이 어느 파드에도 없어도 등록 정보는 남고**, 목록은 "모든 파드의 설치된 모델 ∪ 등록해 둔 모델"입니다(파드에 없는 것은 "파드에 없음" 배지). 항목을 펼치면 파드별 설치 여부가 보입니다. 모델을 파드에 없이 미리 적어 두려면 "＋ 모델 추가"를 씁니다. 조회는 모든 회원이, 수정은 관리자만 할 수 있습니다. 작업 전 점검(아래)이 모델이 없다고 알릴 때, 등록부에 받을 주소가 있으면 그것도 함께 알려 줍니다(`registry`). 예전 컬럼 이름(`architecture`/`trigger`/`source_url`)은 DB v5에서 위 이름으로 바뀌었습니다.
@@ -947,9 +941,9 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/comfy-outputs/forget` | "이미 받아왔다"는 기록을 지운다(요청 본문 `{"job_id": "..."}`를 주면 그 작업 것만, 없으면 전부). 응답 `{"forgotten": N, "last_sync", "known"}`. 한 번만 다시 받으면 되는 경우라면 위의 `force: true`가 더 간단하다 |
 | `POST` | `/api/comfy-endpoint/test` | 저장하지 않고 주소만 확인한다(요청 본문 `{"url": "..."}`, 비워 보내면 지금 적용 중인 주소를 확인). 응답 `{"url", "connected"}`. 폴링(2초)보다 넉넉한 타임아웃(8초)을 써서 원격 pod의 첫 TLS 핸드셰이크까지 기다린다 |
 | `GET` | `/api/comfy-object-info?refresh=false&pod_id=` | **그 파드**(생략하면 기본 파드, ComfyUI 파드가 아니면 기본 파드로 폴백)에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
-| `GET` | `/api/lora-triggers` | LoRA 파일명 → `{trigger, families}` 매핑(모델 등록부의 LoRA 항목에서 만든 읽기 전용 뷰 — 설정 안 한 LoRA는 키 자체가 없음). `families`가 빈 배열이면 모든 family와 호환 |
+| `GET` | `/api/lora-triggers` | LoRA 파일명 → `{trigger, base_id}` 매핑(모델 등록부의 LoRA 항목에서 만든 읽기 전용 뷰 — 트리거도 베이스 모델도 안 적은 LoRA는 키 자체가 없음). `base_id`가 비어 있으면 어떤 베이스 모델에나 보이는 LoRA |
 | `GET` | `/api/models` | 모델 등록부 — `{kinds: [{id, label}], base_models: [...], items: [{kind, filename, base_model, page_url, download_url, trigger_keyword, families, tags, notes, updated_at}]}` |
-| `PUT` | `/api/models` | (관리자) 등록부 항목 하나를 고침 — 본문 `{kind, filename, base_model?, page_url?, download_url?, trigger_keyword?, families?, tags?, notes?}`, 넘긴 필드만 바뀜. 전부 비면 항목을 지우고 `{entry: null}`. `trigger_keyword`/`families`는 `loras`에서만 유효, 주소는 http(s)만 |
+| `PUT` | `/api/models` | (관리자) 등록부 항목 하나를 고침 — 본문 `{kind, filename, base_model?, page_url?, download_url?, trigger_keyword?, tags?, notes?}`, 넘긴 필드만 바뀜. 전부 비면 항목을 지우고 `{entry: null}`. `trigger_keyword`는 `loras`에서만 유효, 주소는 http(s)만 |
 | `GET` | `/api/models/inventory?refresh=false` | 내 ComfyUI 파드별 설치된 모델 `{pods: [{id, name, enabled, connected, models: {종류: [파일명]}}]}` |
 | `GET` | `/api/models/usage` | 모델별 사용 통계 `{usage: [{kind, filename, count, images, videos, favorites, last_used, samples: [{path, kind}]}]}` — 결과물 메타 기준(일반 회원은 자기 것, 관리자는 전체) |
 | `POST` | `/api/models/resolve` | 본문 `{url, token?}` — Civitai/Hugging Face/직접 https 주소를 풀어 `{source, name, download_url, filename, kind, base_model, trigger_keyword, size_bytes, preview_url, page_url}`을 돌려줌. Hugging Face 저장소 주소는 `{choose_file: true, candidates: [...]}` |
@@ -958,8 +952,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/models/download` | 본문 `{pod_id, url, kind, filename, overwrite?, token?, meta?}` — 파드의 다운로더에 받기를 시키고 `{id}`를 돌려줌. 같은 이름이 있으면 409(`overwrite`로 덮어씀). 관리자가 `meta`(`base_model`/`trigger_keyword`/`page_url`/`download_url`/`notes`/`tags`)를 주면 등록부에 함께 기록 |
 | `GET` | `/api/models/downloads?pod_id=` | 그 파드의 받기 진행 목록 `{downloads: [{id, kind, filename, status, downloaded, total, error}]}` — 완료를 처음 보면 그 파드의 설치 목록 캐시를 비움 |
 | `POST` | `/api/models/downloads/cancel` | 본문 `{pod_id, id}` |
-| `GET` | `/api/base-model-families` | 베이스 모델 family 정의를 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}`로 반환 — "새 작업 추가" 마법사 1단계와 LoRA/프리셋 호환성 필터링의 기준이 됨 |
-| `PUT` | `/api/base-model-families` | family 정의 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "🎛 모델" 탭이 family를 추가/편집할 때마다 부름. `label`이 비어있거나 `checkpoints`가 문자열 배열이 아니면 400 |
+| `GET` | `/api/base-model-families?pod_id=` | 마법사 1단계용 — 모델 등록부에서 `base_model`이 적힌 체크포인트를 그 값으로 묶어 `{id: {label, checkpoints}}`로 반환(`pod_id`를 주면 그 파드, 없으면 내 연결된 파드에 설치된 체크포인트만. 연결 못 하면 등록된 것 전부). `id`는 워크플로우 프리셋 파일 이름(`<id>__<유형>.json`)에도 쓰임. 쓰기 API는 없음(등록부의 `base_model`을 고치면 바뀜) |
 | `GET` | `/api/input-images` | img2img/IPAdapter/영상 생성 입력 이미지 목록(세트/char_no 구분 없는 평평한 목록, `input_assets.py`)을 `{"images": [{"name", "size"}, ...]}`로 반환 |
 | `POST` | `/api/input-images` | 이미지 파일 하나를 입력 이미지 풀에 업로드(멀티파트 폼 필드 `image`) — "입력 이미지" 옵션의 "⬆ 업로드" 버튼. 이미 같은 이름의 파일이 있으면 지우지 않고 `_2`, `_3`...를 붙여 저장. 응답 `{"name": 실제 저장된 파일명}`, png/jpg/jpeg/webp가 아니면 400 |
 | `DELETE` | `/api/input-images/{name}` | 입력 이미지 풀에서 파일 하나 삭제. 응답 `{"ok": true}`, 없으면 404 |
@@ -1130,7 +1123,7 @@ nightshift/
     ├── pods.json               # 파드(워커) 목록
     ├── comfy_endpoint.json     # (옛 형식) ComfyUI 접속 주소 — 있으면 pods.json으로 이관됨
     ├── lora_triggers.json.migrated  # (옛 파일 — 모델 등록부로 이관 후 보존)
-    ├── base_model_families.json # 베이스 모델(family) 정의
+    ├── base_model_families.json.migrated  # (옛 파일 — 모델 등록부의 base_model로 대체된 뒤 보존)
     ├── danbooru_tag_edits.json # Danbooru 태그 풀 편집
     └── danbooru_history.json   # Danbooru 프롬프트 조합 기록
 ```

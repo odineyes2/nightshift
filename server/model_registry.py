@@ -6,13 +6,14 @@ ComfyUI의 /object_info는 "설치된 파일 이름"만 준다. 그 파일이 �
 DB(models 테이블)에 둔다. 파드와 무관한 기준 데이터다 — 어느 파드에 그 파일이 있는지는 상관없고,
 어느 파드에서든 이 정보를 보고 모델을 받거나 트리거 키워드를 쓴다. 파일이 실제로 놓이는 곳만 파드다.
 
-필드: base_model(베이스 모델/계열), page_url(소개 페이지), download_url(파일 받을 주소),
-trigger_keyword(LoRA), families(LoRA 호환 베이스 모델 그룹 id), tags, notes.
+필드: base_model(베이스 모델 — 새 작업 마법사가 이 값으로 체크포인트를 묶고 LoRA를 걸러낸다), page_url(소개 페이지),
+download_url(파일 받을 주소), trigger_keyword(LoRA), tags, notes.
 
 정보를 하나도 안 채운 항목은 행을 만들지 않는다(비우면 지운다).
 """
 
 import json
+import re
 import urllib.parse
 from pathlib import Path
 
@@ -36,7 +37,12 @@ BASE_MODELS = ["SD 1.5", "SDXL", "Illustrious", "Pony", "NoobAI", "Flux", "Wan 2
 
 MAX_TEXT = 4000
 MAX_LIST = 50
-FIELDS = ("base_model", "notes", "tags", "trigger_keyword", "families", "page_url", "download_url")
+FIELDS = ("base_model", "notes", "tags", "trigger_keyword", "page_url", "download_url")
+
+
+def base_id(base_model: str) -> str:
+    """베이스 모델 값의 식별자 — 워크플로우 프리셋 파일 이름(<id>__<유형>.json)과 마법사가 쓴다."""
+    return re.sub(r"[^a-z0-9_.-]+", "-", (base_model or "").strip().lower()).strip("-.")
 
 
 class RegistryError(ValueError):
@@ -89,7 +95,6 @@ def _row_to_entry(row) -> dict:
         "notes": row["notes"],
         "tags": json.loads(row["tags_json"] or "[]"),
         "trigger_keyword": row["trigger_keyword"],
-        "families": json.loads(row["families_json"] or "[]"),
         "page_url": row["page_url"],
         "download_url": row["download_url"],
         "updated_at": row["updated_at"],
@@ -109,12 +114,29 @@ def get_entry(kind: str, filename: str) -> dict | None:
 
 
 def lora_triggers() -> dict[str, dict]:
-    """예전 lora_triggers.json과 같은 모양 {파일명: {trigger, families}} — 마법사/워크플로우 탭이 쓴다."""
+    """{파일명: {trigger, base_id}} — 마법사/워크플로우 탭이 쓴다. base_id가 비어 있으면 어떤 베이스 모델에나 보인다."""
     out = {}
     for e in list_entries():
-        if e["kind"] == "loras" and (e["trigger_keyword"] or e["families"]):
-            out[e["filename"]] = {"trigger": e["trigger_keyword"], "families": e["families"]}
+        if e["kind"] == "loras" and (e["trigger_keyword"] or e["base_model"]):
+            out[e["filename"]] = {"trigger": e["trigger_keyword"], "base_id": base_id(e["base_model"])}
     return out
+
+
+def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
+    """마법사 1단계용 — base_model이 있는 체크포인트를 그 값으로 묶는다: {id: {label, checkpoints}}.
+    installed를 주면 그 안에 있는(=실제로 쓸 수 있는) 체크포인트만 남긴다."""
+    groups: dict[str, dict] = {}
+    for e in list_entries():
+        if e["kind"] != "checkpoints" or not e["base_model"]:
+            continue
+        if installed is not None and e["filename"] not in installed:
+            continue
+        gid = base_id(e["base_model"])
+        if not gid:
+            continue
+        g = groups.setdefault(gid, {"label": e["base_model"], "checkpoints": []})
+        g["checkpoints"].append(e["filename"])
+    return dict(sorted(groups.items(), key=lambda kv: kv[1]["label"].lower()))
 
 
 def upsert(kind: str, filename: str, fields: dict) -> dict | None:
@@ -127,7 +149,7 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
     with db.connect() as conn:
         row = conn.execute("SELECT * FROM models WHERE kind=? AND filename=?", (kind, filename)).fetchone()
         current = _row_to_entry(row) if row else {
-            "base_model": "", "notes": "", "tags": [], "trigger_keyword": "", "families": [],
+            "base_model": "", "notes": "", "tags": [], "trigger_keyword": "",
             "page_url": "", "download_url": ""}
         if "base_model" in fields:
             current["base_model"] = _clean_str(fields["base_model"], "베이스 모델", 100)
@@ -137,45 +159,30 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
             current["tags"] = _clean_list(fields["tags"], "태그")
         if "trigger_keyword" in fields:
             current["trigger_keyword"] = _clean_str(fields["trigger_keyword"], "트리거 키워드", 1000)
-        if "families" in fields:
-            current["families"] = _clean_list(fields["families"], "호환 베이스 모델")
         if "page_url" in fields:
             current["page_url"] = _clean_url(fields["page_url"], "페이지 주소")
         if "download_url" in fields:
             current["download_url"] = _clean_url(fields["download_url"], "다운로드 주소")
-        if kind != "loras":   # 트리거 키워드와 호환 베이스 모델은 LoRA만의 개념이다
+        if kind != "loras":   # 트리거 키워드는 LoRA만의 개념이다
             current["trigger_keyword"] = ""
-            current["families"] = []
         empty = not (current["base_model"] or current["notes"] or current["tags"] or current["trigger_keyword"]
-                     or current["families"] or current["page_url"] or current["download_url"])
+                     or current["page_url"] or current["download_url"])
         if empty:
             conn.execute("DELETE FROM models WHERE kind=? AND filename=?", (kind, filename))
             return None
         updated = db.now_iso()
         conn.execute(
-            "INSERT INTO models(kind, filename, base_model, notes, tags_json, trigger_keyword, families_json, "
-            "page_url, download_url, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(kind, filename) DO UPDATE SET "
+            "INSERT INTO models(kind, filename, base_model, notes, tags_json, trigger_keyword, "
+            "page_url, download_url, updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(kind, filename) DO UPDATE SET "
             "base_model=excluded.base_model, notes=excluded.notes, tags_json=excluded.tags_json, "
-            "trigger_keyword=excluded.trigger_keyword, families_json=excluded.families_json, "
+            "trigger_keyword=excluded.trigger_keyword, "
             "page_url=excluded.page_url, download_url=excluded.download_url, updated_at=excluded.updated_at",
             (kind, filename, current["base_model"], current["notes"],
              json.dumps(current["tags"], ensure_ascii=False), current["trigger_keyword"],
-             json.dumps(current["families"], ensure_ascii=False), current["page_url"], current["download_url"], updated),
+             current["page_url"], current["download_url"], updated),
         )
     current.update({"kind": kind, "filename": filename, "updated_at": updated})
     return current
-
-
-def remove_family(family_id: str) -> None:
-    """베이스 모델(family)을 지우면 LoRA들의 호환 목록에서도 뺀다."""
-    with db.connect() as conn:
-        rows = conn.execute("SELECT kind, filename, families_json FROM models WHERE families_json != '[]'").fetchall()
-        for r in rows:
-            families = json.loads(r["families_json"])
-            if family_id in families:
-                families = [f for f in families if f != family_id]
-                conn.execute("UPDATE models SET families_json=?, updated_at=? WHERE kind=? AND filename=?",
-                             (json.dumps(families, ensure_ascii=False), db.now_iso(), r["kind"], r["filename"]))
 
 
 def import_legacy_lora_triggers(state_file: Path) -> int:
@@ -197,8 +204,7 @@ def import_legacy_lora_triggers(state_file: Path) -> int:
             if not isinstance(value, dict):
                 continue
             try:
-                if upsert("loras", name, {"trigger_keyword": value.get("trigger") or "",
-                                          "families": value.get("families") or []}):
+                if upsert("loras", name, {"trigger_keyword": value.get("trigger") or ""}):
                     count += 1
             except RegistryError:
                 continue

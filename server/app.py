@@ -275,7 +275,7 @@ def save_danbooru_history():
             json.dump(danbooru_history, f, indent=2, ensure_ascii=False)
 
 
-# LoRA 파일 이름 -> {trigger, families} 매핑. 예전에는 lora_triggers.json이었지만 이제
+# LoRA 파일 이름 -> {trigger, base_id} 매핑. 예전에는 lora_triggers.json이었지만 이제
 # 모델 등록부(model_registry.py, models 테이블)가 원본이고, 여기는 마법사/워크플로우 탭이
 # 읽던 모양 그대로 돌려주는 뷰일 뿐이다. 옛 JSON은 시작할 때 한 번만 등록부로 옮기고
 # .migrated로 남긴다(load_lora_triggers).
@@ -284,26 +284,6 @@ LORA_TRIGGERS_FILE = data_path("lora_triggers.json")
 
 def load_lora_triggers():
     model_registry.import_legacy_lora_triggers(LORA_TRIGGERS_FILE)
-
-
-# 베이스 모델 family(예: "wai-illustrious", "krea.2") 정의 — "새 작업 추가" 마법사의
-# 1단계(베이스 모델 선택)가 이 목록에서 고른다. family 하나는 서로 호환되는(같은
-# 아키텍처 계열) 체크포인트 파일 여러 개를 묶을 수 있다. LoRA/워크플로우 프리셋의
-# "호환 family" 목록이 여기 family_id를 참조한다("🎛 LoRA" 탭, workflow_presets).
-BASE_MODEL_FAMILIES_FILE = data_path("base_model_families.json")
-base_model_families: dict[str, dict] = {}  # {family_id: {"label": str, "checkpoints": [ckpt_filename, ...]}}
-
-
-def load_base_model_families():
-    if BASE_MODEL_FAMILIES_FILE.exists():
-        with open(BASE_MODEL_FAMILIES_FILE) as f:
-            base_model_families.update(json.load(f))
-
-
-def save_base_model_families():
-    with lock:
-        with open(BASE_MODEL_FAMILIES_FILE, "w") as f:
-            json.dump(base_model_families, f, indent=2, ensure_ascii=False)
 
 
 # nightshift가 작업을 보낼 워커는 이제 "파드"로 관리한다(pod_registry.py). 파드마다
@@ -1157,7 +1137,6 @@ async def lifespan(app: FastAPI):
     recent_csvs_store.load()
     load_danbooru_state()
     load_lora_triggers()
-    load_base_model_families()
     pod_registry.load()
     # 재시작 전에 running/queued 상태로 남아있던 기록은 재실행되지 않으므로 상태만 정리.
     # 파드 연결을 기다리던 중이었다는 표시(waiting_for_comfy)도 함께 지운다 — 그
@@ -2160,41 +2139,28 @@ async def import_output_images_to_input_pool(request: Request):
 
 
 @app.get("/api/base-model-families")
-def get_base_model_families():
-    return base_model_families
+async def get_base_model_families(request: Request, pod_id: str | None = None):
+    """새 작업 마법사 1단계 — 모델 등록부에서 base_model이 적힌 체크포인트를 그 값으로 묶어 준다.
+    {id: {label, checkpoints}}: id는 base_model 값의 식별자(워크플로우 프리셋 파일 이름과 LoRA 걸러내기에 쓴다).
+    쓸 수 있는 것만 보이게, 지금 들어가 있는 파드(없으면 내 연결된 파드 전체)에 설치된 체크포인트로 좁힌다. 파드에
+    연결하지 못하면 좁힐 기준이 없으니 등록된 것을 전부 보여 준다."""
+    user = me(request)
+    pods = [object_info_pod(pod_id)] if pod_id else [
+        p for p in visible_pods_for(user) if p.get("kind") == pod_registry.DEFAULT_KIND and p.get("enabled")]
+    installed: set[str] | None = None
 
+    def installed_of(pod):
+        try:
+            _, info = fetch_comfy_object_info(False, pod)
+        except Exception:
+            return None
+        return set(combo_choices(info, *MODEL_LIST_SOURCES["checkpoints"])) if info is not None else None
 
-@app.put("/api/base-model-families")
-async def put_base_model_families(request: Request):
-    admin_only(request)
-    # "🎛 LoRA" 탭(베이스 모델 관리 부분)이 전체 family 목록을 통째로 보내서
-    # 덮어쓴다 — lora-triggers와 같은 whole-blob 패턴.
-    body = await request.body()
-    try:
-        data = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        raise HTTPException(400, "유효한 JSON이 아니에요.")
-    if not isinstance(data, dict):
-        raise HTTPException(400, "{family_id: {label, checkpoints}} 형태의 객체여야 해요.")
-
-    cleaned: dict[str, dict] = {}
-    for family_id, value in data.items():
-        if not isinstance(value, dict):
-            raise HTTPException(400, f"'{family_id}' 값은 {{label, checkpoints}} 형태의 객체여야 해요.")
-        label = value.get("label", "")
-        checkpoints = value.get("checkpoints", [])
-        if not isinstance(label, str) or not label.strip():
-            raise HTTPException(400, f"'{family_id}'의 label은 비어있지 않은 문자열이어야 해요.")
-        if not isinstance(checkpoints, list) or not all(isinstance(c, str) for c in checkpoints):
-            raise HTTPException(400, f"'{family_id}'의 checkpoints는 문자열 목록이어야 해요.")
-        cleaned[family_id] = {"label": label, "checkpoints": checkpoints}
-
-    for removed in set(base_model_families) - set(cleaned):
-        model_registry.remove_family(removed)
-    base_model_families.clear()
-    base_model_families.update(cleaned)
-    save_base_model_families()
-    return base_model_families
+    results = await asyncio.gather(*[asyncio.to_thread(installed_of, p) for p in pods if not p.get("_none")])
+    live = [r for r in results if r is not None]
+    if live:
+        installed = set().union(*live)
+    return model_registry.checkpoint_groups(installed)
 
 
 # "새 작업 추가" 마법사 2단계(워크플로우 유형)의 정적 카탈로그 — 세 그룹으로
