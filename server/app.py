@@ -35,6 +35,7 @@ import urllib.parse
 import urllib.request
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -538,6 +539,111 @@ def combo_choices(object_info: dict, class_type: str, field: str) -> list[str]:
         if isinstance(entry, list) and entry and isinstance(entry[0], list):
             return [str(v) for v in entry[0]]
     return []
+
+
+def workflow_missing(object_info: dict, workflow: dict) -> tuple[list[str], list[dict], int]:
+    """워크플로우가 이 ComfyUI(object_info)에서 돌 수 있는지 — (없는 노드, 없는 모델/설정값, 검사한 노드 수).
+    링크나 숫자 입력은 검사 대상이 아니고, 목록에서 고르는 입력(체크포인트/LoRA/샘플러 이름 등)만
+    실제 선택지와 대조한다. 노드 자체가 없으면 그 노드의 입력값은 검사할 기준이 없어 건너뛴다."""
+    missing_nodes: list[str] = []
+    missing_values: list[dict] = []
+    checked = 0
+    for node_id, node in workflow.items():
+        if not isinstance(node, dict):
+            continue
+        class_type = node.get("class_type")
+        if not isinstance(class_type, str) or not class_type:
+            continue
+        checked += 1
+        if class_type not in object_info:
+            if class_type not in missing_nodes:
+                missing_nodes.append(class_type)
+            continue
+        for field, value in (node.get("inputs") or {}).items():
+            if not isinstance(value, str):
+                continue
+            choices = combo_choices(object_info, class_type, field)
+            if choices and value not in choices:
+                missing_values.append({
+                    "node_id": str(node_id),
+                    "class_type": class_type,
+                    "field": field,
+                    "value": value,
+                })
+    return missing_nodes, missing_values, checked
+
+
+def annotate_available_on(missing_values: list[dict], user: dict, exclude_pod_id: str | None) -> None:
+    """없는 모델마다 "내 다른 파드 중 어디에 있나"를 available_on으로 붙인다(제자리 수정).
+    파드가 꺼져 있거나 목록을 못 받으면 그 파드는 조용히 뺀다 — 어디까지나 안내다."""
+    if not missing_values:
+        return
+    candidates = [p for p in visible_pods_for(user)
+                  if p.get("kind") == pod_registry.DEFAULT_KIND and p.get("enabled") and p["id"] != exclude_pod_id]
+
+    def load(pod):
+        try:
+            _, info = fetch_comfy_object_info(False, pod)
+            return pod, info
+        except Exception:
+            return pod, None
+
+    infos = []
+    if candidates:
+        with ThreadPoolExecutor(max_workers=min(6, len(candidates))) as ex:
+            infos = [(pod, info) for pod, info in ex.map(load, candidates) if info]
+    for item in missing_values:
+        item["available_on"] = [
+            {"id": pod["id"], "name": pod.get("name") or pod["id"]}
+            for pod, info in infos
+            if item["value"] in combo_choices(info, item["class_type"], item["field"])
+        ]
+
+
+def default_video_workflow_bytes(template: dict) -> bytes | None:
+    """영상 워크플로우를 안 올렸을 때 템플릿 스크립트가 쓰는 내장 기본값(있으면)."""
+    if not template.get("optional_video_workflow"):
+        return None
+    name = "wan22_flf2v" if "flf2v" in str(template.get("script_filename") or "") else "wan22_i2v"
+    path = VIDEO_WORKFLOWS_DIR / f"{name}.json"
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+def compute_preflight(pod: dict, user: dict, blobs: list[tuple[str, bytes | None]]) -> dict | None:
+    """작업이 실제로 갈 파드에 필요한 노드/모델이 있는지 미리 본다. 파드가 꺼져 있어 확인을 못 하면 None
+    (이 앱은 ComfyUI가 꺼진 동안 큐에 쌓아두는 게 정상이라 막지 않고, 실행 직전 워커가 다시 확인한다).
+    결과는 안내용이라 작업 등록을 막지는 않는다."""
+    _, object_info = fetch_comfy_object_info(False, pod)
+    if object_info is None:
+        return None
+    missing_nodes: list[str] = []
+    missing_values: list[dict] = []
+    for label, data in blobs:
+        if not data:
+            continue
+        try:
+            workflow = json.loads(data.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(workflow, dict):
+            continue
+        nodes, values, _ = workflow_missing(object_info, workflow)
+        for n in nodes:
+            if n not in missing_nodes:
+                missing_nodes.append(n)
+        for v in values:
+            v["workflow"] = label
+            missing_values.append(v)
+    annotate_available_on(missing_values, user, pod.get("id"))
+    return {
+        "pod_id": pod.get("id"),
+        "checked_at": now_iso(),
+        "missing_nodes": missing_nodes,
+        "missing_values": missing_values,
+    }
 
 
 # ---- 프롬프트 개선(Text Enhance) ----------------------------------------------
@@ -1821,6 +1927,30 @@ def get_lora_triggers():
     return model_registry.lora_triggers()
 
 
+@app.get("/api/models/inventory")
+async def model_inventory(request: Request, refresh: bool = False):
+    """내 ComfyUI 파드마다 설치된 모델 목록 — 파드 간 비교용. 꺼져 있는 파드는 connected=false."""
+    user = me(request)
+    pods = [p for p in visible_pods_for(user) if p.get("kind") == pod_registry.DEFAULT_KIND]
+
+    def one(pod):
+        entry = {"id": pod["id"], "name": pod.get("name") or pod["id"], "enabled": bool(pod.get("enabled")),
+                 "connected": False, "models": {}}
+        if not pod.get("enabled"):
+            return entry
+        try:
+            _, info = fetch_comfy_object_info(refresh, pod)
+        except Exception:
+            info = None
+        if info is not None:
+            entry["connected"] = True
+            entry["models"] = {k: combo_choices(info, *src) for k, src in MODEL_LIST_SOURCES.items()}
+        return entry
+
+    results = await asyncio.gather(*[asyncio.to_thread(one, p) for p in pods])
+    return {"pods": list(results)}
+
+
 @app.get("/api/models")
 def get_model_registry():
     """모델 등록부 — 파일 종류 목록과 지금까지 정보를 적어 둔 항목들. 어느 파드에 뭐가 설치돼
@@ -2174,33 +2304,11 @@ async def validate_workflow(request: Request, pod_id: str | None = None):
             "missing_nodes": [], "missing_values": [], "checked_nodes": 0,
         }
 
-    missing_nodes: list[str] = []
-    missing_values: list[dict] = []
-    checked = 0
-    for node_id, node in workflow.items():
-        if not isinstance(node, dict):
-            continue
-        class_type = node.get("class_type")
-        if not isinstance(class_type, str) or not class_type:
-            continue
-        checked += 1
-        if class_type not in object_info:
-            if class_type not in missing_nodes:
-                missing_nodes.append(class_type)
-            continue  # 노드 자체가 없으면 입력값은 검사할 기준도 없다
-        for field, value in (node.get("inputs") or {}).items():
-            # 링크([노드id, 출력번호])나 숫자 입력은 검사 대상이 아니고, 목록에서
-            # 고르는 입력(체크포인트/LoRA/샘플러 이름 등)만 실제 선택지와 대조한다.
-            if not isinstance(value, str):
-                continue
-            choices = combo_choices(object_info, class_type, field)
-            if choices and value not in choices:
-                missing_values.append({
-                    "node_id": str(node_id),
-                    "class_type": class_type,
-                    "field": field,
-                    "value": value,
-                })
+    missing_nodes, missing_values, checked = workflow_missing(object_info, workflow)
+    if missing_values:
+        user = me(request)
+        pod_id_used = object_info_pod(pod_id).get("id")
+        await asyncio.to_thread(annotate_available_on, missing_values, user, pod_id_used)
     return {
         "connected": True,
         "url": comfy_url,
@@ -2849,6 +2957,16 @@ async def create_job(
         (JOBS_DIR / video_workflow_dest_name).write_bytes(video_workflow_bytes)
         recent_store("workflows", user).record(video_workflow_filename, video_workflow_bytes)
 
+    preflight = None
+    if pod["kind"] == pod_registry.DEFAULT_KIND and workflow_bytes is not None:
+        blobs = [("워크플로우", workflow_bytes),
+                 ("영상 워크플로우", video_workflow_bytes if video_workflow_bytes is not None
+                  else default_video_workflow_bytes(template))]
+        try:
+            preflight = await asyncio.wait_for(asyncio.to_thread(compute_preflight, pod, user, blobs), timeout=10)
+        except Exception:
+            preflight = None
+
     with lock:
         jobs[job_id] = {
             "id": job_id,
@@ -2873,6 +2991,7 @@ async def create_job(
             "pod_id": pod["id"],
             "project_id": project_id,
             "owner_id": user["id"],
+            "preflight": preflight,
             # 파드는 일시적이라(지워지고 다시 안 쓴다) 나중에 "어디서 돌았나/얼마 들었나"를
             # 볼 수 있게 이 시점의 정보를 job에 찍어둔다.
             "pod_name": pod.get("name"),
@@ -3643,10 +3762,30 @@ async def move_job(job_id: str, request: Request):
         if job.get("pod_id") == target_id:
             return job
         job["pod_id"] = target_id
+        wf_names = [job.get("workflow_filename"), job.get("video_workflow_filename")]
+        job_template_id = job.get("template_id")
         requeue = job["status"] == "queued"
         if requeue:
             # 옛 파드의 큐에 남은 항목은 그 파드 워커가 꺼낼 때 버려진다(소유권 확인).
             set_comfy_wait_flag(job, False)
+    if target.get("kind") == pod_registry.DEFAULT_KIND:
+        blobs = []
+        for label, name in zip(("워크플로우", "영상 워크플로우"), wf_names):
+            if name:
+                try:
+                    blobs.append((label, (JOBS_DIR / name).read_bytes()))
+                except OSError:
+                    pass
+            elif label == "영상 워크플로우":
+                blobs.append((label, default_video_workflow_bytes(load_templates_map().get(job_template_id) or {})))
+        try:
+            new_preflight = await asyncio.wait_for(
+                asyncio.to_thread(compute_preflight, target, user, blobs), timeout=10) if blobs else None
+        except Exception:
+            new_preflight = None
+        with lock:
+            if jobs.get(job_id):
+                jobs[job_id]["preflight"] = new_preflight
     save_state()
     if requeue:
         dispatch_job(job_id, target_id)

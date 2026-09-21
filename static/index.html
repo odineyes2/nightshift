@@ -1492,6 +1492,18 @@
   .model-badge.missing{ color:var(--text-dim); border-style:dashed; }
   .model-chevron{ flex:0 0 auto; transition:transform .15s; }
   .model-row.open .model-chevron{ transform:rotate(180deg); }
+  .preflight-badge{ color:var(--failed); border-color:var(--failed); }
+  .inventory-diff-toggle{ display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--text-dim); margin-bottom:10px; cursor:pointer; }
+  .inv-wrap{ overflow-x:auto; }
+  .inv-table{ border-collapse:collapse; font-size:12px; min-width:100%; }
+  .inv-table th, .inv-table td{ border:1px solid var(--border); padding:6px 10px; text-align:center; white-space:nowrap; }
+  .inv-table th:first-child, .inv-table td.inv-name{ text-align:left; }
+  .inv-table td.inv-name{ font-family:var(--mono); max-width:340px; overflow:hidden; text-overflow:ellipsis; }
+  .inv-table th{ color:var(--text-dim); font-weight:500; }
+  .inv-table th.off, .inv-off{ opacity:.55; font-size:11px; }
+  .inv-cell.yes{ color:var(--done); }
+  .inv-cell.no{ color:var(--failed); }
+  .inv-cell.off{ color:var(--text-dim); }
   .model-editor{ display:flex; flex-direction:column; gap:10px; padding:4px 12px 12px; border-top:1px solid var(--border); }
   .model-field{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-dim); margin-top:6px; }
   .model-field .option-input{ max-width:none; }
@@ -3359,6 +3371,21 @@
 
   <div class="panel">
     <div class="panel-header">
+      <div class="section-label">Pod inventory</div>
+      <div class="panel-header-actions">
+        <button class="load-btn" id="inventory-refresh-btn" type="button" title="파드마다 설치 목록을 다시 받아요"><svg class="ico"><use href="#i-refresh-cw"/></svg> 새로고침</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="email-hint">위에서 고른 종류의 모델이 내 파드마다 설치돼 있는지 한눈에 비교해요. 한 파드에서 잘 되던 작업이 다른
+        파드에서 실패하면 여기서 어느 파드에 빠져 있는지 볼 수 있어요.</div>
+      <label class="inventory-diff-toggle"><input type="checkbox" id="inventory-diff-only"> 파드 간 차이가 있는 것만 보기</label>
+      <div id="inventory-table"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
       <div class="section-label">ControlNet presets</div>
     </div>
     <div class="panel-body">
@@ -4038,6 +4065,7 @@ function render(jobs, pendingCount, running, perPod){
     j.id, j.status, j.waiting_for_comfy, j.pod_id, j.started_at, j.finished_at,
     j.progress && j.progress.done, j.progress && j.progress.total,
     j.project_id, j.project_id != null ? projectName(j.project_id) : '',
+    preflightCount(j.preflight),
   ])) + '|' + expandedId;
   if(rowsSignature === lastJobsRowsSignature) return;
   lastJobsRowsSignature = rowsSignature;
@@ -4062,6 +4090,9 @@ function render(jobs, pendingCount, running, perPod){
     const projectBadge = (jobProjectFilter === null && j.project_id != null && projectsById[j.project_id])
       ? `<span class="pod-badge project-badge" title="이 작업이 속한 프로젝트">${ico('folder')} ${escapeHtml(projectName(j.project_id))}</span>`
       : '';
+    const pfCount = ['pending', 'queued', 'interrupted', 'failed'].includes(j.status) ? preflightCount(j.preflight) : 0;
+    const preflightBadge = pfCount
+      ? `<span class="pod-badge preflight-badge" title="${escapeHtml('등록할 때 이 작업이 갈 파드에 없던 것들:\n' + preflightLines(j.preflight).join('\n'))}">${ico('triangle-alert')} 모델 ${pfCount}</span>` : '';
     const ownerBadge = j.owner_name
       ? `<span class="pod-badge owner-badge" title="이 작업을 만든 회원">${ico('user')} ${escapeHtml(j.owner_name)}</span>` : '';
     let rows = `
@@ -4072,7 +4103,7 @@ function render(jobs, pendingCount, running, perPod){
         <td class="fname${j.workflow_original_name ? '' : ' dim'}" title="${escapeHtml(workflowText)}">${escapeHtml(workflowText)}</td>
         <td class="fname${j.csv_original_name ? '' : ' dim'}" title="${escapeHtml(csvText)}">${escapeHtml(csvText)}</td>
         <td>
-          ${ownerBadge}${podBadge}${projectBadge}
+          ${ownerBadge}${podBadge}${projectBadge}${preflightBadge}
           <span class="badge ${waitingForComfy ? 'waiting' : j.status}"${waitingForComfy ? ' title="ComfyUI(GPU) 서버에 연결되면 자동으로 이어서 시작해요. 헤더의 연결 상태를 눌러 주소를 확인할 수 있어요."' : ''}><span class="bdot"></span>${waitingForComfy ? 'GPU 대기' : (STATUS_LABEL[j.status] || j.status)}</span>
           ${progress ? `
             <div class="progress-wrap">
@@ -4205,6 +4236,9 @@ document.getElementById('job-move-confirm').addEventListener('click', async () =
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || '옮기지 못했어요.');
     closeJobMoveModal();
+    if(preflightCount(data.preflight) > 0){
+      flashNotice('옮긴 파드에 없는 모델이 있어요 — ' + preflightLines(data.preflight).slice(0, 3).join(' / '));
+    }
     fetchJobs();
   }catch(e){
     errorEl.textContent = e.message || '옮기지 못했어요.';
@@ -5565,6 +5599,10 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   const originalLabel = submitBtnEl.innerHTML;
   submitBtnEl.innerHTML = ico('circle-check') + ' 추가됨';
   setTimeout(() => { submitBtnEl.innerHTML = originalLabel; }, 1200);
+  const createdJob = await res.json().catch(() => null);
+  if(createdJob && preflightCount(createdJob.preflight) > 0){
+    flashNotice('이 파드에 없는 모델이 있어요 — ' + preflightLines(createdJob.preflight).slice(0, 3).join(' / '));
+  }
   fetchJobs();
 });
 
@@ -6121,7 +6159,7 @@ let modelKindActive = 'checkpoints';
 let modelExpandedKey = null;
 const modelSaveTimers = {};
 
-function modelKey(kind, name){ return `${kind} ${name}`; }
+function modelKey(kind, name){ return `${kind}\u0000${name}`; }
 
 function rebuildLoraTriggersFromRegistry(){
   const out = {};
@@ -6270,6 +6308,7 @@ document.getElementById('model-kind-tabs').addEventListener('click', (e) => {
   modelKindActive = btn.dataset.kind;
   modelExpandedKey = null;
   renderModelRegistry();
+  renderModelInventory();
 });
 
 document.getElementById('lora-tab-list').addEventListener('click', (e) => {
@@ -6302,6 +6341,47 @@ document.getElementById('lora-tab-list').addEventListener('input', (e) => {
   updateModelEntryField(editor.dataset.kind, editor.dataset.name, field, value);
 });
 
+// ---- "모델" 탭 — 파드별 설치 현황 비교 ----
+let modelInventory = null;
+
+async function fetchModelInventory(force){
+  try{
+    const res = await fetch(`/api/models/inventory${force ? '?refresh=true' : ''}`);
+    modelInventory = res.ok ? await res.json() : null;
+  }catch(e){ modelInventory = null; }
+}
+
+function renderModelInventory(){
+  const el = document.getElementById('inventory-table');
+  if(!modelInventory){ el.innerHTML = '<div class="comfy-model-empty">파드 목록을 받아오지 못했어요.</div>'; return; }
+  const pods = modelInventory.pods || [];
+  if(pods.length === 0){ el.innerHTML = '<div class="comfy-model-empty">ComfyUI 파드가 없어요.</div>'; return; }
+  const kind = modelKindActive;
+  const live = pods.filter(p => p.connected);
+  const names = Array.from(new Set(pods.flatMap(p => p.models[kind] || [])))
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  const diffOnly = document.getElementById('inventory-diff-only').checked;
+  const rows = names.filter(n => !diffOnly || live.some(p => !(p.models[kind] || []).includes(n)));
+  const kindLabel = (modelRegistry.kinds.find(k => k.id === kind) || {}).label || kind;
+  if(rows.length === 0){
+    el.innerHTML = `<div class="comfy-model-empty">${names.length ? '파드 간 차이가 없어요' : `${escapeHtml(kindLabel)} 종류의 설치된 모델이 없어요`}</div>`;
+    return;
+  }
+  const head = pods.map(p => `<th class="${p.connected ? '' : 'off'}" title="${p.connected ? '' : (p.enabled ? '연결 안 됨' : '사용 안 함')}">${escapeHtml(p.name)}${p.connected ? '' : '<br><span class="inv-off">연결 안 됨</span>'}</th>`).join('');
+  const body = rows.map(n => `<tr><td class="inv-name" title="${escapeHtml(n)}">${escapeHtml(n)}</td>${pods.map(p => {
+    if(!p.connected) return '<td class="inv-cell off">?</td>';
+    return (p.models[kind] || []).includes(n) ? `<td class="inv-cell yes">${ico('check')}</td>` : '<td class="inv-cell no">—</td>';
+  }).join('')}</tr>`).join('');
+  el.innerHTML = `<div class="inv-wrap"><table class="inv-table"><thead><tr><th>${escapeHtml(kindLabel)}</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+document.getElementById('inventory-diff-only').addEventListener('change', renderModelInventory);
+document.getElementById('inventory-refresh-btn').addEventListener('click', async () => {
+  document.getElementById('inventory-table').innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
+  await fetchModelInventory(true);
+  renderModelInventory();
+});
+
 async function initLoraTab(force){
   const errorEl = document.getElementById('lora-tab-error');
   errorEl.textContent = '';
@@ -6312,6 +6392,7 @@ async function initLoraTab(force){
   }
   await Promise.all([fetchBaseModelFamilies(), fetchModelRegistry()]);
   renderModelRegistry();
+  fetchModelInventory(force).then(renderModelInventory);
   initFamilyTab();
   initPresetTab();
 }
@@ -6989,6 +7070,24 @@ function renderWorkflowCheck(tone, text){
   el.innerHTML = (toneIcon ? ico(toneIcon) + ' ' : '') + escapeHtml(text);
 }
 
+function availableOnText(v){
+  const pods = (v.available_on || []).map(p => p.name);
+  return pods.length ? ` → ${pods.join(', ')} 파드에는 있어요` : '';
+}
+
+// 작업이 등록될 때 서버가 그 작업이 갈 파드에 모델/노드가 있는지 미리 본 결과(job.preflight)를 사람 말로.
+function preflightLines(pf){
+  if(!pf) return [];
+  const lines = [];
+  if((pf.missing_nodes || []).length) lines.push(`없는 노드: ${summarizeList(pf.missing_nodes)}`);
+  (pf.missing_values || []).forEach(v => lines.push(`${v.field}="${v.value}"${availableOnText(v)}`));
+  return lines;
+}
+
+function preflightCount(pf){
+  return pf ? (pf.missing_nodes || []).length + (pf.missing_values || []).length : 0;
+}
+
 function summarizeList(items, limit = 5){
   const shown = items.slice(0, limit);
   const rest = items.length - shown.length;
@@ -7044,7 +7143,7 @@ async function checkWorkflowCompatibility(file){
     lines.push(`이 서버에 없는 노드: ${summarizeList(data.missing_nodes)}`);
   }
   if(data.missing_values.length > 0){
-    const labels = data.missing_values.map(v => `${v.field}="${v.value}"`);
+    const labels = data.missing_values.map(v => `${v.field}="${v.value}"${availableOnText(v)}`);
     lines.push(`이 서버에 없는 모델/설정값: ${summarizeList(labels)}`);
   }
   lines.push('그대로 큐에 넣을 수는 있지만 실행 중 실패할 가능성이 높아요.');
