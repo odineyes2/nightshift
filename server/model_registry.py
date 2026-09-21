@@ -1,15 +1,19 @@
 """
 모델 등록부 — 파일 종류(체크포인트/디퓨전 모델/LoRA/VAE/텍스트 인코더/...)별로 사람이 붙이는 정보.
 
-ComfyUI의 /object_info는 "설치된 파일 이름"만 준다. 그 파일이 어떤 계열(SDXL, Flux, Wan2.2...)
-인지, 어디서 받았는지, LoRA면 트리거 워드가 뭔지는 적어 둘 곳이 없어서 (종류, 파일명)을 열쇠로
-DB(models 테이블)에 둔다. 설치 여부는 파드마다 다르지만 등록부는 파일명 기준이라 파드와 무관하다.
+ComfyUI의 /object_info는 "설치된 파일 이름"만 준다. 그 파일이 어떤 베이스 모델용인지, 소개 페이지와
+받을 주소는 어디인지, LoRA면 트리거 키워드가 뭔지는 적어 둘 곳이 없어서 (종류, 파일명)을 열쇠로
+DB(models 테이블)에 둔다. 파드와 무관한 기준 데이터다 — 어느 파드에 그 파일이 있는지는 상관없고,
+어느 파드에서든 이 정보를 보고 모델을 받거나 트리거 키워드를 쓴다. 파일이 실제로 놓이는 곳만 파드다.
 
-정보를 하나도 안 채운 항목은 행을 만들지 않는다(비우면 지운다) — "설치돼 있지만 등록 안 함"과
-"등록했다가 다 비움"이 같은 상태가 되게 하려는 것이다.
+필드: base_model(베이스 모델/계열), page_url(소개 페이지), download_url(파일 받을 주소),
+trigger_keyword(LoRA), families(LoRA 호환 베이스 모델 그룹 id), tags, notes.
+
+정보를 하나도 안 채운 항목은 행을 만들지 않는다(비우면 지운다).
 """
 
 import json
+import urllib.parse
 from pathlib import Path
 
 import db
@@ -28,10 +32,11 @@ KINDS = [
 KIND_IDS = {k for k, _ in KINDS}
 
 # 입력칸의 자동완성용 — 이 밖의 값도 자유롭게 적을 수 있다.
-ARCHITECTURES = ["SD1.5", "SDXL", "Illustrious", "Pony", "Flux", "Wan2.2", "Wan2.1", "Qwen-Image", "Z-Image", "기타"]
+BASE_MODELS = ["SD 1.5", "SDXL", "Illustrious", "Pony", "NoobAI", "Flux", "Wan 2.2", "Wan 2.1", "Qwen-Image", "Z-Image", "기타"]
 
 MAX_TEXT = 4000
 MAX_LIST = 50
+FIELDS = ("base_model", "notes", "tags", "trigger_keyword", "families", "page_url", "download_url")
 
 
 class RegistryError(ValueError):
@@ -46,6 +51,17 @@ def _clean_str(value, field: str, limit: int = MAX_TEXT) -> str:
     value = value.strip()
     if len(value) > limit:
         raise RegistryError(f"{field}이(가) 너무 길어요(최대 {limit}자).")
+    return value
+
+
+def _clean_url(value, field: str) -> str:
+    """화면이 링크로 그리는 값이라 http(s)만 허용한다(javascript: 같은 것이 href로 들어가면 안 된다)."""
+    value = _clean_str(value, field, 1000)
+    if not value:
+        return ""
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise RegistryError(f"{field}은(는) http:// 또는 https://로 시작하는 주소여야 해요.")
     return value
 
 
@@ -69,12 +85,13 @@ def _row_to_entry(row) -> dict:
     return {
         "kind": row["kind"],
         "filename": row["filename"],
-        "architecture": row["architecture"],
+        "base_model": row["base_model"],
         "notes": row["notes"],
         "tags": json.loads(row["tags_json"] or "[]"),
-        "trigger": row["trigger"],
+        "trigger_keyword": row["trigger_keyword"],
         "families": json.loads(row["families_json"] or "[]"),
-        "source_url": row["source_url"],
+        "page_url": row["page_url"],
+        "download_url": row["download_url"],
         "updated_at": row["updated_at"],
     }
 
@@ -85,12 +102,18 @@ def list_entries() -> list[dict]:
     return [_row_to_entry(r) for r in rows]
 
 
+def get_entry(kind: str, filename: str) -> dict | None:
+    with db.connect() as conn:
+        row = conn.execute("SELECT * FROM models WHERE kind=? AND filename=?", (kind, filename)).fetchone()
+    return _row_to_entry(row) if row else None
+
+
 def lora_triggers() -> dict[str, dict]:
     """예전 lora_triggers.json과 같은 모양 {파일명: {trigger, families}} — 마법사/워크플로우 탭이 쓴다."""
     out = {}
     for e in list_entries():
-        if e["kind"] == "loras" and (e["trigger"] or e["families"]):
-            out[e["filename"]] = {"trigger": e["trigger"], "families": e["families"]}
+        if e["kind"] == "loras" and (e["trigger_keyword"] or e["families"]):
+            out[e["filename"]] = {"trigger": e["trigger_keyword"], "families": e["families"]}
     return out
 
 
@@ -104,37 +127,40 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
     with db.connect() as conn:
         row = conn.execute("SELECT * FROM models WHERE kind=? AND filename=?", (kind, filename)).fetchone()
         current = _row_to_entry(row) if row else {
-            "architecture": "", "notes": "", "tags": [], "trigger": "", "families": [], "source_url": ""}
-        if "architecture" in fields:
-            current["architecture"] = _clean_str(fields["architecture"], "계열", 100)
+            "base_model": "", "notes": "", "tags": [], "trigger_keyword": "", "families": [],
+            "page_url": "", "download_url": ""}
+        if "base_model" in fields:
+            current["base_model"] = _clean_str(fields["base_model"], "베이스 모델", 100)
         if "notes" in fields:
             current["notes"] = _clean_str(fields["notes"], "메모")
         if "tags" in fields:
             current["tags"] = _clean_list(fields["tags"], "태그")
-        if "trigger" in fields:
-            current["trigger"] = _clean_str(fields["trigger"], "트리거 워드", 1000)
+        if "trigger_keyword" in fields:
+            current["trigger_keyword"] = _clean_str(fields["trigger_keyword"], "트리거 키워드", 1000)
         if "families" in fields:
             current["families"] = _clean_list(fields["families"], "호환 베이스 모델")
-        if "source_url" in fields:
-            current["source_url"] = _clean_str(fields["source_url"], "출처 주소", 1000)
-        if kind != "loras":   # 트리거 워드와 호환 베이스 모델은 LoRA만의 개념이다
-            current["trigger"] = ""
+        if "page_url" in fields:
+            current["page_url"] = _clean_url(fields["page_url"], "페이지 주소")
+        if "download_url" in fields:
+            current["download_url"] = _clean_url(fields["download_url"], "다운로드 주소")
+        if kind != "loras":   # 트리거 키워드와 호환 베이스 모델은 LoRA만의 개념이다
+            current["trigger_keyword"] = ""
             current["families"] = []
-        empty = not (current["architecture"] or current["notes"] or current["tags"]
-                     or current["trigger"] or current["families"] or current["source_url"])
+        empty = not (current["base_model"] or current["notes"] or current["tags"] or current["trigger_keyword"]
+                     or current["families"] or current["page_url"] or current["download_url"])
         if empty:
             conn.execute("DELETE FROM models WHERE kind=? AND filename=?", (kind, filename))
             return None
         updated = db.now_iso()
         conn.execute(
-            "INSERT INTO models(kind, filename, architecture, notes, tags_json, trigger, families_json, source_url, updated_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(kind, filename) DO UPDATE SET "
-            "architecture=excluded.architecture, notes=excluded.notes, tags_json=excluded.tags_json, "
-            "trigger=excluded.trigger, families_json=excluded.families_json, source_url=excluded.source_url, "
-            "updated_at=excluded.updated_at",
-            (kind, filename, current["architecture"], current["notes"],
-             json.dumps(current["tags"], ensure_ascii=False), current["trigger"],
-             json.dumps(current["families"], ensure_ascii=False), current["source_url"], updated),
+            "INSERT INTO models(kind, filename, base_model, notes, tags_json, trigger_keyword, families_json, "
+            "page_url, download_url, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(kind, filename) DO UPDATE SET "
+            "base_model=excluded.base_model, notes=excluded.notes, tags_json=excluded.tags_json, "
+            "trigger_keyword=excluded.trigger_keyword, families_json=excluded.families_json, "
+            "page_url=excluded.page_url, download_url=excluded.download_url, updated_at=excluded.updated_at",
+            (kind, filename, current["base_model"], current["notes"],
+             json.dumps(current["tags"], ensure_ascii=False), current["trigger_keyword"],
+             json.dumps(current["families"], ensure_ascii=False), current["page_url"], current["download_url"], updated),
         )
     current.update({"kind": kind, "filename": filename, "updated_at": updated})
     return current
@@ -171,7 +197,7 @@ def import_legacy_lora_triggers(state_file: Path) -> int:
             if not isinstance(value, dict):
                 continue
             try:
-                if upsert("loras", name, {"trigger": value.get("trigger") or "",
+                if upsert("loras", name, {"trigger_keyword": value.get("trigger") or "",
                                           "families": value.get("families") or []}):
                     count += 1
             except RegistryError:

@@ -378,12 +378,12 @@ nightshift는 여러 사람이 함께 쓸 수 있는 **회원제**입니다. 예
 
 | 층 | 화면 | 주소 |
 |---|---|---|
-| 전역 | 🏠 Home · 🖼 갤러리 · 🎬 영상 · 🏷 Danbooru | `#dashboard` · `#gallery` · `#video-gallery` · `#danbooru` |
-| 파드 | 🗂 작업 · 🧩 워크플로우 · 🎛 모델 · 🖼 갤러리(comfyui/shell) 또는 📝 결과(claude_writer) | `#pod/{id}/jobs` · `.../builder` · `.../lora` · `.../pgallery` 또는 `.../results` |
+| 전역 | 🏠 Home · 🖼 갤러리 · 🎬 영상 · 🎛 모델 · 🏷 Danbooru | `#dashboard` · `#gallery` · `#video-gallery` · `#models` · `#danbooru` |
+| 파드 | 🗂 작업 · 🧩 워크플로우 · 🖼 갤러리(comfyui/shell) 또는 📝 결과(claude_writer) | `#pod/{id}/jobs` · `.../builder` · `.../pgallery` 또는 `.../results` |
 
-**작업·워크플로우·모델이 파드 안에 있는 이유**는 이 셋이 전부 "그 파드가 무엇을 갖고 있는가"를
-읽어서 그리기 때문입니다 — 워크플로우 빌더와 모델 목록은 그 파드의 `/object_info`를, 작업
-목록은 그 파드의 큐를 봅니다. 전역 탭으로 두면 파드가 여럿일 때 화면이 어느 파드 이야기를
+**작업·워크플로우가 파드 안에 있는 이유**는 이 둘이 전부 "그 파드가 무엇을 갖고 있는가"를
+읽어서 그리기 때문입니다 — 워크플로우 빌더는 그 파드의 `/object_info`를, 작업
+목록은 그 파드의 큐를 봅니다. **모델 탭은 반대로 파드와 무관한 기준 데이터라 전역**이고, 파드별 설치 여부는 그 안에서 "어느 파드에 있나"로 보여 줍니다. 전역 탭으로 두면 파드가 여럿일 때 화면이 어느 파드 이야기를
 하는지 말해주지 못합니다(예전에는 늘 기본 파드만 봤습니다). 반대로 **Danbooru는 태그를 조립할
 뿐 파드를 쓰지 않으므로** 전역에 남아 있습니다.
 
@@ -809,34 +809,46 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 - **결과**: 이미지는 `<JOB_ID>/<title>_img_<순번>_seed<이미지시드>`(flf2v는 `_img_start_`/`_img_end_`로 구분), 영상은 `<JOB_ID>/<title>_video_<순번>_seed<영상시드>`로 저장됩니다 — 같은 `JOB_ID` 폴더 아래 쌓이므로 이미지는 🖼 갤러리, 영상은 🎬 영상 갤러리에 각각 나타나고 "작업별 보기"로 함께 묶여 보입니다.
 - 노드 매칭/체이닝 로직 전체는 `templates/img2video_i2v_csv_batch.py`/`templates/img2video_flf2v_csv_batch.py`의 모듈 docstring에 자세히 적어뒀습니다.
 
-### 베이스 모델(family) / LoRA 호환성 / ControlNet·IPAdapter 프리셋 관리 (`🎛 모델` 탭)
+### 베이스 모델(family) / LoRA 호환성 / ControlNet·IPAdapter 프리셋 관리
+
+> **화면 없음**: 예전에 "🎛 모델" 탭에 있던 베이스 모델(family)·ControlNet 프리셋 관리 화면은 전역 모델 탭을 모델 등록부 하나로 줄이면서 없어졌습니다. 아래 데이터와 API(`/api/base-model-families`, `/api/workflow-presets/...`)는 그대로 있어서 "새 작업 추가" 마법사는 지금 있는 family/프리셋을 계속 씁니다 — 추가·수정은 API(또는 `data/base_model_families.json`·`data/workflow_presets/`)로 합니다. 등록부의 LoRA 항목에서 호환 그룹 체크박스는 이미 있는 family를 보여 줍니다.
 
 체크포인트를 `wai-illustrious`, `krea.2`처럼 서로 호환되는 계열(family)로 묶어두면, "새 작업 추가" 마법사가 이 family를 기준으로 워크플로우 유형/LoRA/프리셋을 걸러서 보여줍니다. 관리는 전부 "🎛 모델" 탭에서 합니다(구 "🎛 LoRA" 탭을 확장한 것).
 
 - **베이스 모델(family)**: `base_model_families.json`에 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}` 형태로 저장됩니다. family 하나에 체크포인트를 여러 개(같은 계열의 다른 파인튜닝 등) 묶을 수 있고, 지정된 체크포인트가 하나뿐이면 마법사에서 family를 고르는 즉시 그 체크포인트로 확정되며, 여러 개면 그중 하나를 추가로 골라야 합니다.
   **family는 "설치된 체크포인트"와 다른 개념입니다** — ComfyUI에 체크포인트가 있어도 family로
   한 번 등록해야 마법사 1단계에 나타납니다(family는 사람이 붙이는 이름/그룹이라 nightshift가
-  대신 만들어줄 수 없습니다). 새 파드를 처음 연결하면 마법사 1단계가 비어 있는 게 정상입니다 —
-  "🎛 모델" 탭을 열면 **그 파드에 설치돼 있지만 아직 family가 없는 체크포인트**를 안내하고
-  "+ 등록" 한 번으로 등록해 줍니다(파일명에서 family id를 자동으로 만들고, 표시 이름은 나중에
-  고쳐도 됩니다).
-- **LoRA 호환 family**: 모델 등록부(아래 "모델 등록부" 절)에 LoRA마다 `{trigger, families: [family_id, ...]}`로 저장합니다. `families`가 빈 배열이면 모든 베이스 모델과 호환되는 것으로 취급되어 마법사에 항상 보이고, 채워두면 그 family를 골랐을 때만 보입니다(호환되지 않는 LoRA는 회색 처리가 아니라 목록에서 아예 숨겨집니다). 베이스 모델(family)을 지우면 모든 LoRA의 호환 목록에서도 빠집니다. 예전 `lora_triggers.json`(문자열 또는 `{trigger, families}`)은 서버가 시작할 때 한 번만 등록부로 옮기고 `lora_triggers.json.migrated`로 남깁니다.
+  대신 만들어줄 수 없습니다). 새 파드를 처음 연결하면 마법사 1단계가 비어 있는 게 정상입니다.
+- **LoRA 호환 family**: 모델 등록부(아래 "모델 등록부" 절)에 LoRA마다 `trigger_keyword`와 `families: [family_id, ...]`로 저장합니다. `families`가 빈 배열이면 모든 베이스 모델과 호환되는 것으로 취급되어 마법사에 항상 보이고, 채워두면 그 family를 골랐을 때만 보입니다(호환되지 않는 LoRA는 회색 처리가 아니라 목록에서 아예 숨겨집니다). 베이스 모델(family)을 지우면 모든 LoRA의 호환 목록에서도 빠집니다. 예전 `lora_triggers.json`(문자열 또는 `{trigger, families}`)은 서버가 시작할 때 한 번만 등록부로 옮기고 `lora_triggers.json.migrated`로 남깁니다.
 - **ControlNet/IPAdapter 프리셋 워크플로우**: 위 "워크플로우 유형의 조합 규칙" 절에서 설명한 프리셋 그룹(`openpose_cn`/`depth_cn`/`lineart_cn`/`ipadapter`) — family별로 미리 만들어둔 워크플로우 JSON을 `workflow_presets/<family_id>__<type_id>.json`에 업로드해두고 그대로 재사용합니다. family에 프리셋이 없는 유형은 마법사의 "워크플로우 유형" 목록에서 아예 숨겨집니다(LoRA 호환성 필터링과 같은 원칙 — 골라봤자 실행할 워크플로우가 없으므로).
 
-### 모델 등록부 · 파드별 설치 현황 · 사용 통계 · 내려받기 (`🎛 모델` 탭)
+### 모델 등록부 · 파드별 설치 현황 · 사용 통계 · 내려받기 (`🎛 모델` 탭, 전역)
 
-**모델 등록부** (`server/model_registry.py`, DB `models` 테이블) — ComfyUI가 알려주는 것은 "설치된 파일 이름"뿐이라, 사람이 붙이는 정보를 (종류, 파일명)별로 따로 둡니다. 종류는 체크포인트 · 디퓨전 모델(UNet) · LoRA · VAE · 텍스트 인코더(CLIP) · CLIP Vision · ControlNet · 업스케일러 8가지이고, 항목마다 계열(SDXL/Flux/Wan2.2… 자유 입력), 태그, 메모, 출처 주소를 적을 수 있습니다. LoRA는 여기에 트리거 워드와 호환 베이스 모델도 저장합니다. 정보를 하나도 안 채운 항목은 행을 만들지 않고, 파일이 파드에 없어도 등록 정보는 남습니다(그 파드에서는 "미설치"로 표시). 조회는 모든 회원이, 수정은 관리자만 할 수 있습니다.
+**모델 탭은 파드 밖(전역)에 있습니다** — 상단 전역 탭바의 "🎛 Models"(`#models`). 옛 링크(`#pod/{id}/lora`, `#lora`)는 여기로 넘어옵니다. 모델의 정보는 파드 아래에 놓일 이유가 없어서(파일이 실제로 놓이는 곳만 파드입니다), 이 탭이 **어느 파드에서든 불러 쓰는 기준 데이터**입니다.
 
-**파드별 설치 현황(Pod inventory)** — 위에서 고른 종류의 모델이 내 ComfyUI 파드마다 설치돼 있는지 표로 비교합니다("차이만 보기" 지원). 꺼진 파드는 "연결 안 됨"으로 표시됩니다. `GET /api/models/inventory`.
+**모델 등록부** (`server/model_registry.py`, DB `models` 테이블) — ComfyUI가 알려주는 것은 "설치된 파일 이름"뿐이라, 사람이 붙이는 정보를 (종류, 파일명)별로 따로 둡니다. 종류는 체크포인트 · 디퓨전 모델(UNet) · LoRA · VAE · 텍스트 인코더(CLIP) · CLIP Vision · ControlNet · 업스케일러 8가지이고, 항목마다 다음을 적습니다.
+
+| 필드 | 뜻 |
+|---|---|
+| `base_model` | 어느 베이스 모델용인지(SDXL/Illustrious/Flux/Wan 2.2… 자유 입력, 자동완성 제공) |
+| `page_url` | 모델 소개 페이지(Civitai/Hugging Face 등) |
+| `download_url` | 파일을 받을 주소 — Civitai/Hugging Face 등(작업 전 점검이 누락 모델을 알릴 때 함께 알려 줌) |
+| `trigger_keyword` | (LoRA) 프롬프트에 넣을 키워드 — 워크플로우 탭/마법사에서 그 LoRA를 고르면 자동으로 붙습니다 |
+| `families` | (LoRA) 호환 베이스 모델 그룹 id(빈 배열이면 전부 호환) |
+| `tags` · `notes` | 태그·메모 |
+
+`page_url`/`download_url`은 화면이 링크로 그리므로 `http(s)://`만 받습니다(그 밖은 400). 정보를 하나도 안 채운 항목은 행을 만들지 않습니다. **파일이 어느 파드에도 없어도 등록 정보는 남고**, 목록은 "모든 파드의 설치된 모델 ∪ 등록해 둔 모델"입니다(파드에 없는 것은 "파드에 없음" 배지). 항목을 펼치면 파드별 설치 여부가 보입니다. 모델을 파드에 없이 미리 적어 두려면 "＋ 모델 추가"를 씁니다. 조회는 모든 회원이, 수정은 관리자만 할 수 있습니다. 작업 전 점검(아래)이 모델이 없다고 알릴 때, 등록부에 받을 주소가 있으면 그것도 함께 알려 줍니다(`registry`). 예전 컬럼 이름(`architecture`/`trigger`/`source_url`)은 DB v5에서 위 이름으로 바뀌었습니다.
+
+**파드별 설치 현황** — 등록부 항목마다 "파드 N/M" 배지와, 펼친 화면의 "파드별 설치" 목록으로 내 ComfyUI 파드마다 설치돼 있는지 보여 줍니다(꺼진 파드는 "연결 안 됨"). 종류별 비교 표 화면은 없고 `GET /api/models/inventory`만 남아 있습니다.
 
 **작업 전 누락 모델 점검(pre-flight)** — 작업을 등록할 때(`POST /api/upload`·`/api/jobs`)와 다른 파드로 옮길 때 서버가 그 작업이 갈 파드의 `/object_info`와 워크플로우(영상 워크플로우를 안 올렸으면 내장 기본값 포함)를 대조해 없는 노드/모델을 `job.preflight`에 담습니다. 각 항목에는 **내 다른 파드 중 어디에 있는지**(`available_on`)도 붙습니다. 화면은 등록 직후 알림과 작업 행의 "모델 N" 배지로 알려 주고, 워크플로우 파일을 고를 때 나오는 호환성 검사 문구에도 같은 안내가 붙습니다. 안내용이라 등록을 막지는 않습니다(ComfyUI가 꺼진 동안 큐에 쌓아 두는 것이 정상 동작이라서 — 파드에 연결하지 못하면 `preflight`는 `null`).
 
 **사용 통계** — 결과물 메타데이터(PNG의 프롬프트 그래프, 영상은 mp4 안에 들어 있는 프롬프트 그래프)에서 체크포인트/LoRA/UNet/VAE/텍스트 인코더 이름을 읽어 모델별 사용 횟수·이미지/영상 수·즐겨찾기 수·마지막 사용과 대표 결과물(즐겨찾기·평점 높은 순)을 보여 줍니다. 항목의 "이미지 N장 보기"는 갤러리를 그 모델로 거릅니다(`GET /api/output-images?model=파일명`, 영상도 동일). 메타데이터가 없는 결과물은 통계에 잡히지 않습니다. 일반 회원은 자기 결과물, 관리자는 전체 결과물 기준입니다. 예전에 색인된 결과물은 서버를 처음 재시작할 때 한 번만 다시 훑어 채웁니다(`meta.asset_model_meta_v1`).
 
-**모델 내려받기(Model download)** (`server/model_download.py`) — Civitai 모델 페이지, Hugging Face 파일/저장소 주소, 모델 파일 직접 주소(https)를 넣으면 고른 파드로 받습니다. ComfyUI에는 다운로드 API가 없고 nightshift는 파드에서 명령을 돌릴 수 없어서(파드와는 HTTP만 오갑니다), 파드에 **다운로더**(`templates/comfy_nodes/nightshift_downloader`, 노드 없이 HTTP 라우트만 추가하는 ComfyUI 커스텀 노드)를 한 번 설치해야 합니다.
+**모델 내려받기(백엔드만 — 화면 없음)** (`server/model_download.py`) — 화면은 모델 탭을 등록부 하나로 줄이면서 없어졌지만 API(`/api/models/resolve`·`download`·`downloads`·`downloader/*`)와 파드용 다운로더 노드는 남아 있습니다. Civitai 모델 페이지, Hugging Face 파일/저장소 주소, 모델 파일 직접 주소(https)를 넘기면 고른 파드로 받습니다. ComfyUI에는 다운로드 API가 없고 nightshift는 파드에서 명령을 돌릴 수 없어서(파드와는 HTTP만 오갑니다), 파드에 **다운로더**(`templates/comfy_nodes/nightshift_downloader`, 노드 없이 HTTP 라우트만 추가하는 ComfyUI 커스텀 노드)를 한 번 설치해야 합니다.
 
-1. 화면의 "설치 스크립트"를 눌러 스크립트를 복사해 그 파드의 터미널에 붙여 넣고 실행합니다(ComfyUI 폴더를 못 찾으면 `COMFY_DIR=/경로`를 앞에 붙임). 스크립트가 노드 소스와 **그 파드 전용 토큰**을 `custom_nodes/nightshift_downloader/`에 씁니다.
-2. ComfyUI를 재시작하고 화면에서 "다시 확인"을 누릅니다.
+1. `GET /api/models/downloader/install-script?pod_id=`로 스크립트를 받아 그 파드의 터미널에 붙여 넣고 실행합니다(ComfyUI 폴더를 못 찾으면 `COMFY_DIR=/경로`를 앞에 붙임). 스크립트가 노드 소스와 **그 파드 전용 토큰**을 `custom_nodes/nightshift_downloader/`에 씁니다.
+2. ComfyUI를 재시작하고 `GET /api/models/downloader/status?pod_id=`로 설치를 확인합니다.
 
 보안: 파드 주소는 인터넷에 열려 있으므로 다운로더의 모든 라우트는 `X-Nightshift-Token`이 파드의 `token` 파일과 같아야만 동작합니다. 토큰은 서버 비밀값과 파드 id로 매번 계산하므로(HMAC) `pods.json`에 저장되지 않고 파드마다 다릅니다. 받는 위치는 ComfyUI가 그 종류에 쓰는 폴더 안으로만 제한되고(경로 이탈/이상한 이름 거부), 모델 확장자(`.safetensors .ckpt .pt .pth .bin .gguf`)만 허용하며, https만 받고, 디스크 여유를 미리 확인하고, `.part`로 받은 뒤 완료 시 이름을 바꿉니다. 서버가 직접 접속하는 곳은 Civitai/Hugging Face(고정 호스트)뿐이라 임의 주소로 서버 안쪽을 찌를 수 없고, 임의 주소는 파드가 직접 받습니다. API 토큰(Civitai/Hugging Face)은 서버에 저장하지 않고 요청 때만 쓰며, 화면의 "기억"을 켜면 이 브라우저(localStorage)에만 남습니다. 토큰은 Civitai/Hugging Face 받기 주소에만 붙고, 다른 호스트로 리다이렉트되면 뗍니다. 받은 뒤 그 파드의 설치 목록 캐시를 비워 새 파일이 바로 보이고, 관리자가 받으면 Civitai/HF에서 알아낸 계열·트리거 워드·출처가 등록부에 함께 기록됩니다.
 
@@ -936,14 +948,14 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/comfy-endpoint/test` | 저장하지 않고 주소만 확인한다(요청 본문 `{"url": "..."}`, 비워 보내면 지금 적용 중인 주소를 확인). 응답 `{"url", "connected"}`. 폴링(2초)보다 넉넉한 타임아웃(8초)을 써서 원격 pod의 첫 TLS 핸드셰이크까지 기다린다 |
 | `GET` | `/api/comfy-object-info?refresh=false&pod_id=` | **그 파드**(생략하면 기본 파드, ComfyUI 파드가 아니면 기본 파드로 폴백)에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
 | `GET` | `/api/lora-triggers` | LoRA 파일명 → `{trigger, families}` 매핑(모델 등록부의 LoRA 항목에서 만든 읽기 전용 뷰 — 설정 안 한 LoRA는 키 자체가 없음). `families`가 빈 배열이면 모든 family와 호환 |
-| `GET` | `/api/models` | 모델 등록부 — `{kinds: [{id, label}], architectures: [...], items: [{kind, filename, architecture, notes, tags, trigger, families, source_url, updated_at}]}` |
-| `PUT` | `/api/models` | (관리자) 등록부 항목 하나를 고침 — 본문 `{kind, filename, architecture?, notes?, tags?, trigger?, families?, source_url?}`, 넘긴 필드만 바뀜. 전부 비면 항목을 지우고 `{entry: null}`. `trigger`/`families`는 `loras`에서만 유효 |
+| `GET` | `/api/models` | 모델 등록부 — `{kinds: [{id, label}], base_models: [...], items: [{kind, filename, base_model, page_url, download_url, trigger_keyword, families, tags, notes, updated_at}]}` |
+| `PUT` | `/api/models` | (관리자) 등록부 항목 하나를 고침 — 본문 `{kind, filename, base_model?, page_url?, download_url?, trigger_keyword?, families?, tags?, notes?}`, 넘긴 필드만 바뀜. 전부 비면 항목을 지우고 `{entry: null}`. `trigger_keyword`/`families`는 `loras`에서만 유효, 주소는 http(s)만 |
 | `GET` | `/api/models/inventory?refresh=false` | 내 ComfyUI 파드별 설치된 모델 `{pods: [{id, name, enabled, connected, models: {종류: [파일명]}}]}` |
 | `GET` | `/api/models/usage` | 모델별 사용 통계 `{usage: [{kind, filename, count, images, videos, favorites, last_used, samples: [{path, kind}]}]}` — 결과물 메타 기준(일반 회원은 자기 것, 관리자는 전체) |
-| `POST` | `/api/models/resolve` | 본문 `{url, token?}` — Civitai/Hugging Face/직접 https 주소를 풀어 `{source, name, download_url, filename, kind, architecture, trigger, size_bytes, preview_url, source_url}`을 돌려줌. Hugging Face 저장소 주소는 `{choose_file: true, candidates: [...]}` |
+| `POST` | `/api/models/resolve` | 본문 `{url, token?}` — Civitai/Hugging Face/직접 https 주소를 풀어 `{source, name, download_url, filename, kind, base_model, trigger_keyword, size_bytes, preview_url, page_url}`을 돌려줌. Hugging Face 저장소 주소는 `{choose_file: true, candidates: [...]}` |
 | `GET` | `/api/models/downloader/status?pod_id=` | 그 파드에 다운로더가 설치돼 있는지 `{installed, connected, version?, folders?, reason?}` |
 | `GET` | `/api/models/downloader/install-script?pod_id=` | 그 파드용 설치 스크립트(text/plain, 파드 전용 토큰 포함) |
-| `POST` | `/api/models/download` | 본문 `{pod_id, url, kind, filename, overwrite?, token?, meta?}` — 파드의 다운로더에 받기를 시키고 `{id}`를 돌려줌. 같은 이름이 있으면 409(`overwrite`로 덮어씀). 관리자가 `meta`(`architecture`/`trigger`/`notes`/`tags`/`source_url`)를 주면 등록부에 함께 기록 |
+| `POST` | `/api/models/download` | 본문 `{pod_id, url, kind, filename, overwrite?, token?, meta?}` — 파드의 다운로더에 받기를 시키고 `{id}`를 돌려줌. 같은 이름이 있으면 409(`overwrite`로 덮어씀). 관리자가 `meta`(`base_model`/`trigger_keyword`/`page_url`/`download_url`/`notes`/`tags`)를 주면 등록부에 함께 기록 |
 | `GET` | `/api/models/downloads?pod_id=` | 그 파드의 받기 진행 목록 `{downloads: [{id, kind, filename, status, downloaded, total, error}]}` — 완료를 처음 보면 그 파드의 설치 목록 캐시를 비움 |
 | `POST` | `/api/models/downloads/cancel` | 본문 `{pod_id, id}` |
 | `GET` | `/api/base-model-families` | 베이스 모델 family 정의를 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}`로 반환 — "새 작업 추가" 마법사 1단계와 LoRA/프리셋 호환성 필터링의 기준이 됨 |

@@ -179,8 +179,18 @@ CREATE TABLE models (
 )
 """
 
+# v5: 등록부 필드를 "파드와 무관한 기준 데이터"에 맞게 이름을 바로잡고 받는 주소를 더한다.
+# architecture -> base_model(어느 베이스 모델용/계열), trigger -> trigger_keyword,
+# source_url -> page_url(모델 소개 페이지), download_url(파일을 받을 주소 — Civitai/Hugging Face 등).
+SCHEMA_V5 = """
+ALTER TABLE models RENAME COLUMN architecture TO base_model;
+ALTER TABLE models RENAME COLUMN trigger TO trigger_keyword;
+ALTER TABLE models RENAME COLUMN source_url TO page_url;
+ALTER TABLE models ADD COLUMN download_url TEXT NOT NULL DEFAULT ''
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
-MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4)]
+MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5)]
 
 
 def now_iso() -> str:

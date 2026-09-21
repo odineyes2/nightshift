@@ -151,11 +151,11 @@ def _resolve_civitai(parsed, token):
         "filename": _clean_filename(f["name"]),
         "kind": CIVITAI_KINDS.get(ctype),
         "civitai_type": model.get("type"),
-        "architecture": v.get("baseModel") or "",
-        "trigger": ", ".join(v.get("trainedWords") or []) if CIVITAI_KINDS.get(ctype) == "loras" else "",
+        "base_model": v.get("baseModel") or "",
+        "trigger_keyword": ", ".join(v.get("trainedWords") or []) if CIVITAI_KINDS.get(ctype) == "loras" else "",
         "size_bytes": int((f.get("sizeKB") or 0) * 1024) or None,
         "preview_url": images[0] if images else None,
-        "source_url": f"https://civitai.com/models/{model.get('id')}?modelVersionId={version_id}" if model.get("id") else "",
+        "page_url": f"https://civitai.com/models/{model.get('id')}?modelVersionId={version_id}" if model.get("id") else "",
         "needs_token": bool(v.get("earlyAccessEndsAt")) or None,
     }
 
@@ -176,8 +176,8 @@ def _resolve_hf(parsed, token):
             "name": f"{repo}/{file_path.split('/')[-1]}",
             "download_url": f"https://huggingface.co/{repo}/resolve/{urllib.parse.quote(rev)}/{quoted}",
             "filename": _clean_filename(file_path.split("/")[-1]),
-            "kind": None, "architecture": "", "trigger": "", "size_bytes": None, "preview_url": None,
-            "source_url": f"https://huggingface.co/{repo}/blob/{rev}/{file_path}",
+            "kind": None, "base_model": "", "trigger_keyword": "", "size_bytes": None, "preview_url": None,
+            "page_url": f"https://huggingface.co/{repo}/blob/{rev}/{file_path}",
         }
     info = _get_json(f"https://huggingface.co/api/models/{repo}", token)
     candidates = [s["rfilename"] for s in (info.get("siblings") or []) if str(s.get("rfilename", "")).lower().endswith(MODEL_EXT)]
@@ -200,7 +200,7 @@ def resolve(url: str, token: str | None = None) -> dict:
     if not name.lower().endswith(MODEL_EXT):
         raise DownloadError("파일명을 알 수 없어요 — 모델 파일 주소이거나 Civitai/Hugging Face 주소여야 해요.")
     return {"source": "direct", "name": name, "download_url": url.strip(), "filename": name, "kind": None,
-            "architecture": "", "trigger": "", "size_bytes": None, "preview_url": None, "source_url": url.strip()}
+            "base_model": "", "trigger_keyword": "", "size_bytes": None, "preview_url": None, "page_url": url.strip()}
 
 
 def auth_header_for(url: str, token: str | None) -> dict:
@@ -231,7 +231,7 @@ def call_node(pod: dict, method: str, path: str, body: dict | None = None, timeo
             detail = json.loads(e.read().decode("utf-8")).get("error")
         except Exception:
             detail = None
-        if e.code == 404 and not detail:
+        if e.code in (404, 405, 501) and not detail:
             raise DownloadError("이 파드에는 다운로더가 설치돼 있지 않아요(설치 후 ComfyUI 재시작 필요).", 404)
         if e.code == 401:
             raise DownloadError("다운로더 토큰이 맞지 않아요 — 이 파드에 설치 스크립트를 다시 실행해 주세요.", 409)

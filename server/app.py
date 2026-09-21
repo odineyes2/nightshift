@@ -593,7 +593,14 @@ def annotate_available_on(missing_values: list[dict], user: dict, exclude_pod_id
     if candidates:
         with ThreadPoolExecutor(max_workers=min(6, len(candidates))) as ex:
             infos = [(pod, info) for pod, info in ex.map(load, candidates) if info]
+    reverse_kinds = {src: kind for kind, src in MODEL_LIST_SOURCES.items()}
     for item in missing_values:
+        # 등록부(파드와 무관한 기준 데이터)에 받을 주소가 적혀 있으면 함께 알려 준다.
+        kind = reverse_kinds.get((item["class_type"], item["field"]))
+        entry = model_registry.get_entry(kind, item["value"]) if kind else None
+        if entry and (entry["download_url"] or entry["page_url"]):
+            item["kind"] = kind
+            item["registry"] = {"download_url": entry["download_url"], "page_url": entry["page_url"]}
         item["available_on"] = [
             {"id": pod["id"], "name": pod.get("name") or pod["id"]}
             for pod, info in infos
@@ -2018,7 +2025,7 @@ async def start_model_download(request: Request):
     # 등록부는 관리자만 고칠 수 있다 — 관리자가 받을 때만 Civitai/HF에서 알아낸 정보를 함께 적어 둔다.
     meta = data.get("meta")
     if auth.is_admin(user) and isinstance(meta, dict):
-        fields = {k: meta[k] for k in ("architecture", "trigger", "notes", "tags", "source_url") if k in meta}
+        fields = {k: meta[k] for k in model_registry.FIELDS if k in meta}
         try:
             model_registry.upsert(kind, filename, fields)
         except model_registry.RegistryError:
@@ -2053,7 +2060,7 @@ def get_model_registry():
     있는지는 /api/comfy-object-info가 알려 주고, 화면이 둘을 파일명으로 합친다."""
     return {
         "kinds": [{"id": k, "label": label} for k, label in model_registry.KINDS],
-        "architectures": model_registry.ARCHITECTURES,
+        "base_models": model_registry.BASE_MODELS,
         "items": model_registry.list_entries(),
     }
 
@@ -2067,7 +2074,7 @@ async def put_model_registry_entry(request: Request):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
     if not isinstance(data, dict):
         raise HTTPException(400, "{kind, filename, ...} 형태의 객체여야 해요.")
-    fields = {k: data[k] for k in ("architecture", "notes", "tags", "trigger", "families", "source_url") if k in data}
+    fields = {k: data[k] for k in model_registry.FIELDS if k in data}
     try:
         entry = model_registry.upsert(str(data.get("kind") or ""), str(data.get("filename") or ""), fields)
     except model_registry.RegistryError as e:
