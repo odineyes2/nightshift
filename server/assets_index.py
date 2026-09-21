@@ -12,6 +12,7 @@ ComfyUI가 PNG에 넣어주는 프롬프트 그래프에서 시드/프롬프트/
 """
 
 import json
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -19,6 +20,7 @@ from pathlib import Path
 
 from PIL import Image
 
+import auth
 import db
 from output_images import OUTPUT_DIR, OutputFolderError, list_output_images
 from output_videos import list_output_videos
@@ -135,6 +137,25 @@ def owner_of(path: str):
     return row["owner_id"] if row else None
 
 
+_USER_DIR_RE = re.compile(r"^u(\d+)/")
+
+
+def _owner_for(path: str, job_owner, origin_pod_id, user_ids: set[int]):
+    """새로 만난 결과물의 주인. 순서: 그 작업을 만든 회원 → 경로의 u<회원id>/ 폴더(ComfyUI에서 직접 돌려 받아온 것을 파드
+    주인별로 나눠 담은 곳) → 받아온 파드의 주인 → 그래도 모르면 관리자. 주인 없음(NULL)으로 두지 않는다 — 그러면 그 결과물은
+    어느 프로젝트로도 옮길 수 없고 일반 회원에게도 안 보인다. 파일이 먼저 색인되고 "어느 파드에서 받았나" 기록이 나중에
+    저장되는 경우가 있어서, 경로 접두사를 먼저 본다."""
+    if job_owner is not None and job_owner in user_ids:
+        return job_owner
+    m = _USER_DIR_RE.match(path)
+    if m and int(m.group(1)) in user_ids:
+        return int(m.group(1))
+    pod_owner = _pod_owner(origin_pod_id)
+    if pod_owner is not None and pod_owner in user_ids:
+        return pod_owner
+    return auth.admin_id()
+
+
 def _pod_owner(pod_id):
     if not pod_id:
         return None
@@ -182,6 +203,13 @@ def sync(force: bool = False) -> dict | None:
             job_rows = {r["id"]: (r["project_id"], r["owner_id"])
                         for r in conn.execute("SELECT id, project_id, owner_id FROM jobs")}
             job_projects = {jid: v[0] for jid, v in job_rows.items()}
+            user_ids = {r["id"] for r in conn.execute("SELECT id FROM users")}
+            # 주인이 없는 채로 남은 결과물(예전 버전이 남긴 것)을 채운다.
+            for r in conn.execute("SELECT id, path, job_id, origin_pod_id FROM assets WHERE owner_id IS NULL").fetchall():
+                owner = _owner_for(r["path"], job_rows.get(r["job_id"], (None, None))[1] if r["job_id"] else None,
+                                   r["origin_pod_id"] or origins.get(r["path"]), user_ids)
+                if owner is not None:
+                    conn.execute("UPDATE assets SET owner_id=? WHERE id=?", (owner, r["id"]))
             for path, (f, kind) in found.items():
                 try:
                     st = f.stat()
@@ -203,7 +231,7 @@ def sync(force: bool = False) -> dict | None:
                     parts = path.split("/")
                     job_id = parts[0] if len(parts) > 1 and parts[0] in job_projects else None
                     # 주인: 그 작업을 만든 회원, 작업이 없으면(ComfyUI에서 직접 만든 것) 받아온 파드의 주인.
-                    owner_id = job_rows[job_id][1] if job_id else _pod_owner(origins.get(path))
+                    owner_id = _owner_for(path, job_rows[job_id][1] if job_id else None, origins.get(path), user_ids)
                     conn.execute(
                         """INSERT INTO assets(path, kind, project_id, job_id, size_bytes, mtime_ns, width, height,
                                created_at, seed, prompt, negative_prompt, checkpoint, params_json,

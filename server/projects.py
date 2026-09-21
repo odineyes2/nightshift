@@ -21,7 +21,7 @@ SELECT p.*,
   (SELECT COUNT(*) FROM assets a WHERE a.project_id = p.id AND a.deleted_at IS NULL
         AND a.favorite = 1) AS favorite_count,
   COALESCE(
-    (SELECT a.path FROM assets a WHERE a.id = p.cover_asset_id AND a.deleted_at IS NULL),
+    (SELECT a.path FROM assets a WHERE a.id = p.cover_asset_id AND a.deleted_at IS NULL AND a.project_id = p.id),
     (SELECT a.path FROM assets a WHERE a.project_id = p.id AND a.kind = 'image'
         AND a.deleted_at IS NULL ORDER BY a.created_at DESC LIMIT 1)
   ) AS cover_path,
@@ -98,6 +98,17 @@ def get_project(project_id: int) -> dict | None:
     with db.connect() as conn:
         r = conn.execute(_STATS_SQL + " WHERE p.id = ?", (project_id,)).fetchone()
     return _row(r) if r else None
+
+
+def cover_candidate_ok(asset_id, project_id: int) -> bool:
+    """대표 이미지로 쓸 수 있는 결과물인가 — 그 프로젝트에 들어 있는 (지워지지 않은) 이미지여야 한다.
+    다른 프로젝트·다른 회원의 결과물 번호를 넣어 경로를 엿보지 못하게 서버가 확인한다."""
+    if not isinstance(asset_id, int) or isinstance(asset_id, bool):
+        return False
+    with db.connect() as conn:
+        return conn.execute(
+            "SELECT 1 FROM assets WHERE id=? AND project_id=? AND kind='image' AND deleted_at IS NULL",
+            (asset_id, project_id)).fetchone() is not None
 
 
 def project_exists(project_id, owner_id: int | None = None) -> bool:

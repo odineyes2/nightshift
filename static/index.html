@@ -508,8 +508,33 @@
   .project-card.inbox{ border-style:dashed; }
   .project-card.archived{ opacity:0.6; }
   .project-cover{
+    position:relative;
     height:150px; background:var(--bg); display:flex; align-items:center; justify-content:center;
     border-bottom:1px solid var(--border);
+  }
+  /* 대표 이미지 고르기 — 카드 커버 오른쪽 위. 마우스에서는 카드에 올렸을 때, 터치에서는 항상 보인다. */
+  .project-cover-btn{
+    position:absolute; top:8px; right:8px; z-index:2; width:30px; height:30px; padding:0;
+    display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
+    border:none; border-radius:50%; background:rgba(0,0,0,0.55); color:#fff; opacity:0;
+    transition:opacity .12s ease, transform .12s ease;
+  }
+  .project-card:hover .project-cover-btn, .project-cover-btn:focus-visible{ opacity:1; }
+  .project-cover-btn:hover{ transform:scale(1.1); background:rgba(0,0,0,0.75); }
+  .project-cover-btn .ico{ width:16px; height:16px; }
+  @media (hover:none){ .project-cover-btn{ opacity:0.85; } }
+  .cover-picker-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(96px, 1fr)); gap:8px; max-height:52vh; overflow-y:auto; padding:2px; }
+  .cover-picker-item{
+    position:relative; aspect-ratio:1; padding:0; border:2px solid transparent; border-radius:8px; overflow:hidden;
+    cursor:pointer; background:var(--bg);
+  }
+  .cover-picker-item img{ width:100%; height:100%; object-fit:cover; display:block; }
+  #cover-picker-auto.active{ border-color:var(--queued); color:var(--queued); }
+  .cover-picker-item:hover{ border-color:var(--text-dim); }
+  .cover-picker-item.current{ border-color:var(--queued); }
+  .cover-picker-item.current::after{
+    content:''; position:absolute; top:6px; right:6px; width:18px; height:18px; border-radius:50%;
+    background:var(--queued) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/12px no-repeat;
   }
   .project-cover-img{ width:100%; height:100%; object-fit:cover; display:block; }
   .project-cover-empty{ color:var(--text-dim); opacity:0.45; }
@@ -1230,10 +1255,12 @@
   .dash-robot-busy .dash-robot-light{ animation:pulse-run 0.6s infinite; }
   @keyframes robot-bob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-2px); } }
   @keyframes robot-shake{ 0%,100%{ transform:rotate(0deg); } 25%{ transform:rotate(-3deg); } 75%{ transform:rotate(3deg); } }
-  .dash-card-head{ display:flex; align-items:center; gap:8px; }
-  .dash-card-name{ font-family:var(--mono); font-size:14px; color:var(--text); }
-  .dash-card-kind{ font-size:10.5px; color:var(--text-dim); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
-  .dash-card-head-right{ margin-left:auto; display:flex; gap:6px; align-items:center; }
+  /* 카드 머리줄 — 이름이 길면 줄임표(...)로 줄이고, 종류·소유자 배지는 자리가 모자라면 다음 줄로 넘어간다. 설정(⚙) 버튼은
+     오른쪽 위에 붙박이로 두어(자리를 padding-right로 비워 둔다) 줄이 바뀌어도 카드 밖으로 밀려나지 않는다. */
+  .dash-card-head{ position:relative; display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; padding-right:44px; min-height:34px; }
+  .dash-card-name{ flex:1 1 0; min-width:min(16ch, 100%); font-family:var(--mono); font-size:14px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dash-card-kind{ flex:0 1 auto; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10.5px; color:var(--text-dim); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
+  .dash-card-head-right{ position:absolute; top:0; right:0; display:flex; gap:6px; align-items:center; }
   .dash-dot{ width:8px; height:8px; border-radius:50%; flex:none; background:var(--text-dim); }
   .dash-dot.online{ background:var(--done); }
   .dash-dot.offline{ background:var(--failed); }
@@ -3368,6 +3395,7 @@
       <div class="field">
         <label class="field-label" for="asset-move-select">옮길 프로젝트</label>
         <select class="option-input" id="asset-move-select"></select>
+        <input type="text" class="option-input" id="asset-move-new-name" placeholder="새 프로젝트 이름" maxlength="80" autocomplete="off" style="display:none; max-width:100%; margin-top:8px;">
       </div>
       <div class="enhance-status" id="asset-move-status" style="text-align:left; max-width:none;"></div>
     </div>
@@ -3515,6 +3543,24 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="cover-picker-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">Project cover</div>
+      <button class="modal-close" id="cover-picker-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint" id="cover-picker-hint"></div>
+      <div class="cover-picker-grid" id="cover-picker-grid"></div>
+      <div class="empty" id="cover-picker-empty" style="display:none;">이 프로젝트에 이미지가 아직 없어요</div>
+      <div class="login-error" id="cover-picker-error" role="alert"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="cover-picker-auto" type="button"><svg class="ico"><use href="#i-refresh-cw"/></svg> 자동 (가장 최근 이미지)</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="account-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
@@ -3642,6 +3688,7 @@
       <div class="field">
         <label class="field-label" for="job-project-move-select">옮길 프로젝트</label>
         <select id="job-project-move-select"></select>
+        <input type="text" class="option-input" id="job-project-new-name" placeholder="새 프로젝트 이름" maxlength="80" autocomplete="off" style="display:none; max-width:100%; margin-top:8px;">
       </div>
       <div class="upload-error" id="job-project-error"></div>
     </div>
@@ -7537,7 +7584,7 @@ function renderPodCard(p){
         <div class="dash-card-top-info">
           <div class="dash-card-head">
             <span class="dash-dot ${state.cls}" title="${state.label}"></span>
-            <span class="dash-card-name">${escapeHtml(p.name)}</span>
+            <span class="dash-card-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
             <span class="dash-card-kind">${escapeHtml((p.card && p.card.runpod) ? 'RunPod 이미지 생성 모델' : (p.kind_label || p.kind))}</span>
             ${p.owner_name ? `<span class="dash-card-kind owner-badge" title="이 파드의 주인">${ico('user')} ${escapeHtml(p.owner_name)}</span>` : ''}
             <div class="dash-card-head-right">
@@ -8386,6 +8433,31 @@ document.getElementById('gallery-tag-selected-btn').addEventListener('click', ()
 document.getElementById('video-gallery-fav-selected-btn').addEventListener('click', () => bulkFavorite('video', Array.from(selectedGalleryVideoNames)));
 document.getElementById('video-gallery-tag-selected-btn').addEventListener('click', () => bulkTags('video', Array.from(selectedGalleryVideoNames)));
 
+// 이동 창에서 "+ 새 프로젝트 만들기…"를 고르면 이름을 받아 프로젝트를 만든 뒤 바로 그리로 옮긴다(이미지·영상·작업 공용).
+const NEW_PROJECT_VALUE = '__new__';
+const NEW_PROJECT_LABEL = '+ 새 프로젝트 만들기…';
+
+async function createProjectByName(name){
+  const res = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok) throw new Error(data.detail || '프로젝트를 만들지 못했어요.');
+  await fetchProjects();   // 새 프로젝트를 목록·이름 표에 넣는다
+  return data;
+}
+
+// select에서 "새 프로젝트"를 고르면 이름 입력칸을 보여 주고, 다른 걸 고르면 숨긴다.
+function bindNewProjectField(selectId, inputId){
+  const select = document.getElementById(selectId);
+  const input = document.getElementById(inputId);
+  const sync = (focus) => {
+    const isNew = select.value === NEW_PROJECT_VALUE;
+    input.style.display = isNew ? '' : 'none';
+    if(isNew && focus) input.focus();
+  };
+  select.addEventListener('change', () => sync(true));
+  return sync;
+}
+
 // ---- 프로젝트로 이동 (이미지/영상 공용) ----
 // 파일은 그대로고 서버 색인의 project_id만 바뀐다. 프로젝트 안에서 보고 있었다면 옮긴 것은
 // 목록에서 빠지고, 전체 갤러리에서는 그대로 남는다.
@@ -8434,10 +8506,12 @@ async function openAssetMoveModal(kind, names){
   select.innerHTML = choices.map(c => {
     const here = allInOne === c.id;
     return `<option value="${escapeHtml(c.value)}"${here ? ' disabled' : ''}>${escapeHtml(c.label)}${here ? ' (현재)' : ''}</option>`;
-  }).join('');
+  }).join('') + `<option value="${NEW_PROJECT_VALUE}">${NEW_PROJECT_LABEL}</option>`;
   const firstOpen = choices.find(c => allInOne !== c.id);
-  select.value = firstOpen ? firstOpen.value : '';
-  document.getElementById('asset-move-confirm-btn').disabled = !firstOpen;
+  select.value = firstOpen ? firstOpen.value : NEW_PROJECT_VALUE;   // 갈 만한 프로젝트가 없으면 바로 새로 만들게 한다
+  document.getElementById('asset-move-new-name').value = '';
+  syncAssetMoveNewField(false);
+  document.getElementById('asset-move-confirm-btn').disabled = false;
   document.getElementById('asset-move-hint').textContent = names.length === 1
     ? `이 ${noun}를 옮길 프로젝트를 고르세요. 파일은 그대로 두고 소속만 바뀌어요.`
     : `선택한 ${noun} ${names.length}개를 옮길 프로젝트를 고르세요. 파일은 그대로 두고 소속만 바뀌어요.`;
@@ -8447,9 +8521,13 @@ async function openAssetMoveModal(kind, names){
   return new Promise(resolve => {
     assetMoveRequest = { kind, names, resolve };
     assetMoveModal.style.display = 'flex';
-    select.focus();
+    if(select.value === NEW_PROJECT_VALUE) document.getElementById('asset-move-new-name').focus(); else select.focus();
   });
 }
+const syncAssetMoveNewField = bindNewProjectField('asset-move-select', 'asset-move-new-name');
+document.getElementById('asset-move-new-name').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter'){ e.preventDefault(); document.getElementById('asset-move-confirm-btn').click(); }
+});
 
 document.getElementById('asset-move-confirm-btn').addEventListener('click', async () => {
   const req = assetMoveRequest;
@@ -8457,9 +8535,27 @@ document.getElementById('asset-move-confirm-btn').addEventListener('click', asyn
   const btn = document.getElementById('asset-move-confirm-btn');
   const statusEl = document.getElementById('asset-move-status');
   const value = document.getElementById('asset-move-select').value;
-  const projectId = value === '' ? null : Number(value);
+  let projectId = value === '' || value === NEW_PROJECT_VALUE ? null : Number(value);
   btn.disabled = true;
   statusEl.classList.remove('error');
+  if(value === NEW_PROJECT_VALUE){
+    const name = document.getElementById('asset-move-new-name').value.trim();
+    if(!name){
+      statusEl.classList.add('error');
+      statusEl.textContent = '새 프로젝트 이름을 입력하세요.';
+      btn.disabled = false;
+      return;
+    }
+    statusEl.textContent = '프로젝트를 만드는 중…';
+    try{
+      projectId = (await createProjectByName(name)).id;
+    }catch(e){
+      statusEl.classList.add('error');
+      statusEl.textContent = e.message || '프로젝트를 만들지 못했어요.';
+      btn.disabled = false;
+      return;
+    }
+  }
   statusEl.textContent = '옮기는 중…';
   try{
     const res = await assetJson('/api/output-assets/move', { paths: req.names, project_id: projectId });
@@ -8723,7 +8819,7 @@ function projectCardHtml(p){
     : '';
   return `
     <div class="project-card${inbox ? ' inbox' : ''}${d.archived ? ' archived' : ''}" data-project-open="${d.id}" role="button" tabindex="0">
-      <div class="project-cover">${cover}</div>
+      <div class="project-cover">${cover}${inbox ? '' : `<button class="project-cover-btn" type="button" data-project-cover="${d.id}" title="대표 이미지 고르기" aria-label="대표 이미지 고르기">${ico('images')}</button>`}</div>
       <div class="project-card-body">
         <div class="project-card-head">
           <span class="project-card-name" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}${d.archived ? ' (보관됨)' : ''}</span>
@@ -8767,9 +8863,80 @@ function renderHome(){
   document.getElementById('project-empty').style.display = (list.length === 0 && !hasUnassigned) ? '' : 'none';
 }
 
+// ---- 프로젝트 대표 이미지 고르기 ----
+// 홈 카드의 커버 이미지는 기본으로 그 프로젝트의 가장 최근 이미지지만, 카드 오른쪽 위 버튼으로 그 프로젝트에 든 이미지 중에서
+// 직접 고를 수 있다("자동"을 누르면 다시 가장 최근 이미지). 고른 이미지가 프로젝트 밖으로 옮겨지면 자동으로 돌아간다.
+let coverPickerProjectId = null;
+
+async function openCoverPicker(projectId){
+  const project = projectsById[projectId];
+  if(!project) return;
+  coverPickerProjectId = projectId;
+  const grid = document.getElementById('cover-picker-grid');
+  const empty = document.getElementById('cover-picker-empty');
+  const errorEl = document.getElementById('cover-picker-error');
+  errorEl.textContent = '';
+  document.getElementById('cover-picker-hint').textContent = `'${project.name}'의 대표 이미지로 쓸 이미지를 고르세요.`;
+  document.getElementById('cover-picker-auto').classList.toggle('active', project.cover_asset_id == null);
+  grid.innerHTML = '<div class="empty">불러오는 중…</div>';
+  empty.style.display = 'none';
+  document.getElementById('cover-picker-modal').style.display = 'flex';
+  try{
+    const res = await fetch(`/api/output-assets?project_id=${projectId}&kind=image&limit=300`);
+    if(!res.ok) throw new Error('failed');
+    const assets = (await res.json()).assets || [];
+    if(coverPickerProjectId !== projectId) return;   // 그 사이 닫았거나 다른 프로젝트를 열었다
+    if(assets.length === 0){ grid.innerHTML = ''; empty.style.display = 'block'; return; }
+    grid.innerHTML = assets.map(a => `
+      <button class="cover-picker-item${project.cover_asset_id === a.id ? ' current' : ''}" type="button" data-asset-id="${a.id}" title="${escapeHtml(a.path)}">
+        <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(a.path)}/thumbnail?size=200&fit=cover`)}" alt="" loading="lazy">
+      </button>`).join('');
+  }catch(e){
+    grid.innerHTML = '';
+    errorEl.textContent = '이미지 목록을 불러오지 못했어요.';
+  }
+}
+
+function closeCoverPicker(){
+  document.getElementById('cover-picker-modal').style.display = 'none';
+  coverPickerProjectId = null;
+}
+
+async function setProjectCover(assetId){
+  const projectId = coverPickerProjectId;
+  if(projectId === null) return;
+  const errorEl = document.getElementById('cover-picker-error');
+  errorEl.textContent = '';
+  try{
+    const res = await fetch(`/api/projects/${projectId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cover_asset_id: assetId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '바꾸지 못했어요.');
+  }catch(e){
+    errorEl.textContent = e.message || '바꾸지 못했어요.';
+    return;
+  }
+  closeCoverPicker();
+  await fetchProjects();
+  flashNotice(assetId === null ? '대표 이미지를 자동으로 되돌렸어요' : '대표 이미지를 바꿨어요');
+}
+
+document.getElementById('cover-picker-close').addEventListener('click', closeCoverPicker);
+document.getElementById('cover-picker-modal').addEventListener('click', (e) => {
+  if(e.target === document.getElementById('cover-picker-modal')) closeCoverPicker();
+});
+document.getElementById('cover-picker-auto').addEventListener('click', () => setProjectCover(null));
+document.getElementById('cover-picker-grid').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-asset-id]');
+  if(item) setProjectCover(Number(item.dataset.assetId));
+});
+
 document.getElementById('project-canvas').addEventListener('click', (e) => {
   const edit = e.target.closest('[data-project-edit]');
   if(edit){ e.stopPropagation(); openProjectModal(Number(edit.dataset.projectEdit)); return; }
+  const cover = e.target.closest('[data-project-cover]');
+  if(cover){ e.stopPropagation(); openCoverPicker(Number(cover.dataset.projectCover)); return; }
   const card = e.target.closest('[data-project-open]');
   if(!card) return;
   const raw = card.dataset.projectOpen;
@@ -8973,9 +9140,18 @@ function openJobProjectModal(jobId){
   for(const p of projectsCache){
     if(!p.archived && p.id !== job.project_id) options.push(`<option value="${p.id}">${escapeHtml(p.name)}</option>`);
   }
-  document.getElementById('job-project-move-select').innerHTML = options.join('');
+  options.push(`<option value="${NEW_PROJECT_VALUE}">${NEW_PROJECT_LABEL}</option>`);
+  const moveSelect = document.getElementById('job-project-move-select');
+  moveSelect.innerHTML = options.join('');
+  document.getElementById('job-project-new-name').value = '';
+  syncJobProjectNewField(false);
   document.getElementById('job-project-modal').style.display = 'flex';
 }
+
+const syncJobProjectNewField = bindNewProjectField('job-project-move-select', 'job-project-new-name');
+document.getElementById('job-project-new-name').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter'){ e.preventDefault(); document.getElementById('job-project-confirm').click(); }
+});
 
 function closeJobProjectModal(){
   document.getElementById('job-project-modal').style.display = 'none';
@@ -8993,10 +9169,16 @@ document.getElementById('job-project-confirm').addEventListener('click', async (
   if(!jobProjectTargetId || select.options.length === 0){ errorEl.textContent = '옮길 프로젝트가 없어요.'; return; }
   const value = select.value;
   try{
+    let projectId = value === '' || value === NEW_PROJECT_VALUE ? null : Number(value);
+    if(value === NEW_PROJECT_VALUE){
+      const name = document.getElementById('job-project-new-name').value.trim();
+      if(!name){ errorEl.textContent = '새 프로젝트 이름을 입력하세요.'; return; }
+      projectId = (await createProjectByName(name)).id;
+    }
     const res = await fetch(`/api/jobs/${jobProjectTargetId}/project`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project_id: value === '' ? null : Number(value) }),
+      body: JSON.stringify({ project_id: projectId }),
     });
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || '옮기지 못했어요.');

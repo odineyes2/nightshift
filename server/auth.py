@@ -116,6 +116,13 @@ def can_access(user: dict | None, owner_id) -> bool:
     return is_admin(user) or (owner_id is not None and owner_id == user["id"])
 
 
+def admin_id() -> int | None:
+    """첫 번째 admin 계정의 id — 주인을 정할 수 없는 결과물의 마지막 보루."""
+    with db.connect() as conn:
+        row = conn.execute("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
+    return row["id"] if row else None
+
+
 def get_user(user_id: int) -> dict | None:
     with db.connect() as conn:
         row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()

@@ -3181,7 +3181,10 @@ def get_project_api(project_id: int, request: Request):
 async def update_project_api(project_id: int, request: Request):
     project_or_404(me(request), project_id)
     body = await read_json_object(request, allow_empty=False)
-    project = project_store.update_project(project_id, _clean_project_fields(body, creating=False))
+    fields = _clean_project_fields(body, creating=False)
+    if fields.get("cover_asset_id") is not None and not project_store.cover_candidate_ok(fields["cover_asset_id"], project_id):
+        raise HTTPException(400, "이 프로젝트에 들어 있는 이미지만 대표 이미지로 고를 수 있어요.")
+    project = project_store.update_project(project_id, fields)
     if project is None:
         raise HTTPException(404, "없는 프로젝트예요.")
     return project
