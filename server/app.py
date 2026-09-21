@@ -65,6 +65,7 @@ from drivers.comfyui import (
 import asset_meta
 import assets_index
 import db
+import model_download
 import model_registry
 import pod_registry
 import projects as project_store
@@ -1956,6 +1957,94 @@ def model_usage_api(request: Request):
     """모델별 사용 통계 — 내 결과물(관리자는 전체)에 박힌 메타를 세어서 돌려준다."""
     _sync_assets_quietly()
     return {"usage": asset_meta.model_usage(owner_id=auth.owner_scope(me(request)))}
+
+
+# ---- 모델 내려받기 (model_download.py) ----------------------------------------------
+
+def _download_pod(user: dict, pod_id: str) -> dict:
+    pod = pod_or_404(user, pod_id)
+    if pod.get("kind") != pod_registry.DEFAULT_KIND:
+        raise HTTPException(400, "ComfyUI 파드만 모델을 받을 수 있어요.")
+    return pod
+
+
+def _download_call(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except model_download.DownloadError as e:
+        raise HTTPException(e.status, str(e))
+
+
+_downloads_seen_done: set = set()
+
+
+@app.post("/api/models/resolve")
+async def resolve_model_source(request: Request):
+    me(request)
+    data = await read_json_object(request, allow_empty=False)
+    token = str(data.get("token") or "").strip() or None
+    return await asyncio.to_thread(_download_call, model_download.resolve, str(data.get("url") or ""), token)
+
+
+@app.get("/api/models/downloader/status")
+async def downloader_status(request: Request, pod_id: str):
+    pod = _download_pod(me(request), pod_id)
+    return await asyncio.to_thread(model_download.node_status, pod)
+
+
+@app.get("/api/models/downloader/install-script")
+def downloader_install_script(request: Request, pod_id: str):
+    pod = _download_pod(me(request), pod_id)
+    return Response(model_download.install_script(pod["id"]), media_type="text/plain; charset=utf-8",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/models/download")
+async def start_model_download(request: Request):
+    user = me(request)
+    data = await read_json_object(request, allow_empty=False)
+    pod = _download_pod(user, str(data.get("pod_id") or ""))
+    url = str(data.get("url") or "").strip()
+    kind = str(data.get("kind") or "")
+    filename = str(data.get("filename") or "").strip()
+    if kind not in model_registry.KIND_IDS:
+        raise HTTPException(400, "모델 종류를 골라주세요.")
+    if not url or not filename:
+        raise HTTPException(400, "주소와 파일명이 필요해요.")
+    token = str(data.get("token") or "").strip() or None
+    body = {"url": url, "folder": kind, "filename": filename, "overwrite": bool(data.get("overwrite")),
+            "headers": model_download.auth_header_for(url, token)}
+    result = await asyncio.to_thread(_download_call, model_download.call_node, pod, "POST", "/nightshift/dl/start", body)
+    # 등록부는 관리자만 고칠 수 있다 — 관리자가 받을 때만 Civitai/HF에서 알아낸 정보를 함께 적어 둔다.
+    meta = data.get("meta")
+    if auth.is_admin(user) and isinstance(meta, dict):
+        fields = {k: meta[k] for k in ("architecture", "trigger", "notes", "tags", "source_url") if k in meta}
+        try:
+            model_registry.upsert(kind, filename, fields)
+        except model_registry.RegistryError:
+            pass
+    return result
+
+
+@app.get("/api/models/downloads")
+async def list_model_downloads(request: Request, pod_id: str):
+    pod = _download_pod(me(request), pod_id)
+    result = await asyncio.to_thread(_download_call, model_download.call_node, pod, "GET", "/nightshift/dl/status")
+    for item in result.get("downloads", []):
+        key = (pod["id"], item.get("id"))
+        if item.get("status") == "done" and key not in _downloads_seen_done:
+            _downloads_seen_done.add(key)
+            model_download.ComfyUIDriver.invalidate_capabilities(pod["id"])   # 새 파일이 설치 목록에 바로 보이게
+    return result
+
+
+@app.post("/api/models/downloads/cancel")
+async def cancel_model_download(request: Request):
+    user = me(request)
+    data = await read_json_object(request, allow_empty=False)
+    pod = _download_pod(user, str(data.get("pod_id") or ""))
+    return await asyncio.to_thread(_download_call, model_download.call_node, pod, "POST",
+                                   "/nightshift/dl/cancel", {"id": str(data.get("id") or "")})
 
 
 @app.get("/api/models")

@@ -1513,6 +1513,25 @@
   .model-usage-actions{ display:flex; flex-wrap:wrap; gap:6px; }
   .gf-model-chip{ font-family:var(--mono); font-size:11px; border:1px solid var(--queued); border-radius:999px; padding:3px 10px;
     max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dl-row{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
+  .dl-row .option-input{ flex:1 1 260px; max-width:none; }
+  .dl-card{ display:flex; flex-wrap:wrap; gap:14px; border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; margin-top:8px; }
+  .dl-preview{ width:140px; max-height:180px; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
+  .dl-card-main{ flex:1 1 280px; min-width:0; display:flex; flex-direction:column; gap:6px; }
+  .dl-name{ font-weight:600; word-break:break-word; }
+  .dl-meta{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); word-break:break-word; }
+  .dl-status{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px; font-size:12.5px; }
+  .dl-status.ok{ color:var(--done); }
+  .dl-status.warn{ color:var(--failed); }
+  .dl-list{ display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+  .dl-item{ border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 12px; display:flex; flex-direction:column; gap:6px; }
+  .dl-item-head{ display:flex; align-items:center; gap:10px; }
+  .dl-item-name{ flex:1 1 auto; min-width:0; font-family:var(--mono); font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dl-item-status{ font-size:11.5px; color:var(--text-dim); }
+  .dl-item.done .dl-item-status{ color:var(--done); }
+  .dl-item.error .dl-item-status{ color:var(--failed); }
+  .dl-item-meta{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
+  .dl-item-meta.err{ color:var(--failed); }
   .model-editor{ display:flex; flex-direction:column; gap:10px; padding:4px 12px 12px; border-top:1px solid var(--border); }
   .model-field{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-dim); margin-top:6px; }
   .model-field .option-input{ max-width:none; }
@@ -3402,6 +3421,29 @@
 
   <div class="panel">
     <div class="panel-header">
+      <div class="section-label">Model download</div>
+    </div>
+    <div class="panel-body">
+      <div class="email-hint">Civitai 모델 페이지, Hugging Face 파일 주소, 또는 모델 파일 직접 주소를 넣으면 고른 파드로 바로 받아요.
+        파드 안에서 받기 때문에 처음 한 번은 그 파드에 다운로더를 설치해야 해요(파드 터미널에 스크립트를 붙여 넣고 ComfyUI 재시작).
+        Civitai에서 로그인이 필요한 모델은 API 토큰이 필요해요 — 토큰은 이 서버에 저장하지 않고, "기억"을 켜면 이 브라우저에만 남아요.</div>
+      <div class="dl-row">
+        <input type="text" class="option-input" id="dl-url" placeholder="https://civitai.com/models/… · https://huggingface.co/… · 직접 주소" autocomplete="off">
+        <button class="load-btn" id="dl-resolve-btn" type="button">확인</button>
+      </div>
+      <div class="dl-row">
+        <input type="password" class="option-input" id="dl-token" placeholder="API 토큰 (필요할 때만)" autocomplete="off">
+        <label class="inventory-diff-toggle" style="margin:0;"><input type="checkbox" id="dl-token-remember"> 이 브라우저에 기억</label>
+      </div>
+      <div class="upload-error" id="dl-error"></div>
+      <div id="dl-resolved"></div>
+      <div id="dl-status"></div>
+      <div id="dl-list"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
       <div class="section-label">ControlNet presets</div>
     </div>
     <div class="panel-body">
@@ -3768,6 +3810,26 @@
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="job-project-cancel" type="button"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
       <button class="submit-btn" id="job-project-confirm" type="button"><svg class="ico"><use href="#i-arrow-right"/></svg> 옮기기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="dl-install-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">Install downloader</div>
+      <button class="modal-close" id="dl-install-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint">1) 아래 스크립트를 복사해 그 파드의 터미널(Jupyter 터미널 등)에 붙여 넣고 실행하세요.
+        2) ComfyUI를 다시 시작하세요. 3) 이 화면에서 "다시 확인"을 누르세요. 스크립트에는 이 파드 전용 토큰이 들어 있어요 —
+        남에게 공유하지 마세요. ComfyUI 폴더를 못 찾으면 <code>COMFY_DIR=/경로</code>를 앞에 붙여 실행하세요.</div>
+      <textarea class="workflow-textarea" id="dl-install-script" spellcheck="false" readonly style="height:220px;"></textarea>
+      <div class="upload-error" id="dl-install-error"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="dl-install-done" type="button"><svg class="ico"><use href="#i-x"/></svg> 닫기</button>
+      <button class="submit-btn" id="dl-install-copy" type="button"><svg class="ico"><use href="#i-copy"/></svg> 스크립트 복사</button>
     </div>
   </div>
 </div>
@@ -6457,6 +6519,275 @@ document.getElementById('inventory-refresh-btn').addEventListener('click', async
   renderModelInventory();
 });
 
+// ---- "모델" 탭 — 모델 내려받기 ----
+const DL_TOKEN_KEY = 'nightshift-dl-token';
+let dlResolved = null;      // 마지막으로 확인한 주소 정보
+let dlPodId = null;
+let dlStatus = null;        // 선택한 파드의 다운로더 상태
+let dlPollTimer = null;
+let dlSeenDone = new Set();
+
+function dlToken(){ return document.getElementById('dl-token').value.trim(); }
+
+function dlEligiblePods(){
+  return podsCache.filter(p => p.kind === 'comfyui');
+}
+
+function dlDefaultPod(){
+  const pods = dlEligiblePods();
+  const current = formPodId();
+  if(dlPodId && pods.some(p => p.id === dlPodId)) return dlPodId;
+  if(pods.some(p => p.id === current)) return current;
+  return pods.length ? pods[0].id : null;
+}
+
+function dlSetError(text){ document.getElementById('dl-error').textContent = text || ''; }
+
+async function dlApi(url, options){
+  const res = await fetch(url, options);
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok) throw new Error(data.detail || '요청에 실패했어요.');
+  return data;
+}
+
+function dlJson(body){
+  return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+}
+
+async function dlResolve(url){
+  dlSetError('');
+  const box = document.getElementById('dl-resolved');
+  box.innerHTML = '<div class="comfy-model-empty">확인하는 중…</div>';
+  try{
+    dlResolved = await dlApi('/api/models/resolve', dlJson({ url, token: dlToken() }));
+  }catch(e){
+    dlResolved = null;
+    box.innerHTML = '';
+    dlSetError(e.message);
+    return;
+  }
+  renderDlResolved();
+}
+
+function renderDlResolved(){
+  const box = document.getElementById('dl-resolved');
+  const r = dlResolved;
+  if(!r){ box.innerHTML = ''; return; }
+  if(r.choose_file){
+    box.innerHTML = `<div class="dl-card">
+      <div class="dl-name">${escapeHtml(r.name)}</div>
+      <label class="model-field"><span>받을 파일을 고르세요</span>
+        <select class="pod-bar-select" id="dl-candidate">${r.candidates.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select></label>
+      <div><button class="load-btn" id="dl-candidate-btn" type="button">이 파일로 계속</button></div>
+    </div>`;
+    return;
+  }
+  const pods = dlEligiblePods();
+  dlPodId = dlDefaultPod();
+  const kinds = modelRegistry.kinds.length ? modelRegistry.kinds : [{ id: 'checkpoints', label: '체크포인트' }];
+  const kind = r.kind || dlKindGuess || 'checkpoints';
+  const size = r.size_bytes ? ` · ${fmtBytes(r.size_bytes)}` : '';
+  box.innerHTML = `<div class="dl-card">
+    ${r.preview_url ? `<img class="dl-preview" src="${escapeHtml(r.preview_url)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : ''}
+    <div class="dl-card-main">
+      <div class="dl-name">${escapeHtml(r.name || r.filename)}</div>
+      <div class="dl-meta">${escapeHtml(r.source)}${r.architecture ? ' · ' + escapeHtml(r.architecture) : ''}${r.civitai_type ? ' · ' + escapeHtml(r.civitai_type) : ''}${size}${r.trigger ? ' · 트리거: ' + escapeHtml(r.trigger) : ''}</div>
+      <label class="model-field"><span>파일명 (하위 폴더는 "폴더/이름.safetensors")</span>
+        <input type="text" class="option-input" id="dl-filename" value="${escapeHtml(r.filename)}"></label>
+      <label class="model-field"><span>종류</span>
+        <select class="pod-bar-select" id="dl-kind">${kinds.map(k => `<option value="${escapeHtml(k.id)}" ${k.id === kind ? 'selected' : ''}>${escapeHtml(k.label)}</option>`).join('')}</select></label>
+      <label class="model-field"><span>받을 파드</span>
+        <select class="pod-bar-select" id="dl-pod">${pods.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === dlPodId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}</select></label>
+      <label class="inventory-diff-toggle"><input type="checkbox" id="dl-overwrite"> 같은 이름이 있으면 덮어쓰기</label>
+      <div><button class="submit-btn" id="dl-start-btn" type="button">${ico('download')} 다운로드</button></div>
+    </div>
+  </div>`;
+  refreshDlStatus();
+}
+
+let dlKindGuess = null;
+
+async function refreshDlStatus(){
+  const el = document.getElementById('dl-status');
+  const podId = dlPodId || dlDefaultPod();
+  if(!podId){ el.innerHTML = '<div class="comfy-model-empty">ComfyUI 파드가 없어요.</div>'; return; }
+  dlPodId = podId;
+  el.innerHTML = '<div class="comfy-model-empty">다운로더 상태 확인 중…</div>';
+  try{
+    dlStatus = await dlApi(`/api/models/downloader/status?pod_id=${encodeURIComponent(podId)}`);
+  }catch(e){
+    dlStatus = { installed: false, reason: e.message };
+  }
+  renderDlStatus();
+  refreshDlList();
+}
+
+function renderDlStatus(){
+  const el = document.getElementById('dl-status');
+  const st = dlStatus;
+  const startBtn = document.getElementById('dl-start-btn');
+  if(startBtn) startBtn.disabled = !(st && st.installed);
+  if(!st) { el.innerHTML = ''; return; }
+  if(st.installed){
+    el.innerHTML = `<div class="dl-status ok">${ico('circle-check')} 이 파드에 다운로더가 설치돼 있어요${st.outdated ? ' (새 버전이 있어요 — 설치 스크립트를 다시 실행하세요)' : ''}
+      ${st.outdated ? '<button class="load-btn" id="dl-install-btn" type="button">설치 스크립트</button>' : ''}</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="dl-status warn">${ico('triangle-alert')} ${escapeHtml(st.reason || '다운로더가 설치돼 있지 않아요.')}
+    <button class="load-btn" id="dl-install-btn" type="button">설치 스크립트</button>
+    <button class="load-btn" id="dl-recheck-btn" type="button">다시 확인</button></div>`;
+}
+
+async function openDlInstall(){
+  const modal = document.getElementById('dl-install-modal');
+  const area = document.getElementById('dl-install-script');
+  document.getElementById('dl-install-error').textContent = '';
+  area.value = '불러오는 중…';
+  modal.style.display = 'flex';
+  try{
+    const res = await fetch(`/api/models/downloader/install-script?pod_id=${encodeURIComponent(dlPodId)}`);
+    if(!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '스크립트를 만들지 못했어요.');
+    area.value = await res.text();
+  }catch(e){
+    area.value = '';
+    document.getElementById('dl-install-error').textContent = e.message;
+  }
+}
+
+function closeDlInstall(){ document.getElementById('dl-install-modal').style.display = 'none'; }
+document.getElementById('dl-install-close').addEventListener('click', closeDlInstall);
+document.getElementById('dl-install-done').addEventListener('click', closeDlInstall);
+document.getElementById('dl-install-copy').addEventListener('click', async () => {
+  const area = document.getElementById('dl-install-script');
+  try{ await navigator.clipboard.writeText(area.value); flashNotice('스크립트를 복사했어요.'); }
+  catch(e){ area.select(); document.execCommand('copy'); flashNotice('스크립트를 복사했어요.'); }
+});
+
+async function refreshDlList(){
+  const el = document.getElementById('dl-list');
+  const podId = dlPodId;
+  if(!podId || !dlStatus || !dlStatus.installed){ el.innerHTML = ''; stopDlPoll(); return; }
+  let data;
+  try{ data = await dlApi(`/api/models/downloads?pod_id=${encodeURIComponent(podId)}`); }
+  catch(e){ el.innerHTML = ''; stopDlPoll(); return; }
+  const items = data.downloads || [];
+  let finished = false;
+  for(const d of items){
+    if(d.status === 'done' && !dlSeenDone.has(d.id)){
+      if(dlSeenDone.size || dlPollTimer){ finished = true; flashNotice(`받기 완료: ${d.filename}`); }
+      dlSeenDone.add(d.id);
+    }
+  }
+  el.innerHTML = items.length ? `<div class="dl-list">${items.map(dlItemHtml).join('')}</div>` : '';
+  const active = items.some(d => d.status === 'queued' || d.status === 'downloading');
+  if(active) startDlPoll(); else stopDlPoll();
+  if(finished){
+    await fetchComfyObjectInfo(true).catch(() => {});
+    await Promise.all([fetchModelInventory(true), fetchModelRegistry()]);
+    renderModelRegistry();
+    renderModelInventory();
+  }
+}
+
+const DL_STATUS_LABEL = { queued: '대기', downloading: '받는 중', done: '완료', error: '실패', cancelled: '취소됨' };
+
+function dlItemHtml(d){
+  const pct = d.total > 0 ? Math.min(100, Math.round(d.downloaded / d.total * 100)) : 0;
+  const active = d.status === 'queued' || d.status === 'downloading';
+  const prog = d.status === 'downloading' ? `${fmtBytes(d.downloaded)}${d.total ? ' / ' + fmtBytes(d.total) : ''}` : '';
+  return `<div class="dl-item ${d.status}">
+    <div class="dl-item-head"><span class="dl-item-name" title="${escapeHtml(d.filename)}">${escapeHtml(d.filename)}</span>
+      <span class="dl-item-status">${DL_STATUS_LABEL[d.status] || d.status}</span>
+      ${active ? `<button class="del-btn dl-cancel-btn" data-id="${escapeHtml(d.id)}" type="button" title="취소">${ico('x')}</button>` : ''}</div>
+    ${active ? `<div class="progress-track"><div class="progress-fill running" style="width:${pct}%"></div></div><div class="dl-item-meta">${prog}${d.total ? ` (${pct}%)` : ''}</div>` : ''}
+    ${d.error ? `<div class="dl-item-meta err">${escapeHtml(d.error)}</div>` : ''}
+  </div>`;
+}
+
+function startDlPoll(){ if(!dlPollTimer) dlPollTimer = setInterval(refreshDlList, 2000); }
+function stopDlPoll(){ if(dlPollTimer){ clearInterval(dlPollTimer); dlPollTimer = null; } }
+
+document.getElementById('dl-resolve-btn').addEventListener('click', () => {
+  const url = document.getElementById('dl-url').value.trim();
+  if(!url){ dlSetError('주소를 넣어주세요.'); return; }
+  dlKindGuess = null;
+  try{
+    if(document.getElementById('dl-token-remember').checked) localStorage.setItem(DL_TOKEN_KEY, dlToken());
+  }catch(e){ /* 기억은 선택 기능 */ }
+  dlResolve(url);
+});
+document.getElementById('dl-url').addEventListener('keydown', (e) => { if(e.key === 'Enter') document.getElementById('dl-resolve-btn').click(); });
+document.getElementById('dl-token-remember').addEventListener('change', (e) => {
+  try{
+    if(e.target.checked) localStorage.setItem(DL_TOKEN_KEY, dlToken()); else localStorage.removeItem(DL_TOKEN_KEY);
+  }catch(err){ /* 무시 */ }
+});
+try{
+  const saved = localStorage.getItem(DL_TOKEN_KEY);
+  if(saved){ document.getElementById('dl-token').value = saved; document.getElementById('dl-token-remember').checked = true; }
+}catch(e){ /* 무시 */ }
+
+document.getElementById('dl-resolved').addEventListener('click', async (e) => {
+  if(e.target.closest('#dl-candidate-btn')){
+    const file = document.getElementById('dl-candidate').value;
+    dlResolve(`https://huggingface.co/${dlResolved.repo}/blob/main/${file}`);
+    return;
+  }
+  if(e.target.closest('#dl-start-btn')){
+    dlSetError('');
+    const body = {
+      pod_id: document.getElementById('dl-pod').value,
+      url: dlResolved.download_url,
+      kind: document.getElementById('dl-kind').value,
+      filename: document.getElementById('dl-filename').value.trim(),
+      overwrite: document.getElementById('dl-overwrite').checked,
+      token: dlToken(),
+      meta: { architecture: dlResolved.architecture || '', trigger: dlResolved.trigger || '',
+              source_url: dlResolved.source_url || '', notes: dlResolved.name || '' },
+    };
+    try{
+      await dlApi('/api/models/download', dlJson(body));
+      dlPodId = body.pod_id;
+      flashNotice('받기를 시작했어요.');
+      await refreshDlList();
+      startDlPoll();
+    }catch(err){
+      dlSetError(err.message);
+    }
+  }
+});
+
+document.getElementById('dl-resolved').addEventListener('change', (e) => {
+  if(e.target.id === 'dl-pod'){ dlPodId = e.target.value; refreshDlStatus(); }
+  if(e.target.id === 'dl-kind'){ dlKindGuess = e.target.value; }
+});
+
+document.getElementById('dl-status').addEventListener('click', (e) => {
+  if(e.target.closest('#dl-install-btn')) openDlInstall();
+  if(e.target.closest('#dl-recheck-btn')) refreshDlStatus();
+});
+
+document.getElementById('dl-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.dl-cancel-btn');
+  if(!btn) return;
+  try{ await dlApi('/api/models/downloads/cancel', dlJson({ pod_id: dlPodId, id: btn.dataset.id })); }
+  catch(err){ dlSetError(err.message); }
+  refreshDlList();
+});
+
+async function initModelDownload(){
+  dlPodId = dlDefaultPod();
+  if(!dlResolved){
+    // 주소를 아직 안 넣었어도, 이 파드에 진행 중인 받기가 있으면 보여준다.
+    if(dlPodId){
+      try{ dlStatus = await dlApi(`/api/models/downloader/status?pod_id=${encodeURIComponent(dlPodId)}`); }
+      catch(e){ dlStatus = { installed: false, reason: e.message }; }
+      renderDlStatus();
+      refreshDlList();
+    }
+  }
+}
+
 async function initLoraTab(force){
   const errorEl = document.getElementById('lora-tab-error');
   errorEl.textContent = '';
@@ -6468,6 +6799,7 @@ async function initLoraTab(force){
   await Promise.all([fetchBaseModelFamilies(), fetchModelRegistry(), fetchModelUsage()]);
   renderModelRegistry();
   fetchModelInventory(force).then(renderModelInventory);
+  initModelDownload();
   initFamilyTab();
   initPresetTab();
 }

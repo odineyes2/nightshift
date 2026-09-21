@@ -820,8 +820,25 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
   "🎛 모델" 탭을 열면 **그 파드에 설치돼 있지만 아직 family가 없는 체크포인트**를 안내하고
   "+ 등록" 한 번으로 등록해 줍니다(파일명에서 family id를 자동으로 만들고, 표시 이름은 나중에
   고쳐도 됩니다).
-- **LoRA 호환 family**: `lora_triggers.json`이 `{lora_filename: {trigger, families: [family_id, ...]}}` 형태로 트리거 워드와 함께 저장합니다. `families`가 빈 배열이면 모든 베이스 모델과 호환되는 것으로 취급되어 마법사에 항상 보이고, 채워두면 그 family를 골랐을 때만 보입니다(호환되지 않는 LoRA는 회색 처리가 아니라 목록에서 아예 숨겨집니다). 예전 스키마(`{lora_filename: "트리거 문자열"}`)로 저장돼 있던 파일은 서버가 시작할 때 `families: []`로 자동 이관됩니다.
+- **LoRA 호환 family**: 모델 등록부(아래 "모델 등록부" 절)에 LoRA마다 `{trigger, families: [family_id, ...]}`로 저장합니다. `families`가 빈 배열이면 모든 베이스 모델과 호환되는 것으로 취급되어 마법사에 항상 보이고, 채워두면 그 family를 골랐을 때만 보입니다(호환되지 않는 LoRA는 회색 처리가 아니라 목록에서 아예 숨겨집니다). 베이스 모델(family)을 지우면 모든 LoRA의 호환 목록에서도 빠집니다. 예전 `lora_triggers.json`(문자열 또는 `{trigger, families}`)은 서버가 시작할 때 한 번만 등록부로 옮기고 `lora_triggers.json.migrated`로 남깁니다.
 - **ControlNet/IPAdapter 프리셋 워크플로우**: 위 "워크플로우 유형의 조합 규칙" 절에서 설명한 프리셋 그룹(`openpose_cn`/`depth_cn`/`lineart_cn`/`ipadapter`) — family별로 미리 만들어둔 워크플로우 JSON을 `workflow_presets/<family_id>__<type_id>.json`에 업로드해두고 그대로 재사용합니다. family에 프리셋이 없는 유형은 마법사의 "워크플로우 유형" 목록에서 아예 숨겨집니다(LoRA 호환성 필터링과 같은 원칙 — 골라봤자 실행할 워크플로우가 없으므로).
+
+### 모델 등록부 · 파드별 설치 현황 · 사용 통계 · 내려받기 (`🎛 모델` 탭)
+
+**모델 등록부** (`server/model_registry.py`, DB `models` 테이블) — ComfyUI가 알려주는 것은 "설치된 파일 이름"뿐이라, 사람이 붙이는 정보를 (종류, 파일명)별로 따로 둡니다. 종류는 체크포인트 · 디퓨전 모델(UNet) · LoRA · VAE · 텍스트 인코더(CLIP) · CLIP Vision · ControlNet · 업스케일러 8가지이고, 항목마다 계열(SDXL/Flux/Wan2.2… 자유 입력), 태그, 메모, 출처 주소를 적을 수 있습니다. LoRA는 여기에 트리거 워드와 호환 베이스 모델도 저장합니다. 정보를 하나도 안 채운 항목은 행을 만들지 않고, 파일이 파드에 없어도 등록 정보는 남습니다(그 파드에서는 "미설치"로 표시). 조회는 모든 회원이, 수정은 관리자만 할 수 있습니다.
+
+**파드별 설치 현황(Pod inventory)** — 위에서 고른 종류의 모델이 내 ComfyUI 파드마다 설치돼 있는지 표로 비교합니다("차이만 보기" 지원). 꺼진 파드는 "연결 안 됨"으로 표시됩니다. `GET /api/models/inventory`.
+
+**작업 전 누락 모델 점검(pre-flight)** — 작업을 등록할 때(`POST /api/upload`·`/api/jobs`)와 다른 파드로 옮길 때 서버가 그 작업이 갈 파드의 `/object_info`와 워크플로우(영상 워크플로우를 안 올렸으면 내장 기본값 포함)를 대조해 없는 노드/모델을 `job.preflight`에 담습니다. 각 항목에는 **내 다른 파드 중 어디에 있는지**(`available_on`)도 붙습니다. 화면은 등록 직후 알림과 작업 행의 "모델 N" 배지로 알려 주고, 워크플로우 파일을 고를 때 나오는 호환성 검사 문구에도 같은 안내가 붙습니다. 안내용이라 등록을 막지는 않습니다(ComfyUI가 꺼진 동안 큐에 쌓아 두는 것이 정상 동작이라서 — 파드에 연결하지 못하면 `preflight`는 `null`).
+
+**사용 통계** — 결과물 메타데이터(PNG의 프롬프트 그래프, 영상은 mp4 안에 들어 있는 프롬프트 그래프)에서 체크포인트/LoRA/UNet/VAE/텍스트 인코더 이름을 읽어 모델별 사용 횟수·이미지/영상 수·즐겨찾기 수·마지막 사용과 대표 결과물(즐겨찾기·평점 높은 순)을 보여 줍니다. 항목의 "이미지 N장 보기"는 갤러리를 그 모델로 거릅니다(`GET /api/output-images?model=파일명`, 영상도 동일). 메타데이터가 없는 결과물은 통계에 잡히지 않습니다. 일반 회원은 자기 결과물, 관리자는 전체 결과물 기준입니다. 예전에 색인된 결과물은 서버를 처음 재시작할 때 한 번만 다시 훑어 채웁니다(`meta.asset_model_meta_v1`).
+
+**모델 내려받기(Model download)** (`server/model_download.py`) — Civitai 모델 페이지, Hugging Face 파일/저장소 주소, 모델 파일 직접 주소(https)를 넣으면 고른 파드로 받습니다. ComfyUI에는 다운로드 API가 없고 nightshift는 파드에서 명령을 돌릴 수 없어서(파드와는 HTTP만 오갑니다), 파드에 **다운로더**(`templates/comfy_nodes/nightshift_downloader`, 노드 없이 HTTP 라우트만 추가하는 ComfyUI 커스텀 노드)를 한 번 설치해야 합니다.
+
+1. 화면의 "설치 스크립트"를 눌러 스크립트를 복사해 그 파드의 터미널에 붙여 넣고 실행합니다(ComfyUI 폴더를 못 찾으면 `COMFY_DIR=/경로`를 앞에 붙임). 스크립트가 노드 소스와 **그 파드 전용 토큰**을 `custom_nodes/nightshift_downloader/`에 씁니다.
+2. ComfyUI를 재시작하고 화면에서 "다시 확인"을 누릅니다.
+
+보안: 파드 주소는 인터넷에 열려 있으므로 다운로더의 모든 라우트는 `X-Nightshift-Token`이 파드의 `token` 파일과 같아야만 동작합니다. 토큰은 서버 비밀값과 파드 id로 매번 계산하므로(HMAC) `pods.json`에 저장되지 않고 파드마다 다릅니다. 받는 위치는 ComfyUI가 그 종류에 쓰는 폴더 안으로만 제한되고(경로 이탈/이상한 이름 거부), 모델 확장자(`.safetensors .ckpt .pt .pth .bin .gguf`)만 허용하며, https만 받고, 디스크 여유를 미리 확인하고, `.part`로 받은 뒤 완료 시 이름을 바꿉니다. 서버가 직접 접속하는 곳은 Civitai/Hugging Face(고정 호스트)뿐이라 임의 주소로 서버 안쪽을 찌를 수 없고, 임의 주소는 파드가 직접 받습니다. API 토큰(Civitai/Hugging Face)은 서버에 저장하지 않고 요청 때만 쓰며, 화면의 "기억"을 켜면 이 브라우저(localStorage)에만 남습니다. 토큰은 Civitai/Hugging Face 받기 주소에만 붙고, 다른 호스트로 리다이렉트되면 뗍니다. 받은 뒤 그 파드의 설치 목록 캐시를 비워 새 파일이 바로 보이고, 관리자가 받으면 Civitai/HF에서 알아낸 계열·트리거 워드·출처가 등록부에 함께 기록됩니다.
 
 ### "새 작업 추가" 마법사
 
@@ -918,8 +935,17 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/comfy-outputs/forget` | "이미 받아왔다"는 기록을 지운다(요청 본문 `{"job_id": "..."}`를 주면 그 작업 것만, 없으면 전부). 응답 `{"forgotten": N, "last_sync", "known"}`. 한 번만 다시 받으면 되는 경우라면 위의 `force: true`가 더 간단하다 |
 | `POST` | `/api/comfy-endpoint/test` | 저장하지 않고 주소만 확인한다(요청 본문 `{"url": "..."}`, 비워 보내면 지금 적용 중인 주소를 확인). 응답 `{"url", "connected"}`. 폴링(2초)보다 넉넉한 타임아웃(8초)을 써서 원격 pod의 첫 TLS 핸드셰이크까지 기다린다 |
 | `GET` | `/api/comfy-object-info?refresh=false&pod_id=` | **그 파드**(생략하면 기본 파드, ComfyUI 파드가 아니면 기본 파드로 폴백)에 설치된 노드 타입 이름 목록과 종류별 모델 목록을 `{"connected", "url", "node_types": [...], "models": {"checkpoints", "loras", "vae", "controlnet", "upscale_models", "clip_vision"}}`로 반환(원본 `/object_info`는 입력 스펙까지 들어있어 수 MB가 되기도 해서 그대로 넘기지 않고 추려서 줌). 서버가 120초 캐싱하며 `refresh=true`면 강제로 다시 받아옴. ComfyUI가 안 떠 있어도 에러가 아니라 `connected: false` + 빈 목록 |
-| `GET` | `/api/lora-triggers` | LoRA 파일명 → `{trigger, families}` 매핑을 반환(설정 안 한 LoRA는 키 자체가 없음). `families`는 이 LoRA가 호환되는 베이스 모델 family id 목록 — 빈 배열이면 모든 family와 호환되는 것으로 취급 |
-| `PUT` | `/api/lora-triggers` | 매핑 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "🎛 모델" 탭이 입력/체크할 때마다 부름. `trigger`가 빈 문자열이고 `families`도 빈 배열이면 그 키를 저장하지 않음(지움). 객체가 아니거나 각 값이 `{trigger: string, families: string[]}` 형태가 아니면 400. 예전 스키마(`{lora_filename: "트리거 문자열"}`)로 저장돼 있던 파일은 서버가 시작할 때 자동으로 이 형태로 이관함(`families: []`) |
+| `GET` | `/api/lora-triggers` | LoRA 파일명 → `{trigger, families}` 매핑(모델 등록부의 LoRA 항목에서 만든 읽기 전용 뷰 — 설정 안 한 LoRA는 키 자체가 없음). `families`가 빈 배열이면 모든 family와 호환 |
+| `GET` | `/api/models` | 모델 등록부 — `{kinds: [{id, label}], architectures: [...], items: [{kind, filename, architecture, notes, tags, trigger, families, source_url, updated_at}]}` |
+| `PUT` | `/api/models` | (관리자) 등록부 항목 하나를 고침 — 본문 `{kind, filename, architecture?, notes?, tags?, trigger?, families?, source_url?}`, 넘긴 필드만 바뀜. 전부 비면 항목을 지우고 `{entry: null}`. `trigger`/`families`는 `loras`에서만 유효 |
+| `GET` | `/api/models/inventory?refresh=false` | 내 ComfyUI 파드별 설치된 모델 `{pods: [{id, name, enabled, connected, models: {종류: [파일명]}}]}` |
+| `GET` | `/api/models/usage` | 모델별 사용 통계 `{usage: [{kind, filename, count, images, videos, favorites, last_used, samples: [{path, kind}]}]}` — 결과물 메타 기준(일반 회원은 자기 것, 관리자는 전체) |
+| `POST` | `/api/models/resolve` | 본문 `{url, token?}` — Civitai/Hugging Face/직접 https 주소를 풀어 `{source, name, download_url, filename, kind, architecture, trigger, size_bytes, preview_url, source_url}`을 돌려줌. Hugging Face 저장소 주소는 `{choose_file: true, candidates: [...]}` |
+| `GET` | `/api/models/downloader/status?pod_id=` | 그 파드에 다운로더가 설치돼 있는지 `{installed, connected, version?, folders?, reason?}` |
+| `GET` | `/api/models/downloader/install-script?pod_id=` | 그 파드용 설치 스크립트(text/plain, 파드 전용 토큰 포함) |
+| `POST` | `/api/models/download` | 본문 `{pod_id, url, kind, filename, overwrite?, token?, meta?}` — 파드의 다운로더에 받기를 시키고 `{id}`를 돌려줌. 같은 이름이 있으면 409(`overwrite`로 덮어씀). 관리자가 `meta`(`architecture`/`trigger`/`notes`/`tags`/`source_url`)를 주면 등록부에 함께 기록 |
+| `GET` | `/api/models/downloads?pod_id=` | 그 파드의 받기 진행 목록 `{downloads: [{id, kind, filename, status, downloaded, total, error}]}` — 완료를 처음 보면 그 파드의 설치 목록 캐시를 비움 |
+| `POST` | `/api/models/downloads/cancel` | 본문 `{pod_id, id}` |
 | `GET` | `/api/base-model-families` | 베이스 모델 family 정의를 `{family_id: {label, checkpoints: [체크포인트 파일명, ...]}}`로 반환 — "새 작업 추가" 마법사 1단계와 LoRA/프리셋 호환성 필터링의 기준이 됨 |
 | `PUT` | `/api/base-model-families` | family 정의 전체를 통째로 덮어씀(요청 본문 = 같은 형태의 JSON 객체) — "🎛 모델" 탭이 family를 추가/편집할 때마다 부름. `label`이 비어있거나 `checkpoints`가 문자열 배열이 아니면 400 |
 | `GET` | `/api/input-images` | img2img/IPAdapter/영상 생성 입력 이미지 목록(세트/char_no 구분 없는 평평한 목록, `input_assets.py`)을 `{"images": [{"name", "size"}, ...]}`로 반환 |
@@ -956,7 +982,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/jobs/{job_id}/retry` | `interrupted`(서버 재시작으로 중단됨) 상태인 작업을 원래 워크플로우/CSV/옵션 그대로 다시 큐에 올림(`status`를 `queued`로, `queued_at`은 지금 시각으로, `started_at`/`finished_at`/`returncode`/`progress`는 초기화). 자동 실행 모드(`auto_run`)와 무관하게 항상 즉시 큐에 들어감. `interrupted`가 아닌 작업에 호출하면 400, 없거나 삭제된 작업이면 404 |
 | `POST` | `/api/send-email` | 출력 폴더의 이미지를 모아 이메일로 발송 (요청 본문: `{"smtp_user", "smtp_password", "to_email", "max_mb"(선택, 기본 20)}`). 세 필수 필드 중 하나라도 비어 있으면 400, 폴더가 없거나 이미지가 없으면 400, SMTP 로그인/발송 실패도 400과 함께 원인 메시지 반환. 성공하면 `{"total_files", "total_batches", "batches": [...]}` 반환 |
 | `GET` | `/api/download-images` | 출력 폴더의 이미지를 모두 zip으로 묶어 다운로드 응답으로 반환 (`Content-Disposition: attachment`). 작업별 하위 폴더 구조 없이 파일명만으로 평평하게 담기며, 서로 다른 작업 폴더의 파일명이 우연히 겹치면 "이름 (1).ext"처럼 번호를 붙여 구분함. 폴더가 없거나 이미지가 없으면 404 |
-| `GET` | `/api/output-images` | 출력 폴더의 이미지 목록을 `{"images": [{"name", "job_id", "size", "mtime", "width", "height"}, ...]}`로 반환(수정 시각 내림차순, 최신이 먼저). `job_id`는 `name`(상대 경로)의 첫 폴더 이름이고, 하위 폴더 없이 바로 저장된 이미지는 `null`. `width`/`height`는 이미지 헤더만 읽어서 얻은 픽셀 크기(갤러리 "자세히 보기"용) — 손상된 파일이면 둘 다 `null`. 갤러리 탭(격자/자세히 보기 × 전체/작업별/날짜별)을 채우는 용도. 폴더가 아직 없어도 에러가 아니라 빈 배열 |
+| `GET` | `/api/output-images?q=&tag=&favorite=&min_rating=&model=` | (`model=`은 그 모델 파일명을 체크포인트/LoRA/UNet/VAE/텍스트 인코더로 쓴 결과물만 — `/api/output-videos`도 동일) 출력 폴더의 이미지 목록을 `{"images": [{"name", "job_id", "size", "mtime", "width", "height"}, ...]}`로 반환(수정 시각 내림차순, 최신이 먼저). `job_id`는 `name`(상대 경로)의 첫 폴더 이름이고, 하위 폴더 없이 바로 저장된 이미지는 `null`. `width`/`height`는 이미지 헤더만 읽어서 얻은 픽셀 크기(갤러리 "자세히 보기"용) — 손상된 파일이면 둘 다 `null`. 갤러리 탭(격자/자세히 보기 × 전체/작업별/날짜별)을 채우는 용도. 폴더가 아직 없어도 에러가 아니라 빈 배열 |
 | `GET` | `/api/output-images/{filename}` | 그 이미지 원본을 그대로 반환(갤러리 라이트박스용). `filename`은 순수 파일명만 허용(경로 조작 방지), 없으면 404 |
 | `GET` | `/api/output-images/{filename}/thumbnail?size=320&fit=inside` | 그 이미지를 요청마다 즉석에서 축소해 JPEG로 반환(갤러리 격자용, 디스크에 캐시하지 않음). `size`는 픽셀(64~800 사이로 clamp, 기본 320)이고, `fit=inside`(기본)는 긴 변 기준으로 줄이고 `fit=cover`는 정사각형으로 가운데를 잘라 `size`×`size`로 만듭니다(갤러리 격자가 이렇게 부릅니다 — 칸이 정사각형이라 긴 변 기준으로 줄이면 세로로 긴 이미지가 흐릿해져서). 파일의 수정 시각·용량·`size`·`fit`으로 만든 `ETag`와 `Cache-Control: private, max-age=86400`을 응답에 실어서, 브라우저가 같은 축소본을 재요청(`If-None-Match`)할 때는 `304 Not Modified`만 돌려주고 다시 인코딩하지 않습니다 — 원본 파일이 바뀌면(예: 가로형 자동 회전) 수정 시각이 달라지면서 자동으로 무효화됩니다 |
 | `DELETE` | `/api/output-images/{filename}` | 그 이미지 한 장만 삭제(갤러리 칸의 삭제 아이콘/라이트박스의 삭제 버튼용). 응답 `{"ok": true}`, 없으면 404 |
@@ -1065,7 +1091,8 @@ nightshift/
 │   ├── img2video_i2v_csv_batch.py   # 템플릿 스크립트 (이미지 생성 → WAN2.2 i2v 영상, CSV 배치)
 │   ├── img2video_flf2v_csv_batch.py # 템플릿 스크립트 (이미지 생성 → WAN2.2 flf2v 영상, CSV 배치)
 │   ├── shell_command.py         # 템플릿 스크립트 (셸 파드용 — 임의 명령 실행)
-│   └── claude_write.py          # 템플릿 스크립트 (Claude 글쓰기 파드용 — Claude API로 프롬프트 전송)
+│   ├── claude_write.py          # 템플릿 스크립트 (Claude 글쓰기 파드용 — Claude API로 프롬프트 전송)
+│   └── comfy_nodes/nightshift_downloader/  # 파드에 설치하는 ComfyUI 커스텀 노드(모델 다운로더 — 화면의 설치 스크립트가 이 소스를 담아 줌)
 ├── scripts/                   # 독립 실행 유틸리티 — 서버가 import하지 않고, 사람이나
 │   │                          # bootstrap.sh가 직접 실행한다
 │   ├── notify_ntfy.sh          # 웹앱 접속 주소를 ntfy.sh로 폰에 알림 (bootstrap.sh가 백그라운드로 호출)
@@ -1090,7 +1117,7 @@ nightshift/
     │                           #   각각 *.migrated로 보존됨)
     ├── pods.json               # 파드(워커) 목록
     ├── comfy_endpoint.json     # (옛 형식) ComfyUI 접속 주소 — 있으면 pods.json으로 이관됨
-    ├── lora_triggers.json      # LoRA 트리거 워드 + 호환 베이스 모델
+    ├── lora_triggers.json.migrated  # (옛 파일 — 모델 등록부로 이관 후 보존)
     ├── base_model_families.json # 베이스 모델(family) 정의
     ├── danbooru_tag_edits.json # Danbooru 태그 풀 편집
     └── danbooru_history.json   # Danbooru 프롬프트 조합 기록
