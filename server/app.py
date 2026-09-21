@@ -485,6 +485,8 @@ def object_info_pod(pod_id: str | None) -> dict:
     무엇이 설치돼 있나"를 묻는 것이 정상이라, 부르는 쪽이 파드를 지정한다. 지정이
     없거나 ComfyUI 파드가 아니면 기본 파드로 떨어진다 — 셸 파드처럼 노드 목록이라는
     개념 자체가 없는 워커에 물어봐야 의미가 없기 때문이다."""
+    if pod_id == "auto":   # 파드를 정하지 않은 작업 구상 — 어느 파드의 목록도 아니다
+        return NO_POD
     user = auth.current_user.get()
     if user is None:   # 로그인 없이 부르는 내부 경로(서버 시작 등)
         if pod_id:
@@ -867,6 +869,22 @@ def wait_for_pod(pod_id: str, job_id: str) -> tuple[str, str | None]:
 
         with lock:
             rt = pod_runtimes.get(pod_id)
+            if job.get("auto_assigned") and not (rt and rt.closed):
+                pod_label = pod.get("name") or pod_id
+                job["auto_assigned"] = False
+                job["pod_id"] = None
+                job["status"] = "queued"
+                job["waiting_reason"] = f"'{pod_label}': 배정된 뒤 연결이 끊겼어요"
+                set_comfy_wait_flag(job, False)
+                reassigned = True
+            else:
+                reassigned = False
+        if reassigned:
+            save_state()
+            poke_scheduler()
+            return "moved", None
+        with lock:
+            rt = pod_runtimes.get(pod_id)
             keep_waiting = bool(rt and rt.auto_run and not rt.closed)
             if keep_waiting:
                 changed = set_comfy_wait_flag(job, True)
@@ -932,6 +950,210 @@ def pull_job_outputs(pod: dict, job_id: str, comfy_url: str, log_path: Path):
         pass
 
 
+# ---- 대기 큐 스케줄러 -----------------------------------------------------------------
+# 작업은 파드를 정하지 않고 먼저 "대기 큐"(status=queued, pod_id=None)에 들어간다. 이 스케줄러가 주기적으로
+# 그 큐를 훑어서, 작업을 돌릴 수 있는 파드가 생기면 그 파드로 배정한다. "돌릴 수 있다"는 다음을 전부 만족하는 것:
+#   1) 그 회원의 파드이고 사용 중(enabled)이며 작업 템플릿이 쓰는 파드 종류와 맞는다(고정 파드가 있으면 그 파드만),
+#   2) 지금 연결돼 있다,
+#   3) 동시에 돌릴 자리가 남아 있다,
+#   4) 작업이 필요로 하는 노드/모델 파일이 그 파드에 설치돼 있다.
+# 어느 것도 못 채우면 작업은 대기 큐에 그대로 남고, 파드마다 왜 안 되는지를 waiting_reason에 적어 화면에 보여 준다.
+# 파드가 하나도 없어도 작업을 만들어 둘 수 있다 — 파드가 생기고 살아나면 그때 돈다.
+SCHED_INTERVAL_SEC = float(os.environ.get("NIGHTSHIFT_SCHED_INTERVAL_SEC", "5"))
+MODEL_FILE_EXTS = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx")
+_sched_wake = threading.Event()
+
+
+def poke_scheduler():
+    _sched_wake.set()
+
+
+def job_missing_on_pod(job: dict, pod: dict) -> list[str] | None:
+    """이 작업이 그 파드에서 돌기 위해 없는 것들(없는 노드 · 없는 모델 파일). 비어 있으면 갖춘 것,
+    None이면 확인 못 함(파드가 목록을 안 준다). ComfyUI가 아닌 파드는 검사할 게 없다.
+
+    워크플로우 안의 값 중 **모델 파일**만 본다 — 입력 이미지처럼 실행 때 스크립트가 채우는 값까지 검사하면
+    멀쩡히 도는 작업이 영영 못 도는 쪽으로 막히기 때문이다. 템플릿 옵션(체크포인트/LoRA 드롭다운)으로 덮어쓰는
+    종류는 워크플로우에 적힌 값을 무시하고 고른 값 자체를 본다."""
+    if pod.get("kind") != pod_registry.DEFAULT_KIND:
+        return []
+    try:
+        _, info = fetch_comfy_object_info(False, pod)
+    except Exception:
+        return None
+    if info is None:
+        return None
+    template = load_templates_map().get(job.get("template_id")) or {}
+    problems: list[str] = []
+    overridden: set[tuple[str, str]] = set()
+    for option in template.get("options", []):
+        if option.get("type") != "comfy_model":
+            continue
+        value = str((job.get("options") or {}).get(option["name"]) or "").strip()
+        source = MODEL_LIST_SOURCES.get(option.get("model_kind"))
+        if not value or source is None:
+            continue
+        overridden.add(source)
+        installed = combo_choices(info, *source)
+        if installed and value not in installed:
+            problems.append(value)
+    blobs: list[bytes | None] = []
+    for field in ("workflow_filename", "video_workflow_filename"):
+        name = job.get(field)
+        if name:
+            try:
+                blobs.append((JOBS_DIR / name).read_bytes())
+            except OSError:
+                pass
+    if not job.get("video_workflow_filename"):
+        blobs.append(default_video_workflow_bytes(template))
+    for data in blobs:
+        if not data:
+            continue
+        try:
+            workflow = json.loads(data.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(workflow, dict):
+            continue
+        nodes, values, _ = workflow_missing(info, workflow)
+        problems.extend(f"노드 {n}" for n in nodes)
+        for v in values:
+            if (v["class_type"], v["field"]) in overridden:
+                continue
+            if not str(v["value"]).lower().endswith(MODEL_FILE_EXTS):
+                continue
+            problems.append(v["value"])
+    return list(dict.fromkeys(problems))
+
+
+def _short_list(items: list[str], limit: int = 3) -> str:
+    shown = ", ".join(items[:limit])
+    return shown + (f" 외 {len(items) - limit}개" if len(items) > limit else "")
+
+
+def _snapshot_pod_into_job(job: dict, pod: dict) -> None:
+    """파드는 일시적이라 그 작업이 어디서 돌았나/얼마 들었나를 job에 찍어 둔다(lock 밖에서 부른다)."""
+    gpu = cost = None
+    try:
+        info = runpod_api.get_runpod_info(pod.get("url") or "")
+        if info:
+            gpu = info.get("gpu_type")
+            c = info.get("cost_per_hr")
+            cost = float(c) if isinstance(c, (int, float)) else None
+    except Exception:
+        pass
+    job["pod_name"] = pod.get("name")
+    job["pod_kind"] = pod.get("kind")
+    job["pod_gpu"] = gpu
+    job["pod_cost_per_hr"] = cost
+
+
+def unassign_job(job_id: str, reason: str) -> None:
+    """배정됐던 작업을 대기 큐로 되돌린다(파드가 끊겼거나 필요한 모델이 없어졌을 때)."""
+    with lock:
+        job = jobs.get(job_id)
+        if job is None or job.get("deleted") or job["status"] not in ("queued", "pending"):
+            return
+        job["status"] = "queued"
+        job["pod_id"] = None
+        job["auto_assigned"] = False
+        job["waiting_reason"] = reason
+        set_comfy_wait_flag(job, False)
+    save_state()
+    poke_scheduler()
+
+
+def schedule_once() -> None:
+    with lock:
+        waiting = sorted((j for j in jobs.values()
+                          if j["status"] == "queued" and not j.get("pod_id") and not j.get("deleted")),
+                         key=lambda j: j["queued_at"])
+    if not waiting:
+        return
+    templates = load_templates_map()
+    owners = {j.get("owner_id") for j in waiting}
+    pods_of = {o: [p for p in pod_registry.list_pods(o) if p.get("enabled")] for o in owners}
+
+    # 파드마다 연결 확인은 한 번만 — 파드가 꺼져 있으면 확인이 몇 초 걸릴 수 있어 나란히 돌린다.
+    all_pods = {p["id"]: p for plist in pods_of.values() for p in plist}
+    connected: dict[str, bool] = {}
+    if all_pods:
+        def probe(pod):
+            try:
+                return pod["id"], bool(driver_for(pod).health(pod)["ok"])
+            except Exception:
+                return pod["id"], False
+        with ThreadPoolExecutor(max_workers=min(8, len(all_pods))) as ex:
+            connected = dict(ex.map(probe, all_pods.values()))
+
+    free: dict[str, int] = {}
+    for pid, pod in all_pods.items():
+        rt = ensure_runtime(pod)
+        with lock:
+            free[pid] = rt.max_concurrent - (len(rt.running) + rt.queue.qsize())
+
+    for job in waiting:
+        template = templates.get(job.get("template_id")) or {}
+        allowed = template.get("pod_kinds") or [pod_registry.DEFAULT_KIND]
+        pinned = job.get("pinned_pod_id")
+        candidates = [p for p in pods_of.get(job.get("owner_id"), [])
+                      if p.get("kind") in allowed and (not pinned or p["id"] == pinned)]
+        reasons: list[str] = []
+        chosen = None
+        if not candidates:
+            if pinned:
+                reasons.append("지정한 파드를 쓸 수 없어요(없어졌거나 사용 안 함)")
+            else:
+                reasons.append("사용할 수 있는 파드가 없어요 — 파드를 추가하거나 켜 주세요")
+        for pod in sorted(candidates, key=lambda p: -free.get(p["id"], 0)):
+            name = pod.get("name") or pod["id"]
+            if not connected.get(pod["id"]):
+                reasons.append(f"'{name}': 연결 안 됨")
+                continue
+            if free.get(pod["id"], 0) <= 0:
+                reasons.append(f"'{name}': 다른 작업이 돌고 있어요")
+                continue
+            missing = job_missing_on_pod(job, pod)
+            if missing is None:
+                reasons.append(f"'{name}': 설치된 모델 목록을 못 읽었어요")
+                continue
+            if missing:
+                reasons.append(f"'{name}': 없는 것 — {_short_list(missing)}")
+                continue
+            chosen = pod
+            break
+        if chosen is None:
+            reason = " · ".join(reasons)
+            with lock:
+                if job.get("waiting_reason") == reason:
+                    continue
+                job["waiting_reason"] = reason
+            save_state()
+            continue
+        _snapshot_pod_into_job(job, chosen)
+        with lock:
+            if job["status"] != "queued" or job.get("pod_id") or job.get("deleted"):
+                continue   # 그 사이 사용자가 지웠거나 옮겼다
+            job["pod_id"] = chosen["id"]
+            job["auto_assigned"] = True
+            job["waiting_reason"] = None
+            job["preflight"] = None
+            free[chosen["id"]] -= 1
+        save_state()
+        dispatch_job(job["id"], chosen["id"])
+
+
+def scheduler_loop():
+    while True:
+        _sched_wake.wait(SCHED_INTERVAL_SEC)
+        _sched_wake.clear()
+        try:
+            schedule_once()
+        except Exception:
+            logging.getLogger("uvicorn.error").exception("스케줄러 오류")
+
+
 def dispatch_job(job_id: str, pod_id: str | None = None):
     """작업을 그 작업이 배정된 파드의 큐에 넣는다. 파드가 없거나 꺼져 있으면 기본
     파드로 되돌린다 — 큐에 못 들어가 영영 안 도는 작업이 생기면 안 되므로."""
@@ -995,10 +1217,21 @@ def _run_one_job(pod_id: str, job_id: str):
     if pod is None:
         return
 
+    # 시작하기 직전에 한 번 더 — 배정된 뒤 큐에서 기다리는 사이 모델이 사라졌거나, 파드를 손으로 지정해서 넣은
+    # 작업이라 스케줄러 검사를 거치지 않았을 수 있다. 갖춰지지 않았으면 돌리지 않고 대기 큐로 되돌린다.
+    with lock:
+        snapshot = dict(jobs.get(job_id) or {})
+    if snapshot and not snapshot.get("deleted") and snapshot.get("pod_id") == pod_id:
+        missing = job_missing_on_pod(snapshot, pod)
+        if missing:
+            unassign_job(job_id, f"'{pod.get('name') or pod_id}': 없는 것 — {_short_list(missing)}")
+            return
+
     with lock:
         job = jobs.get(job_id)
         if job is None or job.get("deleted") or job.get("pod_id") != pod_id:
             return
+        job.pop("waiting_reason", None)
         job["status"] = "running"
         job["started_at"] = now_iso()
         job["progress"] = None
@@ -1142,15 +1375,27 @@ async def lifespan(app: FastAPI):
     # 파드 연결을 기다리던 중이었다는 표시(waiting_for_comfy)도 함께 지운다 — 그
     # 대기는 워커 스레드 안에서만 살아 있는 상태라 재시작하면 남아 있을 이유가 없다.
     # pod_id가 없는 옛 작업 기록은 기본 파드 것으로 본다(다중 파드 이전에 만들어진 것).
-    default_id = pod_registry.default_pod()["id"]
+    # 실행 중이던 작업은 중단으로 표시하지만, 아직 시작 안 하고 큐에서 기다리던 작업은 살려 둔다 — 파드가 살아나기를
+    # 기다리는 게 이제 대기 큐의 정상 동작이라, 서버 재시작이 그 줄을 없애면 안 된다. 어느 파드 큐(메모리)에
+    # 들어가 있던 것은 그 큐가 사라졌으니 대기 큐로 되돌려 스케줄러가 다시 배정하게 한다.
+    try:
+        default_id = pod_registry.default_pod()["id"]
+    except Exception:
+        default_id = None   # 파드가 하나도 없다
     with lock:
         for job in jobs.values():
-            if job["status"] in ("queued", "running"):
+            if job["status"] == "running":
                 job["status"] = "interrupted"
-            job.setdefault("pod_id", default_id)
+            elif job["status"] == "queued" and not job.get("deleted"):
+                job["pod_id"] = None
+                job["auto_assigned"] = False
+            elif "pod_id" not in job:
+                job["pod_id"] = default_id
             set_comfy_wait_flag(job, False)
     save_state()
     sync_runtimes()
+    threading.Thread(target=scheduler_loop, daemon=True, name="scheduler").start()
+    poke_scheduler()
     # 결과물 색인(assets)을 디스크와 맞춘다 — 파일이 많으면 시간이 걸릴 수 있으니
     # 서버가 뜨는 걸 붙잡지 않게 뒤에서 돌린다.
     threading.Thread(target=_sync_assets_quietly, kwargs={"force": True}, daemon=True).start()
@@ -1887,16 +2132,23 @@ async def comfy_object_info(refresh: bool = False, pod_id: str | None = None):
             fetch_comfy_object_info, refresh, object_info_pod(pod_id))
     except Exception as e:
         raise HTTPException(502, f"ComfyUI 노드 목록을 가져오지 못했어요: {e}")
+    # 파드가 없거나 꺼져 있어도 작업을 구상할 수 있게, 모델 등록부에 적힌 파일 이름도 종류별로 함께 준다.
+    catalog: dict[str, list[str]] = {key: [] for key in MODEL_LIST_SOURCES}
+    for entry in model_registry.list_entries():
+        if entry["kind"] in catalog:
+            catalog[entry["kind"]].append(entry["filename"])
     if object_info is None:
         return {
             "connected": False,
             "url": comfy_url,
             "node_types": [],
             "models": {key: [] for key in MODEL_LIST_SOURCES},
+            "catalog": catalog,
         }
     return {
         "connected": True,
         "url": comfy_url,
+        "catalog": catalog,
         "node_types": sorted(object_info.keys()),
         "models": {
             key: combo_choices(object_info, class_type, field)
@@ -2145,6 +2397,8 @@ async def get_base_model_families(request: Request, pod_id: str | None = None):
     쓸 수 있는 것만 보이게, 지금 들어가 있는 파드(없으면 내 연결된 파드 전체)에 설치된 체크포인트로 좁힌다. 파드에
     연결하지 못하면 좁힐 기준이 없으니 등록된 것을 전부 보여 준다."""
     user = me(request)
+    if pod_id == "auto":   # 파드를 정하지 않고 구상하는 중 — 등록해 둔 체크포인트를 전부 보여 준다(배정은 스케줄러가 한다)
+        return model_registry.checkpoint_groups(None)
     pods = [object_info_pod(pod_id)] if pod_id else [
         p for p in visible_pods_for(user) if p.get("kind") == pod_registry.DEFAULT_KIND and p.get("enabled")]
     installed: set[str] | None = None
@@ -2369,7 +2623,7 @@ async def validate_workflow(request: Request, pod_id: str | None = None):
     if object_info is None:
         # 연결이 안 됐으면 "문제 없음"이 아니라 "확인 못 함"이다 — 화면에서 구분해서 안내한다.
         return {
-            "connected": False, "url": comfy_url, "ok": True,
+            "connected": False, "url": comfy_url, "ok": True, "auto": pod_id == "auto",
             "missing_nodes": [], "missing_values": [], "checked_nodes": 0,
         }
 
@@ -2891,17 +3145,16 @@ async def create_job(
     # 만들어서 넘겨준다. 그 앞단(멀티파트 폼 파싱 vs JSON 파싱)만 다르다.
     if user is None:
         raise HTTPException(401, "로그인이 필요해요.")
-    # 어느 파드에서 돌릴지. 지정이 없으면 이 회원의 기본 파드로 간다. 작업은 그 작업을 만든 회원의 파드에서만 돈다.
+    # 파드는 정해도 되고 안 정해도 된다. 안 정하면 작업이 파드 없이 대기 큐에 들어가고, 스케줄러가 필요한 모델을 갖춘
+    # 파드가 살아 있을 때 배정한다(파드가 하나도 없어도 작업을 만들어 둘 수 있다). 작업은 그 작업을 만든 회원의
+    # 파드에서만 돈다.
+    pod = None
     if pod_id:
         pod = pod_registry.get_pod(pod_id)
         if pod is None or pod.get("owner_id") != user["id"]:
             raise HTTPException(400, "없는 파드예요.")
         if not pod.get("enabled"):
             raise HTTPException(400, f"'{pod['name']}' 파드는 지금 사용 안 함 상태예요.")
-    else:
-        pod = pod_registry.default_pod_for(user["id"])
-        if pod is None:
-            raise HTTPException(400, "쓸 수 있는 파드가 없어요. 파드 화면에서 먼저 파드를 추가해 주세요.")
 
     # 프로젝트는 파드와 무관하게 작업을 묶는다. 없으면 "미분류"(project_id=None). 자기 프로젝트만 쓸 수 있다.
     if project_id is not None and not project_store.project_exists(project_id, owner_id=user["id"]):
@@ -2910,14 +3163,14 @@ async def create_job(
     # 템플릿이 특정 워커 종류 전용이면(셸 명령은 셸 파드에서만 뜻이 있다) 여기서 막는다.
     # 안 막으면 ComfyUI 파드에 셸 작업이 들어가 조용히 엉뚱하게 돈다.
     allowed_kinds = template.get("pod_kinds")
-    if allowed_kinds and pod["kind"] not in allowed_kinds:
+    if pod is not None and allowed_kinds and pod["kind"] not in allowed_kinds:
         raise HTTPException(
             400,
             f"'{template['label']}' 템플릿은 {', '.join(allowed_kinds)} 종류의 파드에서만 쓸 수 있어요 "
             f"(고른 파드 '{pod['name']}'는 {pod['kind']}).",
         )
     # 반대 방향도 막는다 — ComfyUI용 템플릿(대부분)은 셸 파드로 보낼 수 없다.
-    if not allowed_kinds and pod["kind"] != pod_registry.DEFAULT_KIND:
+    if pod is not None and not allowed_kinds and pod["kind"] != pod_registry.DEFAULT_KIND:
         raise HTTPException(
             400,
             f"'{template['label']}' 템플릿은 {pod_registry.DEFAULT_KIND} 파드용이에요 "
@@ -2975,7 +3228,7 @@ async def create_job(
     # 값을 검증해야 한다. coerce_option은 동기 함수라, 여기서 미리 스레드로 받아
     # 캐시를 채워둔다 — 안 그러면 그 안의 ComfyUI 조회가 이벤트 루프를 막는다.
     # 못 받아오면(꺼져 있음 등) coerce_option이 검증을 건너뛴다.
-    if any(o.get("type") == "comfy_model" for o in template.get("options", [])):
+    if pod is not None and any(o.get("type") == "comfy_model" for o in template.get("options", [])):
         try:
             await asyncio.to_thread(fetch_comfy_object_info, False, pod)
         except Exception:
@@ -2984,7 +3237,8 @@ async def create_job(
     options = {}
     for option in template.get("options", []):
         raw = raw_options.get(option["name"])
-        options[option["name"]] = coerce_option(option, raw, options, pod)
+        # 파드를 안 정했으면 설치 목록으로 검증할 기준이 없다 — 값은 그대로 받고, 스케줄러가 배정할 때 그 파드에 있는지 본다.
+        options[option["name"]] = coerce_option(option, raw, options, pod if pod is not None else NO_POD)
 
     job_id = str(uuid.uuid4())[:8]
 
@@ -2993,6 +3247,8 @@ async def create_job(
     # 짧게만 기다리고, 못 얻으면 그냥 비워둔다(비용 집계에서 "모름"으로 남는다).
     pod_gpu = pod_cost_per_hr = None
     try:
+        if pod is None:
+            raise RuntimeError("파드 없음")
         info = await asyncio.wait_for(
             asyncio.to_thread(runpod_api.get_runpod_info, pod.get("url") or ""), timeout=3)
         if info:
@@ -3027,7 +3283,7 @@ async def create_job(
         recent_store("workflows", user).record(video_workflow_filename, video_workflow_bytes)
 
     preflight = None
-    if pod["kind"] == pod_registry.DEFAULT_KIND and workflow_bytes is not None:
+    if pod is not None and pod["kind"] == pod_registry.DEFAULT_KIND and workflow_bytes is not None:
         blobs = [("워크플로우", workflow_bytes),
                  ("영상 워크플로우", video_workflow_bytes if video_workflow_bytes is not None
                   else default_video_workflow_bytes(template))]
@@ -3057,26 +3313,37 @@ async def create_job(
             "progress": None,
             "deleted": False,
             "deleted_at": None,
-            "pod_id": pod["id"],
+            "pod_id": pod["id"] if pod is not None else None,
+            # 파드를 정해서 만든 작업은 그 파드에서만 돈다(스케줄러도 다른 파드로 보내지 않는다).
+            "pinned_pod_id": pod["id"] if pod is not None else None,
+            "waiting_reason": None,
             "project_id": project_id,
             "owner_id": user["id"],
             "preflight": preflight,
             # 파드는 일시적이라(지워지고 다시 안 쓴다) 나중에 "어디서 돌았나/얼마 들었나"를
-            # 볼 수 있게 이 시점의 정보를 job에 찍어둔다.
-            "pod_name": pod.get("name"),
-            "pod_kind": pod.get("kind"),
+            # 볼 수 있게 이 시점의 정보를 job에 찍어둔다. 파드를 안 정했으면 배정될 때 채운다.
+            "pod_name": pod.get("name") if pod is not None else None,
+            "pod_kind": pod.get("kind") if pod is not None else None,
             "pod_gpu": pod_gpu,
             "pod_cost_per_hr": pod_cost_per_hr,
         }
-        # 자동 실행 모드("▶ 시작"이 켜져 있는 동안)면 대기 목록에 머무르지 않고
-        # 바로 그 파드의 실행 큐에 넣는다 — 그래야 켜놓은 동안 새로 추가하는 작업이
-        # 계속 이어서 처리된다. 자동 실행은 파드마다 따로 켜고 끈다.
-        rt = pod_runtimes.get(pod["id"])
-        auto_queued = bool(rt and rt.auto_run)
-        if auto_queued:
+        if pod is None:
+            # 파드 없이 만든 작업은 곧장 대기 큐로 간다("보내기") — 스케줄러가 갖춰진 파드를 찾는다.
             jobs[job_id]["status"] = "queued"
+            jobs[job_id]["waiting_reason"] = "파드를 찾는 중이에요"
+            auto_queued = False
+        else:
+            # 자동 실행 모드("▶ 시작"이 켜져 있는 동안)면 대기 목록에 머무르지 않고
+            # 바로 그 파드의 실행 큐에 넣는다 — 그래야 켜놓은 동안 새로 추가하는 작업이
+            # 계속 이어서 처리된다. 자동 실행은 파드마다 따로 켜고 끈다.
+            rt = pod_runtimes.get(pod["id"])
+            auto_queued = bool(rt and rt.auto_run)
+            if auto_queued:
+                jobs[job_id]["status"] = "queued"
     save_state()
-    if auto_queued:
+    if pod is None:
+        poke_scheduler()
+    elif auto_queued:
         dispatch_job(job_id, pod["id"])
     return jobs[job_id]
 
@@ -3244,6 +3511,8 @@ def start_pods(pod_ids: list[str]) -> int:
         started = []
         for job in pending:
             assigned = job.get("pod_id")
+            if not assigned:
+                continue   # 파드를 안 정한 작업은 스케줄러가 갖춰진 파드를 찾아 배정한다(start_queue가 대기 큐로 보낸다)
             if assigned not in targets:
                 owner = pod_registry.get_pod(assigned) if assigned else None
                 if owner is not None and owner.get("enabled"):
@@ -3497,20 +3766,35 @@ def list_tags_api(request: Request):
 
 
 @app.post("/api/queue/start")
-def start_queue(request: Request):
+def start_queue(request: Request, project_id: str | None = None):
     # 자동 실행 모드를 켠다 — 지금 대기 중인 작업을 전부 큐에 넣는 것은 물론,
     # 켜져 있는 동안 POST /api/upload로 새로 추가되는 작업도 계속 이어서 큐에
     # 들어간다. "⏸ 정지"를 누르기 전까지는 계속 켜져 있다.
     # 파드가 여러 개면 **사용 중인 파드 전부**를 켠다(화면의 "▶ 시작" 버튼 하나가
     # 전체를 켜는 것과 같다). 하나만 켜고 끄려면 /api/pods/{id}/queue/start를 쓴다.
     user = me(request)
+    wanted_project = None
+    if project_id is not None:
+        wanted_project = "unassigned" if project_id == "unassigned" else parse_project_id(project_id)
     pod_ids = [p["id"] for p in pod_registry.list_pods(user["id"]) if p.get("enabled")]   # 내 파드만
-    started = start_pods(pod_ids)
-    return {"running": True, "started": started, "pods": pod_ids}
+    started = start_pods(pod_ids) if project_id is None else 0
+    # 파드를 안 정한 채 쌓아 둔 작업은 대기 큐로 보낸다 — 스케줄러가 필요한 모델을 갖춘 파드가 살아 있을 때 배정한다.
+    with lock:
+        sent = [j for j in jobs.values() if j["status"] == "pending" and not j.get("deleted")
+                and not j.get("pod_id") and j.get("owner_id") == user["id"]
+                and (wanted_project is None
+                     or j.get("project_id") == (None if wanted_project == "unassigned" else wanted_project))]
+        for job in sent:
+            job["status"] = "queued"
+            job["waiting_reason"] = "파드를 찾는 중이에요"
+    if sent:
+        save_state()
+    poke_scheduler()
+    return {"running": True, "started": started + len(sent), "pods": pod_ids}
 
 
 @app.post("/api/queue/stop")
-def stop_queue(request: Request):
+def stop_queue(request: Request, project_id: str | None = None):
     # 자동 실행 모드를 끈다 — 이후 새로 추가되는 작업은 다시 "▶ 시작"을 누르기
     # 전까지 pending 상태로 대기 목록에만 쌓인다. 이미 큐에 들어가 있지만 아직 안 돈
     # 작업(queued)은 그대로 대기 상태로 남고(다음 "▶ 시작" 때 이어서 돎), 지금
@@ -3518,13 +3802,25 @@ def stop_queue(request: Request):
     # 걸릴 수 있으니 job 상태가 "interrupted"로 바뀌는 건 GET /api/jobs로 잠시 후
     # 확인해야 한다.
     user = me(request)
-    my_pod_ids = [p["id"] for p in pod_registry.list_pods(user["id"])]   # 내 파드만 멈춘다
+    wanted_project = None
+    if project_id is not None:
+        wanted_project = "unassigned" if project_id == "unassigned" else parse_project_id(project_id)
+    my_pod_ids = [p["id"] for p in pod_registry.list_pods(user["id"])] if project_id is None else []   # 내 파드만 멈춘다
     stopped: list[str] = []
     with lock:
         for pid in my_pod_ids:
             rt = pod_runtimes.get(pid)
             if rt is not None:
                 rt.auto_run = False
+        # 파드를 기다리던 작업은 대기 목록(pending)으로 되돌려 배정이 멈추게 한다 — 다음 "▶ 시작" 때 다시 대기 큐로 간다.
+        for job in jobs.values():
+            if (job["status"] == "queued" and not job.get("pod_id") and not job.get("deleted")
+                    and job.get("owner_id") == user["id"]
+                    and (wanted_project is None
+                         or job.get("project_id") == (None if wanted_project == "unassigned" else wanted_project))):
+                job["status"] = "pending"
+                job["waiting_reason"] = None
+    save_state()
     for pid in my_pod_ids:
         stopped.extend(stop_pod_jobs(pid))
     return {"running": False, "stopped_job_ids": stopped,
@@ -3604,8 +3900,10 @@ def list_jobs(request: Request, project_id: str | None = None):
             ordered = [{**j, "owner_name": names.get(j.get("owner_id"))} for j in ordered]
         # 화면의 "▶ 시작/⏸ 정지" 버튼 하나는 "하나라도 돌고 있으면 켜진 것"으로 본다.
         my_runtimes = {pid: rt for pid, rt in pod_runtimes.items() if pid in visible_pod_ids}
-        running = any(rt.auto_run for rt in my_runtimes.values())
-        pending_count = sum(rt.queue.qsize() for rt in my_runtimes.values())
+        waiting_count = sum(1 for j in jobs.values() if j["status"] == "queued" and not j.get("pod_id")
+                            and not j.get("deleted") and owned(j, scope))
+        running = any(rt.auto_run for rt in my_runtimes.values()) or waiting_count > 0
+        pending_count = sum(rt.queue.qsize() for rt in my_runtimes.values()) + waiting_count
         per_pod = {
             pid: {"running": rt.auto_run, "pending_count": rt.queue.qsize(),
                   "running_jobs": list(rt.running)}
@@ -3812,7 +4110,22 @@ async def move_job(job_id: str, request: Request):
     data = await read_json_object(request, allow_empty=False)
     target_id = (data.get("pod_id") or "").strip()
     if not target_id:
-        raise HTTPException(400, "옮길 파드(pod_id)를 지정해주세요.")
+        # 파드 지정을 풀어 "갖춘 파드가 있으면 아무 파드나"로 되돌린다(대기 큐/대기 목록의 작업만).
+        with lock:
+            job = jobs.get(job_id)
+            if not job or job.get("deleted"):
+                raise HTTPException(404, "없는 작업이에요.")
+            if job["status"] not in ("pending", "queued"):
+                raise HTTPException(400, "대기 중인 작업만 파드 지정을 풀 수 있어요.")
+            job["pinned_pod_id"] = None
+            job["pod_id"] = None
+            job["auto_assigned"] = False
+            set_comfy_wait_flag(job, False)
+            if job["status"] == "queued":
+                job["waiting_reason"] = "파드를 찾는 중이에요"
+        save_state()
+        poke_scheduler()
+        return jobs[job_id]
     target = pod_registry.get_pod(target_id)
     # 작업은 그 작업의 주인의 파드로만 옮길 수 있다.
     if target is None or target.get("owner_id") != source_job.get("owner_id"):
@@ -3828,8 +4141,25 @@ async def move_job(job_id: str, request: Request):
             raise HTTPException(400, "실행 중인 작업은 옮길 수 없어요. 먼저 멈춰주세요.")
         if job["status"] not in ("pending", "queued", "interrupted"):
             raise HTTPException(400, "대기 중이거나 중단된 작업만 옮길 수 있어요.")
-        if job.get("pod_id") == target_id:
-            return job
+        if job["status"] == "queued" and not job.get("pod_id"):
+            # 대기 큐에서 파드를 기다리는 작업 — 그 파드로 고정만 하고, 배정은 스케줄러가 갖춰졌는지 보고 한다.
+            job["pinned_pod_id"] = target_id
+            job["waiting_reason"] = "파드를 찾는 중이에요"
+            pinned_only = True
+        else:
+            pinned_only = False
+            if job.get("pod_id") == target_id:
+                return job
+        if pinned_only:
+            pass
+        else:
+            job["pinned_pod_id"] = target_id
+    if pinned_only:
+        save_state()
+        poke_scheduler()
+        return jobs[job_id]
+    with lock:
+        job = jobs[job_id]
         job["pod_id"] = target_id
         wf_names = [job.get("workflow_filename"), job.get("video_workflow_filename")]
         job_template_id = job.get("template_id")
@@ -3868,7 +4198,8 @@ def delete_job(job_id: str, request: Request):
         job = jobs.get(job_id)
         if not job or job.get("deleted"):
             raise HTTPException(404, "없는 작업이에요.")
-        if job["status"] in ("running", "queued"):
+        waiting_for_pod = job["status"] == "queued" and not job.get("pod_id")   # 아직 어느 파드 큐에도 안 들어갔다
+        if job["status"] in ("running", "queued") and not waiting_for_pod:
             raise HTTPException(400, "실행 중이거나 이미 시작된 작업은 지울 수 없어요.")
         # 실제로 지우지 않고 소프트 삭제만 한다 — "작업 목록"에서는 사라지지만,
         # 상단의 "삭제된 작업 설정 불러오기" 드롭다운에서는 (보관 기간 안이면)
