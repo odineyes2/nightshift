@@ -64,6 +64,7 @@ from drivers.comfyui import (
 )
 import asset_meta
 import assets_index
+import share_sessions
 import video_edit
 import db
 import model_download
@@ -1416,6 +1417,13 @@ app = FastAPI(title="RunPod Job Queue", lifespan=lifespan)
 INTERNAL_TOKEN = secrets.token_urlsafe(32)
 os.environ["NIGHTSHIFT_API_KEY"] = INTERNAL_TOKEN
 
+# 외부 편집기(OpenCut)가 다른 서브도메인에서 쓰는 공유 세션 API(/api/shared/*)는 로그인 쿠키 대신 세션 토큰으로 인증한다.
+# 이 경로들은 아래 미들웨어가 로그인/CSRF 검사를 건너뛰고, 대신 허용한 편집기 출처에만 CORS를 열어 준다.
+OPENCUT_URL = os.environ.get("NIGHTSHIFT_OPENCUT_URL", "https://opencut.lomebrote.com").strip().rstrip("/")
+OPENCUT_ORIGINS = {o for o in ([OPENCUT_URL] + [x.strip().rstrip("/") for x in
+                                                os.environ.get("NIGHTSHIFT_OPENCUT_EXTRA_ORIGINS", "").split(",")]) if o}
+SHARED_API_RE = re.compile(r"^/api/shared/")
+SHARE_UPLOAD_MAX_BYTES = int(os.environ.get("NIGHTSHIFT_SHARE_UPLOAD_MAX_MB", "2048")) * 1024 * 1024
 PUBLIC_API_PATHS = {"/api/auth/register", "/api/auth/login", "/api/auth/logout", "/api/auth/me"}
 INTERNAL_PROGRESS_RE = re.compile(r"^/api/jobs/[^/]+/progress$")
 CSRF_HEADER, CSRF_VALUE = "x-requested-with", "nightshift"
@@ -1429,6 +1437,23 @@ async def authenticate_request(request: Request, call_next):
     request.state.internal = False
     if not path.startswith("/api/"):
         return await call_next(request)
+    if SHARED_API_RE.match(path):
+        origin = request.headers.get("origin", "").rstrip("/")
+        cors = {"Cross-Origin-Resource-Policy": "cross-site", "Vary": "Origin"}
+        if origin in OPENCUT_ORIGINS:
+            cors.update({
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Range",
+                "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
+                "Access-Control-Max-Age": "600",
+            })
+        if request.method == "OPTIONS":
+            return Response(status_code=204, headers=cors)
+        response = await call_next(request)
+        for key, value in cors.items():
+            response.headers[key] = value
+        return response
 
     # 다른 사이트가 로그인된 브라우저로 쓰기 요청을 날리는 걸 막는다 — 커스텀 헤더는 다른 출처에서
     # 사전 요청(preflight) 없이는 못 붙이므로, 화면(fetch 래퍼)이 붙이는 이 헤더가 있어야 쓰기가 통한다.
@@ -4790,6 +4815,23 @@ def delete_output_video(filename: str):
 # ---- 영상 편집(자르기 / 이어 붙이기) — video_edit.py ---------------------------------------
 # 갤러리에서 고른 영상으로 새 영상을 만든다(원본은 그대로). 작업은 백그라운드로 돌고 진행률을 폴링으로 본다.
 
+def register_generated_video(rel: str, source_rels: list[str], scope, note: str) -> None:
+    """서버가 새로 만든 영상(편집 결과, 외부 편집기가 올린 결과)을 색인에 넣고, 원본이 다 같은 프로젝트면 그 프로젝트로
+    넣고, 메모를 남긴다. 어떤 실패도 부른 쪽을 실패시키지 않는다(파일은 이미 만들어졌다)."""
+    try:
+        assets_index.sync(force=True)
+        if source_rels:
+            with db.connect() as conn:
+                rows = conn.execute(
+                    f"SELECT DISTINCT project_id FROM assets WHERE path IN ({','.join('?' * len(source_rels))})", source_rels).fetchall()
+            projects = {r["project_id"] for r in rows}
+            if len(projects) == 1 and next(iter(projects)) is not None:
+                asset_meta.move_assets([rel], next(iter(projects)), scope)
+        asset_meta.update_assets([rel], note=note, owner_id=scope)
+    except Exception:
+        logging.getLogger("uvicorn.error").exception("생성된 영상 등록 실패: %s", rel)
+
+
 def _slug(text: str, fallback: str) -> str:
     slug = re.sub(r"[^\w.-]+", "-", text.strip(), flags=re.UNICODE).strip("-._")[:40]
     return slug or fallback
@@ -4825,19 +4867,12 @@ async def create_video_edit(request: Request):
     source_rels = [p.relative_to(base).as_posix() for p in sources]
     scope = auth.owner_scope(user)
 
+    label_names = ", ".join(Path(r).name for r in source_rels[:5]) + (" …" if len(source_rels) > 5 else "")
+    note = (f"{'이어 붙임' if op == 'concat' else '자름'}: {label_names}"
+            + (f" ({start_s:g}s~{end_s:g}s)" if op == "trim" and end_s is not None else ""))
+
     def post(_out: Path) -> None:
-        # 결과물을 색인에 넣고, 원본이 다 같은 프로젝트면 그 프로젝트로 넣는다. 어떤 실패도 편집 자체를 실패시키지 않는다.
-        assets_index.sync(force=True)
-        with db.connect() as conn:
-            rows = conn.execute(
-                f"SELECT DISTINCT project_id FROM assets WHERE path IN ({','.join('?' * len(source_rels))})", source_rels).fetchall()
-        projects = {r["project_id"] for r in rows}
-        if len(projects) == 1 and next(iter(projects)) is not None:
-            asset_meta.move_assets([rel], next(iter(projects)), scope)
-        label_names = ", ".join(Path(r).name for r in source_rels[:5]) + (" …" if len(source_rels) > 5 else "")
-        note = (f"{'이어 붙임' if op == 'concat' else '자름'}: {label_names}"
-                + (f" ({start_s:g}s~{end_s:g}s)" if op == "trim" and end_s is not None else ""))
-        asset_meta.update_assets([rel], note=note, owner_id=scope)
+        register_generated_video(rel, source_rels, scope, note)
 
     try:
         job_id = video_edit.start(op, sources, out_path, user["id"], start_s=start_s, end_s=end_s, out_rel=rel, post=post)
@@ -4863,6 +4898,130 @@ def cancel_video_edit(job_id: str, request: Request):
     _edit_job_or_404(me(request), job_id)
     video_edit.cancel(job_id)
     return {"ok": True}
+
+
+# ---- 외부 편집기(OpenCut)와 자원 공유 — share_sessions.py ----------------------------------------
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+SHARE_UPLOAD_EXT = {".mp4", ".webm", ".mov", ".m4v"}
+SHARE_CONTENT_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+                       ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+                       ".gif": "image/gif", ".bmp": "image/bmp"}
+
+
+@app.get("/api/share/config")
+def share_config(request: Request):
+    me(request)
+    return {"opencut_url": OPENCUT_URL or None}
+
+
+@app.post("/api/share/sessions")
+async def create_share_session(request: Request):
+    """갤러리에서 고른 이미지/영상을 편집기가 가져갈 수 있는 세션을 만든다 → {token, url}(편집기를 여는 주소)."""
+    user = me(request)
+    if not OPENCUT_URL:
+        raise HTTPException(503, "외부 편집기가 설정돼 있지 않아요(NIGHTSHIFT_OPENCUT_URL).")
+    data = await read_json_object(request, allow_empty=False)
+    names = data.get("names")
+    if not isinstance(names, list) or not names or not all(isinstance(n, str) and n for n in names):
+        raise HTTPException(400, "names(파일 이름 목록)가 필요해요.")
+    if len(names) > share_sessions.MAX_FILES:
+        raise HTTPException(400, f"한 번에 {share_sessions.MAX_FILES}개까지 보낼 수 있어요.")
+    base = Path(OUTPUT_DIR).resolve()
+    files = []
+    for name in names:
+        ext = Path(name).suffix.lower()
+        path = resolve_output_video(name) if ext in VIDEO_EXTENSIONS else resolve_output_image(name)   # 남의 것/없는 것은 여기서 404
+        files.append({"rel": path.relative_to(base).as_posix(), "kind": "video" if ext in VIDEO_EXTENSIONS else "image",
+                      "name": path.name})
+    rels = [f["rel"] for f in files]
+    with db.connect() as conn:
+        rows = conn.execute(f"SELECT DISTINCT project_id FROM assets WHERE path IN ({','.join('?' * len(rels))})", rels).fetchall()
+    projects = {r["project_id"] for r in rows}
+    project_id = next(iter(projects)) if len(projects) == 1 else None
+    token = share_sessions.create(user["id"], files, project_id)
+    return {"token": token, "url": f"{OPENCUT_URL}/nightshift?ns={token}", "expires_in": share_sessions.SESSION_TTL_SEC}
+
+
+def _share_or_404(token: str) -> dict:
+    session = share_sessions.get(token)
+    if session is None:
+        raise HTTPException(404, "만료됐거나 없는 공유 세션이에요.")
+    return session
+
+
+@app.get("/api/shared/sessions/{token}")
+def get_share_manifest(token: str, request: Request):
+    """편집기가 읽는 목록 — 파일마다 이 세션 안에서만 통하는 주소가 붙는다."""
+    session = _share_or_404(token)
+    base = Path(OUTPUT_DIR).resolve()
+    origin = f"{request.url.scheme}://{request.headers.get('host', request.url.netloc)}"
+    files = []
+    for i, f in enumerate(session["files"]):
+        path = base / f["rel"]
+        if not path.is_file():
+            continue
+        files.append({"index": i, "name": f["name"], "kind": f["kind"], "size": path.stat().st_size,
+                      "url": f"{origin}/api/shared/sessions/{token}/files/{i}"})
+    return {"files": files, "upload_url": f"{origin}/api/shared/sessions/{token}/upload",
+            "expires_at": session["expires"], "uploads_left": share_sessions.MAX_UPLOADS - session["uploads"]}
+
+
+@app.get("/api/shared/sessions/{token}/files/{index}")
+def get_shared_file(token: str, index: int):
+    session = _share_or_404(token)
+    if not 0 <= index < len(session["files"]):
+        raise HTTPException(404, "없는 파일이에요.")
+    base = Path(OUTPUT_DIR).resolve()
+    path = (base / session["files"][index]["rel"]).resolve()
+    if not path.is_relative_to(base) or not path.is_file():
+        raise HTTPException(404, "파일을 찾을 수 없어요.")
+    return FileResponse(path, media_type=SHARE_CONTENT_TYPES.get(path.suffix.lower()))
+
+
+@app.post("/api/shared/sessions/{token}/upload")
+async def upload_shared_result(token: str, request: Request, name: str = "edit.mp4"):
+    """편집기가 내보낸 영상을 받아 세션 주인의 편집 폴더에 새 영상으로 저장한다(요청 본문이 곧 파일)."""
+    session = _share_or_404(token)
+    ext = Path(name).suffix.lower()
+    if ext not in SHARE_UPLOAD_EXT:
+        raise HTTPException(400, f"영상 파일({', '.join(sorted(SHARE_UPLOAD_EXT))})만 올릴 수 있어요.")
+    try:
+        declared = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        declared = 0
+    if declared > SHARE_UPLOAD_MAX_BYTES:
+        raise HTTPException(413, "파일이 너무 커요.")
+    if not share_sessions.count_upload(token):
+        raise HTTPException(429, "이 세션으로는 더 올릴 수 없어요.")
+    owner = auth.get_user(session["owner_id"])
+    if owner is None or owner.get("status") != "active":
+        raise HTTPException(403, "이 세션의 회원을 쓸 수 없어요.")
+    base = Path(OUTPUT_DIR).resolve()
+    prefix = "" if auth.is_admin(owner) else f"u{owner['id']}/"
+    label = _slug(Path(name).stem, "opencut")
+    rel = f"{prefix}edits/{datetime.now().strftime('%Y%m%d-%H%M%S')}_opencut_{label}_{uuid.uuid4().hex[:4]}{ext}"
+    out_path = base / rel
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out_path.with_name(out_path.stem + ".partial" + out_path.suffix)
+    size = 0
+    try:
+        with open(tmp, "wb") as f:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > SHARE_UPLOAD_MAX_BYTES:
+                    raise HTTPException(413, "파일이 너무 커요.")
+                f.write(chunk)
+        if size == 0:
+            raise HTTPException(400, "빈 파일이에요.")
+        os.replace(tmp, out_path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    sources = [f["rel"] for f in session["files"]]
+    note = "OpenCut에서 편집: " + ", ".join(Path(r).name for r in sources[:5]) + (" …" if len(sources) > 5 else "")
+    scope = None if auth.is_admin(owner) else owner["id"]
+    await asyncio.to_thread(register_generated_video, rel, sources, scope, note)
+    return {"ok": True, "output": rel, "size": size}
 
 
 def build_output_video_zip(only_paths: set[str] | None = None) -> Path:

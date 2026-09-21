@@ -250,6 +250,17 @@ ComfyUI는 클립을 하나씩만 만들고 여러 클립을 잇는 기능이 �
 - **ffmpeg**: 환경변수 `NIGHTSHIFT_FFMPEG` → `PATH` → `imageio-ffmpeg` 패키지가 들고 있는 바이너리 순으로 찾습니다(`requirements.txt`에 `imageio-ffmpeg`가 있어 따로 설치하지 않아도 됩니다). 동시에 도는 편집 수는 `NIGHTSHIFT_EDIT_CONCURRENCY`(기본 2).
 - API: `POST /api/video-edits`(`{op: "concat"|"trim", inputs: [영상 이름...], start?, end?, name?}` → `{id}`), `GET /api/video-edits/{id}`(`{status, progress, output, method, error}`), `POST /api/video-edits/{id}/cancel`. 남의 영상이나 없는 영상은 404, 잘못된 구간은 400.
 
+### OpenCut 편집기 연동 — 공유 세션 (`server/share_sessions.py`, `docs/opencut/`)
+
+갤러리에서 고른 이미지/영상을 **별도 서브도메인에서 도는 OpenCut(classic 포크)** 으로 넘겨 PC 브라우저에서 본격적으로 편집하고, 결과를 다시 nightshift 갤러리로 받아옵니다. 미디어는 이 브라우저와 nightshift 서버 사이에서만 오가고 opencut.app 같은 외부 서비스로는 나가지 않습니다(편집 자체가 브라우저 안에서 일어납니다).
+
+- **흐름**: 갤러리(이미지·영상)에서 고르면 툴바에 **편집기로**가 나타납니다 → 서버가 그 파일들만 담은 임시 "공유 세션"을 만들고(`POST /api/share/sessions`) → 새 탭이 `<OpenCut 주소>/nightshift?ns=<토큰>`으로 열립니다 → 편집기가 파일을 내려받아 새 프로젝트의 타임라인에 **고른 순서대로** 이어 놓습니다 → 편집기의 Export에서 "Save to nightshift"를 켜 두면 결과가 `edits/`(일반 회원은 `u<id>/edits/`)에 새 영상으로 저장되고 영상 갤러리에 나타납니다.
+- **왜 토큰인가**: 편집기는 다른 사이트라 nightshift 로그인 쿠키를 쓰지 않습니다. 대신 토큰 하나가 "이 파일들을 읽고, 결과를 최대 10번까지 올려도 된다"만 허락합니다. 세션은 메모리에만 있어(서버 재시작 시 사라짐) 2시간 뒤 만료되고, 파일은 세션을 만든 회원이 볼 수 있는 것만 담을 수 있습니다(최대 30개). 토큰이 없으면 `/api/shared/*`는 404이고, 그 밖의 API는 여전히 로그인이 필요합니다.
+- **CORS**: `/api/shared/*`만 편집기 출처(`NIGHTSHIFT_OPENCUT_URL`의 origin + `NIGHTSHIFT_OPENCUT_EXTRA_ORIGINS`)에 열립니다(GET/POST/OPTIONS, Range 지원). 다른 출처에는 CORS 헤더를 주지 않습니다.
+- **업로드**: 본문은 원본 바이트(`POST /api/shared/sessions/{token}/upload?name=x.mp4`), 확장자는 mp4/webm/mov/m4v, 크기 상한은 `NIGHTSHIFT_SHARE_UPLOAD_MAX_MB`(기본 2048).
+- **끄기**: `NIGHTSHIFT_OPENCUT_URL=`(빈 값)이면 "편집기로" 버튼이 숨겨지고 세션 생성이 막힙니다. 기본값은 `https://opencut.lomebrote.com`.
+- **OpenCut 포크**: OpenCut classic(MIT, 보관됨)에 `docs/opencut/nightshift-integration.patch` 한 커밋을 얹은 것입니다 — Databuddy 분석 스크립트와 BotID를 제거하고, `/nightshift?ns=` 진입 경로(파일 가져오기)와 Export의 "Save to nightshift"를 추가합니다. 빌드할 때 `NEXT_PUBLIC_NIGHTSHIFT_ORIGIN`(이 nightshift의 공개 주소)을 지정해야 하고, OpenCut classic은 폰에서는 열리지 않는 데스크톱 전용입니다.
+
 ### ComfyUI 접속 주소 (설정 / 환경변수 / 자동 감지) — 레거시, 파드가 여럿이면 각 파드 설정을 쓰세요
 
 파드가 여럿인 지금은 **주소는 각 파드 설정(⚙)에서 관리합니다** — 카드가 이미 그 파드의 연결 상태를
@@ -1029,6 +1040,11 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `GET` | `/api/output-videos` | 출력 폴더의 동영상(`.mp4`/`.webm`/`.mov`/`.m4v`) 목록을 `{"videos": [{"name", "job_id", "size", "mtime"}, ...]}`로 반환(수정 시각 내림차순). `width`/`height`는 `ffprobe` 없이는 읽을 수 없어 내지 않음(영상 갤러리에 "자세히 보기"가 없는 이유). 폴더가 아직 없어도 빈 배열 |
 | `GET` | `/api/output-videos/{filename}` | 그 동영상 원본을 그대로 반환(영상 갤러리 라이트박스의 `<video>`가 재생). `FileResponse`가 HTTP Range 요청을 지원해서 탐색(seek)이 다운로드를 처음부터 다시 하지 않음. `filename`은 이미지와 같은 방식으로 경로 조작을 막음, 없으면 404 |
 | `DELETE` | `/api/output-videos/{filename}` | 그 동영상 한 장만 삭제. 응답 `{"ok": true}`, 없으면 404 |
+| `GET` | `/api/share/config` | 편집기(OpenCut) 연동 설정 `{opencut_url}` — 끄면 `null` |
+| `POST` | `/api/share/sessions` | 편집기로 넘길 이미지/영상 이름 목록 `{names}` → 임시 토큰 세션 `{token, url, expires_in}` |
+| `GET` | `/api/shared/sessions/{token}` | (로그인 불필요, 토큰이 열쇠) 파일 목록·업로드 주소 `{files, upload_url, expires_at, uploads_left}` |
+| `GET` | `/api/shared/sessions/{token}/files/{index}` | (토큰) 세션에 담긴 파일 내려받기(Range 지원) |
+| `POST` | `/api/shared/sessions/{token}/upload?name=` | (토큰) 편집 결과 영상을 본문 바이트로 올려 `edits/`에 저장·갤러리 등록 |
 | `POST` | `/api/video-edits` | 영상 자르기/이어 붙이기를 시작(본문 `{"op": "concat"|"trim", "inputs": [영상 이름...], "start"?, "end"?, "name"?}` → `{id}`) — 위 "영상 편집" 절 |
 | `GET` | `/api/video-edits/{id}` | 편집 진행 `{status(queued/running/done/error/cancelled), progress(0~1), output, method(copy/reencode), error}` |
 | `POST` | `/api/video-edits/{id}/cancel` | 편집 취소 |

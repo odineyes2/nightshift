@@ -1,0 +1,450 @@
+From 78cf8021ad64a114075acfcfe9aaeb17172e638c Mon Sep 17 00:00:00 2001
+From: odineyes2 <odineyes2@gmail.com>
+Date: Tue, 22 Sep 2026 08:19:32 +0900
+Subject: [PATCH] nightshift integration: import via share token, export
+ upload, remove analytics/BotID
+
+---
+ apps/web/next.config.ts                       |  3 +-
+ apps/web/src/app/editor/[project_id]/page.tsx |  2 +
+ apps/web/src/app/layout.tsx                   | 34 -------
+ apps/web/src/app/nightshift/page.tsx          | 47 +++++++++
+ .../src/components/editor/export-button.tsx   | 44 +++++++--
+ apps/web/src/nightshift/client.ts             | 98 +++++++++++++++++++
+ .../src/nightshift/use-nightshift-import.ts   | 82 ++++++++++++++++
+ 7 files changed, 268 insertions(+), 42 deletions(-)
+ create mode 100644 apps/web/src/app/nightshift/page.tsx
+ create mode 100644 apps/web/src/nightshift/client.ts
+ create mode 100644 apps/web/src/nightshift/use-nightshift-import.ts
+
+diff --git a/apps/web/next.config.ts b/apps/web/next.config.ts
+index 71d96c2..8bb63f9 100644
+--- a/apps/web/next.config.ts
++++ b/apps/web/next.config.ts
+@@ -1,5 +1,4 @@
+ import type { NextConfig } from "next";
+-import { withBotId } from "botid/next/config";
+ import { withContentCollections } from "@content-collections/next";
+ 
+ const nextConfig: NextConfig = {
+@@ -51,4 +50,4 @@ const nextConfig: NextConfig = {
+ 	},
+ };
+ 
+-export default withContentCollections(withBotId(nextConfig));
++export default withContentCollections(nextConfig);
+diff --git a/apps/web/src/app/editor/[project_id]/page.tsx b/apps/web/src/app/editor/[project_id]/page.tsx
+index 680dfff..cd0ad30 100644
+--- a/apps/web/src/app/editor/[project_id]/page.tsx
++++ b/apps/web/src/app/editor/[project_id]/page.tsx
+@@ -16,6 +16,7 @@ import { Onboarding } from "@/components/editor/onboarding";
+ import { MigrationDialog } from "@/project/components/migration-dialog";
+ import { usePanelStore } from "@/editor/panel-store";
+ import { usePasteMedia } from "@/media/use-paste-media";
++import { useNightshiftImport } from "@/nightshift/use-nightshift-import";
+ import { MobileGate } from "@/components/editor/mobile-gate";
+ import { useMemo, useState } from "react";
+ import { useEditor } from "@/editor/use-editor";
+@@ -80,6 +81,7 @@ function DegradedRendererBanner() {
+ 
+ function EditorLayout() {
+ 	usePasteMedia();
++	useNightshiftImport();
+ 	const { panels, setPanel } = usePanelStore();
+ 	const activeScene = useEditor((editor) =>
+ 		editor.scenes.getActiveSceneOrNull(),
+diff --git a/apps/web/src/app/layout.tsx b/apps/web/src/app/layout.tsx
+index 558ae53..2c314c6 100644
+--- a/apps/web/src/app/layout.tsx
++++ b/apps/web/src/app/layout.tsx
+@@ -1,25 +1,15 @@
+ import { ThemeProvider } from "next-themes";
+-import Script from "next/script";
+ import "./globals.css";
+ import { Toaster } from "../components/ui/sonner";
+ import { ChangelogNotification } from "@/changelog/components/changelog-notification";
+ import { TooltipProvider } from "../components/ui/tooltip";
+ import { baseMetaData } from "./metadata";
+-import { BotIdClient } from "botid/client";
+-import { webEnv } from "@/env/web";
+ import { Inter } from "next/font/google";
+ 
+ const siteFont = Inter({ subsets: ["latin"] });
+ 
+ export const metadata = baseMetaData;
+ 
+-const protectedRoutes = [
+-	{
+-		path: "/none",
+-		method: "GET",
+-	},
+-];
+-
+ export default function RootLayout({
+ 	children,
+ }: Readonly<{
+@@ -27,18 +17,6 @@ export default function RootLayout({
+ }>) {
+ 	return (
+ 		<html lang="en" suppressHydrationWarning>
+-			<head>
+-				<BotIdClient protect={protectedRoutes} />
+-				{process.env.NODE_ENV === "development" && (
+-					<>
+-						<Script
+-							src="//unpkg.com/react-scan/dist/auto.global.js"
+-							crossOrigin="anonymous"
+-							strategy="beforeInteractive"
+-						/>
+-					</>
+-				)}
+-			</head>
+ 			<body className={`${siteFont.className} font-sans antialiased`}>
+ 				<ThemeProvider
+ 					attribute="class"
+@@ -47,18 +25,6 @@ export default function RootLayout({
+ 				>
+ 					<TooltipProvider>
+ 						<Toaster />
+-						<Script
+-							src="https://cdn.databuddy.cc/databuddy.js"
+-							strategy="afterInteractive"
+-							async
+-							data-client-id="UP-Wcoy5arxFeK7oyjMMZ"
+-							data-disabled={webEnv.NODE_ENV === "development"}
+-							data-track-attributes={false}
+-							data-track-errors={true}
+-							data-track-outgoing-links={false}
+-							data-track-web-vitals={false}
+-							data-track-sessions={false}
+-						/>
+ 						{children}
+ 					</TooltipProvider>
+ 				</ThemeProvider>
+diff --git a/apps/web/src/app/nightshift/page.tsx b/apps/web/src/app/nightshift/page.tsx
+new file mode 100644
+index 0000000..57b0c00
+--- /dev/null
++++ b/apps/web/src/app/nightshift/page.tsx
+@@ -0,0 +1,47 @@
++"use client";
++
++import { Suspense, useEffect, useRef, useState } from "react";
++import { useRouter, useSearchParams } from "next/navigation";
++import { useEditor } from "@/editor/use-editor";
++
++function NightshiftEntry() {
++	const editor = useEditor();
++	const router = useRouter();
++	const params = useSearchParams();
++	const token = params.get("ns");
++	const started = useRef(false);
++	const [error, setError] = useState<string | null>(null);
++
++	useEffect(() => {
++		if (started.current) return;
++		started.current = true;
++		if (!token) {
++			setError(
++				"Missing nightshift link. Open the editor from nightshift's gallery.",
++			);
++			return;
++		}
++		editor.project
++			.createNewProject({ name: "nightshift edit" })
++			.then((projectId) => {
++				router.replace(`/editor/${projectId}?ns=${encodeURIComponent(token)}`);
++			})
++			.catch((e) =>
++				setError(e instanceof Error ? e.message : "Failed to create project"),
++			);
++	}, [editor, router, token]);
++
++	return (
++		<div className="text-muted-foreground flex h-screen w-screen items-center justify-center text-sm">
++			{error ?? "Preparing your nightshift project..."}
++		</div>
++	);
++}
++
++export default function NightshiftPage() {
++	return (
++		<Suspense>
++			<NightshiftEntry />
++		</Suspense>
++	);
++}
+diff --git a/apps/web/src/components/editor/export-button.tsx b/apps/web/src/components/editor/export-button.tsx
+index e738fb6..eb2bf2e 100644
+--- a/apps/web/src/components/editor/export-button.tsx
++++ b/apps/web/src/components/editor/export-button.tsx
+@@ -34,6 +34,8 @@ import {
+ } from "@/components/section";
+ import { useEditor } from "@/editor/use-editor";
+ import { DEFAULT_EXPORT_OPTIONS } from "@/export/defaults";
++import { toast } from "sonner";
++import { getRememberedSession, uploadResult } from "@/nightshift/client";
+ 
+ function isExportFormat(value: string): value is ExportFormat {
+ 	return EXPORT_FORMAT_VALUES.some((formatValue) => formatValue === value);
+@@ -110,6 +112,8 @@ function ExportPopover({
+ 	const [shouldIncludeAudio, setShouldIncludeAudio] = useState<boolean>(
+ 		DEFAULT_EXPORT_OPTIONS.includeAudio ?? true,
+ 	);
++	const nightshiftToken = getRememberedSession();
++	const [shouldSendToNightshift, setShouldSendToNightshift] = useState(true);
+ 
+ 	const handleExport = async () => {
+ 		if (!activeProject) return;
+@@ -129,11 +133,22 @@ function ExportPopover({
+ 		}
+ 
+ 		if (result.success && result.buffer) {
+-			downloadBuffer({
+-				buffer: result.buffer,
+-				filename: `${activeProject.metadata.name}${getExportFileExtension({ format })}`,
+-				mimeType: getExportMimeType({ format }),
+-			});
++			const filename = `${activeProject.metadata.name}${getExportFileExtension({ format })}`;
++			const mimeType = getExportMimeType({ format });
++			if (nightshiftToken && shouldSendToNightshift) {
++				const buffer = result.buffer;
++				toast.promise(
++					uploadResult({ token: nightshiftToken, buffer, filename, mimeType }),
++					{
++						loading: "Sending to nightshift...",
++						success: "Saved to your nightshift gallery",
++						error: (error) =>
++							error instanceof Error ? error.message : "Upload to nightshift failed",
++					},
++				);
++			} else {
++				downloadBuffer({ buffer: result.buffer, filename, mimeType });
++			}
+ 
+ 			editor.project.clearExportState();
+ 			onOpenChange(false);
+@@ -252,10 +267,27 @@ function ExportPopover({
+ 									</Section>
+ 								</div>
+ 
++								{nightshiftToken && (
++									<div className="flex items-center space-x-2 px-3 pb-3">
++										<Checkbox
++											id="send-to-nightshift"
++											checked={shouldSendToNightshift}
++											onCheckedChange={(checked) =>
++												setShouldSendToNightshift(!!checked)
++											}
++										/>
++										<Label htmlFor="send-to-nightshift">
++											Save to nightshift (instead of downloading)
++										</Label>
++									</div>
++								)}
++
+ 								<div className="p-3 pt-0">
+ 									<Button onClick={handleExport} className="w-full gap-2">
+ 										<Download className="size-4" />
+-										Export
++										{nightshiftToken && shouldSendToNightshift
++											? "Export to nightshift"
++											: "Export"}
+ 									</Button>
+ 								</div>
+ 							</>
+diff --git a/apps/web/src/nightshift/client.ts b/apps/web/src/nightshift/client.ts
+new file mode 100644
+index 0000000..c020e68
+--- /dev/null
++++ b/apps/web/src/nightshift/client.ts
+@@ -0,0 +1,98 @@
++// nightshift 연동: 공유 세션(토큰)으로 파일을 가져오고, 내보낸 결과를 다시 올려 보낸다.
++// 미디어는 이 브라우저와 nightshift 서버 사이에서만 오간다.
++
++const ORIGIN = (process.env.NEXT_PUBLIC_NIGHTSHIFT_ORIGIN ?? "").replace(
++	/\/+$/,
++	"",
++);
++const STORAGE_KEY = "nightshift-share-session";
++
++export interface NightshiftFile {
++	index: number;
++	name: string;
++	kind: "image" | "video";
++	size: number;
++	url: string;
++}
++
++interface Manifest {
++	files: NightshiftFile[];
++	upload_url: string;
++}
++
++export function isNightshiftConfigured(): boolean {
++	return ORIGIN !== "";
++}
++
++function sameOriginUrl({ url }: { url: string }): string {
++	const resolved = new URL(url, ORIGIN);
++	if (resolved.origin !== new URL(ORIGIN).origin) {
++		throw new Error("nightshift returned a URL for another origin");
++	}
++	return resolved.toString();
++}
++
++export function rememberSession({ token }: { token: string }): void {
++	sessionStorage.setItem(STORAGE_KEY, token);
++}
++
++export function getRememberedSession(): string | null {
++	return typeof window === "undefined" ? null : sessionStorage.getItem(STORAGE_KEY);
++}
++
++export async function fetchManifest({
++	token,
++}: {
++	token: string;
++}): Promise<Manifest> {
++	const response = await fetch(
++		sameOriginUrl({ url: `/api/shared/sessions/${encodeURIComponent(token)}` }),
++	);
++	if (!response.ok) {
++		throw new Error(
++			response.status === 404
++				? "This nightshift link has expired. Open the editor again from nightshift."
++				: `nightshift returned ${response.status}`,
++		);
++	}
++	return response.json();
++}
++
++export async function downloadFile({
++	file,
++}: {
++	file: NightshiftFile;
++}): Promise<File> {
++	const response = await fetch(sameOriginUrl({ url: file.url }));
++	if (!response.ok) {
++		throw new Error(`Failed to download ${file.name} (${response.status})`);
++	}
++	const blob = await response.blob();
++	return new File([blob], file.name, { type: blob.type });
++}
++
++export async function uploadResult({
++	token,
++	buffer,
++	filename,
++	mimeType,
++}: {
++	token: string;
++	buffer: ArrayBuffer;
++	filename: string;
++	mimeType: string;
++}): Promise<{ output: string }> {
++	const manifest = await fetchManifest({ token });
++	const target = new URL(sameOriginUrl({ url: manifest.upload_url }));
++	target.searchParams.set("name", filename);
++	const response = await fetch(target, {
++		method: "POST",
++		headers: { "Content-Type": mimeType },
++		body: new Blob([buffer], { type: mimeType }),
++	});
++	if (!response.ok) {
++		const detail = await response.json().catch(() => null);
++		throw new Error(detail?.detail ?? `Upload failed (${response.status})`);
++	}
++	return response.json();
++}
+diff --git a/apps/web/src/nightshift/use-nightshift-import.ts b/apps/web/src/nightshift/use-nightshift-import.ts
+new file mode 100644
+index 0000000..f27ac3b
+--- /dev/null
++++ b/apps/web/src/nightshift/use-nightshift-import.ts
+@@ -0,0 +1,82 @@
++import { useEffect } from "react";
++import { toast } from "sonner";
++import { useEditor } from "@/editor/use-editor";
++import { processMediaAssets } from "@/media/processing";
++import { buildElementFromMedia } from "@/timeline/element-utils";
++import { AddMediaAssetCommand } from "@/commands/media";
++import { InsertElementCommand } from "@/commands/timeline";
++import { BatchCommand } from "@/commands";
++import { mediaTimeFromSeconds } from "@/wasm";
++import {
++	downloadFile,
++	fetchManifest,
++	isNightshiftConfigured,
++	rememberSession,
++} from "./client";
++
++const IMAGE_DEFAULT_SECONDS = 5;
++const handledTokens = new Set<string>();
++
++// /editor/<id>?ns=<token>: nightshift가 고른 파일을 내려받아 타임라인에 순서대로 놓는다.
++export function useNightshiftImport() {
++	const editor = useEditor();
++	const projectId = useEditor(
++		(e) => e.project.getActiveOrNull()?.metadata.id ?? null,
++	);
++
++	useEffect(() => {
++		if (!projectId || !isNightshiftConfigured()) return;
++		const token = new URLSearchParams(window.location.search).get("ns");
++		if (!token || handledTokens.has(token)) return;
++		handledTokens.add(token);
++		rememberSession({ token });
++		window.history.replaceState(null, "", window.location.pathname);
++
++		const run = async () => {
++			const manifest = await fetchManifest({ token });
++			const files: File[] = [];
++			for (const entry of manifest.files) {
++				files.push(await downloadFile({ file: entry }));
++			}
++			const assets = await processMediaAssets({ files });
++			let cursorSeconds = 0;
++			for (const asset of assets) {
++				const addMediaCmd = new AddMediaAssetCommand({ projectId, asset });
++				const seconds =
++					asset.type === "image" || asset.duration == null
++						? IMAGE_DEFAULT_SECONDS
++						: asset.duration;
++				const element = buildElementFromMedia({
++					mediaId: addMediaCmd.getAssetId(),
++					mediaType: asset.type,
++					name: asset.name,
++					duration: mediaTimeFromSeconds({ seconds }),
++					startTime: mediaTimeFromSeconds({ seconds: cursorSeconds }),
++					buffer:
++						asset.type === "audio"
++							? new AudioBuffer({ length: 1, sampleRate: 44100 })
++							: undefined,
++				});
++				const insertCmd = new InsertElementCommand({
++					element,
++					placement: {
++						mode: "auto",
++						trackType: asset.type === "audio" ? "audio" : "video",
++					},
++				});
++				editor.command.execute({
++					command: new BatchCommand([addMediaCmd, insertCmd]),
++				});
++				cursorSeconds += seconds;
++			}
++			return assets.length;
++		};
++
++		toast.promise(run(), {
++			loading: "Loading files from nightshift...",
++			success: (count) => `${count} file(s) added from nightshift`,
++			error: (error) =>
++				error instanceof Error ? error.message : "Failed to load from nightshift",
++		});
++	}, [editor, projectId]);
++}
+-- 
+2.55.0.windows.3
+

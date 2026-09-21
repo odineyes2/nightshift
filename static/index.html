@@ -2562,6 +2562,7 @@
   <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
   <symbol id="i-bookmark-plus" viewBox="0 0 24 24"><path d="M12 7v6"/><path d="M15 10H9"/><path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"/></symbol>
   <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></symbol>
+  <symbol id="i-external-link" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
   <symbol id="i-merge" viewBox="0 0 24 24"><path d="m8 6 4-4 4 4"/><path d="M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22"/><path d="m20 22-5-5"/></symbol>
   <symbol id="i-boxes" viewBox="0 0 24 24"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></symbol>
   <symbol id="i-calendar-days" viewBox="0 0 24 24"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M8 13h.01"/><path d="M12 13h.01"/><path d="M16 13h.01"/><path d="M8 17h.01"/><path d="M12 17h.01"/><path d="M16 17h.01"/></symbol>
@@ -2944,6 +2945,7 @@
         <button class="load-btn" id="gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
         <button class="load-btn" id="gallery-rotate-download-selected-btn" type="button" title="선택한 이미지 중 가로형만 시계 방향으로 90도 돌린 사본을 다운로드 (세로형은 그대로, 원본 파일은 건드리지 않음)"><svg class="ico"><use href="#i-rotate-cw"/></svg><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">회전 후 다운로드</span></button>
         <button class="load-btn" id="gallery-rotate-selected-btn" type="button" title="선택한 이미지를 전부 시계 방향으로 90도 돌려요 (원본을 실제로 바꿔요)"><svg class="ico"><use href="#i-rotate-cw"/></svg><span class="btn-label">회전</span></button>
+        <button class="load-btn share-editor-btn" id="gallery-open-editor-btn" type="button" style="display:none;" title="선택한 이미지를 OpenCut 편집기로 보내 열기 (PC 브라우저 권장)"><svg class="ico"><use href="#i-external-link"/></svg><span class="btn-label">편집기로</span></button>
         <button class="load-btn" id="gallery-send-to-pose-btn" type="button" title="참조 세트로 보내기"><svg class="ico"><use href="#i-bookmark-plus"/></svg><span class="btn-label">세트 추가</span></button>
         <button class="del-btn" id="gallery-delete-selected-btn" type="button" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
         <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg><span class="btn-label">해제</span></button>
@@ -3000,6 +3002,7 @@
         <button class="load-btn" id="video-gallery-move-selected-btn" type="button" title="선택한 영상을 다른 프로젝트로 옮기기"><svg class="ico"><use href="#i-folder-input"/></svg><span class="btn-label">이동</span></button>
         <button class="load-btn" id="video-gallery-concat-btn" type="button" style="display:none;" title="선택한 영상을 순서대로 이어 붙여 새 영상 만들기"><svg class="ico"><use href="#i-merge"/></svg><span class="btn-label">이어 붙이기</span></button>
         <button class="load-btn" id="video-gallery-trim-btn" type="button" style="display:none;" title="선택한 영상의 원하는 구간만 잘라 새 영상 만들기"><svg class="ico"><use href="#i-scissors"/></svg><span class="btn-label">자르기</span></button>
+        <button class="load-btn share-editor-btn" id="video-gallery-open-editor-btn" type="button" style="display:none;" title="선택한 영상을 OpenCut 편집기로 보내 열기 (PC 브라우저 권장)"><svg class="ico"><use href="#i-external-link"/></svg><span class="btn-label">편집기로</span></button>
         <button class="load-btn" id="video-gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
         <button class="del-btn" id="video-gallery-delete-selected-btn" type="button" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
         <button class="modal-btn-secondary" id="video-gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg><span class="btn-label">해제</span></button>
@@ -9214,6 +9217,7 @@ function updateGalleryToolbar(){
   }
   toolbar.style.display = 'flex';
   document.getElementById('gallery-toolbar-count').textContent = `${selectedGalleryNames.size}개 선택됨`;
+  applyShareButtons();
 }
 
 // 갤러리에서 이미지를 지운다 — 한 장이든 여러 장이든 이 함수 하나로 처리한다
@@ -10276,7 +10280,39 @@ function updateVideoGalleryToolbar(){
   document.getElementById('video-gallery-toolbar-count').textContent = `${selectedGalleryVideoNames.size}개 선택됨`;
   document.getElementById('video-gallery-concat-btn').style.display = selectedGalleryVideoNames.size >= 2 ? '' : 'none';
   document.getElementById('video-gallery-trim-btn').style.display = selectedGalleryVideoNames.size === 1 ? '' : 'none';
+  applyShareButtons();
 }
+
+// ---- 외부 편집기(OpenCut)로 열기: 서버가 선택 파일용 임시 세션을 만들고, 편집기 탭이 그 주소로 파일을 가져간다 ----
+let shareConfigPromise = null;
+function applyShareButtons(){
+  if(!shareConfigPromise){
+    shareConfigPromise = fetch('/api/share/config').then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  }
+  shareConfigPromise.then(cfg => {
+    document.querySelectorAll('.share-editor-btn').forEach(btn => { btn.style.display = cfg.opencut_url ? '' : 'none'; });
+  });
+}
+async function openInEditor(names){
+  if(!names.length) return;
+  // 팝업 차단을 피하려면 클릭 직후 동기적으로 창을 열어 둬야 한다
+  const win = window.open('about:blank', '_blank');
+  try{
+    const res = await fetch('/api/share/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'nightshift' },
+      body: JSON.stringify({ names }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '편집기로 보내지 못했어요.');
+    if(win) win.location.href = data.url; else window.location.href = data.url;
+  }catch(e){
+    if(win) win.close();
+    flashNotice(e.message || '편집기로 보내지 못했어요.');
+  }
+}
+document.getElementById('video-gallery-open-editor-btn').addEventListener('click', () => openInEditor(Array.from(selectedGalleryVideoNames)));
+document.getElementById('gallery-open-editor-btn').addEventListener('click', () => openInEditor(Array.from(selectedGalleryNames)));
 
 // ---- 영상 편집(자르기 / 이어 붙이기) — 서버가 ffmpeg로 새 영상을 만든다(원본은 그대로) ----
 const veState = { op: null, names: [], jobId: null, timer: null, duration: 0 };
