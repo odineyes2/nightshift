@@ -155,5 +155,20 @@ module.exports = {
       restart_delay: 2000,
       watch: false,
     },
+    {
+      // OpenCut(classic 포크) — 별도 저장소(../opencut, docs/opencut/ 참고)를 빌드해 둔 것을 띄운다.
+      // Cloudflare Tunnel이 opencut.lomebrote.com을 이 포트(3100)로 연결한다. 편집은 전부 브라우저에서 일어나며
+      // 이 서버는 계정도 DB도 쓰지 않는다(정적 페이지 제공만).
+      name: "opencut",
+      script: "node_modules/next/dist/bin/next",
+      args: "start -p 3100",
+      interpreter: "node",
+      cwd: "C:/Users/Simon Lomebrote/Projects/opencut/apps/web",
+      env: { NODE_ENV: "production" },
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
+      watch: false,
+    },
   ],
 };
