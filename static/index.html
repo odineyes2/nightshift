@@ -7987,15 +7987,13 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   const prevKind = (podsById[formPodId()] || {}).kind;
 
   // 프로젝트 스코프인지 먼저 정한다 — projectId를 명시했거나, 파드를 명시하지 않고 이미
-  // 프로젝트 안에서 그 프로젝트의 서브탭으로 옮겨갈 때, 혹은 어느 스코프도 아닌 곳(Danbooru
-  // 등)에서 "작업"으로 돌아올 때 마지막에 있던 스코프가 프로젝트였을 때다.
+  // 프로젝트 안에서 그 프로젝트의 서브탭으로 옮겨갈 때다. 전역 화면(Home·Jobs·Danbooru 등)에서 "작업"을 열면
+  // 마지막에 보던 프로젝트로 끌려 들어가지 않고 전역 Jobs가 열린다(그래야 상단 내비게이션이 유지된다).
   let scopedProjectId = null;
   const explicitProject = projectId !== null;
   const stayInProject = podId === null && currentProjectId !== null && PROJECT_TABS.includes(tab);
-  const returnToProject = podId === null && currentPodId === null && currentProjectId === null
-    && tab === 'jobs' && lastScopeKind === 'project' && lastProjectId !== null;
-  if(explicitProject || stayInProject || returnToProject){
-    scopedProjectId = resolveProjectId(explicitProject ? projectId : (stayInProject ? currentProjectId : lastProjectId));
+  if(explicitProject || stayInProject){
+    scopedProjectId = resolveProjectId(explicitProject ? projectId : currentProjectId);
     if(scopedProjectId === null) tab = 'dashboard';   // 지워졌거나 아직 못 읽은 프로젝트
     else if(!PROJECT_TABS.includes(tab)) tab = 'prgallery';
   }
@@ -11591,8 +11589,7 @@ function danbooruSendToMainPrompt(){
   statusEl.textContent = '메인 프롬프트로 보냈어요.';
   statusEl.classList.remove('error');
   statusEl.classList.add('success');
-  // Danbooru는 파드 밖 화면이라 "어느 파드의 작업 폼인지"를 정해줘야 한다 —
-  // 마지막에 보던 파드(없으면 기본 파드)로 들어간다.
+  // Danbooru는 파드 밖 화면이라 전역 Jobs(파드를 정하지 않고 구상하는 작업 화면)로 간다.
   showTab('jobs');
   raw.scrollIntoView({ behavior: 'smooth', block: 'center' });
   raw.focus();
