@@ -128,8 +128,41 @@ CREATE TABLE comfy_downloads (
 ALTER TABLE assets DROP COLUMN origin_key
 """
 
+# v3: 회원. users/sessions를 만들고, 프로젝트·작업·결과물에 소유자(owner_id)를 단다.
+# owner_id가 NULL이면 "주인 없음"이다 — 관리자만 볼 수 있고, 시작할 때 관리자에게 넘겨진다(auth.ensure_admin).
+# 회원을 지워도 그 사람의 데이터는 지우지 않고 owner_id를 NULL로 되돌린다(ON DELETE SET NULL).
+SCHEMA_V3 = """
+CREATE TABLE users (
+  id            INTEGER PRIMARY KEY,
+  username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  password_hash TEXT NOT NULL,
+  role          TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin','user')),
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','disabled')),
+  created_at    TEXT NOT NULL,
+  approved_at   TEXT,
+  last_login_at TEXT
+);
+CREATE TABLE sessions (
+  token_hash   TEXT PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  last_seen_at TEXT,
+  ip           TEXT,
+  user_agent   TEXT
+);
+CREATE INDEX sessions_user ON sessions(user_id);
+ALTER TABLE projects ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE jobs ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE assets ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX projects_owner ON projects(owner_id);
+CREATE INDEX jobs_owner ON jobs(owner_id);
+CREATE INDEX assets_owner ON assets(owner_id, created_at DESC)
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
-MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2)]
+MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3)]
 
 
 def now_iso() -> str:
@@ -223,6 +256,7 @@ def _job_columns(job: dict, valid_project_ids: set[int]) -> tuple:
         job.get("deleted_at") or ("deleted" if job.get("deleted") else None),
         job.get("pod_id"), job.get("pod_name"), job.get("pod_kind"),
         job.get("pod_gpu"), job.get("pod_cost_per_hr"),
+        job.get("owner_id"),
     )
 
 
@@ -239,8 +273,8 @@ def save_jobs(jobs: dict[str, dict]) -> None:
             conn.execute(
                 """INSERT INTO jobs(id, project_id, template_id, template_label, status,
                        queued_at, started_at, finished_at, deleted_at,
-                       pod_id, pod_name, pod_kind, pod_gpu, pod_cost_per_hr, data_json)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       pod_id, pod_name, pod_kind, pod_gpu, pod_cost_per_hr, owner_id, data_json)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(id) DO UPDATE SET
                        project_id=excluded.project_id, template_id=excluded.template_id,
                        template_label=excluded.template_label, status=excluded.status,
@@ -248,7 +282,7 @@ def save_jobs(jobs: dict[str, dict]) -> None:
                        finished_at=excluded.finished_at, deleted_at=excluded.deleted_at,
                        pod_id=excluded.pod_id, pod_name=excluded.pod_name, pod_kind=excluded.pod_kind,
                        pod_gpu=excluded.pod_gpu, pod_cost_per_hr=excluded.pod_cost_per_hr,
-                       data_json=excluded.data_json""",
+                       owner_id=excluded.owner_id, data_json=excluded.data_json""",
                 (jid, *cols, data),
             )
         existing = {r["id"] for r in conn.execute("SELECT id FROM jobs")}
@@ -260,12 +294,13 @@ def save_jobs(jobs: dict[str, dict]) -> None:
 
 def load_jobs() -> dict[str, dict]:
     with connect() as conn:
-        rows = conn.execute("SELECT id, project_id, data_json FROM jobs").fetchall()
+        rows = conn.execute("SELECT id, project_id, owner_id, data_json FROM jobs").fetchall()
     result = {}
     for r in rows:
         job = json.loads(r["data_json"])
         # 컬럼이 진실이다 — 프로젝트가 지워져 FK가 NULL이 된 job은 dict에서도 미분류로 본다.
         job["project_id"] = r["project_id"]
+        job["owner_id"] = r["owner_id"]
         result[r["id"]] = job
     _saved_json.clear()
     _saved_json.update({jid: json.dumps(job, ensure_ascii=False, default=str) for jid, job in result.items()})
@@ -288,8 +323,8 @@ def import_legacy_jobs(state_file: Path) -> int:
                 conn.execute(
                     """INSERT OR IGNORE INTO jobs(id, project_id, template_id, template_label, status,
                            queued_at, started_at, finished_at, deleted_at,
-                           pod_id, pod_name, pod_kind, pod_gpu, pod_cost_per_hr, data_json)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           pod_id, pod_name, pod_kind, pod_gpu, pod_cost_per_hr, owner_id, data_json)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (jid, *cols, json.dumps(job, ensure_ascii=False, default=str)),
                 )
                 count += 1

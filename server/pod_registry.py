@@ -110,6 +110,8 @@ def normalize_pod(raw: dict) -> dict:
         "tags": [t.strip() for t in tags if t.strip()],
         "max_concurrent": max_concurrent,
         "pull_outputs": bool(raw.get("pull_outputs")),
+        # 파드의 주인(회원 id). 없으면 관리자 것이다(회원 기능 이전에 만든 파드).
+        "owner_id": raw.get("owner_id") if isinstance(raw.get("owner_id"), int) and not isinstance(raw.get("owner_id"), bool) else None,
         "note": str(raw.get("note") or ""),
         "created_at": raw.get("created_at") or _now_iso(),
         "updated_at": raw.get("updated_at") or _now_iso(),
@@ -180,9 +182,13 @@ def save():
         os.replace(tmp, PODS_FILE)
 
 
-def list_pods() -> list[dict]:
+ALL = object()   # "주인을 가리지 않고 전부"
+
+
+def list_pods(owner_id=ALL) -> list[dict]:
+    """파드 목록. owner_id를 주면 그 회원 것만(admin은 ALL로 전부)."""
     with _lock:
-        return [dict(p) for p in _pods]
+        return [dict(p) for p in _pods if owner_id is ALL or p.get("owner_id") == owner_id]
 
 
 def get_pod(pod_id: str) -> dict | None:
@@ -201,13 +207,72 @@ def require_pod(pod_id: str) -> dict:
 
 
 def default_pod() -> dict:
-    """어느 파드인지 지정되지 않은 일에 쓸 파드. enabled인 첫 파드, 없으면 첫 파드.
+    """어느 파드인지 지정되지 않은 서버 전체의 일에 쓸 파드. enabled인 첫 파드, 없으면 첫 파드.
     load()가 항상 최소 1개를 보장하므로 None을 돌려주지 않는다."""
     with _lock:
         for p in _pods:
             if p.get("enabled"):
                 return dict(p)
         return dict(_pods[0])
+
+
+def default_pod_for(owner_id) -> dict | None:
+    """그 회원이 파드를 지정하지 않았을 때 쓸 파드 — 그 회원의 enabled인 첫 파드, 없으면 첫 파드. 파드가 하나도
+    없으면 None(회원은 파드가 0개일 수 있다)."""
+    with _lock:
+        mine = [p for p in _pods if p.get("owner_id") == owner_id]
+        for p in mine:
+            if p.get("enabled"):
+                return dict(p)
+        return dict(mine[0]) if mine else None
+
+
+def assign_orphans(owner_id: int) -> int:
+    """주인 없는 파드(회원 기능 이전에 만든 것)를 그 회원(관리자)에게 넘긴다."""
+    changed = 0
+    with _lock:
+        for p in _pods:
+            if p.get("owner_id") is None:
+                p["owner_id"] = owner_id
+                changed += 1
+        if changed:
+            save()
+    return changed
+
+
+def release_owner(owner_id: int) -> int:
+    """회원을 지울 때 — 그 회원의 파드는 주인 없음으로 돌린다(다음 시작 때 관리자에게 넘어간다)."""
+    changed = 0
+    with _lock:
+        for p in _pods:
+            if p.get("owner_id") == owner_id:
+                p["owner_id"] = None
+                changed += 1
+        if changed:
+            save()
+    return changed
+
+
+def assert_public_url(url: str) -> None:
+    """일반 회원이 등록하는 파드 주소는 이 서버가 대신 접속하므로, 서버 안쪽(같은 머신·사설망·클라우드 메타데이터)을
+    가리키면 안 된다. 호스트 이름을 풀어서 나온 주소가 전부 공인 주소여야 통과한다."""
+    import ipaddress
+    import socket
+    parsed = urllib.parse.urlparse(url or "")
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise PodError("http:// 또는 https://로 시작하는 주소를 적어주세요.")
+    host = parsed.hostname
+    if host.lower() in ("localhost", "localhost.localdomain") or host.lower().endswith((".local", ".internal")):
+        raise PodError("이 서버 안쪽 주소는 쓸 수 없어요. 인터넷에서 접속되는 파드 주소를 적어주세요.")
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        raise PodError("주소를 찾을 수 없어요. 파드 주소를 확인해 주세요.")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
+                or ip.is_reserved or ip.is_unspecified):
+            raise PodError("이 서버 안쪽이나 사설망 주소는 쓸 수 없어요. 인터넷에서 접속되는 파드 주소를 적어주세요.")
 
 
 def create_pod(raw: dict) -> dict:

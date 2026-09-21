@@ -31,7 +31,15 @@ class OutputFolderError(Exception):
     """출력 폴더 자체를 찾을 수 없을 때."""
 
 
-def list_output_images(search_dir: str | None = None) -> list[Path]:
+def keep_only(files: list[Path], base: str | None, only_paths: set[str] | None) -> list[Path]:
+    """only_paths(출력 폴더 기준 상대 경로 집합)를 주면 그 파일만 남긴다 — 회원이 자기 결과물에만 손대게."""
+    if only_paths is None:
+        return files
+    root = Path(base or OUTPUT_DIR)
+    return [f for f in files if f.relative_to(root).as_posix() in only_paths]
+
+
+def list_output_images(search_dir: str | None = None, only_paths: set[str] | None = None) -> list[Path]:
     """search_dir(기본 OUTPUT_DIR)의 이미지 파일 목록. 템플릿 스크립트가 JOB_ID
     하위 폴더에 나눠 저장하므로(seed_batch.py 등의 apply_filename_prefix 참고)
     하위 폴더까지 재귀적으로 훑는다 — 폴더 구조가 한 단계든 여러 단계든, 혹은
@@ -41,15 +49,15 @@ def list_output_images(search_dir: str | None = None) -> list[Path]:
     d = Path(search_dir)
     if not d.exists():
         raise OutputFolderError(f"폴더를 찾을 수 없습니다: {search_dir}")
-    return [
+    return keep_only([
         p for p in sorted(d.rglob("*"))
         if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-    ]
+    ], search_dir, only_paths)
 
 
-def delete_output_images(search_dir: str | None = None) -> int:
+def delete_output_images(search_dir: str | None = None, only_paths: set[str] | None = None) -> int:
     """search_dir의 이미지 파일을 모두 지우고 지운 개수를 반환한다."""
-    files = list_output_images(search_dir)
+    files = list_output_images(search_dir, only_paths)
     for f in files:
         f.unlink()
     return len(files)
@@ -84,12 +92,12 @@ def rotate_image_file(path: Path) -> None:
         save_rotated(img, img.transpose(Image.Transpose.ROTATE_270), path)
 
 
-def rotate_landscape_images(search_dir: str | None = None) -> dict:
+def rotate_landscape_images(search_dir: str | None = None, only_paths: set[str] | None = None) -> dict:
     """LANDSCAPE_BASE_SIZE와 같은 비율(24:11)의 가로형 이미지를 시계 방향으로 90도
     회전해서 같은 파일에 덮어쓴다 (아래쪽 변이 왼쪽으로 오도록 — PIL의 ROTATE_270이
     시계 방향 90도 회전에 해당함). 이미 회전된(세로형) 이미지는 비율이 안 맞아 자동으로
     건너뛰므로 버튼을 여러 번 눌러도 안전하다(같은 이미지를 두 번 돌리지 않음)."""
-    files = list_output_images(search_dir)
+    files = list_output_images(search_dir, only_paths)
     rotated = []
     errors = []
     for f in files:

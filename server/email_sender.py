@@ -30,11 +30,11 @@ class EmailSendError(Exception):
     """발송을 진행할 수 없는 상황(설정 오류, 인증 실패 등)을 사용자가 읽을 메시지와 함께 전달."""
 
 
-def find_image_files(search_dir: str) -> list[Path]:
+def find_image_files(search_dir: str, only_paths: set[str] | None = None) -> list[Path]:
     """list_output_images와 같지만, 이미지가 하나도 없으면 에러로 취급한다
     (이메일 발송/zip 다운로드처럼 '뭔가 있어야' 의미 있는 동작에서 사용)."""
     try:
-        files = list_output_images(search_dir)
+        files = list_output_images(search_dir, only_paths)
     except OutputFolderError as e:
         raise EmailSendError(str(e)) from e
     if not files:
@@ -92,11 +92,12 @@ def send_email_with_attachments(smtp_user: str, smtp_password: str, to_addr: str
         server.send_message(msg)
 
 
-def send_output_images(smtp_user: str, smtp_password: str, to_email: str, max_mb: int = 20, search_dir: str | None = None) -> dict:
+def send_output_images(smtp_user: str, smtp_password: str, to_email: str, max_mb: int = 20, search_dir: str | None = None,
+                       only_paths: set[str] | None = None) -> dict:
     """search_dir(기본 OUTPUT_DIR)의 이미지들을 모아 한 통당 max_mb 이내로 묶어서
     필요한 만큼 여러 통으로 발송하고, 결과 요약을 반환한다."""
     search_dir = search_dir or OUTPUT_DIR
-    files = find_image_files(search_dir)
+    files = find_image_files(search_dir, only_paths)
     max_bytes = max_mb * 1024 * 1024
     batches = batch_files(files, max_bytes)
     total_batches = len(batches)

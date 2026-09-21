@@ -227,33 +227,12 @@
     border-color:var(--queued);
     box-shadow:0 0 0 4px rgba(var(--queued-rgb),0.14);
   }
-  #login-key-input{
-    width:100%;
-    border:none;
-    outline:none;
-    background:none;
-    text-align:center;
-    font-family:var(--mono);
-    font-size:14px;
-    letter-spacing:0.03em;
-    color:var(--text);
-  }
-  #login-key-input::placeholder{ color:var(--text-dim); opacity:0.7; }
   .login-enter-hint{
     display:flex; align-items:center; justify-content:center; gap:6px;
     font-size:11px;
     color:var(--text-dim);
     opacity:0.6;
     transition:opacity .2s ease;
-  }
-  .login-enter-hint kbd{
-    font-family:var(--mono);
-    font-size:10px;
-    color:var(--text-dim);
-    background:var(--bg);
-    border:1px solid var(--border);
-    border-radius:4px;
-    padding:1px 5px;
   }
   .login-submit-btn{
     width:100%;
@@ -270,69 +249,74 @@
   }
   .login-submit-btn:hover{ box-shadow:0 4px 14px rgba(var(--queued-rgb),0.35); }
   .login-submit-btn:active{ transform:translateY(1px); }
-  /* "또는" 구분선 — 실제 로그인(위 게이트 키)과 아래 장식용 버튼을 시각적으로 나눈다. */
-  .login-divider{
-    width:100%;
-    display:flex;
-    align-items:center;
-    gap:10px;
-    font-size:11px;
-    color:var(--text-dim);
-    opacity:0.6;
-  }
-  .login-divider::before, .login-divider::after{
-    content:'';
-    flex:1;
-    height:1px;
-    background:var(--border);
-  }
-  /* 아래 두 버튼은 순전히 장식이다 — 이 서버는 로그인 시스템이 따로 없고 위 게이트
-     키가 유일한 인증 수단이다. 눌러도 아무 일도 안 일어나는 대신, 클릭하면 살짝
-     흔들리며 "아직은 그림이에요" 같은 문구를 잠깐 보여준다(멀쩡한 버튼인데 안 눌리는
-     것처럼 보이지 않게). */
-  .login-oauth-row{ width:100%; display:flex; flex-direction:column; gap:8px; }
-  .login-oauth-btn{
-    width:100%;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    gap:8px;
-    padding:10px 16px;
-    border:1px solid var(--border);
-    border-radius:999px;
-    background:var(--panel);
-    color:var(--text);
-    font-family:var(--sans);
-    font-size:13px;
-    font-weight:500;
-    cursor:pointer;
-    transition: border-color .15s ease, background .15s ease;
-  }
-  .login-oauth-btn:hover{ border-color:var(--text-dim); }
-  .login-oauth-btn svg{ flex-shrink:0; }
-  @keyframes login-oauth-shake{
-    0%, 100%{ transform:translateX(0); }
-    25%{ transform:translateX(-3px); }
-    75%{ transform:translateX(3px); }
-  }
-  .login-oauth-btn.is-fake-clicked{ animation: login-oauth-shake .3s ease; }
   .login-error{
     font-size:12.5px;
     color:var(--failed);
     min-height:1.2em;
   }
-  .login-request-link{
-    font-family:var(--sans);
-    font-size:12px;
-    color:var(--text-dim);
-    background:none;
-    border:none;
-    padding:0;
-    cursor:pointer;
-    border-bottom:1px solid transparent;
-    transition:color .2s ease, border-color .2s ease;
+  .login-notice, .account-ok{ font-size:12.5px; color:var(--done); min-height:1.2em; line-height:1.5; }
+  .login-input{
+    width:100%; border:none; outline:none; background:none; text-align:center;
+    font-family:var(--mono); font-size:14px; letter-spacing:0.03em; color:var(--text);
   }
-  .login-request-link:hover{ color:var(--queued); border-color:var(--queued); }
+  .login-input::placeholder{ color:var(--text-dim); opacity:0.7; }
+  .login-tabs{ display:flex; gap:22px; }
+  .login-tab{
+    background:none; border:none; padding:4px 2px; cursor:pointer; color:var(--text-dim);
+    font-family:var(--mono); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:var(--track-nav);
+    border-bottom:2px solid transparent;
+  }
+  .login-tab.active{ color:var(--text); border-bottom-color:var(--queued); }
+  .user-chip{
+    display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:20px;
+    border:1px solid var(--border); background:var(--panel); color:var(--text-dim); cursor:pointer;
+    font-family:var(--mono); font-size:11.5px; font-weight:600; max-width:180px;
+  }
+  .user-chip:hover{ border-color:var(--queued); color:var(--queued); }
+  .user-chip-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:110px; }
+  .role-badge{
+    font-size:9.5px; text-transform:uppercase; letter-spacing:0.1em; padding:1px 5px; border-radius:4px;
+    background:rgba(var(--queued-rgb),0.12); color:var(--queued);
+  }
+  .tab-badge{
+    display:inline-block; min-width:16px; padding:0 5px; margin-left:6px; border-radius:8px; text-align:center;
+    background:var(--failed); color:#fff; font-size:10px; line-height:16px; letter-spacing:0;
+  }
+  .admin-stats{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; }
+  .admin-stat{
+    flex:1 1 120px; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--bg);
+    font-family:var(--mono); font-size:11.5px; color:var(--text-dim);
+  }
+  .admin-stat b{ display:block; font-size:20px; color:var(--text); margin-top:2px; }
+  .admin-stat.attention b{ color:var(--running); }
+  .admin-users{ display:flex; flex-direction:column; gap:10px; }
+  .admin-user{
+    display:grid; grid-template-columns:minmax(0,1.4fr) auto minmax(0,1.3fr) auto; align-items:center; gap:10px 16px;
+    padding:12px 14px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--panel);
+  }
+  .admin-user.pending{ border-color:rgba(var(--running-rgb),0.5); background:rgba(var(--running-rgb),0.05); }
+  .admin-user.disabled{ opacity:.7; }
+  .admin-user-name{ font-weight:600; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .admin-user-sub{ font-size:12px; color:var(--text-dim); overflow-wrap:anywhere; }
+  .admin-user-meta{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); display:flex; flex-direction:column; gap:2px; }
+  .admin-user-actions{ display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; }
+  .status-pill{
+    font-family:var(--mono); font-size:11px; font-weight:600; padding:2px 10px; border-radius:20px; white-space:nowrap;
+    border:1px solid var(--border); color:var(--text-dim);
+  }
+  .status-pill.active{ color:var(--done); border-color:rgba(var(--done-rgb),0.4); background:rgba(var(--done-rgb),0.08); }
+  .status-pill.pending{ color:var(--running); border-color:rgba(var(--running-rgb),0.45); background:rgba(var(--running-rgb),0.1); }
+  .status-pill.disabled{ color:var(--failed); border-color:rgba(var(--failed-rgb),0.4); background:rgba(var(--failed-rgb),0.07); }
+  .owner-badge{ display:inline-flex; align-items:center; gap:4px; }
+  @media (max-width:820px){
+    .admin-user{ grid-template-columns:1fr auto; }
+    .admin-user-meta, .admin-user-actions{ grid-column:1 / -1; }
+    .admin-user-actions{ justify-content:flex-start; }
+  }
+  .account-facts{ display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:0 0 14px; font-size:13px; }
+  .account-facts dt{ color:var(--text-dim); font-family:var(--mono); font-size:11.5px; }
+  .account-facts dd{ margin:0; overflow-wrap:anywhere; }
+  @media (max-width:640px){ .user-chip-name{ max-width:64px; } .user-chip .role-badge{ display:none; } }
   .login-watermark{
     position:absolute;
     left:0; right:0; bottom:max(22px, env(safe-area-inset-bottom,0px));
@@ -1205,6 +1189,15 @@
      구분엔 문제없다. */
   .dash-card-clickable{ cursor:pointer; transition:border-color .12s ease, background .12s ease; }
   .dash-card-clickable:hover{ border-color:var(--queued); background:rgba(var(--queued-rgb),0.04); }
+  /* 길게 눌러 삭제 — 누르는 동안 카드가 붉게 물들며 살짝 눌린다. 터치에서는 길게 눌러도 글자 선택·확대 메뉴가 뜨지 않게 한다. */
+  .dash-card[data-card-type="pod"]{ -webkit-touch-callout:none; }
+  @media (hover:none){ .dash-card[data-card-type="pod"]{ -webkit-user-select:none; user-select:none; } }
+  .dash-card.pod-pressing{
+    border-color:var(--failed); background:rgba(var(--failed-rgb),0.07); transform:scale(0.985);
+    transition:transform .38s ease, border-color .2s ease, background .2s ease;
+  }
+  .dash-longpress-hint{ display:none; font-size:11.5px; color:var(--text-dim); margin:-6px 0 12px; }
+  @media (hover:none){ .dash-longpress-hint{ display:block; } }
   /* 상태별 시각 구분 — 점 색깔 하나로는 카드가 많아지면 눈에 잘 안 들어온다.
      왼쪽 띠 색 + 옅은 배경 톤을 더해서, 굳이 점을 찾아보지 않아도 "지금 뭐가
      돌고 있고 뭐가 안 붙는지"가 카드를 훑기만 해도 보이게 한다. hover 시
@@ -2461,26 +2454,18 @@
   })();
 </script>
 <script>
-  // 서버에 NIGHTSHIFT_API_KEY가 설정돼 있으면(app.py의 require_api_key 미들웨어
-  // 참고) /api/* 요청마다 X-API-Key 헤더가 있어야 한다. 이 페이지는 fetch()를
-  // 20곳 넘게 직접 호출하므로, 호출부를 하나하나 고치는 대신 페이지 로드 시점에
-  // 전역 fetch를 한 번만 감싸서 /api/로 시작하는 요청에 저장된 키를 자동으로
-  // 붙인다. 키 자체는 이 브라우저의 localStorage에만 있고 서버로는 헤더로만
-  // 나간다 — 아래 헤더 버튼(🔑 API 키)이 입력/삭제 UI를 담당한다.
+  // 로그인은 세션 쿠키다(서버 app.py의 authenticate_request 참고) — 쿠키는 브라우저가 알아서 실어 보내므로 <img>/<video>/
+  // 다운로드 링크도 그대로 동작한다. 이 페이지는 fetch()를 여러 곳에서 직접 호출하니, 호출부를 고치는 대신 페이지 로드 때
+  // 전역 fetch를 한 번만 감싸서 /api/ 요청에 (1) 쓰기 요청 위조를 막는 X-Requested-With 헤더를 붙이고 (2) 로그아웃 상태면
+  // 서버까지 가지 않고 곧바로 401을 돌려주고 (3) 로그인이 풀리면 로그인 화면으로 돌려보낸다.
   (function(){
-    const KEY_STORAGE = 'nightshift-api-key';
     const nativeFetch = window.fetch.bind(window);
-
-    function getApiKey(){
-      try{ return localStorage.getItem(KEY_STORAGE) || ''; }catch(e){ return ''; }
-    }
-    window.__nightshiftGetApiKey = getApiKey;
-    window.__nightshiftSetApiKey = function(value){
-      try{
-        if(value) localStorage.setItem(KEY_STORAGE, value);
-        else localStorage.removeItem(KEY_STORAGE);
-      }catch(e){ /* localStorage를 못 쓰면 이번 세션에서는 그냥 키 없이 동작 */ }
-    };
+    // undefined = 아직 모름, null = 로그아웃 상태, 객체 = 로그인한 회원 {id, username, email, role, ...}
+    window.__nightshiftUser = undefined;
+    window.__nightshiftAuthReady = nativeFetch('/api/auth/me', { credentials: 'same-origin' })
+      .then(res => res.json())
+      .then(data => { window.__nightshiftUser = data.user || null; return window.__nightshiftUser; })
+      .catch(() => { window.__nightshiftUser = null; return null; });
 
     window.fetch = function(input, init){
       let path;
@@ -2488,45 +2473,30 @@
       catch(e){ path = typeof input === 'string' ? input : ''; }
 
       const isApi = path.startsWith('/api/');
-      const apiKey = isApi ? getApiKey() : '';
-      if(apiKey){
+      const isAuth = path.startsWith('/api/auth/');
+      if(isApi && !isAuth && window.__nightshiftUser === undefined){
+        return window.__nightshiftAuthReady.then(() => window.fetch(input, init));   // 로그인 여부를 알 때까지 기다린다
+      }
+      if(isApi && !isAuth && window.__nightshiftUser === null){
+        return Promise.resolve(new Response(JSON.stringify({ detail: '로그인이 필요해요.' }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if(isApi){
         const headers = new Headers((init && init.headers) || (typeof input !== 'string' && input.headers) || undefined);
-        headers.set('X-API-Key', apiKey);
+        headers.set('X-Requested-With', 'nightshift');
         init = Object.assign({}, init, { headers });
       }
-
       return nativeFetch(input, init).then(res => {
-        if(isApi && typeof window.__nightshiftOnApiAuthResult === 'function'){
-          window.__nightshiftOnApiAuthResult(res.status !== 401);
+        if(isApi && !isAuth && res.status === 401 && window.__nightshiftUser){
+          window.__nightshiftUser = null;
+          if(typeof window.__nightshiftOnSignedOut === 'function') window.__nightshiftOnSignedOut();
         }
         return res;
       });
     };
 
-    // <img src>/<video src>/<a href download>은 브라우저가 직접 요청을 보내서
-    // 위의 fetch 래퍼(커스텀 헤더 부착)를 거치지 않는다 — 갤러리 썸네일/원본
-    // 이미지/영상 URL을 만들 때는 이 함수로 감싸서 쿼리스트링으로 키를 실어
-    // 보낸다(서버 쪽은 app.py의 require_api_key가 헤더 없으면 쿼리스트링도 봄).
-    window.__nightshiftMediaUrl = function(url){
-      const key = getApiKey();
-      if(!key) return url;
-      const sep = url.includes('?') ? '&' : '?';
-      return `${url}${sep}api_key=${encodeURIComponent(key)}`;
-    };
-
-    // 로그인 화면이 "이 키로 실제로 서버에 들어갈 수 있는가"를 확인할 때 쓴다.
-    // 저장된 키가 아니라 지금 막 입력한 값을 검증해야 하므로, 위의 fetch 래퍼(항상
-    // localStorage 값을 덮어씀)를 거치지 않고 nativeFetch를 직접 쓴다.
-    // true=통과, false=401(키가 틀림), null=서버에 닿지 못함(네트워크 오류 등).
-    window.__nightshiftVerifyApiKey = async function(key){
-      try{
-        const headers = key ? { 'X-API-Key': key } : {};
-        const res = await nativeFetch('/api/templates', { headers });
-        return res.status !== 401;
-      }catch(e){
-        return null;
-      }
-    };
+    // 이전에는 API 키를 쿼리스트링에 실어야 했지만 이제 쿠키가 알아서 실린다 — 호출부를 그대로 두려고 남겨 둔 자리다.
+    window.__nightshiftMediaUrl = function(url){ return url; };
   })();
 </script>
 </head>
@@ -2603,10 +2573,15 @@
   <symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
   <symbol id="i-repeat-1" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4"/></symbol>
   <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></symbol>
+  <symbol id="i-user-check" viewBox="0 0 24 24"><path d="m16 11 2 2 4-4"/><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></symbol>
+  <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol>
+  <symbol id="i-key-round" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
 </svg>
 
-<div class="login-screen" id="login-screen">
+<div class="login-screen" id="login-screen" style="display:none;">
   <div class="login-content">
     <svg class="login-mark" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 1 0 10.5 10.5Z" fill="currentColor"/>
@@ -2614,40 +2589,34 @@
 
     <div class="login-heading">
       <div class="login-wordmark">Nightshift</div>
-      <p class="login-tagline">아직 로그인 기능은 없어요. 서버에 API 키를 설정했다면 입력하세요.</p>
+      <p class="login-tagline" id="login-tagline">아이디와 비밀번호로 로그인하세요.</p>
     </div>
 
-    <form class="login-access-field" id="login-access-form" autocomplete="off">
-      <div class="login-field-shell">
-        <input id="login-key-input" type="password" placeholder="API 키" autocomplete="off" spellcheck="false" aria-label="API 키">
-      </div>
-      <button class="login-submit-btn" type="submit">로그인</button>
-      <div class="login-enter-hint" id="login-enter-hint"><kbd>Enter</kbd> 를 눌러 계속</div>
+    <div class="login-tabs" role="tablist">
+      <button class="login-tab active" id="login-tab-login" type="button" role="tab" data-auth-mode="login">Log in</button>
+      <button class="login-tab" id="login-tab-register" type="button" role="tab" data-auth-mode="register">Sign up</button>
+    </div>
+
+    <form class="login-access-field" id="login-form" autocomplete="on">
+      <div class="login-field-shell"><input class="login-input" id="login-username" name="username" type="text" placeholder="아이디 또는 이메일" autocomplete="username" spellcheck="false" autocapitalize="none" aria-label="아이디 또는 이메일"></div>
+      <div class="login-field-shell"><input class="login-input" id="login-password" name="password" type="password" placeholder="비밀번호" autocomplete="current-password" aria-label="비밀번호"></div>
+      <button class="login-submit-btn" id="login-submit" type="submit">로그인</button>
     </form>
 
-    <div class="login-error" id="login-screen-error"></div>
+    <form class="login-access-field" id="register-form" autocomplete="on" style="display:none;">
+      <div class="login-field-shell"><input class="login-input" id="register-username" name="username" type="text" placeholder="아이디 (영문·숫자 3~32자)" autocomplete="username" spellcheck="false" autocapitalize="none" aria-label="아이디"></div>
+      <div class="login-field-shell"><input class="login-input" id="register-email" name="email" type="email" placeholder="이메일" autocomplete="email" spellcheck="false" aria-label="이메일"></div>
+      <div class="login-field-shell"><input class="login-input" id="register-password" name="password" type="password" placeholder="비밀번호 (8자 이상)" autocomplete="new-password" aria-label="비밀번호"></div>
+      <div class="login-field-shell"><input class="login-input" id="register-password2" name="password2" type="password" placeholder="비밀번호 확인" autocomplete="new-password" aria-label="비밀번호 확인"></div>
+      <button class="login-submit-btn" id="register-submit" type="submit">가입 신청</button>
+      <div class="login-enter-hint">가입 후 관리자가 승인하면 로그인할 수 있어요.</div>
+    </form>
 
-    <div class="login-divider">또는</div>
-    <div class="login-oauth-row">
-      <button class="login-oauth-btn login-oauth-fake" type="button">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        아이디로 로그인
-      </button>
-      <button class="login-oauth-btn login-oauth-fake" type="button">
-        <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true">
-          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"/>
-          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.95v2.33A9 9 0 0 0 9 18Z"/>
-          <path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.95A9 9 0 0 0 0 9c0 1.45.35 2.83.95 4.05l3.02-2.33Z"/>
-          <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .95 4.95l3.02 2.33C4.68 5.16 6.66 3.58 9 3.58Z"/>
-        </svg>
-        Google로 로그인
-      </button>
-    </div>
-
-    <button class="login-request-link" id="login-screen-api-key-btn" type="button">키 확인·삭제 등 자세히 설정하기</button>
+    <div class="login-error" id="login-screen-error" role="alert"></div>
+    <div class="login-notice" id="login-screen-notice" role="status"></div>
   </div>
 
-  <div class="login-watermark">NIGHTSHIFT_API_KEY</div>
+  <div class="login-watermark">MEMBERS</div>
 </div>
 
 <header>
@@ -2658,6 +2627,7 @@
     <span class="brand-wordmark">Nightshift</span>
   </a>
   <div class="header-right">
+    <button class="user-chip" id="user-chip" type="button" style="display:none;" title="내 계정"><svg class="ico"><use href="#i-user"/></svg><span class="user-chip-name" id="user-chip-name"></span><span class="role-badge" id="user-chip-role" hidden>Admin</span></button>
     <button class="theme-toggle-btn" id="theme-toggle-btn" type="button"></button>
     <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
   </div>
@@ -2675,6 +2645,7 @@
     <button class="tab-btn" data-tab="video-gallery" type="button" title="영상 갤러리 — 출력 폴더에 쌓인 영상 파일을 확인"><svg class="ico"><use href="#i-clapperboard"/></svg> Videos</button>
     <span class="tab-bar-sep"></span>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 파드와 무관한 프롬프트 작업대"><svg class="ico"><use href="#i-tag"/></svg> Danbooru</button>
+    <button class="tab-btn" id="admin-tab-btn" data-tab="admin" type="button" style="display:none;" title="회원 관리 (관리자 전용)"><svg class="ico"><use href="#i-users"/></svg> Admin<span class="tab-badge" id="admin-pending-badge" hidden></span></button>
   </div>
 </div>
 
@@ -2727,6 +2698,7 @@
   <!-- 카드 캔버스 — 카드마다 타입(data-card-type)이 있고 타입별 렌더러가 그린다.
        지금은 파드 카드 하나뿐이지만, 통계·최근 산출물·메모 같은 카드를 나중에 같은
        그리드에 얹을 수 있게 이 구조로 둔다. -->
+  <div class="dash-longpress-hint">파드 카드를 길게 누르면 삭제할 수 있어요.</div>
   <div class="card-canvas" id="dash-canvas"></div>
   <div class="empty" id="dash-empty" style="display:none;">등록된 파드가 없어요</div>
 </main>
@@ -3032,6 +3004,23 @@
       <div class="upload-error" id="video-gallery-error"></div>
       <div class="vgallery-grid" id="video-gallery-grid"></div>
       <div class="empty" id="video-gallery-empty" style="display:none;"></div>
+    </div>
+  </div>
+</main>
+
+<!-- 회원 관리 — admin만 볼 수 있다(서버도 /api/admin/*을 admin에게만 연다). -->
+<main id="tab-admin" style="display:none;">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label"><svg class="ico"><use href="#i-users"/></svg> Members</div>
+      <div class="panel-header-actions">
+        <button class="load-btn" id="admin-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="admin-stats" id="admin-stats"></div>
+      <div class="upload-error" id="admin-error"></div>
+      <div class="admin-users" id="admin-users"></div>
     </div>
   </div>
 </main>
@@ -3481,26 +3470,32 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="api-key-modal" style="display:none;">
+<div class="modal-overlay" id="account-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
-      <div class="modal-title">API key</div>
-      <button class="modal-close" id="api-key-modal-close" aria-label="닫기">&times;</button>
+      <div class="modal-title">My account</div>
+      <button class="modal-close" id="account-modal-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
-      <div class="email-hint">서버에 <code>NIGHTSHIFT_API_KEY</code>가 설정돼 있으면, 이 브라우저가 API를 호출할 때마다 같은 값을 보내야 해요. 여기 입력하면 이 브라우저의 localStorage에만 저장되고, 이후 요청에 <code>X-API-Key</code> 헤더로만 실려요. 서버에 키를 설정하지 않았다면 비워둬도 돼요.</div>
+      <dl class="account-facts" id="account-facts"></dl>
       <div class="field">
-        <label class="field-label" for="api-key-input">API 키</label>
-        <input type="password" class="option-input email-input" id="api-key-input" placeholder="서버에 설정한 NIGHTSHIFT_API_KEY 값" autocomplete="off" style="max-width:100%;">
+        <label class="field-label" for="account-old-password">현재 비밀번호</label>
+        <input type="password" class="option-input" id="account-old-password" autocomplete="current-password" style="max-width:100%;">
       </div>
-      <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-dim); cursor:pointer; margin-top:8px;">
-        <input type="checkbox" id="api-key-show"> 입력한 값 표시
-      </label>
-      <div class="login-error" id="api-key-modal-error"></div>
+      <div class="field">
+        <label class="field-label" for="account-new-password">새 비밀번호 (8자 이상)</label>
+        <input type="password" class="option-input" id="account-new-password" autocomplete="new-password" style="max-width:100%;">
+      </div>
+      <div class="field">
+        <label class="field-label" for="account-new-password2">새 비밀번호 확인</label>
+        <input type="password" class="option-input" id="account-new-password2" autocomplete="new-password" style="max-width:100%;">
+      </div>
+      <div class="login-error" id="account-error" role="alert"></div>
+      <div class="account-ok" id="account-ok" role="status"></div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn-secondary" id="api-key-modal-clear"><svg class="ico"><use href="#i-trash-2"/></svg> 지우기</button>
-      <button class="submit-btn" id="api-key-modal-save" type="button"><svg class="ico"><use href="#i-save"/></svg> 저장</button>
+      <button class="modal-btn-secondary" id="account-logout-btn" type="button"><svg class="ico"><use href="#i-log-out"/></svg> 로그아웃</button>
+      <button class="submit-btn" id="account-save-btn" type="button"><svg class="ico"><use href="#i-key-round"/></svg> 비밀번호 변경</button>
     </div>
   </div>
 </div>
@@ -3945,6 +3940,8 @@ function render(jobs, pendingCount, running, perPod){
     const projectBadge = (jobProjectFilter === null && j.project_id != null && projectsById[j.project_id])
       ? `<span class="pod-badge project-badge" title="이 작업이 속한 프로젝트">${ico('folder')} ${escapeHtml(projectName(j.project_id))}</span>`
       : '';
+    const ownerBadge = j.owner_name
+      ? `<span class="pod-badge owner-badge" title="이 작업을 만든 회원">${ico('user')} ${escapeHtml(j.owner_name)}</span>` : '';
     let rows = `
       <tr data-id="${j.id}" class="job-row">
         <td>${isOpen ? '<svg class="ico"><use href="#i-chevron-down"/></svg>' : '<svg class="ico"><use href="#i-chevron-right"/></svg>'}</td>
@@ -3953,7 +3950,7 @@ function render(jobs, pendingCount, running, perPod){
         <td class="fname${j.workflow_original_name ? '' : ' dim'}" title="${escapeHtml(workflowText)}">${escapeHtml(workflowText)}</td>
         <td class="fname${j.csv_original_name ? '' : ' dim'}" title="${escapeHtml(csvText)}">${escapeHtml(csvText)}</td>
         <td>
-          ${podBadge}${projectBadge}
+          ${ownerBadge}${podBadge}${projectBadge}
           <span class="badge ${waitingForComfy ? 'waiting' : j.status}"${waitingForComfy ? ' title="ComfyUI(GPU) 서버에 연결되면 자동으로 이어서 시작해요. 헤더의 연결 상태를 눌러 주소를 확인할 수 있어요."' : ''}><span class="bdot"></span>${waitingForComfy ? 'GPU 대기' : (STATUS_LABEL[j.status] || j.status)}</span>
           ${progress ? `
             <div class="progress-wrap">
@@ -7107,156 +7104,241 @@ if(prefersDarkQuery){
 
 applyTheme(getEffectiveTheme(), false);
 
-// ---- API 키 ----
-// 헤더 스크립트(<head>)가 fetch()를 감싸서 저장된 키를 자동으로 실어 보낸다.
-// 여기서는 "키 설정" 모달만 담당한다 — 여는 경로는 로그인 화면의
-// "키 확인·삭제 등 자세히 설정하기" 링크뿐이다(헤더 버튼은 없앴다).
-const apiKeyModal = document.getElementById('api-key-modal');
-const apiKeyInput = document.getElementById('api-key-input');
-const apiKeyShowCheckbox = document.getElementById('api-key-show');
-const apiKeyModalError = document.getElementById('api-key-modal-error');
-const apiKeyModalSaveBtn = document.getElementById('api-key-modal-save');
+// ---- 로그인 / 회원가입 / 계정 ----
+// 로그인은 세션 쿠키다(서버 auth.py). 로그인·로그아웃에 성공하면 화면을 새로 불러와서, 처음부터 그 회원 기준으로 다시
+// 시작하게 한다(파드·프로젝트·작업이 회원마다 다르므로 이전 화면의 상태를 이어 쓰지 않는다).
+let currentUser = null;
+function isAdminUser(){ return !!currentUser && currentUser.role === 'admin'; }
+
 const loginScreen = document.getElementById('login-screen');
 const loginScreenError = document.getElementById('login-screen-error');
+const loginScreenNotice = document.getElementById('login-screen-notice');
 
-function openApiKeyModal(){
-  apiKeyInput.value = window.__nightshiftGetApiKey();
-  apiKeyInput.type = 'password';
-  apiKeyShowCheckbox.checked = false;
-  apiKeyModalError.textContent = '';
-  apiKeyModal.style.display = 'flex';
-  apiKeyInput.focus();
-}
-
-function closeApiKeyModal(){
-  apiKeyModal.style.display = 'none';
-}
-
-function hideLoginScreen(){
-  loginScreen.style.display = 'none';
-}
-
-function showLoginScreen(message){
-  loginScreenError.textContent = message || '';
-  loginScreen.style.display = 'flex';
-}
-
-document.getElementById('login-screen-api-key-btn').addEventListener('click', openApiKeyModal);
-document.getElementById('api-key-modal-close').addEventListener('click', closeApiKeyModal);
-
-// 로그인 화면 한가운데의 입력창 — 모달을 거치지 않고 Enter만으로 바로 들어간다.
-// "자세히 설정하기"(위 버튼)는 저장된 값을 보거나 지우는 등 세부 조작이 필요할
-// 때만 기존 모달을 여는 보조 경로다.
-const loginKeyInput = document.getElementById('login-key-input');
-const loginAccessForm = document.getElementById('login-access-form');
-const loginEnterHint = document.getElementById('login-enter-hint');
-
-loginKeyInput.value = window.__nightshiftGetApiKey();
-
-loginAccessForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const value = loginKeyInput.value.trim();
+function setAuthMode(mode){
+  const register = mode === 'register';
+  document.getElementById('login-form').style.display = register ? 'none' : '';
+  document.getElementById('register-form').style.display = register ? '' : 'none';
+  document.getElementById('login-tab-login').classList.toggle('active', !register);
+  document.getElementById('login-tab-register').classList.toggle('active', register);
+  document.getElementById('login-tagline').textContent = register
+    ? '아이디·이메일·비밀번호로 가입 신청을 하세요.' : '아이디와 비밀번호로 로그인하세요.';
   loginScreenError.textContent = '';
-  loginKeyInput.disabled = true;
-  const ok = await window.__nightshiftVerifyApiKey(value);
-  loginKeyInput.disabled = false;
+  loginScreenNotice.textContent = '';
+  const first = document.getElementById(register ? 'register-username' : 'login-username');
+  if(first && loginScreen.style.display !== 'none') first.focus();
+}
 
-  if(ok === false){
-    loginScreenError.textContent = 'API 키가 올바르지 않아요.';
-    loginKeyInput.focus();
-    return;
-  }
-  if(ok === null){
+function hideLoginScreen(){ loginScreen.style.display = 'none'; }
+function showLoginScreen(message, mode){
+  loginScreen.style.display = 'flex';
+  setAuthMode(mode || 'login');
+  loginScreenError.textContent = message || '';
+}
+window.__nightshiftOnSignedOut = () => showLoginScreen('로그인이 끝났어요. 다시 로그인하세요.');
+
+document.querySelectorAll('[data-auth-mode]').forEach(btn => btn.addEventListener('click', () => setAuthMode(btn.dataset.authMode)));
+
+async function postAuth(path, body){
+  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('login-submit');
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  loginScreenError.textContent = '';
+  loginScreenNotice.textContent = '';
+  if(!username || !password){ loginScreenError.textContent = '아이디와 비밀번호를 입력하세요.'; return; }
+  btn.disabled = true;
+  try{
+    const { ok, data } = await postAuth('/api/auth/login', { username, password });
+    if(!ok){ loginScreenError.textContent = data.detail || '로그인하지 못했어요.'; return; }
+    location.reload();
+  }catch(err){
     loginScreenError.textContent = '서버에 연결하지 못했어요. 잠시 후 다시 시도하세요.';
+  }finally{
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('register-submit');
+  const username = document.getElementById('register-username').value.trim();
+  const email = document.getElementById('register-email').value.trim();
+  const password = document.getElementById('register-password').value;
+  const password2 = document.getElementById('register-password2').value;
+  loginScreenError.textContent = '';
+  loginScreenNotice.textContent = '';
+  if(!username || !email || !password){ loginScreenError.textContent = '아이디, 이메일, 비밀번호를 모두 입력하세요.'; return; }
+  if(password !== password2){ loginScreenError.textContent = '비밀번호 확인이 일치하지 않아요.'; return; }
+  btn.disabled = true;
+  try{
+    const { ok, data } = await postAuth('/api/auth/register', { username, email, password });
+    if(!ok){ loginScreenError.textContent = data.detail || '가입 신청을 하지 못했어요.'; return; }
+    setAuthMode('login');
+    document.getElementById('login-username').value = username;
+    document.getElementById('register-password').value = '';
+    document.getElementById('register-password2').value = '';
+    loginScreenNotice.textContent = data.message || '가입 신청이 접수됐어요. 관리자가 승인하면 로그인할 수 있어요.';
+  }catch(err){
+    loginScreenError.textContent = '서버에 연결하지 못했어요. 잠시 후 다시 시도하세요.';
+  }finally{
+    btn.disabled = false;
+  }
+});
+
+async function logout(){
+  try{ await postAuth('/api/auth/logout', {}); }catch(e){ /* 그래도 화면은 새로 불러온다 */ }
+  location.reload();
+}
+
+// 계정 창 — 내 정보와 비밀번호 변경, 로그아웃.
+const accountModal = document.getElementById('account-modal');
+function openAccountModal(){
+  if(!currentUser) return;
+  const rows = [['아이디', currentUser.username], ['이메일', currentUser.email], ['권한', currentUser.role === 'admin' ? '관리자' : '일반 회원']];
+  document.getElementById('account-facts').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('');
+  for(const id of ['account-old-password', 'account-new-password', 'account-new-password2']) document.getElementById(id).value = '';
+  document.getElementById('account-error').textContent = '';
+  document.getElementById('account-ok').textContent = '';
+  accountModal.style.display = 'flex';
+}
+function closeAccountModal(){ accountModal.style.display = 'none'; }
+document.getElementById('user-chip').addEventListener('click', openAccountModal);
+document.getElementById('account-modal-close').addEventListener('click', closeAccountModal);
+accountModal.addEventListener('click', (e) => { if(e.target === accountModal) closeAccountModal(); });
+document.getElementById('account-logout-btn').addEventListener('click', logout);
+document.getElementById('account-save-btn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('account-error');
+  const okEl = document.getElementById('account-ok');
+  errorEl.textContent = ''; okEl.textContent = '';
+  const oldPassword = document.getElementById('account-old-password').value;
+  const newPassword = document.getElementById('account-new-password').value;
+  if(newPassword !== document.getElementById('account-new-password2').value){ errorEl.textContent = '새 비밀번호 확인이 일치하지 않아요.'; return; }
+  const { ok, data } = await postAuth('/api/auth/change-password', { old_password: oldPassword, new_password: newPassword });
+  if(!ok){ errorEl.textContent = data.detail || '비밀번호를 바꾸지 못했어요.'; return; }
+  okEl.textContent = '비밀번호를 바꿨어요. 다른 기기에서는 로그아웃돼요.';
+  for(const id of ['account-old-password', 'account-new-password', 'account-new-password2']) document.getElementById(id).value = '';
+});
+
+// 헤더의 사용자 칩과 관리자 전용 탭을 로그인한 회원에 맞춘다.
+function applyUserUi(user){
+  currentUser = user;
+  const chip = document.getElementById('user-chip');
+  chip.style.display = user ? '' : 'none';
+  if(user){
+    document.getElementById('user-chip-name').textContent = user.username;
+    document.getElementById('user-chip-role').hidden = user.role !== 'admin';
+  }
+  const adminBtn = document.getElementById('admin-tab-btn');
+  if(adminBtn) adminBtn.style.display = user && user.role === 'admin' ? '' : 'none';
+}
+
+window.__nightshiftAuthReady.then(user => {
+  if(user){ hideLoginScreen(); applyUserUi(user); }
+  else showLoginScreen('', 'login');
+});
+
+// ---- 회원 관리 (관리자 전용) ----
+let adminUsers = [];
+const ADMIN_STATUS_LABEL = { pending: '승인 대기', active: '활성', disabled: '정지' };
+
+async function fetchAdminUsers(){
+  if(!isAdminUser()) return;
+  try{
+    const res = await fetch('/api/admin/users');
+    if(!res.ok) throw new Error('failed');
+    adminUsers = (await res.json()).users || [];
+    document.getElementById('admin-error').textContent = '';
+  }catch(e){
+    document.getElementById('admin-error').textContent = '회원 목록을 불러오지 못했어요.';
     return;
   }
+  renderAdminUsers();
+}
 
-  window.__nightshiftSetApiKey(value);
-  hideLoginScreen();
-  window.__nightshiftOnApiAuthResult(true);
-});
+function renderAdminUsers(){
+  const count = (status) => adminUsers.filter(u => u.status === status).length;
+  const pending = count('pending');
+  const badge = document.getElementById('admin-pending-badge');
+  badge.hidden = pending === 0;
+  badge.textContent = String(pending);
+  badge.title = `승인 대기 ${pending}명`;
+  document.getElementById('admin-stats').innerHTML = [
+    ['전체 회원', adminUsers.length, ''], ['승인 대기', pending, pending ? ' attention' : ''],
+    ['활성', count('active'), ''], ['정지', count('disabled'), ''],
+  ].map(([label, n, cls]) => `<div class="admin-stat${cls}">${label}<b>${n}</b></div>`).join('');
 
-loginKeyInput.addEventListener('input', () => {
-  loginEnterHint.style.opacity = loginKeyInput.value.trim().length > 0 ? '1' : '0.6';
-});
+  document.getElementById('admin-users').innerHTML = adminUsers.map(u => {
+    const isAdminRow = u.role === 'admin';
+    const actions = isAdminRow ? '' : ({
+      pending: `<button class="submit-btn" data-admin-action="approve" data-id="${u.id}" type="button">${ico('check')} 승인</button>
+                <button class="del-btn" data-admin-action="delete" data-id="${u.id}" type="button">${ico('trash-2')} 거절</button>`,
+      active: `<button class="load-btn" data-admin-action="disable" data-id="${u.id}" type="button">${ico('ban')} 정지</button>
+               <button class="load-btn" data-admin-action="reset" data-id="${u.id}" type="button">${ico('key-round')} 비밀번호 초기화</button>
+               <button class="del-btn" data-admin-action="delete" data-id="${u.id}" type="button">${ico('trash-2')} 삭제</button>`,
+      disabled: `<button class="load-btn" data-admin-action="approve" data-id="${u.id}" type="button">${ico('user-check')} 재개</button>
+                 <button class="load-btn" data-admin-action="reset" data-id="${u.id}" type="button">${ico('key-round')} 비밀번호 초기화</button>
+                 <button class="del-btn" data-admin-action="delete" data-id="${u.id}" type="button">${ico('trash-2')} 삭제</button>`,
+    }[u.status] || '');
+    return `
+      <div class="admin-user ${u.status}" data-user-id="${u.id}">
+        <div>
+          <div class="admin-user-name">${escapeHtml(u.username)}${isAdminRow ? '<span class="role-badge">Admin</span>' : ''}</div>
+          <div class="admin-user-sub">${escapeHtml(u.email)}</div>
+        </div>
+        <span class="status-pill ${u.status}">${ADMIN_STATUS_LABEL[u.status] || u.status}</span>
+        <div class="admin-user-meta">
+          <span>가입 ${escapeHtml(fmtGalleryDateTime(u.created_at))}</span>
+          <span>최근 로그인 ${u.last_login_at ? escapeHtml(fmtGalleryDateTime(u.last_login_at)) : '없음'}</span>
+          <span>프로젝트 ${u.project_count} · 작업 ${u.job_count} · 결과물 ${u.asset_count}개 (${fmtBytes(u.asset_bytes)})</span>
+        </div>
+        <div class="admin-user-actions">${actions}</div>
+      </div>`;
+  }).join('') || '<div class="empty">회원이 없어요</div>';
+}
 
-// 버튼 없이 Enter로만 제출하는 입력창이라, 브라우저의 암묵적 제출(단일 입력 폼에서
-// Enter → submit)에만 기대지 않고 명시적으로도 눌러준다.
-loginKeyInput.addEventListener('keydown', (e) => {
-  if(e.key === 'Enter'){
-    e.preventDefault();
-    loginAccessForm.requestSubmit();
-  }
-});
-
-// 장식용 버튼(아이디로 로그인/Google로 로그인) — 이 서버엔 로그인 시스템이 따로
-// 없어서 실제로는 아무 동작도 하지 않는다. 눌렀을 때 아무 반응이 없으면 고장난
-// 버튼처럼 보이니, 살짝 흔들리며 라벨이 잠깐 바뀌는 정도의 피드백만 준다.
-document.querySelectorAll('.login-oauth-fake').forEach((btn) => {
-  const originalLabel = btn.lastChild.textContent;
-  let resetTimer = null;
-  btn.addEventListener('click', () => {
-    btn.classList.remove('is-fake-clicked');
-    void btn.offsetWidth; // 애니메이션 재시작
-    btn.classList.add('is-fake-clicked');
-    btn.lastChild.textContent = ' 아직은 그림이에요';
-    clearTimeout(resetTimer);
-    resetTimer = setTimeout(() => { btn.lastChild.textContent = originalLabel; }, 1400);
-  });
-});
-
-apiKeyModal.addEventListener('click', (e) => { if(e.target === apiKeyModal) closeApiKeyModal(); });
-
-apiKeyShowCheckbox.addEventListener('change', () => {
-  apiKeyInput.type = apiKeyShowCheckbox.checked ? 'text' : 'password';
-});
-
-apiKeyModalSaveBtn.addEventListener('click', async () => {
-  const value = apiKeyInput.value.trim();
-  apiKeyModalError.textContent = '';
-  apiKeyModalSaveBtn.disabled = true;
-  apiKeyModalSaveBtn.textContent = '확인 중…';
-  const ok = await window.__nightshiftVerifyApiKey(value);
-  apiKeyModalSaveBtn.disabled = false;
-  apiKeyModalSaveBtn.innerHTML = ico('save') + ' 저장';
-
-  if(ok === false){
-    apiKeyModalError.textContent = 'API 키가 올바르지 않아요.';
+async function adminAction(action, id){
+  const user = adminUsers.find(u => u.id === id);
+  if(!user) return;
+  const errorEl = document.getElementById('admin-error');
+  errorEl.textContent = '';
+  let path, method = 'POST', body = {};
+  if(action === 'approve'){ path = `/api/admin/users/${id}/status`; body = { status: 'active' }; }
+  else if(action === 'disable'){
+    if(!confirm(`'${user.username}' 계정을 정지할까요? 로그인 중인 기기는 바로 로그아웃돼요.`)) return;
+    path = `/api/admin/users/${id}/status`; body = { status: 'disabled' };
+  }else if(action === 'reset'){
+    const password = window.prompt(`'${user.username}'의 새 비밀번호를 입력하세요 (8자 이상). 로그인 중인 기기는 로그아웃돼요.`);
+    if(!password) return;
+    path = `/api/admin/users/${id}/reset-password`; body = { new_password: password };
+  }else if(action === 'delete'){
+    const extra = user.status === 'pending' ? '가입 신청을 거절하고 삭제' : '계정을 삭제';
+    if(!confirm(`'${user.username}' ${extra}할까요? 이 회원의 프로젝트·작업·결과물·파드는 지워지지 않고 관리자 소유로 남아요.`)) return;
+    path = `/api/admin/users/${id}`; method = 'DELETE'; body = null;
+  }else return;
+  try{
+    const res = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body === null ? undefined : JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '처리하지 못했어요.');
+  }catch(e){
+    errorEl.textContent = e.message || '처리하지 못했어요.';
     return;
   }
-  if(ok === null){
-    apiKeyModalError.textContent = '서버에 연결하지 못했어요. 잠시 후 다시 시도하세요.';
-    return;
-  }
+  await fetchAdminUsers();
+}
 
-  window.__nightshiftSetApiKey(value);
-  loginKeyInput.value = value;
-  closeApiKeyModal();
-  hideLoginScreen();
-  window.__nightshiftOnApiAuthResult(true);
+document.getElementById('admin-users').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-admin-action]');
+  if(btn) adminAction(btn.dataset.adminAction, Number(btn.dataset.id));
 });
-
-document.getElementById('api-key-modal-clear').addEventListener('click', () => {
-  window.__nightshiftSetApiKey('');
-  apiKeyInput.value = '';
-  loginKeyInput.value = '';
-  apiKeyModalError.textContent = '';
-});
-
-// GET /api/jobs 폴링(2초 간격)이 401을 물어올 때마다 매번 모달을 띄우면 성가시므로,
-// 여기서는 로그인 게이트로 돌려보내는 것만 담당한다(헤더에 상태를 보여주는
-// 버튼은 없앴다). 이후 아무 /api/ 요청이 200으로 성공하면 다시 게이트를 벗어난다.
-window.__nightshiftOnApiAuthResult = function(authorized){
-  // 로그인 화면을 지난 뒤 서버 키가 바뀌는 등으로 다시 401을 받으면 게이트로
-  // 돌려보낸다 — 계속 본 화면에 남아있어봤자 모든 API 호출이 막혀 있으니까.
-  if(!authorized) showLoginScreen('API 키가 없거나 틀렸어요 — 다시 입력하세요.');
-};
-
-// ---- 로그인 게이트 ----
-// 아직 로그인 기능이 없으므로, 접속할 때마다 일단 이 화면에서 멈춘다(마크업 기본값이
-// 이미 표시 상태 — 위 CSS 참고). 하단 버튼으로 기존 API 키 모달을 열면, 이전에
-// 저장해둔 값이 있으면 자동으로 채워져 있어 다시 입력할 필요 없이 저장만 누르면
-// 된다. 저장 시 서버에 그 값으로 한 번 확인(verify)한 뒤에만 본 화면으로 넘어간다.
+document.getElementById('admin-refresh-btn').addEventListener('click', fetchAdminUsers);
+// 승인 대기 배지를 최신으로 — 관리자일 때만 30초마다 확인한다.
+setInterval(() => { if(isAdminUser()) fetchAdminUsers(); }, 30000);
 
 // ---- 대시보드 (파드 카드 캔버스) ----
 // 카드마다 타입이 있고, 타입별 렌더러가 그 카드의 HTML을 만든다. 지금은 파드 카드
@@ -7412,6 +7494,7 @@ function renderPodCard(p){
             <span class="dash-dot ${state.cls}" title="${state.label}"></span>
             <span class="dash-card-name">${escapeHtml(p.name)}</span>
             <span class="dash-card-kind">${escapeHtml((p.card && p.card.runpod) ? 'RunPod 이미지 생성 모델' : (p.kind_label || p.kind))}</span>
+            ${p.owner_name ? `<span class="dash-card-kind owner-badge" title="이 파드의 주인">${ico('user')} ${escapeHtml(p.owner_name)}</span>` : ''}
             <div class="dash-card-head-right">
               <button class="load-btn" data-pod-edit="${escapeHtml(p.id)}" title="파드 설정"><svg class="ico"><use href="#i-settings"/></svg></button>
             </div>
@@ -7473,6 +7556,7 @@ function renderRecentJobsCard(){
 const CARD_RENDERERS = { pod: renderPodCard, 'recent-jobs': renderRecentJobsCard };
 
 function renderDashboard(){
+  if(podLongPress.active) return;
   const totals = dashSummary.totals || {};
   document.getElementById('dash-totals').innerHTML = [
     ['파드', `${totals.online ?? 0}/${totals.pods ?? 0}`, '연결된 파드 / 전체'],
@@ -7515,6 +7599,73 @@ function renderDashboard(){
     showTab('jobs', { podId: row.dataset.jobPod });
   }));
 }
+
+// ---- 파드 카드를 길게 눌러 삭제 ----
+// 카드는 4초마다 다시 그려지므로 리스너는 카드가 아니라 바뀌지 않는 캔버스에 위임해서 붙인다. 손가락을 0.6초 넘게
+// 대고 있으면(움직이거나 스크롤하면 취소) 짧게 진동하고 삭제 확인창을 띄운다. 손을 뗄 때 이어지는 클릭(파드 열기)은 막는다.
+const POD_LONG_PRESS_MS = 600;
+const POD_LONG_PRESS_VISUAL_MS = 220;
+const POD_LONG_PRESS_MOVE_PX = 10;
+const podLongPress = { active: false, timer: null, visualTimer: null, card: null, x: 0, y: 0, firedAt: 0, touch: false };
+
+function cancelPodLongPress(){
+  clearTimeout(podLongPress.timer);
+  clearTimeout(podLongPress.visualTimer);
+  if(podLongPress.card) podLongPress.card.classList.remove('pod-pressing');
+  podLongPress.active = false;
+  podLongPress.card = null;
+}
+
+async function deletePodWithConfirm(podId){
+  const pod = podsById[podId] || {};
+  if(!confirm(`'${pod.name || podId}' 파드를 삭제할까요?\n이 파드에 배정된 대기 작업은 같은 계정의 다른 파드로 옮겨져요.`)) return;
+  try{
+    const res = await fetch(`/api/pods/${encodeURIComponent(podId)}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '지우지 못했어요.');
+    const wasInside = currentPodId === podId;
+    await fetchPods();
+    if(wasInside) showTab('pods'); else fetchDashboard();
+  }catch(e){
+    alert(e.message || '지우지 못했어요.');
+  }
+}
+
+(() => {
+  const canvas = document.getElementById('dash-canvas');
+  canvas.addEventListener('pointerdown', (e) => {
+    podLongPress.touch = e.pointerType === 'touch' || e.pointerType === 'pen';
+    if(e.pointerType === 'mouse' && e.button !== 0) return;
+    const card = e.target.closest('.dash-card[data-card-type="pod"]');
+    if(!card || e.target.closest('button, select, a, input')) return;
+    cancelPodLongPress();
+    podLongPress.active = true;
+    podLongPress.card = card;
+    podLongPress.x = e.clientX;
+    podLongPress.y = e.clientY;
+    const podId = card.dataset.podId;
+    podLongPress.visualTimer = setTimeout(() => card.classList.add('pod-pressing'), POD_LONG_PRESS_VISUAL_MS);
+    podLongPress.timer = setTimeout(() => {
+      podLongPress.firedAt = Date.now();
+      cancelPodLongPress();
+      if(navigator.vibrate) navigator.vibrate(40);
+      deletePodWithConfirm(podId);
+    }, POD_LONG_PRESS_MS);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if(!podLongPress.active) return;
+    if(Math.hypot(e.clientX - podLongPress.x, e.clientY - podLongPress.y) > POD_LONG_PRESS_MOVE_PX) cancelPodLongPress();
+  });
+  for(const type of ['pointerup', 'pointercancel', 'pointerleave']) canvas.addEventListener(type, cancelPodLongPress);
+  // 롱프레스가 끝난 직후의 클릭(카드 열기)은 삼킨다 — 캔버스가 먼저 받는 캡처 단계에서 막는다.
+  canvas.addEventListener('click', (e) => {
+    if(Date.now() - podLongPress.firedAt < 900){ e.stopPropagation(); e.preventDefault(); }
+  }, true);
+  // 터치로 길게 누르면 브라우저가 컨텍스트 메뉴/텍스트 선택을 띄우려 한다 — 카드 위에서는 막는다.
+  canvas.addEventListener('contextmenu', (e) => {
+    if(podLongPress.touch && e.target.closest('.dash-card[data-card-type="pod"]')) e.preventDefault();
+  });
+})();
 
 async function fetchDashboard(){
   try{
@@ -7746,6 +7897,7 @@ const TAB_MAINS = {
   gallery: document.getElementById('tab-gallery'),
   'video-gallery': document.getElementById('tab-video-gallery'),
   danbooru: document.getElementById('tab-danbooru'),
+  admin: document.getElementById('tab-admin'),           // 회원 관리 (admin 전용)
   builder: document.getElementById('tab-builder'),
   lora: document.getElementById('tab-lora'),
   // 파드 갤러리("그 파드가 만든 것만")는 전역 갤러리와 같은 화면을 그대로 쓴다 —
@@ -7868,6 +8020,7 @@ function formPodId(){ return resolvePodId(currentPodId || formPodChoice); }
 
 function showTab(tab, { podId = null, projectId = null } = {}){
   if(!TAB_MAINS[tab]) tab = 'dashboard';
+  if(tab === 'admin' && !isAdminUser()) tab = 'dashboard';
   // 지금 "새 작업 추가" 폼이 겨냥하고 있는 파드의 종류. currentPodId가 아니라
   // formPodId()로 재는 이유는, 전역 화면(Danbooru 등)에서는 currentPodId가 null이라
   // 종류가 바뀐 것처럼 보여서 아래에서 폼을 괜히 다시 그리기 때문이다 —
@@ -7946,6 +8099,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'lora') initLoraTab();
   if(tab === 'jobs') fetchJobs();
   if(tab === 'results') renderResultsList();
+  if(tab === 'admin') fetchAdminUsers();
 
   const want = scopedPodId ? `#pod/${scopedPodId}/${tab}`
     : (scopedProjectId !== null ? `#project/${scopedProjectId}/${tab}` : `#${tab}`);
@@ -8528,6 +8682,7 @@ function projectCardHtml(p){
       <div class="project-card-body">
         <div class="project-card-head">
           <span class="project-card-name" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}${d.archived ? ' (보관됨)' : ''}</span>
+          ${d.owner_name ? `<span class="pod-badge owner-badge" title="이 프로젝트의 주인">${ico('user')} ${escapeHtml(d.owner_name)}</span>` : ''}
           ${active}${edit}
         </div>
         ${d.description ? `<div class="project-card-desc">${escapeHtml(d.description)}</div>` : ''}
@@ -9355,6 +9510,17 @@ function updateVideoGalleryScopeUI(){
   }
 }
 
+// 4초마다 목록을 다시 받아 오지만, 그릴 내용(파일·즐겨찾기·평점·태그·프로젝트·작업 이름·보기 방식)이 그대로면 격자를
+// 통째로 다시 만들지 않는다 — 다시 만들면 <img>/<video> 썸네일이 전부 새로 만들어져 깜빡이고 네트워크도 매번 다시 쓴다.
+function gallerySignature(items, extra){
+  return JSON.stringify([
+    items.map(i => [i.name, i.mtime, i.size, i.favorite, i.rating, i.tags, i.project_id, i.owner_name, i.synced_pod_id]),
+    galleryJobLabels, extra,
+  ]);
+}
+let lastImageGallerySig = '';
+let lastVideoGallerySig = '';
+
 async function fetchGalleryImages(){
   const grid = document.getElementById('gallery-grid');
   const emptyMsg = document.getElementById('gallery-empty');
@@ -9390,6 +9556,7 @@ async function fetchGalleryImages(){
   document.getElementById('gallery-select-all-btn').disabled = galleryImages.length === 0;
 
   if(galleryImages.length === 0){
+    lastImageGallerySig = '';
     grid.innerHTML = '';
     displayedGalleryImages = [];
     emptyMsg.textContent = galleryFiltersActive(galleryFilters) ? '조건에 맞는 이미지가 없어요'
@@ -9400,6 +9567,9 @@ async function fetchGalleryImages(){
   }
   emptyMsg.style.display = 'none';
 
+  const sig = gallerySignature(galleryImages, [galleryViewMode, galleryDisplayMode, galleryPodFilter, galleryProjectFilter]);
+  if(sig === lastImageGallerySig && grid.childElementCount > 0) return;   // 바뀐 게 없다
+  lastImageGallerySig = sig;
   renderGalleryGrid();
 }
 
@@ -9637,7 +9807,7 @@ function renderLightbox(){
   imgEl.src = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}?v=${encodeURIComponent(img.mtime)}`);
   imgEl.alt = img.name;
   document.getElementById('gallery-lightbox-info').textContent =
-    `${img.name} · ${fmtBytes(img.size)} · ${fmtGalleryDateTime(img.mtime)} (${lightboxIndex + 1}/${displayedGalleryImages.length})`;
+    `${img.name} · ${fmtBytes(img.size)} · ${fmtGalleryDateTime(img.mtime)} (${lightboxIndex + 1}/${displayedGalleryImages.length})${img.owner_name ? ' · ' + img.owner_name : ''}`;
   imageMetaPanel.show(img);
   document.getElementById('gallery-prev').disabled = lightboxIndex <= 0;
   document.getElementById('gallery-next').disabled = lightboxIndex >= displayedGalleryImages.length - 1;
@@ -10191,6 +10361,7 @@ async function fetchGalleryVideos(){
   document.getElementById('video-gallery-select-all-btn').disabled = galleryVideos.length === 0;
 
   if(galleryVideos.length === 0){
+    lastVideoGallerySig = '';
     grid.innerHTML = '';
     displayedGalleryVideos = [];
     emptyMsg.textContent = galleryFiltersActive(videoGalleryFilters) ? '조건에 맞는 영상이 없어요'
@@ -10201,6 +10372,9 @@ async function fetchGalleryVideos(){
   }
   emptyMsg.style.display = 'none';
 
+  const sig = gallerySignature(galleryVideos, [videoGalleryViewMode, videoGalleryPodFilter, videoGalleryProjectFilter]);
+  if(sig === lastVideoGallerySig && grid.childElementCount > 0) return;   // 바뀐 게 없다
+  lastVideoGallerySig = sig;
   renderVideoGalleryGrid();
 }
 
@@ -10290,7 +10464,7 @@ function renderVideoLightbox(){
     videoEl.play().catch(() => { /* 자동 재생이 막히면 재생 버튼을 눌러 시작한다 */ });
   }
   document.getElementById('video-gallery-lightbox-info').textContent =
-    `${vid.name} · ${fmtBytes(vid.size)} · ${fmtGalleryDateTime(vid.mtime)} (${vLightboxIndex + 1}/${displayedGalleryVideos.length})`;
+    `${vid.name} · ${fmtBytes(vid.size)} · ${fmtGalleryDateTime(vid.mtime)} (${vLightboxIndex + 1}/${displayedGalleryVideos.length})${vid.owner_name ? ' · ' + vid.owner_name : ''}`;
   videoMetaPanel.show(vid);
   document.getElementById('video-gallery-prev').disabled = vLightboxIndex <= 0;
   document.getElementById('video-gallery-next').disabled = vLightboxIndex >= displayedGalleryVideos.length - 1;
@@ -11534,7 +11708,10 @@ document.getElementById('builder-send-btn').addEventListener('click', async () =
 // 파드 목록 → 첫 화면 → 템플릿 목록 순서를 지킨다. 템플릿 목록은 "어느 파드에
 // 들어와 있는가"에 따라 달라지므로(셸 파드면 셸 명령만), 파드와 주소가 정해지기
 // 전에 먼저 받아버리면 잘못된 목록을 그린 뒤 다시 그리는 경합이 생긴다.
-fetchPods().then(fetchProjects).then(applyHashRoute).then(fetchTemplates);
+window.__nightshiftAuthReady.then(user => {
+  if(!user) return;   // 로그인 화면이 떠 있다 — 로그인하면 화면을 새로 불러온다
+  fetchPods().then(fetchProjects).then(applyHashRoute).then(fetchTemplates);
+});
 fetchJobs();
 fetchDeletedJobs();
 fetchComfyStatus();
@@ -11550,14 +11727,14 @@ setInterval(fetchComfyStatus, 5000);
 // 라이트박스가 열려 있을 때는 건드리지 않는다 — 보고 있던 이미지가 목록 순서 변화로
 // 갑자기 바뀌거나 닫혀버리면 안 되니까.
 setInterval(() => {
-  if(TAB_MAINS.gallery.style.display === 'none') return;
+  if(document.hidden || TAB_MAINS.gallery.style.display === 'none') return;
   if(galleryLightbox.style.display !== 'none') return;
   fetchGalleryImages();
 }, 4000);
 // 영상 갤러리도 같은 이유로 주기적으로 새로 받아온다 — 지금은 영상을 만드는 파드가
 // 없어 늘 빈 목록이겠지만, 생기면 바로 자동 반영되게 미리 켜둔다.
 setInterval(() => {
-  if(TAB_MAINS['video-gallery'].style.display === 'none') return;
+  if(document.hidden || TAB_MAINS['video-gallery'].style.display === 'none') return;
   if(videoGalleryLightbox.style.display !== 'none') return;
   fetchGalleryVideos();
 }, 4000);

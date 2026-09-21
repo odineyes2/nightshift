@@ -24,6 +24,7 @@ import logging
 import os
 import queue
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -46,6 +47,8 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import UploadFile
 from PIL import Image, ImageOps
 
+import auth
+import comfy_outputs
 from comfy_outputs import OutputSyncError, forget_downloaded, sync_outputs, sync_state_summary, synced_pod_ids
 from data_paths import data_dir, data_path
 from drivers import DriverError, driver_for, driver_kinds
@@ -82,6 +85,7 @@ from output_videos import (
     list_output_videos,
 )
 from ref_assets import (
+    job_env_for_owner,
     DEFAULT_CHAR_NO,
     REF_KINDS,
     RefAssetError,
@@ -494,8 +498,11 @@ def configured_comfy_url() -> tuple[str | None, str]:
 
 
 def resolve_comfy_url() -> tuple[str | None, bool]:
-    """(지금 쓸 주소, 연결 가능 여부) — 기본 파드 기준."""
-    pod = pod_registry.default_pod()
+    """(지금 쓸 주소, 연결 가능 여부) — 요청한 회원의 기본 파드 기준(로그인 없는 내부 호출은 서버 기본 파드)."""
+    user = auth.current_user.get()
+    pod = default_pod_for_user(user) if user else pod_registry.default_pod()
+    if pod is None:
+        return None, False
     health = driver_for(pod).health(pod)
     return health["url"], health["ok"]
 
@@ -527,17 +534,26 @@ def object_info_pod(pod_id: str | None) -> dict:
     무엇이 설치돼 있나"를 묻는 것이 정상이라, 부르는 쪽이 파드를 지정한다. 지정이
     없거나 ComfyUI 파드가 아니면 기본 파드로 떨어진다 — 셸 파드처럼 노드 목록이라는
     개념 자체가 없는 워커에 물어봐야 의미가 없기 때문이다."""
+    user = auth.current_user.get()
+    if user is None:   # 로그인 없이 부르는 내부 경로(서버 시작 등)
+        if pod_id:
+            pod = pod_registry.get_pod(pod_id)
+            if pod is not None and pod.get("kind") == pod_registry.DEFAULT_KIND:
+                return pod
+        return pod_registry.default_pod()
     if pod_id:
         pod = pod_registry.get_pod(pod_id)
-        if pod is not None and pod.get("kind") == pod_registry.DEFAULT_KIND:
+        if pod is not None and auth.can_access(user, pod.get("owner_id")) and pod.get("kind") == pod_registry.DEFAULT_KIND:
             return pod
-    return pod_registry.default_pod()
+    return default_pod_for_user(user) or NO_POD
 
 
 def fetch_comfy_object_info(force: bool = False, pod: dict | None = None) -> tuple[str | None, dict | None]:
     """(주소, object_info) — 그 파드가 안 떠 있으면 (주소, None). 캐싱은 드라이버가
     파드별로 한다(파드마다 설치된 노드/모델이 다를 수 있으므로).
     pod를 주지 않으면 기본 파드를 본다."""
+    if pod is not None and pod.get("_none"):
+        return None, None   # 쓸 파드가 없다 — 서버 자신의 ComfyUI로 떨어지지 않게 한다
     pod = pod or pod_registry.default_pod()
     return driver_for(pod).capabilities(pod, force)
 
@@ -863,7 +879,14 @@ def dispatch_job(job_id: str, pod_id: str | None = None):
         target = pod_id or job.get("pod_id")
     pod = pod_registry.get_pod(target) if target else None
     if pod is None:
-        pod = pod_registry.default_pod()
+        with lock:
+            owner = jobs[job_id].get("owner_id")
+        pod = pod_registry.default_pod_for(owner)   # 같은 주인의 파드로만 되돌린다
+        if pod is None:
+            with lock:
+                jobs[job_id]["status"] = "pending"
+            save_state()
+            return
     with lock:
         jobs[job_id]["pod_id"] = pod["id"]
         rt = pod_runtimes.get(pod["id"])
@@ -933,6 +956,7 @@ def _run_one_job(pod_id: str, job_id: str):
         extra_env["CSV_PATH"] = str((JOBS_DIR / job["csv_filename"]).resolve())
     for name, value in job.get("options", {}).items():
         extra_env[name.upper()] = str(value)
+    extra_env.update(ref_assets_job_env(job.get("owner_id")))
     env = {**os.environ, **extra_env}
 
     stopped = False
@@ -971,6 +995,14 @@ def _run_one_job(pod_id: str, job_id: str):
     pull_job_outputs(pod, job_id, comfy_url, log_path)
     # 방금 끝난 작업의 결과물을 색인에 넣는다(그 job의 프로젝트를 물려받는다).
     _sync_assets_quietly(force=True)
+
+
+def ref_assets_job_env(owner_id) -> dict[str, str]:
+    """일반 회원의 작업이 그 회원의 참조·입력 이미지 폴더만 쓰게 하는 환경변수."""
+    owner = auth.get_user(owner_id) if owner_id is not None else None
+    if owner is None or auth.is_admin(owner):
+        return {}
+    return job_env_for_owner(owner_id)
 
 
 def ensure_runtime(pod: dict) -> PodRuntime:
@@ -1012,9 +1044,32 @@ def _sync_assets_quietly(force: bool = False):
         logging.exception("결과물 색인(assets) 동기화에 실패했어요")
 
 
+def _sync_key_mapper(item: dict, pod_id: str | None) -> str | None:
+    """원격에서 받은 항목의 로컬 경로. nightshift 작업 폴더(job_id)는 그 작업의 주인의 파드에서만 받고, 그 밖의
+    것(ComfyUI에서 직접 돌린 결과)은 파드 주인별 폴더(u<id>/)로 나눠 담아 회원끼리 섞이지도 덮어쓰지도 않게 한다."""
+    pod = pod_registry.get_pod(pod_id) if pod_id else None
+    owner = pod.get("owner_id") if pod else None
+    subfolder = item.get("subfolder") or ""
+    with lock:
+        job = jobs.get(subfolder) if subfolder else None
+    if job is not None:
+        return item["key"] if job.get("owner_id") == owner else None   # 남의 작업 폴더에는 쓰지 않는다
+    return f"u{owner}/{item['key']}" if owner is not None else item["key"]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    comfy_outputs.set_key_mapper(_sync_key_mapper)
     load_state()
+    admin = auth.ensure_admin()
+    if admin is not None:
+        pod_registry.load()
+        pod_registry.assign_orphans(admin["id"])
+        with lock:
+            for job in jobs.values():
+                if job.get("owner_id") is None:
+                    job["owner_id"] = admin["id"]
+        save_state()
     recent_workflows_store.load()
     recent_csvs_store.load()
     load_danbooru_state()
@@ -1042,47 +1097,221 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="RunPod Job Queue", lifespan=lifespan)
 
-# 이 앱은 원래 인증이 전혀 없었다(README "주의사항" 참고) — RunPod에 노출된 포트를
-# 사람이 직접 브라우저로 조작하는 걸 전제로 했기 때문. 이제 사람 대신(또는 사람과
-# 함께) LLM이 API를 호출해 잡 큐를 조작할 수 있게 하려는데, 그러려면 최소한
-# "누구나 이 포트에 닿으면 잡을 큐잉/삭제할 수 있는" 상태는 막아야 한다.
+# ---- 인증: 회원 로그인(세션 쿠키) --------------------------------------------------------
+# 예전에는 NIGHTSHIFT_API_KEY 하나로 /api/*를 막았다. 이제는 회원마다 아이디/비밀번호로 로그인해서 세션
+# 쿠키를 받고(auth.py), 쿠키가 있는 요청만 /api/*를 쓸 수 있다. 정적 파일(/)은 그대로 열어둔다 — 화면
+# 자체에는 민감한 정보가 없고, 로그인 화면도 거기서 뜬다. <img>/<video>/다운로드 링크는 쿠키가 알아서 실린다.
 #
-# NIGHTSHIFT_API_KEY를 설정하면 모든 /api/* 요청에 X-API-Key(또는
-# Authorization: Bearer) 헤더로 같은 값을 요구한다. 정적 파일(/)은 그대로 열어둔다
-# — index.html 자체에는 민감한 정보가 없고, 막아봤자 브라우저에서 볼 수 있는
-# 소스만 가리는 것이라 의미가 없다. 값이 비어 있으면(기존 동작 그대로) 인증 없이
-# 실행되며, 시작 시 경고를 한 번 남긴다.
-API_KEY = os.environ.get("NIGHTSHIFT_API_KEY", "").strip()
-if not API_KEY:
-    logging.getLogger("uvicorn.error").warning(
-        "NIGHTSHIFT_API_KEY가 설정되지 않아 인증 없이 실행됩니다. "
-        "외부에 노출하거나 LLM이 이 API를 직접 호출하게 할 계획이라면 "
-        ".env에 NIGHTSHIFT_API_KEY를 설정하세요 (.env.example 참고)."
-    )
+# 작업 스크립트(서브프로세스)가 진행 상황을 알리는 PUT /api/jobs/{id}/progress만은 로그인이 없으므로,
+# 서버가 뜰 때마다 새로 만드는 내부 토큰을 X-API-Key로 받는다(스크립트가 이미 그 헤더를 쓴다 — 서버 환경변수
+# NIGHTSHIFT_API_KEY를 그대로 물려받으므로 아래에서 그 값을 이 토큰으로 덮어쓴다). 이 토큰은 그 한 경로에만 통한다.
+INTERNAL_TOKEN = secrets.token_urlsafe(32)
+os.environ["NIGHTSHIFT_API_KEY"] = INTERNAL_TOKEN
+
+PUBLIC_API_PATHS = {"/api/auth/register", "/api/auth/login", "/api/auth/logout", "/api/auth/me"}
+INTERNAL_PROGRESS_RE = re.compile(r"^/api/jobs/[^/]+/progress$")
+CSRF_HEADER, CSRF_VALUE = "x-requested-with", "nightshift"
+MAX_REQUEST_BYTES = int(os.environ.get("NIGHTSHIFT_MAX_REQUEST_MB", "200")) * 1024 * 1024
 
 
 @app.middleware("http")
-async def require_api_key(request: Request, call_next):
-    if not API_KEY or not request.url.path.startswith("/api/"):
+async def authenticate_request(request: Request, call_next):
+    path = request.url.path
+    request.state.user = None
+    request.state.internal = False
+    if not path.startswith("/api/"):
         return await call_next(request)
 
-    provided = request.headers.get("x-api-key")
-    if not provided:
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.lower().startswith("bearer "):
-            provided = auth_header[len("bearer "):]
-    if not provided:
-        # 브라우저의 <img>/<video> src, 다운로드 링크(<a href>)는 커스텀 헤더를 실어
-        # 보낼 수 없어서(자바스크립트 fetch를 거치지 않고 브라우저가 직접 요청함),
-        # 갤러리 썸네일/원본/영상이 API 키를 켠 순간 전부 403으로 깨진다 — 이런
-        # 요청을 위해 쿼리스트링으로도 같은 키를 받아준다(index.html이 이 URL들을
-        # 만들 때 ?api_key=...를 붙인다).
-        provided = request.query_params.get("api_key")
+    # 다른 사이트가 로그인된 브라우저로 쓰기 요청을 날리는 걸 막는다 — 커스텀 헤더는 다른 출처에서
+    # 사전 요청(preflight) 없이는 못 붙이므로, 화면(fetch 래퍼)이 붙이는 이 헤더가 있어야 쓰기가 통한다.
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        provided_key = request.headers.get("x-api-key", "")
+        internal_ok = (INTERNAL_PROGRESS_RE.match(path) and request.method == "PUT" and provided_key
+                       and hmac.compare_digest(provided_key, INTERNAL_TOKEN))
+        if internal_ok:
+            request.state.internal = True
+            return await call_next(request)
+        if request.headers.get(CSRF_HEADER, "").lower() != CSRF_VALUE:
+            return JSONResponse({"detail": "요청이 올바르지 않아요(화면을 새로고침해 주세요)."}, status_code=403)
 
-    if not provided or not hmac.compare_digest(provided, API_KEY):
-        return JSONResponse({"detail": "API 키가 없거나 올바르지 않아요."}, status_code=401)
+    try:
+        if int(request.headers.get("content-length") or 0) > MAX_REQUEST_BYTES:
+            return JSONResponse({"detail": "요청이 너무 커요."}, status_code=413)
+    except ValueError:
+        pass
+    user = await asyncio.to_thread(auth.user_for_token, request.cookies.get(auth.SESSION_COOKIE))
+    request.state.user = user
+    if user is None and path not in PUBLIC_API_PATHS:
+        return JSONResponse({"detail": "로그인이 필요해요."}, status_code=401)
+    ctx_token = auth.current_user.set(user)
+    try:
+        return await call_next(request)
+    finally:
+        auth.current_user.reset(ctx_token)
 
-    return await call_next(request)
+
+def me(request: Request) -> dict:
+    """지금 요청을 보낸 로그인한 회원(없으면 401)."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        raise HTTPException(401, "로그인이 필요해요.")
+    return user
+
+
+def admin_only(request: Request) -> dict:
+    user = me(request)
+    if not auth.is_admin(user):
+        raise HTTPException(403, "관리자만 할 수 있어요.")
+    return user
+
+
+def visible_pods_for(user: dict) -> list[dict]:
+    """이 회원이 볼 수 있는 파드 — admin은 전부, 일반 회원은 자기 것만."""
+    return pod_registry.list_pods() if auth.is_admin(user) else pod_registry.list_pods(user["id"])
+
+
+def pod_or_404(user: dict, pod_id: str) -> dict:
+    """이 회원이 쓸 수 있는 파드 하나 — 남의 파드는 있다는 사실도 알려 주지 않는다(404)."""
+    pod = pod_registry.get_pod(pod_id) if pod_id else None
+    if pod is None or not auth.can_access(user, pod.get("owner_id")):
+        raise HTTPException(404, "없는 파드예요.")
+    return pod
+
+
+def default_pod_for_user(user: dict) -> dict | None:
+    """파드를 지정하지 않았을 때 쓸 이 회원의 파드. 일반 회원이 파드가 하나도 없으면 None."""
+    pod = pod_registry.default_pod_for(user["id"])
+    if pod is None and auth.is_admin(user):
+        return pod_registry.default_pod()
+    return pod
+
+
+def job_or_404(user: dict, job_id: str) -> dict:
+    """이 회원이 볼 수 있는 작업 하나 — 남의 작업은 없는 것처럼 404. (jobs dict의 실제 객체를 돌려준다.)"""
+    with lock:
+        job = jobs.get(job_id)
+    if job is None or not auth.can_access(user, job.get("owner_id")):
+        raise HTTPException(404, "없는 작업이에요.")
+    return job
+
+
+def job_scope(user: dict):
+    """작업 목록을 거를 때 쓰는 소유자 값 — admin은 None(전부), 일반 회원은 자기 id."""
+    return auth.owner_scope(user)
+
+
+def owned(entity: dict, scope) -> bool:
+    return scope is None or entity.get("owner_id") == scope
+
+
+NO_POD = {"id": "", "kind": "comfyui", "url": "", "enabled": False, "_none": True}   # "쓸 파드 없음"을 뜻하는 자리표시
+
+
+def client_ip(request: Request) -> str:
+    return (request.headers.get("cf-connecting-ip")
+            or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or (request.client.host if request.client else ""))
+
+
+def _set_session_cookie(request: Request, response: Response, token: str) -> None:
+    secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "") == "https"
+    response.set_cookie(auth.SESSION_COOKIE, token, max_age=auth.SESSION_DAYS * 86400, httponly=True,
+                        samesite="lax", secure=secure, path="/")
+
+
+def _auth_error(e: "auth.AuthError") -> HTTPException:
+    return HTTPException(e.status, e.message)
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request):
+    # 화면이 처음 열릴 때 "로그인돼 있나"를 묻는 용도 — 로그인이 안 돼 있어도 401이 아니라 user=null이다.
+    return {"user": request.state.user}
+
+
+@app.post("/api/auth/register")
+async def auth_register(request: Request):
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        auth.check_register_throttle(client_ip(request))
+        user = await asyncio.to_thread(auth.register, body.get("username"), body.get("email"), body.get("password"))
+    except auth.AuthError as e:
+        raise _auth_error(e)
+    return JSONResponse({"user": user, "message": "가입 신청이 접수됐어요. 관리자가 승인하면 로그인할 수 있어요."}, status_code=201)
+
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request):
+    body = await read_json_object(request, allow_empty=False)
+    ip = client_ip(request)
+    try:
+        user = await asyncio.to_thread(auth.authenticate, body.get("username"), body.get("password"), ip)
+    except auth.AuthError as e:
+        raise _auth_error(e)
+    token = await asyncio.to_thread(auth.create_session, user["id"], ip, request.headers.get("user-agent", ""))
+    response = JSONResponse({"user": user})
+    _set_session_cookie(request, response, token)
+    return response
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    await asyncio.to_thread(auth.delete_session, request.cookies.get(auth.SESSION_COOKIE))
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(auth.SESSION_COOKIE, path="/")
+    return response
+
+
+@app.post("/api/auth/change-password")
+async def auth_change_password(request: Request):
+    user = me(request)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        await asyncio.to_thread(auth.change_password, user["id"], body.get("old_password"), body.get("new_password"),
+                                request.cookies.get(auth.SESSION_COOKIE))
+    except auth.AuthError as e:
+        raise _auth_error(e)
+    return {"ok": True}
+
+
+# ---- 회원 관리 (admin 전용) ---------------------------------------------------------------
+
+@app.get("/api/admin/users")
+def admin_list_users(request: Request):
+    admin_only(request)
+    return {"users": auth.list_users()}
+
+
+@app.post("/api/admin/users/{user_id}/status")
+async def admin_set_user_status(user_id: int, request: Request):
+    admin = admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        return {"user": auth.set_status(user_id, str(body.get("status") or ""), admin["id"])}
+    except auth.AuthError as e:
+        raise _auth_error(e)
+
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+async def admin_reset_password(user_id: int, request: Request):
+    admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        await asyncio.to_thread(auth.reset_password, user_id, body.get("new_password"))
+    except auth.AuthError as e:
+        raise _auth_error(e)
+    return {"ok": True}
+
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(user_id: int, request: Request):
+    admin_only(request)
+    try:
+        auth.delete_user(user_id)
+    except auth.AuthError as e:
+        raise _auth_error(e)
+    pod_registry.release_owner(user_id)   # 그 회원의 파드는 주인 없음(=관리자 것)이 된다
+    return {"ok": True}
 
 
 @app.get("/api/templates")
@@ -1191,16 +1420,25 @@ async def pod_status(pod: dict) -> dict:
 
 
 @app.get("/api/comfy-status")
-async def comfy_status():
+async def comfy_status(request: Request):
     """헤더 배지가 5초마다 물어보는 "지금 기본으로 쓰는 워커"의 연결 상태."""
-    return await pod_status(pod_registry.default_pod())
+    pod = default_pod_for_user(me(request))
+    if pod is None:
+        return {"pod_id": None, "url": None, "connected": False, "source": "none",
+                "pull_outputs": False, "checked_age_sec": None}
+    return await pod_status(pod)
 
 
-def comfy_endpoint_payload() -> dict:
+def comfy_endpoint_payload(user: dict) -> dict:
     """접속 주소 설정 화면이 쓰는 현재 상태 — 기본 파드의 저장된 값, 실제로 쓰이는 값과
     그 출처. 다중 파드로 넘어간 뒤에도 이 화면(헤더의 연결 상태 배지)은 "지금 기본으로
     쓰는 워커"를 보여주는 자리로 남으므로, 응답 형식을 그대로 유지한다."""
-    pod = pod_registry.default_pod()
+    pod = default_pod_for_user(user)
+    admin = auth.is_admin(user)
+    if pod is None:
+        return {"pod_id": None, "pod_name": None, "url": "", "effective_url": None, "source": "none", "env_url": "",
+                "candidates": [], "updated_at": None, "pull_outputs": False, "output_dir": "",
+                "output_sync": {"last_sync": None, "known": 0}}
     effective_url, source = ComfyUIDriver.configured(pod)
     return {
         "pod_id": pod["id"],                              # 어느 파드의 설정인지
@@ -1208,18 +1446,19 @@ def comfy_endpoint_payload() -> dict:
         "url": pod.get("url") or "",                      # 저장된 설정값(비어 있으면 미설정)
         "effective_url": effective_url,                   # 설정/환경변수로 정해진 주소(자동 탐지면 null)
         "source": source,                                 # "setting" | "env" | "auto"
-        "env_url": (os.environ.get("COMFY_URL") or ""),   # 참고용 — 설정을 비웠을 때 쓰일 값
-        "candidates": COMFY_CANDIDATE_URLS,               # 자동 탐지가 훑는 후보들
+        # 서버 내부 정보(환경변수 주소·자동 탐지 후보·출력 폴더 경로)는 관리자에게만 알려 준다.
+        "env_url": (os.environ.get("COMFY_URL") or "") if admin else "",
+        "candidates": COMFY_CANDIDATE_URLS if admin else [],
         "updated_at": pod.get("updated_at"),
         "pull_outputs": bool(pod.get("pull_outputs")),    # 결과 이미지를 HTTP로 끌어올지
-        "output_dir": OUTPUT_DIR,                         # 끌어온 이미지가 쌓이는 로컬 폴더
+        "output_dir": OUTPUT_DIR if admin else "",        # 끌어온 이미지가 쌓이는 로컬 폴더
         "output_sync": sync_state_summary(),              # {"last_sync", "known"}
     }
 
 
 @app.get("/api/comfy-endpoint")
-def get_comfy_endpoint():
-    return comfy_endpoint_payload()
+def get_comfy_endpoint(request: Request):
+    return comfy_endpoint_payload(me(request))
 
 
 @app.put("/api/comfy-endpoint")
@@ -1235,9 +1474,14 @@ async def put_comfy_endpoint(request: Request):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
     if not isinstance(data, dict):
         raise HTTPException(400, '{"url": "..."} 형태의 객체여야 해요.')
-    # 이 엔드포인트는 "기본 파드의 주소를 바꾼다"는 뜻이다.
-    pod = pod_registry.default_pod()
+    # 이 엔드포인트는 "이 회원의 기본 파드의 주소를 바꾼다"는 뜻이다.
+    user = me(request)
+    pod = default_pod_for_user(user)
+    if pod is None:
+        raise HTTPException(400, "파드가 아직 없어요. 파드 화면에서 먼저 추가해 주세요.")
     patch = {"url": data.get("url", "")}
+    if not auth.is_admin(user):
+        await asyncio.to_thread(_require_public_pod_url, patch["url"], pod.get("kind"))
     # pull_outputs를 아예 안 보내면 지금 설정을 유지한다 — 주소만 바꾸려는 요청이
     # 조용히 "가져오기 끄기"로 동작하면 안 되므로.
     if "pull_outputs" in data:
@@ -1252,7 +1496,7 @@ async def put_comfy_endpoint(request: Request):
     ComfyUIDriver.invalidate_capabilities(pod["id"])
     invalidate_comfy_status_cache()
 
-    payload = comfy_endpoint_payload()
+    payload = comfy_endpoint_payload(user)
     effective_url = payload["effective_url"]
     if effective_url:
         payload["connected"] = await asyncio.to_thread(
@@ -1274,12 +1518,16 @@ async def test_comfy_endpoint(request: Request):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
     if not isinstance(data, dict):
         raise HTTPException(400, '{"url": "..."} 형태의 객체여야 해요.')
+    user = me(request)
     try:
         url = pod_registry.normalize_pod_url(data.get("url", ""))
     except pod_registry.PodError as e:
         raise HTTPException(400, str(e))
 
-    if not url:
+    if not auth.is_admin(user):
+        # 일반 회원이 입력한 주소로 이 서버가 대신 접속하므로 서버 안쪽 주소는 막는다.
+        await asyncio.to_thread(_require_public_pod_url, url, pod_registry.DEFAULT_KIND)
+    elif not url:
         url, _ = await asyncio.to_thread(resolve_comfy_url)
         if not url:
             return {"url": None, "connected": False, "detail": "확인할 주소가 없어요(자동 탐지도 실패)."}
@@ -1302,19 +1550,43 @@ def pod_payload(pod: dict) -> dict:
     return {**pod, "kind_label": driver.label, "effective_url": url, "url_source": source}
 
 
+def _require_public_pod_url(url: str, kind: str | None) -> None:
+    """일반 회원의 파드 주소 검사 — 비어 있으면 안 되고(비면 이 서버 자신의 ComfyUI로 떨어진다) 서버 안쪽 주소도
+    안 된다. 실패하면 HTTPException(400)."""
+    url = (url or "").strip()
+    if not url:
+        raise HTTPException(400, "파드 주소를 적어주세요.")
+    try:
+        normalized = pod_registry.normalize_pod_url(url, kind or pod_registry.DEFAULT_KIND)
+        pod_registry.assert_public_url(normalized)
+    except pod_registry.PodError as e:
+        raise HTTPException(400, str(e))
+
+
+def _user_kinds(user: dict) -> list[dict]:
+    """이 회원이 만들 수 있는 파드 종류 — 셸(서버에서 명령 실행)과 Claude 글쓰기(관리자 키 사용)는 관리자만."""
+    kinds = driver_kinds()
+    return kinds if auth.is_admin(user) else [k for k in kinds if k["kind"] == pod_registry.DEFAULT_KIND]
+
+
 @app.get("/api/pods")
-def list_pods_api():
-    pods = pod_registry.list_pods()
+def list_pods_api(request: Request):
+    user = me(request)
+    pods = visible_pods_for(user)
+    names = auth.usernames() if auth.is_admin(user) else {}
+    default = default_pod_for_user(user)
     return {
-        "pods": [pod_payload(p) for p in pods],
-        "default_pod_id": pod_registry.default_pod()["id"],
-        "kinds": driver_kinds(),
+        "pods": [{**pod_payload(p), "owner_name": names.get(p.get("owner_id"))} for p in pods],
+        "default_pod_id": default["id"] if default else None,
+        "kinds": _user_kinds(user),
     }
 
 
 @app.post("/api/pods")
 async def create_pod_api(request: Request):
+    user = me(request)
     data = await read_json_object(request, allow_empty=False)
+    data = {**data, "owner_id": user["id"]}   # 주인은 요청이 정하는 게 아니라 로그인한 회원이다
     kind = (data.get("kind") or pod_registry.DEFAULT_KIND).strip()
     try:
         driver = driver_for({"kind": kind})
@@ -1322,6 +1594,10 @@ async def create_pod_api(request: Request):
         raise HTTPException(400, str(e))
     if not driver.available():
         raise HTTPException(400, driver.unavailable_reason())
+    if not auth.is_admin(user):
+        if kind != pod_registry.DEFAULT_KIND:
+            raise HTTPException(403, "이 종류의 파드는 관리자만 만들 수 있어요.")
+        await asyncio.to_thread(_require_public_pod_url, data.get("url"), kind)
     try:
         pod = pod_registry.create_pod(data)
     except pod_registry.PodError as e:
@@ -1333,7 +1609,15 @@ async def create_pod_api(request: Request):
 @app.put("/api/pods/{pod_id}")
 async def update_pod_api(pod_id: str, request: Request):
     # 부분 수정 — 보낸 필드만 바뀐다(이름만 바꾸려는 요청이 주소를 지우면 안 되므로).
+    user = me(request)
+    current = pod_or_404(user, pod_id)
     data = await read_json_object(request, allow_empty=False)
+    data = {k: v for k, v in data.items() if k != "owner_id"}   # 주인은 바꿀 수 없다
+    if not auth.is_admin(user):
+        if data.get("kind") not in (None, pod_registry.DEFAULT_KIND):
+            raise HTTPException(403, "이 종류의 파드는 관리자만 만들 수 있어요.")
+        if "url" in data:
+            await asyncio.to_thread(_require_public_pod_url, data.get("url"), current.get("kind"))
     try:
         pod = pod_registry.update_pod(pod_id, data)
     except pod_registry.PodError as e:
@@ -1346,7 +1630,9 @@ async def update_pod_api(pod_id: str, request: Request):
 
 
 @app.delete("/api/pods/{pod_id}")
-def delete_pod_api(pod_id: str):
+def delete_pod_api(pod_id: str, request: Request):
+    user = me(request)
+    target = pod_or_404(user, pod_id)
     # 돌고 있는 작업이 있으면 막는다 — 지우는 순간 그 작업이 어디에도 속하지 않게 되고,
     # 서브프로세스만 남아 결과를 아무도 회수하지 않는다. 먼저 멈추게 한다.
     with lock:
@@ -1354,18 +1640,23 @@ def delete_pod_api(pod_id: str):
         busy = list(rt.running) if rt else []
     if busy:
         raise HTTPException(400, f"이 파드에서 작업 {len(busy)}개가 실행 중이에요. 먼저 멈춰주세요.")
+    # 이 파드에 배정돼 있던(아직 안 끝난) 작업은 같은 주인의 다른 파드로 되돌린다 — 갈 곳 없는
+    # 작업이 영영 안 도는 상태로 남으면 안 되므로. 갈 파드가 없으면 지우지 못하게 막는다.
+    others = [p for p in pod_registry.list_pods(target.get("owner_id")) if p["id"] != pod_id]
+    fallback = next((p for p in others if p.get("enabled")), others[0] if others else None)
+    with lock:
+        waiting_jobs = any(j.get("pod_id") == pod_id and j["status"] in ("pending", "queued") and not j.get("deleted")
+                           for j in jobs.values())
+    if waiting_jobs and fallback is None:
+        raise HTTPException(400, "이 파드에 대기 중인 작업이 있어요. 다른 파드를 먼저 추가하거나 작업을 지워주세요.")
     try:
         removed = pod_registry.delete_pod(pod_id)
     except pod_registry.PodError as e:
         raise HTTPException(404 if "없는 파드" in str(e) else 400, str(e))
-
-    # 이 파드에 배정돼 있던(아직 안 끝난) 작업은 기본 파드로 되돌린다 — 갈 곳 없는
-    # 작업이 영영 안 도는 상태로 남으면 안 되므로.
-    fallback = pod_registry.default_pod()
     with lock:
         moved = []
         for job in jobs.values():
-            if job.get("pod_id") == pod_id and job["status"] in ("pending", "queued"):
+            if job.get("pod_id") == pod_id and job["status"] in ("pending", "queued") and fallback is not None:
                 job["pod_id"] = fallback["id"]
                 if job["status"] == "queued":
                     job["status"] = "pending"   # 이 파드의 큐와 함께 사라졌으므로
@@ -1377,7 +1668,7 @@ def delete_pod_api(pod_id: str):
     invalidate_comfy_status_cache(pod_id)
     sync_runtimes()
     return {"deleted": removed["id"], "name": removed["name"],
-            "moved_jobs": len(moved), "moved_to": fallback["id"]}
+            "moved_jobs": len(moved), "moved_to": fallback["id"] if fallback else None}
 
 
 # 드라이버가 카드에 실어 주는 파드별 추가 정보(ComfyUI라면 GPU/VRAM). 연결 상태와 달리
@@ -1440,11 +1731,13 @@ def recent_job_images(job_ids: list[str], limit: int = 3) -> list[str]:
 
 
 @app.get("/api/pods/summary")
-async def pods_summary():
+async def pods_summary(request: Request):
     """대시보드가 폴링할 파드별 요약 — 레코드 + 연결 상태(캐시) + 큐/실행 상태 +
     오늘 만든 이미지 수. 값싼 것만 담는다: `/system_stats` 같은 파드별 추가 조회는
     캐시를 따로 붙여 대시보드 화면(P2)에서 넣는다."""
-    pods = pod_registry.list_pods()
+    user = me(request)
+    pods = visible_pods_for(user)
+    owner_names = auth.usernames() if auth.is_admin(user) else {}
     statuses = {}
     for pod in pods:
         statuses[pod["id"]] = await pod_status(pod)
@@ -1475,6 +1768,7 @@ async def pods_summary():
                                                 + finished)[:3]]
             rows.append({
                 **pod_payload(pod),   # 레코드 + kind_label/effective_url 같은 파생 정보
+                "owner_name": owner_names.get(pod.get("owner_id")),
                 "status": statuses[pod["id"]],
                 "card": pod_card_data(pod),
                 "recent_images": recent_job_images(recent_job_ids),
@@ -1493,16 +1787,15 @@ async def pods_summary():
         "pending": sum(r["pending_count"] for r in rows),
         "images_today": sum(r["images_today"] for r in rows),
     }
-    return {"pods": rows, "default_pod_id": pod_registry.default_pod()["id"], "totals": totals}
+    default = default_pod_for_user(user)
+    return {"pods": rows, "default_pod_id": default["id"] if default else None, "totals": totals}
 
 
 @app.post("/api/pods/{pod_id}/test")
-async def test_pod_api(pod_id: str):
+async def test_pod_api(pod_id: str, request: Request):
     """저장된 그대로의 파드가 실제로 응답하는지 확인한다(설정은 건드리지 않음).
     사람이 버튼을 누르고 기다리는 중이므로 폴링보다 넉넉한 타임아웃을 쓴다."""
-    pod = pod_registry.get_pod(pod_id)
-    if pod is None:
-        raise HTTPException(404, "없는 파드예요.")
+    pod = pod_or_404(me(request), pod_id)
     try:
         driver = driver_for(pod)
     except DriverError as e:
@@ -1512,13 +1805,12 @@ async def test_pod_api(pod_id: str):
 
 
 @app.post("/api/pods/{pod_id}/runpod-test")
-async def test_pod_runpod_api(pod_id: str):
+async def test_pod_runpod_api(pod_id: str, request: Request):
     """카드에 뜨는 RunPod 메타데이터(card()의 get_runpod_info())는 실패를 전부 조용히
     삼키므로, "왜 안 뜨는지"를 직접 확인하고 싶을 때 이 엔드포인트로 캐시 없이 다시
-    조회해 실패 이유(HTTP 코드/응답 본문/키 미설정 등)를 그대로 돌려준다."""
-    pod = pod_registry.get_pod(pod_id)
-    if pod is None:
-        raise HTTPException(404, "없는 파드예요.")
+    조회해 실패 이유(HTTP 코드/응답 본문/키 미설정 등)를 그대로 돌려준다. 관리자의 RunPod 키로 조회하므로 관리자만."""
+    admin_only(request)
+    pod = pod_or_404(me(request), pod_id)
     return await asyncio.to_thread(runpod_api.debug_probe, pod.get("url") or "")
 
 
@@ -1562,6 +1854,7 @@ def get_lora_triggers():
 
 @app.put("/api/lora-triggers")
 async def put_lora_triggers(request: Request):
+    admin_only(request)
     # "🎛 LoRA" 탭이 편집할 때마다 전체 매핑을 통째로 보내서 그대로 덮어쓴다 —
     # danbooru tag-edits와 같은 이유로(개수가 많지 않고 편집도 잦지 않아 부분
     # patch를 둘 이유가 없음). 각 값은 {trigger: str, families: [family_id, ...]}
@@ -1677,6 +1970,7 @@ def get_base_model_families():
 
 @app.put("/api/base-model-families")
 async def put_base_model_families(request: Request):
+    admin_only(request)
     # "🎛 LoRA" 탭(베이스 모델 관리 부분)이 전체 family 목록을 통째로 보내서
     # 덮어쓴다 — lora-triggers와 같은 whole-blob 패턴.
     body = await request.body()
@@ -1809,6 +2103,7 @@ def get_video_workflow(name: str):
 
 @app.put("/api/workflow-presets/{family_id}/{type_id}")
 async def put_workflow_preset(family_id: str, type_id: str, request: Request):
+    admin_only(request)
     # "🎛 LoRA" 탭(워크플로우 프리셋 관리 부분)이 워크플로우 JSON을 통째로 올려서
     # family+유형 조합 하나에 저장한다 — 업로드한 파일을 그대로 검증 없이 저장한다
     # (실제로 돌아가는지는 POST /api/validate-workflow를 별도로 안내하면 됨).
@@ -1827,7 +2122,8 @@ async def put_workflow_preset(family_id: str, type_id: str, request: Request):
 
 
 @app.delete("/api/workflow-presets/{family_id}/{type_id}")
-def delete_workflow_preset(family_id: str, type_id: str):
+def delete_workflow_preset(family_id: str, type_id: str, request: Request):
+    admin_only(request)
     path = WORKFLOW_PRESETS_DIR / preset_filename(family_id, type_id)
     if not path.exists():
         raise HTTPException(404, "해당 조합의 프리셋 워크플로우가 없어요.")
@@ -2352,50 +2648,75 @@ def validate_flat_image_csv_rows(csv_bytes: bytes, column: str):
         raise HTTPException(400, f"CSV의 {column} 컬럼을 확인하세요.\n" + "\n".join(errors))
 
 
+_recent_user_stores: dict[tuple[str, int], "RecentFileStore"] = {}
+
+
+def recent_store(kind: str, user: dict) -> "RecentFileStore":
+    """"최근 워크플로우/CSV" 저장소 — 관리자는 예전 것 그대로, 일반 회원은 자기 것을 따로 갖는다."""
+    base = recent_workflows_store if kind == "workflows" else recent_csvs_store
+    if auth.is_admin(user):
+        return base
+    key = (kind, user["id"])
+    with lock:
+        store = _recent_user_stores.get(key)
+        if store is None:
+            folder = base.dir_path / "users" / str(user["id"])
+            folder.mkdir(parents=True, exist_ok=True)
+            store = RecentFileStore(folder, base.state_path.with_name(f"{base.state_path.stem}_u{user['id']}.json"),
+                                    base.retention)
+            store.load()
+            _recent_user_stores[key] = store
+    return store
+
+
 @app.get("/api/recent-workflows")
-def list_recent_workflows():
+def list_recent_workflows(request: Request):
     # "새 작업 추가"의 워크플로우 슬롯 옆 "최근 워크플로우" 버튼이 호출한다.
-    return {"workflows": recent_workflows_store.list_meta(), "retention": recent_workflows_store.retention}
+    store = recent_store("workflows", me(request))
+    return {"workflows": store.list_meta(), "retention": store.retention}
 
 
 @app.get("/api/recent-workflows/{workflow_id}")
-def get_recent_workflow(workflow_id: str):
-    entry = recent_workflows_store.get(workflow_id)
+def get_recent_workflow(workflow_id: str, request: Request):
+    store = recent_store("workflows", me(request))
+    entry = store.get(workflow_id)
     if entry is None:
         raise HTTPException(404, "해당 워크플로우를 찾을 수 없어요.")
-    path = recent_workflows_store.dir_path / entry["stored_filename"]
+    path = store.dir_path / entry["stored_filename"]
     if not path.exists():
         raise HTTPException(404, "워크플로우 파일이 서버에 없어요.")
     return Response(content=path.read_text(encoding="utf-8"), media_type="application/json")
 
 
 @app.delete("/api/recent-workflows/{workflow_id}")
-def delete_recent_workflow(workflow_id: str):
-    if not recent_workflows_store.delete(workflow_id):
+def delete_recent_workflow(workflow_id: str, request: Request):
+    if not recent_store("workflows", me(request)).delete(workflow_id):
         raise HTTPException(404, "해당 워크플로우를 찾을 수 없어요.")
     return {"ok": True}
 
 
 @app.get("/api/recent-csvs")
-def list_recent_csvs():
+def list_recent_csvs(request: Request):
     # "새 작업 추가"의 CSV 슬롯 옆 "최근 CSV" 버튼이 호출한다.
-    return {"csvs": recent_csvs_store.list_meta(), "retention": recent_csvs_store.retention}
+    store = recent_store("csvs", me(request))
+    return {"csvs": store.list_meta(), "retention": store.retention}
 
 
 @app.get("/api/recent-csvs/{csv_id}")
-def get_recent_csv(csv_id: str):
-    entry = recent_csvs_store.get(csv_id)
+def get_recent_csv(csv_id: str, request: Request):
+    store = recent_store("csvs", me(request))
+    entry = store.get(csv_id)
     if entry is None:
         raise HTTPException(404, "해당 CSV를 찾을 수 없어요.")
-    path = recent_csvs_store.dir_path / entry["stored_filename"]
+    path = store.dir_path / entry["stored_filename"]
     if not path.exists():
         raise HTTPException(404, "CSV 파일이 서버에 없어요.")
     return Response(content=path.read_text(encoding="utf-8"), media_type="text/csv")
 
 
 @app.delete("/api/recent-csvs/{csv_id}")
-def delete_recent_csv(csv_id: str):
-    if not recent_csvs_store.delete(csv_id):
+def delete_recent_csv(csv_id: str, request: Request):
+    if not recent_store("csvs", me(request)).delete(csv_id):
         raise HTTPException(404, "해당 CSV를 찾을 수 없어요.")
     return {"ok": True}
 
@@ -2420,23 +2741,28 @@ async def create_job(
     video_workflow_bytes: bytes | None = None,
     video_workflow_filename: str | None = None,
     project_id: int | None = None,
+    user: dict | None = None,
 ) -> dict:
     # POST /api/upload(사람이 브라우저에서 파일 첨부)와 POST /api/jobs(LLM 등
     # 프로그램이 JSON으로 호출)가 공유하는 실제 잡 생성 로직 — 두 경로 모두
     # 워크플로우/CSV를 이미 bytes로, 옵션을 이미 {name: 원본 문자열} 형태로
     # 만들어서 넘겨준다. 그 앞단(멀티파트 폼 파싱 vs JSON 파싱)만 다르다.
-    # 어느 파드에서 돌릴지. 지정이 없으면 기본 파드로 간다(파드가 하나뿐이면 늘 그것).
+    if user is None:
+        raise HTTPException(401, "로그인이 필요해요.")
+    # 어느 파드에서 돌릴지. 지정이 없으면 이 회원의 기본 파드로 간다. 작업은 그 작업을 만든 회원의 파드에서만 돈다.
     if pod_id:
         pod = pod_registry.get_pod(pod_id)
-        if pod is None:
+        if pod is None or pod.get("owner_id") != user["id"]:
             raise HTTPException(400, "없는 파드예요.")
         if not pod.get("enabled"):
             raise HTTPException(400, f"'{pod['name']}' 파드는 지금 사용 안 함 상태예요.")
     else:
-        pod = pod_registry.default_pod()
+        pod = pod_registry.default_pod_for(user["id"])
+        if pod is None:
+            raise HTTPException(400, "쓸 수 있는 파드가 없어요. 파드 화면에서 먼저 파드를 추가해 주세요.")
 
-    # 프로젝트는 파드와 무관하게 작업을 묶는다. 없으면 "미분류"(project_id=None).
-    if project_id is not None and not project_store.project_exists(project_id):
+    # 프로젝트는 파드와 무관하게 작업을 묶는다. 없으면 "미분류"(project_id=None). 자기 프로젝트만 쓸 수 있다.
+    if project_id is not None and not project_store.project_exists(project_id, owner_id=user["id"]):
         raise HTTPException(400, "없는 프로젝트예요.")
 
     # 템플릿이 특정 워커 종류 전용이면(셸 명령은 셸 파드에서만 뜻이 있다) 여기서 막는다.
@@ -2460,6 +2786,7 @@ async def create_job(
         active_count = sum(
             1 for j in jobs.values()
             if j["status"] in ("pending", "queued", "running") and not j.get("deleted")
+            and j.get("owner_id") == user["id"]
         )
     if active_count >= MAX_ACTIVE_JOBS:
         raise HTTPException(
@@ -2538,7 +2865,7 @@ async def create_job(
     if workflow_bytes is not None:
         workflow_dest_name = f"{job_id}_{workflow_filename}"
         (JOBS_DIR / workflow_dest_name).write_bytes(workflow_bytes)
-        recent_workflows_store.record(workflow_filename, workflow_bytes)
+        recent_store("workflows", user).record(workflow_filename, workflow_bytes)
 
     csv_dest_name = None
     csv_original_name = None
@@ -2546,7 +2873,7 @@ async def create_job(
         csv_dest_name = f"{job_id}_{csv_filename}"
         (JOBS_DIR / csv_dest_name).write_bytes(csv_bytes)
         csv_original_name = csv_filename
-        recent_csvs_store.record(csv_filename, csv_bytes)
+        recent_store("csvs", user).record(csv_filename, csv_bytes)
 
     # img2video 복합 템플릿의 "영상 생성 워크플로우"는 완전히 선택 — 안 올리면
     # 템플릿 스크립트가 nightshift 내장 기본값(wan22_i2v.json/wan22_flf2v.json)을
@@ -2555,7 +2882,7 @@ async def create_job(
     if video_workflow_bytes is not None:
         video_workflow_dest_name = f"{job_id}_video_{video_workflow_filename}"
         (JOBS_DIR / video_workflow_dest_name).write_bytes(video_workflow_bytes)
-        recent_workflows_store.record(video_workflow_filename, video_workflow_bytes)
+        recent_store("workflows", user).record(video_workflow_filename, video_workflow_bytes)
 
     with lock:
         jobs[job_id] = {
@@ -2580,6 +2907,7 @@ async def create_job(
             "deleted_at": None,
             "pod_id": pod["id"],
             "project_id": project_id,
+            "owner_id": user["id"],
             # 파드는 일시적이라(지워지고 다시 안 쓴다) 나중에 "어디서 돌았나/얼마 들었나"를
             # 볼 수 있게 이 시점의 정보를 job에 찍어둔다.
             "pod_name": pod.get("name"),
@@ -2602,6 +2930,7 @@ async def create_job(
 
 @app.post("/api/upload")
 async def upload(request: Request):
+    user = me(request)
     form = await request.form()
 
     template = resolve_template(form.get("template_id"))
@@ -2648,6 +2977,7 @@ async def upload(request: Request):
         video_workflow_bytes,
         video_workflow.filename if has_video_workflow else None,
         parse_project_id(form.get("project_id")),
+        user=user,
     )
 
 
@@ -2672,6 +3002,7 @@ async def create_job_from_json(request: Request):
     # 넣거나 직접 준 JSON을 쓰면 되고, CSV는 원문 문자열 그대로 준다(csv_batch.
     # sample.csv 같은 형식). 큐에 실제로 등록된다는 점은 /api/upload와 동일하다
     # — 미리보기가 필요하면 POST /api/validate-workflow를 먼저 불러볼 것.
+    user = me(request)
     try:
         body = json.loads(await request.body())
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -2726,7 +3057,7 @@ async def create_job_from_json(request: Request):
     return await create_job(template, workflow_bytes, workflow_filename, csv_bytes, csv_filename,
                             raw_options, pod_id if isinstance(pod_id, str) and pod_id.strip() else None,
                             video_workflow_bytes, video_workflow_filename,
-                            parse_project_id(body.get("project_id")))
+                            parse_project_id(body.get("project_id")), user=user)
 
 
 def start_pods(pod_ids: list[str]) -> int:
@@ -2742,8 +3073,7 @@ def start_pods(pod_ids: list[str]) -> int:
     targets = set(pod_ids)
     if not targets:
         return 0
-    fallback = pod_ids[0]
-    fallback_kind = (pod_registry.get_pod(fallback) or {}).get("kind")
+    pod_owner = {pid: (pod_registry.get_pod(pid) or {}).get("owner_id") for pid in pod_ids}
     templates = load_templates_map()
     with lock:
         for pod_id in targets:
@@ -2765,8 +3095,13 @@ def start_pods(pod_ids: list[str]) -> int:
                 owner = pod_registry.get_pod(assigned) if assigned else None
                 if owner is not None and owner.get("enabled"):
                     continue   # 그 파드가 살아 있다 — 그쪽을 켤 때 돈다
-                # 갈 곳이 없어진 작업. 되돌릴 파드의 종류가 맞을 때만 옮긴다 —
-                # 셸 작업을 ComfyUI 파드에 넣으면(그 반대도) 조용히 엉뚱하게 돈다.
+                # 갈 곳이 없어진 작업. 같은 주인의 파드로만, 그리고 되돌릴 파드의 종류가 맞을 때만 옮긴다 —
+                # 남의 파드로 옮기면 안 되고, 셸 작업을 ComfyUI 파드에 넣으면(그 반대도) 조용히 엉뚱하게 돈다.
+                mine = [pid for pid in pod_ids if pod_owner.get(pid) == job.get("owner_id")]
+                if not mine:
+                    continue
+                fallback = mine[0]
+                fallback_kind = (pod_registry.get_pod(fallback) or {}).get("kind")
                 allowed = (templates.get(job["template_id"], {}).get("pod_kinds")
                            or [pod_registry.DEFAULT_KIND])
                 if fallback_kind not in allowed:
@@ -2810,31 +3145,41 @@ def _clean_project_fields(body: dict, creating: bool) -> dict:
     return fields
 
 
-@app.get("/api/projects")
-def list_projects_api(include_archived: bool = False):
-    return {
-        "projects": project_store.list_projects(include_archived),
-        "unassigned": project_store.unassigned_summary(),
-    }
-
-
-@app.post("/api/projects")
-async def create_project_api(request: Request):
-    body = await read_json_object(request, allow_empty=False)
-    fields = _clean_project_fields(body, creating=True)
-    return project_store.create_project(fields["name"], fields.get("description", ""), fields.get("defaults"))
-
-
-@app.get("/api/projects/{project_id}")
-def get_project_api(project_id: int):
+def project_or_404(user: dict, project_id: int) -> dict:
     project = project_store.get_project(project_id)
-    if project is None:
+    if project is None or not auth.can_access(user, project.get("owner_id")):
         raise HTTPException(404, "없는 프로젝트예요.")
     return project
 
 
+@app.get("/api/projects")
+def list_projects_api(request: Request, include_archived: bool = False):
+    user = me(request)
+    scope = job_scope(user)
+    projects = project_store.list_projects(include_archived, owner_id=scope)
+    if scope is None:   # 관리자에게는 누구 프로젝트인지 알려 준다
+        names = auth.usernames()
+        projects = [{**p, "owner_name": names.get(p.get("owner_id"))} for p in projects]
+    return {"projects": projects, "unassigned": project_store.unassigned_summary(owner_id=scope)}
+
+
+@app.post("/api/projects")
+async def create_project_api(request: Request):
+    user = me(request)
+    body = await read_json_object(request, allow_empty=False)
+    fields = _clean_project_fields(body, creating=True)
+    return project_store.create_project(fields["name"], fields.get("description", ""), fields.get("defaults"),
+                                        owner_id=user["id"])
+
+
+@app.get("/api/projects/{project_id}")
+def get_project_api(project_id: int, request: Request):
+    return project_or_404(me(request), project_id)
+
+
 @app.patch("/api/projects/{project_id}")
 async def update_project_api(project_id: int, request: Request):
+    project_or_404(me(request), project_id)
     body = await read_json_object(request, allow_empty=False)
     project = project_store.update_project(project_id, _clean_project_fields(body, creating=False))
     if project is None:
@@ -2843,7 +3188,8 @@ async def update_project_api(project_id: int, request: Request):
 
 
 @app.delete("/api/projects/{project_id}")
-def delete_project_api(project_id: int):
+def delete_project_api(project_id: int, request: Request):
+    project_or_404(me(request), project_id)
     if not project_store.delete_project(project_id):
         raise HTTPException(404, "없는 프로젝트예요.")
     # DB에서는 FK가 알아서 미분류로 돌렸지만 메모리 jobs dict는 그대로라 같이 맞춘다.
@@ -2858,11 +3204,14 @@ def delete_project_api(project_id: int):
 @app.put("/api/jobs/{job_id}/project")
 async def set_job_project(job_id: str, request: Request):
     # 작업을 다른 프로젝트로(또는 미분류로) 옮긴다 — 그 작업이 만든 결과물도 같이 옮겨간다.
+    user = me(request)
+    job = job_or_404(user, job_id)
     body = await read_json_object(request, allow_empty=False)
     if "project_id" not in body:
         raise HTTPException(400, "project_id가 필요해요(미분류로 옮기려면 null).")
     project_id = parse_project_id(body["project_id"])
-    if project_id is not None and not project_store.project_exists(project_id):
+    # 작업은 그 작업의 주인의 프로젝트로만 옮길 수 있다.
+    if project_id is not None and not project_store.project_exists(project_id, owner_id=job.get("owner_id")):
         raise HTTPException(400, "없는 프로젝트예요.")
     with lock:
         job = jobs.get(job_id)
@@ -2880,7 +3229,7 @@ def _split_tags(value: str | None) -> list[str]:
 
 
 @app.get("/api/output-assets")
-def list_assets_api(project_id: str | None = None, kind: str | None = None,
+def list_assets_api(request: Request, project_id: str | None = None, kind: str | None = None,
                     job_id: str | None = None, favorite: bool | None = None,
                     q: str | None = None, tag: str | None = None, min_rating: int | None = None,
                     limit: int = 200, offset: int = 0):
@@ -2892,9 +3241,10 @@ def list_assets_api(project_id: str | None = None, kind: str | None = None,
     project: str | int | None = None
     if project_id is not None:
         project = "unassigned" if project_id == "unassigned" else parse_project_id(project_id)
+    scope = auth.owner_scope(me(request))
     _sync_assets_quietly()
     return {"assets": asset_meta.list_assets(q, _split_tags(tag), favorite, min_rating, kind, project, job_id,
-                                             max(1, min(limit, 1000)), max(0, offset))}
+                                             max(1, min(limit, 1000)), max(0, offset), owner_id=scope)}
 
 
 def _asset_paths_from(body: dict) -> list[str]:
@@ -2907,17 +3257,19 @@ def _asset_paths_from(body: dict) -> list[str]:
 
 
 @app.get("/api/output-assets/detail")
-def asset_detail_api(path: str):
+def asset_detail_api(path: str, request: Request):
     # 라이트박스의 정보 패널용 — 프롬프트/시드/체크포인트/파라미터와 메모·평점·태그 전부.
+    scope = auth.owner_scope(me(request))
     _sync_assets_quietly()
     try:
-        return asset_meta.get_detail(path)
+        return asset_meta.get_detail(path, owner_id=scope)
     except asset_meta.AssetNotFound:
         raise HTTPException(404, "결과물을 찾을 수 없어요.")
 
 
 @app.post("/api/output-assets/update")
 async def update_assets_api(request: Request):
+    scope = auth.owner_scope(me(request))
     # 즐겨찾기/평점/메모를 바꾼다(paths 여러 개면 전부 같은 값으로). 메모는 한 장씩만.
     body = await read_json_object(request, allow_empty=False)
     paths = _asset_paths_from(body)
@@ -2938,7 +3290,7 @@ async def update_assets_api(request: Request):
     if "note" in body:
         kwargs["note"] = body["note"]
     try:
-        changed = await asyncio.to_thread(asset_meta.update_assets, paths, **kwargs)
+        changed = await asyncio.to_thread(asset_meta.update_assets, paths, owner_id=scope, **kwargs)
     except asset_meta.AssetNotFound:
         raise HTTPException(404, "결과물을 찾을 수 없어요.")
     except ValueError as e:
@@ -2948,23 +3300,27 @@ async def update_assets_api(request: Request):
 
 @app.post("/api/output-assets/move")
 async def move_assets_api(request: Request):
+    scope = auth.owner_scope(me(request))
     # 결과물(이미지/영상)을 다른 프로젝트로 옮긴다 — project_id가 null이면 미분류. 파일은 그대로다.
     body = await read_json_object(request, allow_empty=False)
     paths = _asset_paths_from(body)
     if "project_id" not in body:
         raise HTTPException(400, "project_id가 필요해요(미분류로 옮기려면 null).")
     project_id = parse_project_id(body["project_id"])
-    if project_id is not None and not project_store.project_exists(project_id):
+    if project_id is not None and not project_store.project_exists(project_id, owner_id=scope):
         raise HTTPException(400, "없는 프로젝트예요.")
     try:
-        moved = await asyncio.to_thread(asset_meta.move_assets, paths, project_id)
+        moved = await asyncio.to_thread(asset_meta.move_assets, paths, project_id, scope)
     except asset_meta.AssetNotFound:
         raise HTTPException(404, "결과물을 찾을 수 없어요.")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return {"moved": moved, "project_id": project_id}
 
 
 @app.post("/api/output-assets/tags")
 async def change_asset_tags_api(request: Request):
+    scope = auth.owner_scope(me(request))
     # 태그를 붙이고(add)/떼고(remove) 바뀐 결과물의 태그 목록을 돌려준다.
     body = await read_json_object(request, allow_empty=False)
     paths = _asset_paths_from(body)
@@ -2972,52 +3328,57 @@ async def change_asset_tags_api(request: Request):
         if key in body and not (isinstance(body[key], list) and all(isinstance(t, str) for t in body[key])):
             raise HTTPException(400, f"{key}는 문자열 목록이어야 해요.")
     try:
-        tags = await asyncio.to_thread(asset_meta.change_tags, paths, body.get("add"), body.get("remove"))
+        tags = await asyncio.to_thread(asset_meta.change_tags, paths, body.get("add"), body.get("remove"), scope)
     except asset_meta.AssetNotFound:
         raise HTTPException(404, "결과물을 찾을 수 없어요.")
     return {"tags": tags}
 
 
 @app.get("/api/tags")
-def list_tags_api():
+def list_tags_api(request: Request):
     # 태그 자동완성/필터 후보 — 결과물에 붙은 개수 순.
-    return {"tags": asset_meta.list_tags()}
+    return {"tags": asset_meta.list_tags(owner_id=auth.owner_scope(me(request)))}
 
 
 @app.post("/api/queue/start")
-def start_queue():
+def start_queue(request: Request):
     # 자동 실행 모드를 켠다 — 지금 대기 중인 작업을 전부 큐에 넣는 것은 물론,
     # 켜져 있는 동안 POST /api/upload로 새로 추가되는 작업도 계속 이어서 큐에
     # 들어간다. "⏸ 정지"를 누르기 전까지는 계속 켜져 있다.
     # 파드가 여러 개면 **사용 중인 파드 전부**를 켠다(화면의 "▶ 시작" 버튼 하나가
     # 전체를 켜는 것과 같다). 하나만 켜고 끄려면 /api/pods/{id}/queue/start를 쓴다.
-    pod_ids = [p["id"] for p in pod_registry.list_pods() if p.get("enabled")]
+    user = me(request)
+    pod_ids = [p["id"] for p in pod_registry.list_pods(user["id"]) if p.get("enabled")]   # 내 파드만
     started = start_pods(pod_ids)
     return {"running": True, "started": started, "pods": pod_ids}
 
 
 @app.post("/api/queue/stop")
-def stop_queue():
+def stop_queue(request: Request):
     # 자동 실행 모드를 끈다 — 이후 새로 추가되는 작업은 다시 "▶ 시작"을 누르기
     # 전까지 pending 상태로 대기 목록에만 쌓인다. 이미 큐에 들어가 있지만 아직 안 돈
     # 작업(queued)은 그대로 대기 상태로 남고(다음 "▶ 시작" 때 이어서 돎), 지금
     # 실행 중인(running) 작업들은 즉시 종료 요청한다 — 완전히 죽을 때까지 몇 초
     # 걸릴 수 있으니 job 상태가 "interrupted"로 바뀌는 건 GET /api/jobs로 잠시 후
     # 확인해야 한다.
+    user = me(request)
+    my_pod_ids = [p["id"] for p in pod_registry.list_pods(user["id"])]   # 내 파드만 멈춘다
+    stopped: list[str] = []
     with lock:
-        for rt in pod_runtimes.values():
-            rt.auto_run = False
-    stopped = stop_all_jobs()
+        for pid in my_pod_ids:
+            rt = pod_runtimes.get(pid)
+            if rt is not None:
+                rt.auto_run = False
+    for pid in my_pod_ids:
+        stopped.extend(stop_pod_jobs(pid))
     return {"running": False, "stopped_job_ids": stopped,
             "stopped_job_id": stopped[0] if stopped else None}
 
 
 @app.post("/api/pods/{pod_id}/queue/start")
-def start_pod_queue(pod_id: str):
+def start_pod_queue(pod_id: str, request: Request):
     """이 파드만 켠다 — 파드가 여러 대일 때 한 대씩 굴리기 위한 것."""
-    pod = pod_registry.get_pod(pod_id)
-    if pod is None:
-        raise HTTPException(404, "없는 파드예요.")
+    pod = pod_or_404(me(request), pod_id)
     if not pod.get("enabled"):
         raise HTTPException(400, f"'{pod['name']}' 파드는 지금 사용 안 함 상태예요.")
     ensure_runtime(pod)
@@ -3025,10 +3386,9 @@ def start_pod_queue(pod_id: str):
 
 
 @app.post("/api/pods/{pod_id}/queue/stop")
-def stop_pod_queue(pod_id: str):
+def stop_pod_queue(pod_id: str, request: Request):
     """이 파드만 멈춘다. 다른 파드는 계속 돈다."""
-    if pod_registry.get_pod(pod_id) is None:
-        raise HTTPException(404, "없는 파드예요.")
+    pod_or_404(me(request), pod_id)
     with lock:
         rt = pod_runtimes.get(pod_id)
         if rt is not None:
@@ -3037,7 +3397,7 @@ def stop_pod_queue(pod_id: str):
 
 
 @app.post("/api/jobs/clear-completed")
-def clear_completed_jobs(pod_id: str | None = None, project_id: str | None = None):
+def clear_completed_jobs(request: Request, pod_id: str | None = None, project_id: str | None = None):
     # 다 끝난 작업(성공/실패/중단)을 목록에서 한꺼번에 치우고 싶을 때 쓴다 —
     # delete_job()과 같은 소프트 삭제라 "삭제된 작업 설정 불러오기"로 실수로
     # 지운 작업도 되돌릴 수 있다. pending/queued/running은 여기서 건드리지
@@ -3047,12 +3407,14 @@ def clear_completed_jobs(pod_id: str | None = None, project_id: str | None = Non
     # 보여주므로("#pod/{id}/jobs"), 거기 있는 "완료 삭제"가 화면에 보이지도 않는
     # 다른 파드의 작업까지 지워버리면 안 된다. 프로젝트 화면의 "완료 삭제"도 같은 이유로
     # project_id를 주면 그 프로젝트 것만("unassigned"면 미분류) 치운다.
+    scope = job_scope(me(request))
     wanted_project = None
     if project_id is not None:
         wanted_project = "unassigned" if project_id == "unassigned" else parse_project_id(project_id)
     with lock:
         completed = [j for j in jobs.values()
                      if j["status"] in ("done", "failed", "interrupted") and not j.get("deleted")
+                     and owned(j, scope)
                      and (pod_id is None or j.get("pod_id") == pod_id)
                      and (wanted_project is None
                           or j.get("project_id") == (None if wanted_project == "unassigned" else wanted_project))]
@@ -3066,38 +3428,46 @@ def clear_completed_jobs(pod_id: str | None = None, project_id: str | None = Non
 
 
 @app.get("/api/jobs")
-def list_jobs(project_id: str | None = None):
-    # project_id를 주면 그 프로젝트 것만("unassigned"면 미분류) — 안 주면 전부.
+def list_jobs(request: Request, project_id: str | None = None):
+    # project_id를 주면 그 프로젝트 것만("unassigned"면 미분류) — 안 주면 전부(내 것 전부, admin은 모두의 것).
+    user = me(request)
+    scope = job_scope(user)
     wanted = None
     if project_id is not None:
         wanted = "unassigned" if project_id == "unassigned" else parse_project_id(project_id)
+    names = auth.usernames() if scope is None else {}
+    visible_pod_ids = {p["id"] for p in visible_pods_for(user)}
     with lock:
         ordered = sorted(
-            (j for j in jobs.values() if not j.get("deleted")
+            (j for j in jobs.values() if not j.get("deleted") and owned(j, scope)
              and (wanted is None or j.get("project_id") == (None if wanted == "unassigned" else wanted))),
             key=lambda j: j["queued_at"],
             reverse=True,
         )
+        if scope is None:   # 관리자에게는 누구 작업인지 알려 준다
+            ordered = [{**j, "owner_name": names.get(j.get("owner_id"))} for j in ordered]
         # 화면의 "▶ 시작/⏸ 정지" 버튼 하나는 "하나라도 돌고 있으면 켜진 것"으로 본다.
-        running = any(rt.auto_run for rt in pod_runtimes.values())
-        pending_count = sum(rt.queue.qsize() for rt in pod_runtimes.values())
+        my_runtimes = {pid: rt for pid, rt in pod_runtimes.items() if pid in visible_pod_ids}
+        running = any(rt.auto_run for rt in my_runtimes.values())
+        pending_count = sum(rt.queue.qsize() for rt in my_runtimes.values())
         per_pod = {
             pid: {"running": rt.auto_run, "pending_count": rt.queue.qsize(),
                   "running_jobs": list(rt.running)}
-            for pid, rt in pod_runtimes.items()
+            for pid, rt in my_runtimes.items()
         }
     return {"jobs": ordered, "pending_count": pending_count, "running": running,
             "pods": per_pod}
 
 
 @app.get("/api/jobs/deleted")
-def list_deleted_jobs():
+def list_deleted_jobs(request: Request):
     # "작업 목록"에서 삭제한 작업들 — 상단의 "삭제된 작업 설정 불러오기" 드롭다운을
     # 채우는 용도. 소프트 삭제이므로 워크플로우/CSV는 prune_deleted_jobs()가 지우기
     # 전까지 GET /api/jobs/{id}/workflow·csv로 계속 읽을 수 있다.
+    scope = job_scope(me(request))
     with lock:
         ordered = sorted(
-            (j for j in jobs.values() if j.get("deleted")),
+            (j for j in jobs.values() if j.get("deleted") and owned(j, scope)),
             key=lambda j: j.get("deleted_at") or "",
             reverse=True,
         )
@@ -3105,7 +3475,8 @@ def list_deleted_jobs():
 
 
 @app.get("/api/jobs/{job_id}/log")
-def job_log(job_id: str, tail: int = 200):
+def job_log(job_id: str, request: Request, tail: int = 200):
+    job_or_404(me(request), job_id)
     log_path = LOGS_DIR / f"{job_id}.log"
     if not log_path.exists():
         return {"log": ""}
@@ -3114,11 +3485,12 @@ def job_log(job_id: str, tail: int = 200):
 
 
 @app.get("/api/jobs/{job_id}/text-result")
-def job_text_result(job_id: str):
+def job_text_result(job_id: str, request: Request):
     """이미지가 아니라 글을 만드는 워커(claude_writer)의 결과 — 템플릿이 직접
     NIGHTSHIFT_OUTPUT_DIR/<job_id>/output.md에 써 둔 것을 그대로 읽어 돌려준다.
     파드 화면의 "📝 결과" 탭이 이걸 부른다. 파일이 없으면(아직 실행 전/실패)
     빈 문자열 — 로그(job_log)를 보라고 굳이 에러를 내지 않는다."""
+    job_or_404(me(request), job_id)
     path = Path(OUTPUT_DIR) / job_id / "output.md"
     if not path.is_file():
         return {"text": ""}
@@ -3130,6 +3502,9 @@ async def update_job_progress(job_id: str, request: Request):
     # 실행 중인 템플릿 스크립트가 자기 진행 상황(전체/완료 이미지 수)을 스스로 보고하는
     # 용도. 매 이미지마다 호출될 수 있어 디스크 쓰기(save_state)는 하지 않고 메모리만 갱신한다
     # — 서버가 재시작되면 어차피 그 작업은 interrupted 처리되어 진행률의 의미가 없어진다.
+    # 작업 스크립트(내부 토큰) 아니면 관리자만 — 진행률을 남이 바꿀 이유가 없다.
+    if not request.state.internal:
+        admin_only(request)
     body = await request.body()
     try:
         data = json.loads(body.decode("utf-8"))
@@ -3150,7 +3525,9 @@ async def update_job_progress(job_id: str, request: Request):
     return {"ok": True}
 
 
-def read_job_attachment(job_id: str, field: str, missing_msg: str) -> str:
+def read_job_attachment(job_id: str, field: str, missing_msg: str, user: dict | None = None) -> str:
+    if user is not None:
+        job_or_404(user, job_id)
     with lock:
         job = jobs.get(job_id)
         if not job:
@@ -3166,6 +3543,7 @@ def read_job_attachment(job_id: str, field: str, missing_msg: str) -> str:
 
 
 async def write_job_attachment(job_id: str, field: str, request: Request, validate, missing_msg: str):
+    job_or_404(me(request), job_id)
     body = await request.body()
     try:
         text = body.decode("utf-8")
@@ -3203,8 +3581,8 @@ def validate_csv_text(text: str):
 
 
 @app.get("/api/jobs/{job_id}/workflow")
-def get_job_workflow(job_id: str):
-    text = read_job_attachment(job_id, "workflow_filename", "워크플로우 파일이 없어요.")
+def get_job_workflow(job_id: str, request: Request):
+    text = read_job_attachment(job_id, "workflow_filename", "워크플로우 파일이 없어요.", me(request))
     return Response(content=text, media_type="application/json")
 
 
@@ -3215,8 +3593,8 @@ async def update_job_workflow(job_id: str, request: Request):
 
 
 @app.get("/api/jobs/{job_id}/video-workflow")
-def get_job_video_workflow(job_id: str):
-    text = read_job_attachment(job_id, "video_workflow_filename", "영상 생성 워크플로우 파일이 없어요.")
+def get_job_video_workflow(job_id: str, request: Request):
+    text = read_job_attachment(job_id, "video_workflow_filename", "영상 생성 워크플로우 파일이 없어요.", me(request))
     return Response(content=text, media_type="application/json")
 
 
@@ -3227,8 +3605,8 @@ async def update_job_video_workflow(job_id: str, request: Request):
 
 
 @app.get("/api/jobs/{job_id}/csv")
-def get_job_csv(job_id: str):
-    text = read_job_attachment(job_id, "csv_filename", "CSV 파일이 없어요.")
+def get_job_csv(job_id: str, request: Request):
+    text = read_job_attachment(job_id, "csv_filename", "CSV 파일이 없어요.", me(request))
     return Response(content=text, media_type="text/csv")
 
 
@@ -3239,7 +3617,8 @@ async def update_job_csv(job_id: str, request: Request):
 
 
 @app.post("/api/jobs/{job_id}/retry")
-def retry_job(job_id: str):
+def retry_job(job_id: str, request: Request):
+    job_or_404(me(request), job_id)
     # 서버가 재시작되면서 queued/running이던 작업이 interrupted로 남았을 때, 처음부터
     # 새로 등록할 필요 없이 그 자리에서 다시 큐에 올린다. 워크플로우/CSV/옵션은 이미
     # JOBS_DIR에 남아있는 원래 값을 그대로 재사용한다. auto_run(▶ 시작/⏸ 정지) 상태와
@@ -3272,12 +3651,15 @@ async def move_job(job_id: str, request: Request):
     이미 큐에 들어간(queued) 작업도 옮길 수 있다 — 파이썬 큐에서 꺼내 빼는 건 불가능하지만,
     워커가 작업을 꺼낼 때 "이 작업이 아직 내 것인가"를 확인하고 아니면 원래 주인에게
     다시 배차하기 때문이다(pod_worker_loop/wait_for_pod). 실행 중인 작업은 옮길 수 없다."""
+    user = me(request)
+    source_job = job_or_404(user, job_id)
     data = await read_json_object(request, allow_empty=False)
     target_id = (data.get("pod_id") or "").strip()
     if not target_id:
         raise HTTPException(400, "옮길 파드(pod_id)를 지정해주세요.")
     target = pod_registry.get_pod(target_id)
-    if target is None:
+    # 작업은 그 작업의 주인의 파드로만 옮길 수 있다.
+    if target is None or target.get("owner_id") != source_job.get("owner_id"):
         raise HTTPException(404, "없는 파드예요.")
     if not target.get("enabled"):
         raise HTTPException(400, f"'{target['name']}' 파드는 지금 사용 안 함 상태예요.")
@@ -3304,7 +3686,8 @@ async def move_job(job_id: str, request: Request):
 
 
 @app.delete("/api/jobs/{job_id}")
-def delete_job(job_id: str):
+def delete_job(job_id: str, request: Request):
+    job_or_404(me(request), job_id)
     with lock:
         job = jobs.get(job_id)
         if not job or job.get("deleted"):
@@ -3347,18 +3730,24 @@ async def send_email(request: Request):
         raise HTTPException(400, "메일당 최대 용량(MB)은 1 이상의 정수여야 해요.")
 
     try:
-        result = await asyncio.to_thread(send_output_images, smtp_user, smtp_password, to_email, max_mb)
+        result = await asyncio.to_thread(send_output_images, smtp_user, smtp_password, to_email, max_mb,
+                                         None, asset_meta.owned_paths(me(request)["id"]))   # 내 이미지만
     except EmailSendError as e:
         raise HTTPException(400, str(e))
     return result
 
 
-def _meta_resolver():
+def _own_paths(user: dict) -> set[str] | None:
+    """이 회원이 손댈 수 있는 결과물 경로 집합 — 관리자는 None(전부)."""
+    return None if auth.is_admin(user) else asset_meta.owned_paths(user["id"])
+
+
+def _meta_resolver(owner_id: int | None = None):
     """갤러리 항목에 붙일 결과물 메타(프로젝트·즐겨찾기·평점·태그)를 돌려주는 함수를 만든다
     (name, job_id) -> dict. 결과물 색인(assets)이 진실이고, 아직 색인에 없는 새 파일은 그 job의
     프로젝트만 물려받은 기본값으로 본다."""
     try:
-        by_path = asset_meta.meta_by_path()
+        by_path = asset_meta.meta_by_path(owner_id)
     except Exception:
         by_path = {}
 
@@ -3376,11 +3765,13 @@ def _meta_resolver():
     return resolve
 
 
-def list_output_images_meta() -> list[dict]:
+def list_output_images_meta(user: dict) -> list[dict]:
+    scope = auth.owner_scope(user)   # 일반 회원에게는 자기 결과물만 보인다
+    names = auth.usernames() if scope is None else {}
     # 갤러리 탭을 채우는 용도. zip/이메일 발송과 달리 폴더가 비어 있거나 아직 없는 것도
     # 정상 상태로 취급한다(뭔가 있어야 의미 있는 동작이 아니라, 그냥 목록을 보여줄 뿐이므로).
     try:
-        files = list_output_images(OUTPUT_DIR)
+        files = list_output_images(OUTPUT_DIR, only_paths=_own_paths(user))
     except OutputFolderError:
         return []
     base = Path(OUTPUT_DIR)
@@ -3389,7 +3780,7 @@ def list_output_images_meta() -> list[dict]:
     # "⬇ 결과 가져오기"가 남긴 동기화 기록(comfy_output_sync.json)에 이제 파드
     # 정보가 있으니, job_id가 없을 때 쓸 수 있게 같이 넘긴다.
     pod_ids = synced_pod_ids()
-    meta_of = _meta_resolver()
+    meta_of = _meta_resolver(scope)
     items = []
     for f in files:
         stat = f.stat()
@@ -3420,20 +3811,25 @@ def list_output_images_meta() -> list[dict]:
             "width": width,
             "height": height,
         })
+    if scope is None:   # 관리자에게는 누구 것인지 알려 준다
+        for it in items:
+            it["owner_name"] = names.get(it.get("owner_id"))
     items.sort(key=lambda item: item["mtime"], reverse=True)
     return items
 
 
 @app.get("/api/output-images")
-def list_output_images_api(q: str | None = None, tag: str | None = None,
+def list_output_images_api(request: Request, q: str | None = None, tag: str | None = None,
                            favorite: bool | None = None, min_rating: int | None = None):
     # 갤러리가 4초마다 부르는 곳 — 색인(assets)이 디스크와 어긋나지 않게 짧은 간격
     # 안에서는 건너뛰는 sync를 같이 돌린다(회전/삭제/직접 넣은 파일이 여기서 따라잡힌다).
     # q(프롬프트·메모·태그·파일명·체크포인트·시드)/tag(쉼표로 여러 개, 모두 붙은 것)/favorite/
     # min_rating을 주면 그 조건에 맞는 것만 남긴다.
     _sync_assets_quietly()
-    items = list_output_images_meta()
-    allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="image")
+    user = me(request)
+    items = list_output_images_meta(user)
+    allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="image",
+                                      owner_id=auth.owner_scope(user))
     if allowed is not None:
         items = [i for i in items if i["name"] in allowed]
     return {"images": items}
@@ -3456,6 +3852,7 @@ async def read_json_object(request: Request, allow_empty: bool = True) -> dict:
 
 @app.post("/api/comfy-outputs/sync")
 async def sync_comfy_outputs(request: Request):
+    user = me(request)
     # 원격 ComfyUI가 만든 결과 이미지를 로컬 출력 폴더로 끌어온다(comfy_outputs.py).
     # 작업이 끝날 때마다 자동으로도 돌지만(pull_outputs 설정), pod를 껐다 켠 뒤 밀린
     # 것을 한꺼번에 받거나 설정을 뒤늦게 켠 경우를 위해 수동으로도 돌릴 수 있다.
@@ -3463,18 +3860,20 @@ async def sync_comfy_outputs(request: Request):
     job_id = (data.get("job_id") or "").strip() or None
     force = bool(data.get("force"))
     pod_id = (data.get("pod_id") or "").strip() or None
+    if job_id:
+        job_or_404(user, job_id)
 
     # pod_id를 주면 그 파드에서 가져온다(파드 갤러리의 "⬇ 결과 가져오기") — 안 주면
-    # 예전처럼 기본 파드([헤더의 연결 상태 배지]·전역 갤러리가 여기 해당한다).
+    # 이 회원의 기본 파드에서 가져온다(전역 갤러리가 여기 해당한다).
     if pod_id:
-        pod = pod_registry.get_pod(pod_id)
-        if pod is None:
-            raise HTTPException(404, "없는 파드예요.")
-        health = await asyncio.to_thread(driver_for(pod).health, pod)
-        url, connected = health["url"], health["ok"]
+        pod = pod_or_404(user, pod_id)
     else:
-        pod_id = pod_registry.default_pod()["id"]
-        url, connected = await asyncio.to_thread(resolve_comfy_url)
+        pod = default_pod_for_user(user)
+        if pod is None:
+            raise HTTPException(400, "파드가 아직 없어요. 파드 화면에서 먼저 추가해 주세요.")
+        pod_id = pod["id"]
+    health = await asyncio.to_thread(driver_for(pod).health, pod)
+    url, connected = health["url"], health["ok"]
     if not url or not connected:
         raise HTTPException(503, "ComfyUI에 연결할 수 없어 결과 이미지를 가져올 수 없어요.")
     try:
@@ -3486,13 +3885,30 @@ async def sync_comfy_outputs(request: Request):
 
 @app.post("/api/comfy-outputs/forget")
 async def forget_comfy_outputs(request: Request):
+    user = me(request)
     # "한 번 받아온 이미지"라는 기록을 지운다 — 지운 이미지가 다음 동기화에서 되살아나지
     # 않게 하는 것이 이 기록의 목적이므로, 정말 다시 받고 싶을 때만 쓰는 탈출구다.
     # (한 번만 다시 받으면 되는 경우라면 sync의 force=true가 더 간단하다.)
     data = await read_json_object(request)
     job_id = (data.get("job_id") or "").strip() or None
+    # 기록은 서버 전체가 함께 쓰는 것이라, 작업 하나(내 것)만 지우거나 관리자가 전체를 지울 때만 허용한다.
+    if job_id:
+        job_or_404(user, job_id)
+    else:
+        admin_only(request)
     removed = await asyncio.to_thread(forget_downloaded, job_id)
     return {"forgotten": removed, **sync_state_summary()}
+
+
+def _require_output_owner(rel_path: str, not_found: str) -> None:
+    """결과 파일 하나에 접근해도 되는지 — 관리자는 전부, 일반 회원은 자기 것만(남의 것은 없는 것처럼 404)."""
+    user = auth.current_user.get()
+    if user is None:
+        raise HTTPException(401, "로그인이 필요해요.")
+    if auth.is_admin(user):
+        return
+    if assets_index.owner_of(rel_path) != user["id"]:
+        raise HTTPException(404, not_found)
 
 
 def resolve_output_image(filename: str) -> Path:
@@ -3508,6 +3924,7 @@ def resolve_output_image(filename: str) -> Path:
         raise HTTPException(400, "올바르지 않은 파일명이에요.")
     if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
         raise HTTPException(404, "이미지를 찾을 수 없어요.")
+    _require_output_owner(path.relative_to(base).as_posix(), "이미지를 찾을 수 없어요.")
     return path
 
 
@@ -3626,17 +4043,18 @@ def build_zip_from_paths(paths: list[Path], rotate_landscape: bool = False) -> P
     return tmp_path
 
 
-def build_output_zip() -> Path:
-    files = find_image_files(OUTPUT_DIR)
+def build_output_zip(only_paths: set[str] | None = None) -> Path:
+    files = find_image_files(OUTPUT_DIR, only_paths)
     return build_zip_from_paths(files)
 
 
 @app.get("/api/download-images")
-async def download_images():
+async def download_images(request: Request):
+    only = asset_meta.owned_paths(me(request)["id"])
     # 압축은 시간이 걸릴 수 있으니 이벤트 루프를 막지 않게 스레드에서 처리하고,
     # 임시로 만든 zip 파일은 응답이 끝난 뒤 백그라운드에서 지운다.
     try:
-        zip_path = await asyncio.to_thread(build_output_zip)
+        zip_path = await asyncio.to_thread(build_output_zip, only)
     except EmailSendError as e:
         raise HTTPException(404, str(e))
 
@@ -3680,10 +4098,11 @@ async def download_selected_images(request: Request):
 
 
 @app.delete("/api/output-images")
-async def delete_images():
+async def delete_images(request: Request):
+    only = asset_meta.owned_paths(me(request)["id"])
     # 되돌릴 수 없는 삭제라서, 확인 절차는 프론트엔드(버튼 클릭 시 confirm 창)가 맡는다.
     try:
-        deleted = await asyncio.to_thread(delete_output_images, OUTPUT_DIR)
+        deleted = await asyncio.to_thread(delete_output_images, OUTPUT_DIR, only)
     except OutputFolderError as e:
         raise HTTPException(404, str(e))
     return {"deleted": deleted}
@@ -3741,9 +4160,10 @@ async def rotate_selected_images(request: Request):
 
 
 @app.post("/api/output-images/rotate-landscape")
-async def rotate_images():
+async def rotate_images(request: Request):
+    only = asset_meta.owned_paths(me(request)["id"])
     try:
-        result = await asyncio.to_thread(rotate_landscape_images, OUTPUT_DIR)
+        result = await asyncio.to_thread(rotate_landscape_images, OUTPUT_DIR, only)
     except OutputFolderError as e:
         raise HTTPException(404, str(e))
     return result
@@ -3783,17 +4203,19 @@ async def download_selected_images_rotated(request: Request):
     )
 
 
-def list_output_videos_meta() -> list[dict]:
+def list_output_videos_meta(user: dict) -> list[dict]:
+    scope = auth.owner_scope(user)
+    names = auth.usernames() if scope is None else {}
     # 영상 갤러리 탭을 채우는 용도. 이미지와 같은 출력 폴더를 보되 동영상 확장자만
     # 걸러낸다 — width/height는 ffprobe 없이는 못 읽으므로(의도적으로 새 시스템
     # 의존성을 추가하지 않기로 함) 내지 않는다. 자세히 보기가 없는 이유도 같다.
     try:
-        files = list_output_videos(OUTPUT_DIR)
+        files = list_output_videos(OUTPUT_DIR, only_paths=_own_paths(user))
     except OutputFolderError:
         return []
     base = Path(OUTPUT_DIR)
     pod_ids = synced_pod_ids()  # list_output_images_meta 참고 — job_id 없는 영상용.
-    meta_of = _meta_resolver()
+    meta_of = _meta_resolver(scope)
     items = []
     for f in files:
         stat = f.stat()
@@ -3808,16 +4230,21 @@ def list_output_videos_meta() -> list[dict]:
             "size": stat.st_size,
             "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
         })
+    if scope is None:   # 관리자에게는 누구 것인지 알려 준다
+        for it in items:
+            it["owner_name"] = names.get(it.get("owner_id"))
     items.sort(key=lambda item: item["mtime"], reverse=True)
     return items
 
 
 @app.get("/api/output-videos")
-def list_output_videos_api(q: str | None = None, tag: str | None = None,
+def list_output_videos_api(request: Request, q: str | None = None, tag: str | None = None,
                            favorite: bool | None = None, min_rating: int | None = None):
     _sync_assets_quietly()
-    items = list_output_videos_meta()
-    allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="video")
+    user = me(request)
+    items = list_output_videos_meta(user)
+    allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="video",
+                                      owner_id=auth.owner_scope(user))
     if allowed is not None:
         items = [i for i in items if i["name"] in allowed]
     return {"videos": items}
@@ -3833,6 +4260,7 @@ def resolve_output_video(filename: str) -> Path:
         raise HTTPException(400, "올바르지 않은 파일명이에요.")
     if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
         raise HTTPException(404, "동영상을 찾을 수 없어요.")
+    _require_output_owner(path.relative_to(base).as_posix(), "동영상을 찾을 수 없어요.")
     return path
 
 
@@ -3849,15 +4277,16 @@ def delete_output_video(filename: str):
     return {"ok": True}
 
 
-def build_output_video_zip() -> Path:
-    files = find_video_files(OUTPUT_DIR)
+def build_output_video_zip(only_paths: set[str] | None = None) -> Path:
+    files = find_video_files(OUTPUT_DIR, only_paths)
     return build_zip_from_paths(files)
 
 
 @app.get("/api/download-videos")
-async def download_videos():
+async def download_videos(request: Request):
+    only = asset_meta.owned_paths(me(request)["id"])
     try:
-        zip_path = await asyncio.to_thread(build_output_video_zip)
+        zip_path = await asyncio.to_thread(build_output_video_zip, only)
     except OutputFolderError as e:
         raise HTTPException(404, str(e))
 
@@ -3899,9 +4328,10 @@ async def download_selected_videos(request: Request):
 
 
 @app.delete("/api/output-videos")
-async def delete_videos():
+async def delete_videos(request: Request):
+    only = asset_meta.owned_paths(me(request)["id"])
     try:
-        deleted = await asyncio.to_thread(delete_output_videos, OUTPUT_DIR)
+        deleted = await asyncio.to_thread(delete_output_videos, OUTPUT_DIR, only)
     except OutputFolderError as e:
         raise HTTPException(404, str(e))
     return {"deleted": deleted}
@@ -3934,6 +4364,7 @@ def get_danbooru_tag_edits():
 
 @app.put("/api/danbooru/tag-edits")
 async def put_danbooru_tag_edits(request: Request):
+    admin_only(request)
     # 프론트엔드가 편집 상태 전체({categoryKey: {added, removed}})를 매번 통째로
     # 보내서 그대로 덮어쓴다 — 카테고리가 많지 않고 편집도 잦지 않아 부분 patch를
     # 둘 이유가 없다.

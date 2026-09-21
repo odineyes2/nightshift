@@ -14,7 +14,7 @@
 1. 파드에서 최신 코드 받기: `git pull` (`mcp_server.py`, `mcp_smoke_test.py`가 있는지 확인)
 2. 의존성 설치: `pip install -r requirements.txt` (`fastmcp`, `httpx`가 새로 추가됨)
 3. `.env` 확인/설정 (`.env.example` 참고):
-   - `NIGHTSHIFT_API_KEY`를 쓰고 있다면 `JOB_QUEUE_API_KEY`에 **같은 값**을 넣을 것
+   - 로그인할 회원의 `JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD`를 넣을 것(그 회원의 권한 범위 안에서만 도구가 동작)
    - `JOB_QUEUE_BASE_URL`은 같은 머신이면 비워둬도 됨(기본 `http://127.0.0.1:8000`)
    - `MCP_SERVER_PORT`는 비워두면 8001
 4. `npm run restart` (이미 pm2로 떠 있었다면) 또는 `npm start` (처음이면) — `ecosystem.config.js`에

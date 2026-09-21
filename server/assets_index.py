@@ -123,6 +123,29 @@ def _iso(mtime: float) -> str:
     return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
 
+def owner_of(path: str):
+    """결과물(출력 폴더 기준 상대 경로)의 주인 id. 색인에 없으면 한 번 색인을 맞춰 본 뒤에도 없을 때 None."""
+    query = "SELECT owner_id FROM assets WHERE path=? AND deleted_at IS NULL"
+    with db.connect() as conn:
+        row = conn.execute(query, (path,)).fetchone()
+    if row is None:
+        sync()   # 방금 생긴 파일일 수 있다(짧은 간격 안이면 건너뛴다)
+        with db.connect() as conn:
+            row = conn.execute(query, (path,)).fetchone()
+    return row["owner_id"] if row else None
+
+
+def _pod_owner(pod_id):
+    if not pod_id:
+        return None
+    try:
+        import pod_registry
+        pod = pod_registry.get_pod(pod_id)
+        return pod.get("owner_id") if pod else None
+    except Exception:
+        return None
+
+
 def _origin_pods() -> dict:
     try:
         from comfy_outputs import synced_pod_ids
@@ -156,7 +179,9 @@ def sync(force: bool = False) -> dict | None:
             rows = {r["path"]: r for r in conn.execute(
                 "SELECT id, path, size_bytes, mtime_ns, deleted_at FROM assets")}
             live_rows = sum(1 for r in rows.values() if r["deleted_at"] is None)
-            job_projects = {r["id"]: r["project_id"] for r in conn.execute("SELECT id, project_id FROM jobs")}
+            job_rows = {r["id"]: (r["project_id"], r["owner_id"])
+                        for r in conn.execute("SELECT id, project_id, owner_id FROM jobs")}
+            job_projects = {jid: v[0] for jid, v in job_rows.items()}
             for path, (f, kind) in found.items():
                 try:
                     st = f.stat()
@@ -177,14 +202,16 @@ def sync(force: bool = False) -> dict | None:
                 if row is None:
                     parts = path.split("/")
                     job_id = parts[0] if len(parts) > 1 and parts[0] in job_projects else None
+                    # 주인: 그 작업을 만든 회원, 작업이 없으면(ComfyUI에서 직접 만든 것) 받아온 파드의 주인.
+                    owner_id = job_rows[job_id][1] if job_id else _pod_owner(origins.get(path))
                     conn.execute(
                         """INSERT INTO assets(path, kind, project_id, job_id, size_bytes, mtime_ns, width, height,
                                created_at, seed, prompt, negative_prompt, checkpoint, params_json,
-                               origin_pod_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                               origin_pod_id, owner_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (path, kind, job_projects.get(job_id) if job_id else None, job_id,
                          st.st_size, st.st_mtime_ns, width, height, _iso(st.st_mtime),
                          meta.get("seed"), meta.get("prompt"), meta.get("negative_prompt"),
-                         meta.get("checkpoint"), meta.get("params_json"), origins.get(path)),
+                         meta.get("checkpoint"), meta.get("params_json"), origins.get(path), owner_id),
                     )
                     added += 1
                 elif need_probe or row["deleted_at"] is not None:

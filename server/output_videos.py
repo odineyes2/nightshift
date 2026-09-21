@@ -13,12 +13,12 @@ OutputFolderError는 output_images.py의 것을 그대로 쓴다 — "출력 폴
 
 from pathlib import Path
 
-from output_images import OUTPUT_DIR, OutputFolderError  # noqa: F401 (재노출 — app.py가 여기서 가져다 씀)
+from output_images import OUTPUT_DIR, OutputFolderError, keep_only  # noqa: F401 (재노출 — app.py가 여기서 가져다 씀)
 
 VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".m4v"}
 
 
-def list_output_videos(search_dir: str | None = None) -> list[Path]:
+def list_output_videos(search_dir: str | None = None, only_paths: set[str] | None = None) -> list[Path]:
     """search_dir(기본 OUTPUT_DIR)의 동영상 파일 목록. 이미지와 같은 폴더 구조를
     쓰므로(작업별 하위 폴더 포함) 하위 폴더까지 재귀적으로 훑는다. 폴더 자체가
     없으면 에러, 동영상이 0개면 빈 리스트를 돌려준다."""
@@ -26,24 +26,24 @@ def list_output_videos(search_dir: str | None = None) -> list[Path]:
     d = Path(search_dir)
     if not d.exists():
         raise OutputFolderError(f"폴더를 찾을 수 없습니다: {search_dir}")
-    return [
+    return keep_only([
         p for p in sorted(d.rglob("*"))
         if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS
-    ]
+    ], search_dir, only_paths)
 
 
-def delete_output_videos(search_dir: str | None = None) -> int:
+def delete_output_videos(search_dir: str | None = None, only_paths: set[str] | None = None) -> int:
     """search_dir의 동영상 파일을 모두 지우고 지운 개수를 반환한다."""
-    files = list_output_videos(search_dir)
+    files = list_output_videos(search_dir, only_paths)
     for f in files:
         f.unlink()
     return len(files)
 
 
-def find_video_files(search_dir: str) -> list[Path]:
+def find_video_files(search_dir: str, only_paths: set[str] | None = None) -> list[Path]:
     """list_output_videos와 같지만, 동영상이 하나도 없으면 에러로 취급한다
     (zip 전체 다운로드처럼 '뭔가 있어야' 의미 있는 동작에서 사용)."""
-    files = list_output_videos(search_dir)
+    files = list_output_videos(search_dir, only_paths)
     if not files:
         raise OutputFolderError(f"{search_dir}에서 동영상 파일을 찾지 못했습니다.")
     return files

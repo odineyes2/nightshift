@@ -48,36 +48,47 @@ def _row(r) -> dict:
     return d
 
 
-def list_projects(include_archived: bool = False) -> list[dict]:
+def list_projects(include_archived: bool = False, owner_id: int | None = None) -> list[dict]:
+    """owner_id를 주면 그 회원의 프로젝트만(admin은 None으로 전부)."""
+    where, params = [], []
+    if not include_archived:
+        where.append("p.archived_at IS NULL")
+    if owner_id is not None:
+        where.append("p.owner_id = ?"); params.append(owner_id)
     with db.connect() as conn:
         rows = conn.execute(
-            _STATS_SQL + ("" if include_archived else " WHERE p.archived_at IS NULL")
-            + " ORDER BY last_activity DESC, p.id DESC"
+            _STATS_SQL + (" WHERE " + " AND ".join(where) if where else "")
+            + " ORDER BY last_activity DESC, p.id DESC", params
         ).fetchall()
     return [_row(r) for r in rows]
 
 
-def unassigned_summary() -> dict:
+def unassigned_summary(owner_id: int | None = None) -> dict:
+    """"미분류"(프로젝트 없는 것) 요약. owner_id를 주면 그 회원 것만, 없으면(admin) 전부."""
+    jo = " AND owner_id = ?" if owner_id is not None else ""
+    ao = " AND owner_id = ?" if owner_id is not None else ""
+    args = (owner_id,) if owner_id is not None else ()
     with db.connect() as conn:
         job_count = conn.execute(
-            "SELECT COUNT(*) FROM jobs WHERE project_id IS NULL AND deleted_at IS NULL").fetchone()[0]
+            "SELECT COUNT(*) FROM jobs WHERE project_id IS NULL AND deleted_at IS NULL" + jo, args).fetchone()[0]
         active = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE project_id IS NULL AND deleted_at IS NULL "
-            "AND status IN ('queued','running')").fetchone()[0]
+            "AND status IN ('queued','running')" + jo, args).fetchone()[0]
         asset_count = conn.execute(
-            "SELECT COUNT(*) FROM assets WHERE project_id IS NULL AND deleted_at IS NULL").fetchone()[0]
+            "SELECT COUNT(*) FROM assets WHERE project_id IS NULL AND deleted_at IS NULL" + ao, args).fetchone()[0]
         cover = conn.execute(
-            "SELECT path FROM assets WHERE project_id IS NULL AND kind='image' AND deleted_at IS NULL "
-            "ORDER BY created_at DESC LIMIT 1").fetchone()
+            "SELECT path FROM assets WHERE project_id IS NULL AND kind='image' AND deleted_at IS NULL" + ao +
+            " ORDER BY created_at DESC LIMIT 1", args).fetchone()
         favorites = conn.execute(
-            "SELECT COUNT(*) FROM assets WHERE project_id IS NULL AND deleted_at IS NULL AND favorite = 1").fetchone()[0]
+            "SELECT COUNT(*) FROM assets WHERE project_id IS NULL AND deleted_at IS NULL AND favorite = 1" + ao,
+            args).fetchone()[0]
         cost = conn.execute(
             "SELECT COALESCE(SUM((julianday(finished_at) - julianday(started_at)) * 24.0 * pod_cost_per_hr), 0) "
             "FROM jobs WHERE project_id IS NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL "
-            "AND pod_cost_per_hr IS NOT NULL").fetchone()[0]
+            "AND pod_cost_per_hr IS NOT NULL" + jo, args).fetchone()[0]
         uncosted = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE project_id IS NULL AND started_at IS NOT NULL "
-            "AND finished_at IS NOT NULL AND pod_cost_per_hr IS NULL").fetchone()[0]
+            "AND finished_at IS NOT NULL AND pod_cost_per_hr IS NULL" + jo, args).fetchone()[0]
     return {"job_count": job_count, "active_jobs": active, "asset_count": asset_count,
             "favorite_count": favorites, "est_cost": cost, "uncosted_jobs": uncosted,
             "cover_path": cover["path"] if cover else None}
@@ -89,19 +100,30 @@ def get_project(project_id: int) -> dict | None:
     return _row(r) if r else None
 
 
-def project_exists(project_id) -> bool:
+def project_exists(project_id, owner_id: int | None = None) -> bool:
+    """프로젝트가 있는가. owner_id를 주면 그 회원의 프로젝트일 때만 True."""
     if not isinstance(project_id, int) or isinstance(project_id, bool):
         return False
     with db.connect() as conn:
-        return conn.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone() is not None
+        row = conn.execute("SELECT owner_id FROM projects WHERE id=?", (project_id,)).fetchone()
+    if row is None:
+        return False
+    return owner_id is None or row["owner_id"] == owner_id
 
 
-def create_project(name: str, description: str = "", defaults: dict | None = None) -> dict:
+def project_owner(project_id: int):
+    """프로젝트의 주인 id (없는 프로젝트면 예외 대신 (False, None))."""
+    with db.connect() as conn:
+        row = conn.execute("SELECT owner_id FROM projects WHERE id=?", (project_id,)).fetchone()
+    return (row is not None, row["owner_id"] if row else None)
+
+
+def create_project(name: str, description: str = "", defaults: dict | None = None, owner_id: int | None = None) -> dict:
     now = db.now_iso()
     with db.connect() as conn:
         cur = conn.execute(
-            "INSERT INTO projects(name, description, defaults_json, created_at, updated_at) VALUES(?,?,?,?,?)",
-            (name, description, json.dumps(defaults or {}, ensure_ascii=False), now, now),
+            "INSERT INTO projects(name, description, defaults_json, created_at, updated_at, owner_id) VALUES(?,?,?,?,?,?)",
+            (name, description, json.dumps(defaults or {}, ensure_ascii=False), now, now, owner_id),
         )
         project_id = cur.lastrowid
     return get_project(project_id)

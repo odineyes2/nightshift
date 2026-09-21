@@ -54,11 +54,21 @@ def _tags_for(conn, asset_ids: list[int]) -> dict[int, list[str]]:
     return out
 
 
-def meta_by_path() -> dict[str, dict]:
-    """{경로: {asset_id, favorite, rating, tags}} — 갤러리 목록이 항목마다 붙일 때 쓴다."""
+def owned_paths(owner_id: int) -> set[str]:
+    """그 회원의 결과물 경로 집합 — 일반 회원이 볼 수 있는 파일의 범위."""
+    with db.connect() as conn:
+        return {r["path"] for r in conn.execute(
+            "SELECT path FROM assets WHERE owner_id=? AND deleted_at IS NULL", (owner_id,))}
+
+
+def meta_by_path(owner_id: int | None = None) -> dict[str, dict]:
+    """{경로: {asset_id, favorite, rating, tags, owner_id}} — 갤러리 목록이 항목마다 붙일 때 쓴다.
+    owner_id를 주면 그 회원 것만."""
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT id, path, favorite, rating, project_id FROM assets WHERE deleted_at IS NULL").fetchall()
+            "SELECT id, path, favorite, rating, project_id, owner_id FROM assets WHERE deleted_at IS NULL"
+            + (" AND owner_id = ?" if owner_id is not None else ""),
+            (owner_id,) if owner_id is not None else ()).fetchall()
         tags = {}
         for r in conn.execute(
             "SELECT at.asset_id, t.name FROM asset_tags at JOIN tags t ON t.id = at.tag_id "
@@ -66,14 +76,16 @@ def meta_by_path() -> dict[str, dict]:
             tags.setdefault(r["asset_id"], []).append(r["name"])
     return {
         r["path"]: {"asset_id": r["id"], "favorite": bool(r["favorite"]), "rating": r["rating"],
-                    "project_id": r["project_id"], "tags": tags.get(r["id"], [])}
+                    "project_id": r["project_id"], "owner_id": r["owner_id"], "tags": tags.get(r["id"], [])}
         for r in rows
     }
 
 
 def _build_where(q=None, tags=None, favorite=None, min_rating=None, kind=None,
-                 project=None, job_id=None) -> tuple[list[str], list]:
+                 project=None, job_id=None, owner_id=None) -> tuple[list[str], list]:
     where, params = ["a.deleted_at IS NULL"], []
+    if owner_id is not None:
+        where.append("a.owner_id = ?"); params.append(owner_id)
     if project == "unassigned":
         where.append("a.project_id IS NULL")
     elif project is not None:
@@ -103,20 +115,20 @@ def _build_where(q=None, tags=None, favorite=None, min_rating=None, kind=None,
 
 
 def search_paths(q: str | None = None, tags: list[str] | None = None, favorite: bool | None = None,
-                 min_rating: int | None = None, kind: str | None = None) -> set[str] | None:
+                 min_rating: int | None = None, kind: str | None = None, owner_id: int | None = None) -> set[str] | None:
     """조건에 맞는 경로 집합. 조건이 하나도 없으면 None(거르지 않음) — 갤러리 목록이 쓴다."""
     if not (q or "").split() and not normalize_tags(tags) and favorite is None and not min_rating and kind is None:
         return None
-    where, params = _build_where(q, tags, favorite, min_rating, kind)
+    where, params = _build_where(q, tags, favorite, min_rating, kind, owner_id=owner_id)
     with db.connect() as conn:
         rows = conn.execute("SELECT a.path FROM assets a WHERE " + " AND ".join(where), params).fetchall()
     return {r["path"] for r in rows}
 
 
 def list_assets(q=None, tags=None, favorite=None, min_rating=None, kind=None, project=None,
-                job_id=None, limit: int = 200, offset: int = 0) -> list[dict]:
+                job_id=None, limit: int = 200, offset: int = 0, owner_id=None) -> list[dict]:
     """결과물 색인 조회(태그 포함). project: 프로젝트 id 또는 "unassigned"."""
-    where, params = _build_where(q, tags, favorite, min_rating, kind, project, job_id)
+    where, params = _build_where(q, tags, favorite, min_rating, kind, project, job_id, owner_id)
     with db.connect() as conn:
         rows = conn.execute(
             "SELECT a.* FROM assets a WHERE " + " AND ".join(where)
@@ -131,12 +143,13 @@ def list_assets(q=None, tags=None, favorite=None, min_rating=None, kind=None, pr
     return out
 
 
-def _asset_ids(conn, paths: list[str]) -> dict[str, int]:
-    """경로 -> id. 없는 경로가 하나라도 있으면 AssetNotFound(호출부가 미리 _ensure_indexed 한다)."""
+def _asset_ids(conn, paths: list[str], owner_id: int | None = None) -> dict[str, int]:
+    """경로 -> id. 없는 경로(또는 owner_id를 줬을 때 그 회원 것이 아닌 경로)가 하나라도 있으면
+    AssetNotFound(호출부가 미리 _ensure_indexed 한다)."""
     ids: dict[str, int] = {}
     for p in paths:
-        r = conn.execute("SELECT id FROM assets WHERE path=? AND deleted_at IS NULL", (p,)).fetchone()
-        if r is None:
+        r = conn.execute("SELECT id, owner_id FROM assets WHERE path=? AND deleted_at IS NULL", (p,)).fetchone()
+        if r is None or (owner_id is not None and r["owner_id"] != owner_id):
             raise AssetNotFound(p)
         ids[p] = r["id"]
     return ids
@@ -147,14 +160,14 @@ def _ensure_indexed(paths: list[str]) -> None:
         known = {r["path"] for r in conn.execute(
             f"SELECT path FROM assets WHERE deleted_at IS NULL AND path IN ({','.join('?' * len(paths))})", paths)}
     if any(p not in known for p in paths):
-        assets_index.sync(force=True)
+        assets_index.sync()   # 짧은 간격 안이면 건너뛴다(없는 경로로 계속 조르는 요청이 전체 스캔을 반복시키지 못하게)
 
 
-def get_detail(path: str) -> dict:
+def get_detail(path: str, owner_id: int | None = None) -> dict:
     _ensure_indexed([path])
     with db.connect() as conn:
         r = conn.execute("SELECT * FROM assets WHERE path=? AND deleted_at IS NULL", (path,)).fetchone()
-        if r is None:
+        if r is None or (owner_id is not None and r["owner_id"] != owner_id):
             raise AssetNotFound(path)
         detail = dict(r)
         detail["tags"] = _tags_for(conn, [r["id"]])[r["id"]]
@@ -166,7 +179,7 @@ def get_detail(path: str) -> dict:
     return detail
 
 
-def update_assets(paths: list[str], favorite=None, rating="unset", note=None) -> int:
+def update_assets(paths: list[str], favorite=None, rating="unset", note=None, owner_id: int | None = None) -> int:
     """즐겨찾기/평점/메모를 바꾼다. rating은 0~5(0/None이면 평점 없음), 안 넘기면 그대로."""
     paths = list(dict.fromkeys(paths))
     if not paths:
@@ -185,13 +198,13 @@ def update_assets(paths: list[str], favorite=None, rating="unset", note=None) ->
     if not sets:
         return 0
     with db.connect() as conn:
-        ids = _asset_ids(conn, paths)
+        ids = _asset_ids(conn, paths, owner_id)
         marks = ",".join("?" * len(ids))
         cur = conn.execute(f"UPDATE assets SET {', '.join(sets)} WHERE id IN ({marks})", (*params, *ids.values()))
         return cur.rowcount
 
 
-def move_assets(paths: list[str], project_id: int | None) -> int:
+def move_assets(paths: list[str], project_id: int | None, owner_id: int | None = None) -> int:
     """결과물을 다른 프로젝트(None이면 미분류)로 옮긴다. 파일은 그대로고 색인만 바뀐다 —
     만든 작업(job)의 프로젝트는 건드리지 않는다(그 작업의 다른 결과물은 제자리에 남는다)."""
     paths = list(dict.fromkeys(paths))
@@ -199,13 +212,20 @@ def move_assets(paths: list[str], project_id: int | None) -> int:
         return 0
     _ensure_indexed(paths)
     with db.connect() as conn:
-        ids = _asset_ids(conn, paths)
+        ids = _asset_ids(conn, paths, owner_id)
         marks = ",".join("?" * len(ids))
+        if project_id is not None:
+            # 결과물은 그 결과물의 주인의 프로젝트로만 옮길 수 있다.
+            mismatched = conn.execute(
+                f"SELECT 1 FROM assets a, projects p WHERE p.id = ? AND a.id IN ({marks}) "
+                "AND COALESCE(a.owner_id, -1) != COALESCE(p.owner_id, -1) LIMIT 1", (project_id, *ids.values())).fetchone()
+            if mismatched:
+                raise ValueError("다른 회원의 프로젝트로는 옮길 수 없어요.")
         cur = conn.execute(f"UPDATE assets SET project_id=? WHERE id IN ({marks})", (project_id, *ids.values()))
         return cur.rowcount
 
 
-def change_tags(paths: list[str], add=None, remove=None) -> dict[str, list[str]]:
+def change_tags(paths: list[str], add=None, remove=None, owner_id: int | None = None) -> dict[str, list[str]]:
     """여러 결과물에 태그를 붙이고/뗀다. 바뀐 결과물의 태그 목록을 {경로: [태그]}로 돌려준다."""
     paths = list(dict.fromkeys(paths))
     add, remove = normalize_tags(add), normalize_tags(remove)
@@ -213,7 +233,7 @@ def change_tags(paths: list[str], add=None, remove=None) -> dict[str, list[str]]
         return {}
     _ensure_indexed(paths)
     with db.connect() as conn:
-        ids = _asset_ids(conn, paths)
+        ids = _asset_ids(conn, paths, owner_id)
         for name in add:
             conn.execute("INSERT OR IGNORE INTO tags(name) VALUES(?)", (name,))
             tag_id = conn.execute("SELECT id FROM tags WHERE name=? COLLATE NOCASE", (name,)).fetchone()["id"]
@@ -230,10 +250,13 @@ def change_tags(paths: list[str], add=None, remove=None) -> dict[str, list[str]]
     return {p: tags[i] for p, i in ids.items()}
 
 
-def list_tags(limit: int = 500) -> list[dict]:
+def list_tags(limit: int = 500, owner_id: int | None = None) -> list[dict]:
+    """태그 목록(붙은 개수 순). owner_id를 주면 그 회원의 결과물에 붙은 것만 센다."""
     with db.connect() as conn:
         rows = conn.execute(
             "SELECT t.name, COUNT(*) AS count FROM tags t "
             "JOIN asset_tags at ON at.tag_id = t.id JOIN assets a ON a.id = at.asset_id AND a.deleted_at IS NULL "
-            "GROUP BY t.id ORDER BY count DESC, t.name COLLATE NOCASE LIMIT ?", (limit,)).fetchall()
+            + ("AND a.owner_id = ? " if owner_id is not None else "") +
+            "GROUP BY t.id ORDER BY count DESC, t.name COLLATE NOCASE LIMIT ?",
+            ((owner_id, limit) if owner_id is not None else (limit,))).fetchall()
     return [{"name": r["name"], "count": r["count"]} for r in rows]

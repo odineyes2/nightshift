@@ -14,7 +14,7 @@
 
 주의:
     이 템플릿은 정의상 임의 명령을 실행한다. 셸 파드 자체가 NIGHTSHIFT_ENABLE_SHELL_PODS로
-    막혀 있고(기본 꺼짐), 그 위에 NIGHTSHIFT_API_KEY까지 걸어두는 것을 강하게 권한다.
+    막혀 있고(기본 꺼짐) 켜도 관리자만 만들 수 있다.
 
 환경변수 (nightshift가 주입한다):
     COMMAND            실행할 명령 (필수)

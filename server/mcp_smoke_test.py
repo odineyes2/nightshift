@@ -7,7 +7,7 @@ mcp_server.py가 실제 nightshift(app.py) + ComfyUI에 대고 정상 동작하�
 사용법:
     # mcp_server.py를 따로 안 띄우고, 이 스크립트가 도구 함수를 직접 호출
     # (app.py에만 붙으면 됨 — 기본은 http://127.0.0.1:8000, 필요하면
-    # JOB_QUEUE_BASE_URL/JOB_QUEUE_API_KEY 환경변수로 바꾸세요)
+    # JOB_QUEUE_BASE_URL, 로그인은 JOB_QUEUE_USER/JOB_QUEUE_PASSWORD 환경변수)
     python3 mcp_smoke_test.py
 
     # mcp_server.py를 실제로 streamable-http로 띄워둔 상태에서, 그 URL로

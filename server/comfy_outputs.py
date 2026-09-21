@@ -245,6 +245,17 @@ def _download(comfy_url: str, item: dict, dest: Path, timeout: float):
     os.replace(tmp, dest)
 
 
+# 원격에서 받은 항목이 로컬에서 어느 경로가 될지 정하는 훅(app.py가 시작할 때 꽂는다). 회원마다 자기 파드가 있으면
+# 서로 다른 ComfyUI가 같은 이름("ComfyUI_00001_.png")의 파일을 만들 수 있고, 원격 서버가 남의 작업 폴더 이름을
+# 내세울 수도 있으므로 — (item, pod_id) -> 로컬 키, 받으면 안 되는 항목이면 None.
+_key_mapper = None
+
+
+def set_key_mapper(fn) -> None:
+    global _key_mapper
+    _key_mapper = fn
+
+
 def sync_outputs(
     comfy_url: str,
     output_dir: str | None = None,
@@ -283,7 +294,10 @@ def sync_outputs(
         known = state["downloaded"]
 
         for item in items:
-            key = item["key"]
+            key = _key_mapper(item, pod_id) if _key_mapper else item["key"]
+            if key is None:
+                skipped_invalid += 1
+                continue
             if not force and key in known:
                 skipped_known += 1
                 if pod_id and _entry_pod_id(known[key]) is None:

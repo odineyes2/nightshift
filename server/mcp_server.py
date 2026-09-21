@@ -15,8 +15,9 @@ app.py(FastAPI) 자체는 건드리지 않는다 — 여기서는 그 REST API�
     JOB_QUEUE_BASE_URL  app.py가 떠 있는 주소 (기본 http://127.0.0.1:8000 —
                         같은 머신에서 돈다면 내부 주소를 쓰는 게 RunPod 프록시
                         URL보다 빠르고 안정적이다)
-    JOB_QUEUE_API_KEY   app.py에 NIGHTSHIFT_API_KEY를 설정해뒀다면 같은 값
-                        (설정 안 했으면 비워둠 — 그러면 헤더 자체를 안 보냄)
+    JOB_QUEUE_USER      app.py에 로그인할 회원 아이디 (API 키 방식은 없어졌다 — 사람과 같은 로그인이다)
+    JOB_QUEUE_PASSWORD  그 회원의 비밀번호. 이 회원의 권한·소유 범위 안에서만 도구가 동작한다
+                        (일반 회원이면 자기 프로젝트/작업/결과물/파드만 보인다)
     MCP_SERVER_PORT     이 MCP 서버가 뜰 포트 (기본 8001, app.py의 8000과 겹치면 안 됨)
 """
 
@@ -34,7 +35,10 @@ from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
 
 BASE_URL = os.environ.get("JOB_QUEUE_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
-API_KEY = os.environ.get("JOB_QUEUE_API_KEY", "").strip()
+USERNAME = os.environ.get("JOB_QUEUE_USER", "").strip()
+PASSWORD = os.environ.get("JOB_QUEUE_PASSWORD", "")
+SESSION_COOKIE = "ns_session"
+_session_token: str | None = None
 
 # 상태/목록 조회류는 가볍게 10초, 워크플로우 빌드나 잡 등록처럼 서버 쪽에서
 # 검증 작업(ComfyUI 조회 등)이 걸릴 수 있는 호출은 30초로 넉넉하게 잡는다.
@@ -44,12 +48,32 @@ HEAVY_TIMEOUT = 30.0
 TERMINAL_JOB_STATUSES = {"done", "failed", "interrupted"}
 
 
-def _headers() -> dict:
-    return {"X-API-Key": API_KEY} if API_KEY else {}
+def _login() -> str | None:
+    """app.py에 로그인해 세션 토큰을 받는다(실패하면 None — 그러면 호출이 401 안내로 끝난다)."""
+    global _session_token
+    if not USERNAME or not PASSWORD:
+        return None
+    try:
+        resp = httpx.post(f"{BASE_URL}/api/auth/login", json={"username": USERNAME, "password": PASSWORD},
+                          headers={"X-Requested-With": "nightshift"}, timeout=STATUS_TIMEOUT)
+    except httpx.HTTPError:
+        return None
+    _session_token = resp.cookies.get(SESSION_COOKIE) if resp.status_code == 200 else None
+    return _session_token
+
+
+async def _forget_expired_session(resp: httpx.Response) -> None:
+    # 세션이 끝났으면(401) 토큰을 버려서 다음 호출이 다시 로그인하게 한다.
+    global _session_token
+    if resp.status_code == 401:
+        _session_token = None
 
 
 def _client(timeout: float) -> httpx.AsyncClient:
-    return httpx.AsyncClient(base_url=BASE_URL, headers=_headers(), timeout=timeout)
+    token = _session_token or _login()
+    cookies = {SESSION_COOKIE: token} if token else None
+    return httpx.AsyncClient(base_url=BASE_URL, headers={"X-Requested-With": "nightshift"}, cookies=cookies,
+                             timeout=timeout, event_hooks={"response": [_forget_expired_session]})
 
 
 def _error_from_response(resp: httpx.Response) -> dict:

@@ -72,6 +72,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REF_KINDS = ("pose", "depth", "lineart")
+import auth  # noqa: E402  (회원별 폴더를 고르려고)
+
 ASSETS_DIR = os.environ.get("NIGHTSHIFT_ASSETS_DIR", "/workspace/dataset/assets")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
@@ -110,10 +112,29 @@ def _validate_kind(kind: str) -> str:
     return kind
 
 
+def assets_root_for(owner_id: int | None) -> Path:
+    """그 회원의 참조 이미지 상위 폴더 — 관리자(None)는 예전 그대로, 일반 회원은 users/<id>/ 아래."""
+    return Path(ASSETS_DIR) if owner_id is None else Path(ASSETS_DIR) / "users" / str(owner_id)
+
+
+def job_env_for_owner(owner_id: int | None) -> dict[str, str]:
+    """일반 회원의 작업이 자기 폴더의 참조/입력 이미지만 보게 하는 환경변수(관리자는 비어 있다)."""
+    if owner_id is None:
+        return {}
+    import input_assets
+    root = assets_root_for(owner_id)
+    env = {"NIGHTSHIFT_ASSETS_DIR": str(root), "NIGHTSHIFT_INPUT_IMAGES_DIR": str(input_assets.input_dir_for(owner_id))}
+    env.update({name: str(root / kind) for kind, name in _KIND_ENV_OVERRIDE.items()})
+    return env
+
+
 def kind_dir(kind: str) -> Path:
     """이 종류(kind)의 루트 폴더. 종류별 override 환경변수가 있으면 그걸 그대로
-    쓰고(레거시 NIGHTSHIFT_POSES_DIR 등), 없으면 ASSETS_DIR/<kind>를 쓴다."""
+    쓰고(레거시 NIGHTSHIFT_POSES_DIR 등), 없으면 ASSETS_DIR/<kind>를 쓴다. 일반 회원은 자기 폴더 것만."""
     _validate_kind(kind)
+    user = auth.current_user.get()
+    if user is not None and not auth.is_admin(user):
+        return assets_root_for(user["id"]) / kind
     override = os.environ.get(_KIND_ENV_OVERRIDE[kind])
     if override:
         return Path(override)

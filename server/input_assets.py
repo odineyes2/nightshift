@@ -35,6 +35,8 @@ i2v/flf2v) 작업의 "이미지 선택" 단계가 쓴다.
 import os
 from pathlib import Path
 
+import auth
+
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
@@ -42,12 +44,24 @@ class InputAssetError(Exception):
     """입력 이미지 이름이 올바르지 않거나 찾을 수 없을 때."""
 
 
-def input_images_dir() -> Path:
+def _root_input_dir() -> Path:
     override = os.environ.get("NIGHTSHIFT_INPUT_IMAGES_DIR")
     if override:
         return Path(override)
     assets_dir = os.environ.get("NIGHTSHIFT_ASSETS_DIR", "/workspace/dataset/assets")
     return Path(assets_dir) / "input"
+
+
+def input_dir_for(owner_id: int | None) -> Path:
+    """그 회원의 입력 이미지 폴더 — 관리자(None)는 예전 그대로 루트, 일반 회원은 users/<id>/ 아래(서로 안 보인다)."""
+    root = _root_input_dir()
+    return root if owner_id is None else root / "users" / str(owner_id)
+
+
+def input_images_dir() -> Path:
+    """지금 요청을 보낸 회원의 입력 이미지 폴더."""
+    user = auth.current_user.get()
+    return input_dir_for(None if user is None or auth.is_admin(user) else user["id"])
 
 
 def list_input_images() -> list[dict]:
