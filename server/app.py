@@ -1951,6 +1951,13 @@ async def model_inventory(request: Request, refresh: bool = False):
     return {"pods": list(results)}
 
 
+@app.get("/api/models/usage")
+def model_usage_api(request: Request):
+    """모델별 사용 통계 — 내 결과물(관리자는 전체)에 박힌 메타를 세어서 돌려준다."""
+    _sync_assets_quietly()
+    return {"usage": asset_meta.model_usage(owner_id=auth.owner_scope(me(request)))}
+
+
 @app.get("/api/models")
 def get_model_registry():
     """모델 등록부 — 파일 종류 목록과 지금까지 정보를 적어 둔 항목들. 어느 파드에 뭐가 설치돼
@@ -3927,7 +3934,8 @@ def list_output_images_meta(user: dict) -> list[dict]:
 
 @app.get("/api/output-images")
 def list_output_images_api(request: Request, q: str | None = None, tag: str | None = None,
-                           favorite: bool | None = None, min_rating: int | None = None):
+                           favorite: bool | None = None, min_rating: int | None = None,
+                           model: str | None = None):
     # 갤러리가 4초마다 부르는 곳 — 색인(assets)이 디스크와 어긋나지 않게 짧은 간격
     # 안에서는 건너뛰는 sync를 같이 돌린다(회전/삭제/직접 넣은 파일이 여기서 따라잡힌다).
     # q(프롬프트·메모·태그·파일명·체크포인트·시드)/tag(쉼표로 여러 개, 모두 붙은 것)/favorite/
@@ -3936,7 +3944,7 @@ def list_output_images_api(request: Request, q: str | None = None, tag: str | No
     user = me(request)
     items = list_output_images_meta(user)
     allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="image",
-                                      owner_id=auth.owner_scope(user))
+                                      owner_id=auth.owner_scope(user), model=model or None)
     if allowed is not None:
         items = [i for i in items if i["name"] in allowed]
     return {"images": items}
@@ -4346,12 +4354,13 @@ def list_output_videos_meta(user: dict) -> list[dict]:
 
 @app.get("/api/output-videos")
 def list_output_videos_api(request: Request, q: str | None = None, tag: str | None = None,
-                           favorite: bool | None = None, min_rating: int | None = None):
+                           favorite: bool | None = None, min_rating: int | None = None,
+                           model: str | None = None):
     _sync_assets_quietly()
     user = me(request)
     items = list_output_videos_meta(user)
     allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="video",
-                                      owner_id=auth.owner_scope(user))
+                                      owner_id=auth.owner_scope(user), model=model or None)
     if allowed is not None:
         items = [i for i in items if i["name"] in allowed]
     return {"videos": items}

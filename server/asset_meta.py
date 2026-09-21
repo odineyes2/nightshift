@@ -10,6 +10,7 @@ favorite/rating/note 와 tags 를 읽고 쓴다. 경로(OUTPUT_DIR 기준 상대
 충분히 빠르다. 규모가 커지면 FTS5(trigram)로 바꿀 수 있게 검색을 search_paths() 한 곳에 모아 뒀다.
 """
 
+import json
 import re
 
 import assets_index
@@ -82,8 +83,12 @@ def meta_by_path(owner_id: int | None = None) -> dict[str, dict]:
 
 
 def _build_where(q=None, tags=None, favorite=None, min_rating=None, kind=None,
-                 project=None, job_id=None, owner_id=None) -> tuple[list[str], list]:
+                 project=None, job_id=None, owner_id=None, model=None) -> tuple[list[str], list]:
     where, params = ["a.deleted_at IS NULL"], []
+    if model:
+        # 체크포인트 칸이거나, params_json 안에 그 파일명이 따옴표째(JSON 문자열로) 들어 있는 것.
+        where.append("(a.checkpoint = ? OR a.params_json LIKE ? ESCAPE '\\')")
+        params.extend([model, _like(json.dumps(model, ensure_ascii=False))])
     if owner_id is not None:
         where.append("a.owner_id = ?"); params.append(owner_id)
     if project == "unassigned":
@@ -115,11 +120,13 @@ def _build_where(q=None, tags=None, favorite=None, min_rating=None, kind=None,
 
 
 def search_paths(q: str | None = None, tags: list[str] | None = None, favorite: bool | None = None,
-                 min_rating: int | None = None, kind: str | None = None, owner_id: int | None = None) -> set[str] | None:
+                 min_rating: int | None = None, kind: str | None = None, owner_id: int | None = None,
+                 model: str | None = None) -> set[str] | None:
     """조건에 맞는 경로 집합. 조건이 하나도 없으면 None(거르지 않음) — 갤러리 목록이 쓴다."""
-    if not (q or "").split() and not normalize_tags(tags) and favorite is None and not min_rating and kind is None:
+    if (not (q or "").split() and not normalize_tags(tags) and favorite is None and not min_rating
+            and kind is None and not model):
         return None
-    where, params = _build_where(q, tags, favorite, min_rating, kind, owner_id=owner_id)
+    where, params = _build_where(q, tags, favorite, min_rating, kind, owner_id=owner_id, model=model)
     with db.connect() as conn:
         rows = conn.execute("SELECT a.path FROM assets a WHERE " + " AND ".join(where), params).fetchall()
     return {r["path"] for r in rows}
@@ -260,3 +267,49 @@ def list_tags(limit: int = 500, owner_id: int | None = None) -> list[dict]:
             "GROUP BY t.id ORDER BY count DESC, t.name COLLATE NOCASE LIMIT ?",
             ((owner_id, limit) if owner_id is not None else (limit,))).fetchall()
     return [{"name": r["name"], "count": r["count"]} for r in rows]
+
+
+# 결과물 메타에서 모델 종류별로 이름을 뽑는 곳 — 등록부(model_registry.KINDS)의 키와 같다.
+_USAGE_PARAM_KEYS = {"loras": "loras", "diffusion_models": "unets", "vae": "vaes", "text_encoders": "text_encoders"}
+
+
+def model_usage(owner_id: int | None = None, samples: int = 4) -> list[dict]:
+    """모델(종류+파일명)별로 그 모델로 만든 결과물 수·마지막 사용·즐겨찾기 수와 대표 결과물(즐겨찾기·평점 높은 순).
+    작업 파일이 아니라 결과물에 박힌 메타(체크포인트/LoRA/UNet/VAE/텍스트 인코더)로 세므로, ComfyUI에서 직접
+    만든 결과물도 잡힌다. 메타가 없는 결과물은 어디에도 안 잡힌다."""
+    query = ("SELECT path, kind, checkpoint, params_json, created_at, favorite, rating FROM assets "
+             "WHERE deleted_at IS NULL AND (checkpoint IS NOT NULL OR params_json IS NOT NULL)")
+    params: list = []
+    if owner_id is not None:
+        query += " AND owner_id = ?"
+        params.append(owner_id)
+    query += " ORDER BY favorite DESC, COALESCE(rating, 0) DESC, created_at DESC"
+    with db.connect() as conn:
+        rows = conn.execute(query, params).fetchall()
+    usage: dict[tuple[str, str], dict] = {}
+
+    def add(kind: str, name: str, row) -> None:
+        u = usage.setdefault((kind, name), {
+            "kind": kind, "filename": name, "count": 0, "images": 0, "videos": 0,
+            "favorites": 0, "last_used": None, "samples": []})
+        u["count"] += 1
+        u["images" if row["kind"] == "image" else "videos"] += 1
+        u["favorites"] += 1 if row["favorite"] else 0
+        if u["last_used"] is None or row["created_at"] > u["last_used"]:
+            u["last_used"] = row["created_at"]
+        if len(u["samples"]) < samples:
+            u["samples"].append({"path": row["path"], "kind": row["kind"]})
+
+    for r in rows:
+        if r["checkpoint"]:
+            add("checkpoints", r["checkpoint"], r)
+        if r["params_json"]:
+            try:
+                params_data = json.loads(r["params_json"])
+            except ValueError:
+                continue
+            for kind, key in _USAGE_PARAM_KEYS.items():
+                for name in params_data.get(key) or []:
+                    if isinstance(name, str):
+                        add(kind, name, r)
+    return sorted(usage.values(), key=lambda u: (-u["count"], u["kind"], u["filename"].lower()))

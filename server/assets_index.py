@@ -76,7 +76,59 @@ def extract_comfy_meta(img: Image.Image) -> dict:
         raw = (getattr(img, "text", None) or img.info or {}).get("prompt")
         if not raw:
             return {}
-        graph = json.loads(raw)
+        return meta_from_graph(json.loads(raw))
+    except Exception:
+        return {}
+
+
+_HEAD_TAIL_BYTES = 4 * 1024 * 1024
+# mp4 ilst의 data 아톰 머리(타입 1=UTF-8, 로케일 0) — SaveVideo가 프롬프트 JSON을 이 바로 뒤에 넣는다.
+_ILST_DATA = b"data" + bytes([0, 0, 0, 1, 0, 0, 0, 0])
+
+
+def extract_video_meta(path: Path) -> dict:
+    """VHS 등이 mp4 안에 "PROMPT" 표식과 함께 넣어 주는 프롬프트 그래프(JSON)를 찾아 읽는다.
+    영상 하나가 수십~수백 MB일 수 있어 앞·뒤 4MB만 훑는다(메타데이터는 보통 그 안에 있다)."""
+    try:
+        size = path.stat().st_size
+        with open(path, "rb") as f:
+            chunks = [f.read(_HEAD_TAIL_BYTES)]
+            if size > 2 * _HEAD_TAIL_BYTES:
+                f.seek(size - _HEAD_TAIL_BYTES)
+                chunks.append(f.read(_HEAD_TAIL_BYTES))
+        decoder = json.JSONDecoder()
+        for data in chunks:
+            # 두 가지 배치: VHS가 넣는 "PROMPT" 표식 뒤, 그리고 mp4 ilst의 data 아톰(ComfyUI SaveVideo) 바로 뒤.
+            starts = []
+            for marker, window in ((b"PROMPT", 64), (_ILST_DATA, 0)):
+                pos = 0
+                while (i := data.find(marker, pos)) >= 0:
+                    if window:
+                        j = data.find(b'{"', i, i + window)
+                    else:
+                        j = i + len(marker) if data[i + len(marker):i + len(marker) + 1] == b"{" else -1
+                    if j >= 0:
+                        starts.append(j)
+                    pos = i + len(marker)
+            for j in starts:
+                try:
+                    graph, _ = decoder.raw_decode(data[j:].decode("utf-8", errors="ignore"))
+                except ValueError:
+                    continue
+                meta = meta_from_graph(graph)
+                if meta:
+                    return meta
+    except Exception:
+        pass
+    return {}
+
+
+# 로더 노드의 입력 이름 -> params_json에 넣을 목록 이름. 체크포인트는 checkpoint 칸에 따로 둔다.
+_MODEL_INPUTS = (("lora_name", "loras"), ("unet_name", "unets"), ("vae_name", "vaes"), ("clip_name", "text_encoders"))
+
+
+def meta_from_graph(graph) -> dict:
+    try:
         if not isinstance(graph, dict):
             return {}
         nodes = [n for n in graph.values() if isinstance(n, dict) and isinstance(n.get("inputs"), dict)]
@@ -105,15 +157,16 @@ def extract_comfy_meta(img: Image.Image) -> dict:
             if seed is not None:
                 meta["seed"] = seed
                 break
-        loras = []
+        used: dict[str, list] = {}
         for n in nodes:
             inputs = n["inputs"]
             if isinstance(inputs.get("ckpt_name"), str) and "checkpoint" not in meta:
                 meta["checkpoint"] = inputs["ckpt_name"]
-            if isinstance(inputs.get("lora_name"), str):
-                loras.append(inputs["lora_name"])
-        if loras:
-            params["loras"] = loras
+            for field, key in _MODEL_INPUTS:
+                value = inputs.get(field)
+                if isinstance(value, str) and value and value not in used.setdefault(key, []):
+                    used[key].append(value)
+        params.update({k: v for k, v in used.items() if v})
         if params:
             meta["params_json"] = json.dumps(params, ensure_ascii=False)
         return meta
@@ -175,6 +228,43 @@ def _origin_pods() -> dict:
         return {}
 
 
+_BACKFILL_KEY = "asset_model_meta_v1"
+
+
+def _backfill_model_meta(found: dict) -> None:
+    """예전에 색인한 결과물에는 UNet/VAE/텍스트 인코더 이름이 없고(영상은 아예 메타를 안 읽었다), 그래서
+    모델별 사용 통계가 비어 보인다. DB마다 한 번만 파일을 다시 읽어 그 칸들을 채운다.
+    이미 값이 있는 seed/prompt/checkpoint는 그대로 두고 비어 있는 것만 채운다."""
+    with db.connect() as conn:
+        if db.get_meta(conn, _BACKFILL_KEY):
+            return
+        rows = conn.execute("SELECT id, path, kind, seed, prompt, negative_prompt, checkpoint FROM assets "
+                            "WHERE deleted_at IS NULL").fetchall()
+        for r in rows:
+            item = found.get(r["path"])
+            if item is None:
+                continue
+            f, kind = item
+            meta: dict = {}
+            try:
+                if kind == "video":
+                    meta = extract_video_meta(f)
+                else:
+                    with Image.open(f) as img:
+                        meta = extract_comfy_meta(img)
+            except Exception:
+                continue
+            if not meta:
+                continue
+            conn.execute(
+                "UPDATE assets SET params_json=COALESCE(?, params_json), checkpoint=COALESCE(checkpoint, ?), "
+                "seed=COALESCE(seed, ?), prompt=COALESCE(prompt, ?), negative_prompt=COALESCE(negative_prompt, ?) "
+                "WHERE id=?",
+                (meta.get("params_json"), meta.get("checkpoint"), meta.get("seed"),
+                 meta.get("prompt"), meta.get("negative_prompt"), r["id"]))
+        db.set_meta(conn, _BACKFILL_KEY, db.now_iso())
+
+
 def sync(force: bool = False) -> dict | None:
     """출력 폴더와 assets를 맞춘다. 결과 요약을 돌려주고, 건너뛰었으면 None."""
     global _last_sync
@@ -227,6 +317,8 @@ def sync(force: bool = False) -> dict | None:
                                 meta = extract_comfy_meta(img)
                     except Exception:
                         pass
+                if row is None and kind == "video":
+                    meta = extract_video_meta(f)
                 if row is None:
                     parts = path.split("/")
                     job_id = parts[0] if len(parts) > 1 and parts[0] in job_projects else None
@@ -256,6 +348,7 @@ def sync(force: bool = False) -> dict | None:
                     if path not in found and row["deleted_at"] is None:
                         conn.execute("UPDATE assets SET deleted_at=? WHERE id=?", (now, row["id"]))
                         removed += 1
+        _backfill_model_meta(found)
         _last_sync = time.monotonic()
         return {"added": added, "updated": updated, "removed": removed, "total": len(found)}
     finally:

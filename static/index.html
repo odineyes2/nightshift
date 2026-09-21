@@ -1504,6 +1504,15 @@
   .inv-cell.yes{ color:var(--done); }
   .inv-cell.no{ color:var(--failed); }
   .inv-cell.off{ color:var(--text-dim); }
+  .model-filter-row{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .model-badge.used{ color:var(--done); border-color:var(--done); }
+  .model-usage{ display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+  .model-usage-stats{ font-family:var(--mono); font-size:12px; color:var(--text-dim); }
+  .model-samples{ display:flex; flex-wrap:wrap; gap:6px; }
+  .model-sample{ width:72px; height:72px; object-fit:cover; border-radius:6px; border:1px solid var(--border); background:var(--bg); }
+  .model-usage-actions{ display:flex; flex-wrap:wrap; gap:6px; }
+  .gf-model-chip{ font-family:var(--mono); font-size:11px; border:1px solid var(--queued); border-radius:999px; padding:3px 10px;
+    max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .model-editor{ display:flex; flex-direction:column; gap:10px; padding:4px 12px 12px; border-top:1px solid var(--border); }
   .model-field{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-dim); margin-top:6px; }
   .model-field .option-input{ max-width:none; }
@@ -3047,6 +3056,7 @@
         <select class="pod-bar-select" id="gf-image-rating" title="평점으로 거르기" aria-label="평점">
           <option value="0">평점 전체</option><option value="3">★ 3 이상</option><option value="4">★ 4 이상</option><option value="5">★ 5</option>
         </select>
+        <span class="gf-model-chip" id="gf-image-model" hidden></span>
         <button class="modal-btn-secondary" id="gf-image-clear" type="button" style="display:none;" title="필터 지우기"><svg class="ico"><use href="#i-x"/></svg> 필터 지우기</button>
       </div>
       <div class="gallery-toolbar" id="gallery-toolbar" style="display:none;">
@@ -3103,6 +3113,7 @@
         <select class="pod-bar-select" id="gf-video-rating" title="평점으로 거르기" aria-label="평점">
           <option value="0">평점 전체</option><option value="3">★ 3 이상</option><option value="4">★ 4 이상</option><option value="5">★ 5</option>
         </select>
+        <span class="gf-model-chip" id="gf-video-model" hidden></span>
         <button class="modal-btn-secondary" id="gf-video-clear" type="button" style="display:none;" title="필터 지우기"><svg class="ico"><use href="#i-x"/></svg> 필터 지우기</button>
       </div>
       <div class="gallery-toolbar" id="video-gallery-toolbar" style="display:none;">
@@ -3363,7 +3374,12 @@
         긍정 프롬프트에 자동으로 붙어요)와 호환 베이스 모델을 정할 수 있고, 호환 베이스 모델을 하나도 안 고르면 모든 베이스 모델과
         호환되는 것으로 취급돼요. "미설치"는 등록은 돼 있지만 지금 보고 있는 파드에는 없는 모델이에요.</div>
       <div class="model-kind-tabs" id="model-kind-tabs"></div>
-      <input type="text" class="option-input" id="lora-tab-filter" placeholder="이름·계열·태그·메모로 거르기" style="width:100%; max-width:320px;">
+      <div class="model-filter-row">
+        <input type="text" class="option-input" id="lora-tab-filter" placeholder="이름·계열·태그·메모로 거르기" style="width:100%; max-width:320px;">
+        <select class="pod-bar-select" id="model-sort" title="정렬" aria-label="정렬">
+          <option value="name">이름순</option><option value="count">많이 쓴 순</option><option value="recent">최근 사용순</option>
+        </select>
+      </div>
       <div class="upload-error" id="lora-tab-error"></div>
       <div id="lora-tab-list"></div>
     </div>
@@ -6184,6 +6200,51 @@ async function fetchModelRegistry(){
   }
 }
 
+let modelUsage = {};   // modelKey -> {count, images, videos, favorites, last_used, samples}
+let modelSort = 'name';
+
+async function fetchModelUsage(){
+  try{
+    const res = await fetch('/api/models/usage');
+    if(!res.ok) return;
+    modelUsage = {};
+    for(const u of (await res.json()).usage || []) modelUsage[modelKey(u.kind, u.filename)] = u;
+  }catch(e){ /* 통계가 안 보일 뿐이다 */ }
+}
+
+function usageOf(kind, name){ return modelUsage[modelKey(kind, name)] || null; }
+
+function openGalleryForModel(name, mediaKind){
+  const isVideo = mediaKind === 'video';
+  const filters = isVideo ? videoGalleryFilters : galleryFilters;
+  const prefix = isVideo ? 'video' : 'image';
+  Object.assign(filters, { q: '', favorite: false, tag: '', minRating: 0, model: name });
+  document.getElementById(`gf-${prefix}-q`).value = '';
+  document.getElementById(`gf-${prefix}-tag`).value = '';
+  document.getElementById(`gf-${prefix}-rating`).value = '0';
+  const fav = document.getElementById(`gf-${prefix}-fav`);
+  fav.classList.remove('on'); fav.setAttribute('aria-pressed', 'false');
+  galleryFilterSyncs[prefix]();
+  location.hash = isVideo ? '#video-gallery' : '#gallery';
+  if(isVideo) fetchGalleryVideos(); else fetchGalleryImages();
+}
+
+function usageHtml(kind, name){
+  const u = usageOf(kind, name);
+  if(!u) return '<div class="model-usage"><div class="comfy-model-empty">이 모델로 만든 결과물(메타가 남아 있는 것)이 아직 없어요.</div></div>';
+  const thumbs = (u.samples || []).map(sm => sm.kind === 'video'
+    ? `<video class="model-sample" muted preload="metadata" src="${window.__nightshiftMediaUrl(`/api/output-videos/${encodeURI(sm.path)}`)}#t=0.1"></video>`
+    : `<img class="model-sample" loading="lazy" alt="" src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(sm.path)}/thumbnail?size=200&fit=cover`)}">`).join('');
+  const btns = [];
+  if(u.images) btns.push(`<button type="button" class="load-btn model-usage-gallery-btn" data-media="image" data-name="${escapeHtml(name)}">이미지 ${u.images}장 보기</button>`);
+  if(u.videos) btns.push(`<button type="button" class="load-btn model-usage-gallery-btn" data-media="video" data-name="${escapeHtml(name)}">영상 ${u.videos}개 보기</button>`);
+  return `<div class="model-usage">
+    <div class="model-usage-stats">사용 ${u.count}회 · 즐겨찾기 ${u.favorites} · 마지막 ${fmtTime(u.last_used)}</div>
+    <div class="model-samples">${thumbs}</div>
+    <div class="model-usage-actions">${btns.join('')}</div>
+  </div>`;
+}
+
 function modelEntry(kind, name){
   return modelRegistry.items[modelKey(kind, name)]
     || { kind, filename: name, architecture: '', notes: '', tags: [], trigger: '', families: [], source_url: '' };
@@ -6234,6 +6295,8 @@ function modelRowHtml(kind, name, installed, isAdmin){
   if(kind === 'checkpoints') familiesOfCheckpoint(name).forEach(l => badges.push(`<span class="model-badge fam">${escapeHtml(l)}</span>`));
   if(kind === 'loras' && e.trigger) badges.push(`<span class="model-badge trig" title="트리거 워드">${escapeHtml(e.trigger)}</span>`);
   (e.tags || []).forEach(t => badges.push(`<span class="model-badge">${escapeHtml(t)}</span>`));
+  const usage = usageOf(kind, name);
+  if(usage) badges.push(`<span class="model-badge used" title="이 모델로 만든 결과물 수">사용 ${usage.count}</span>`);
   if(!installed) badges.push('<span class="model-badge missing" title="지금 보고 있는 파드에는 없어요">미설치</span>');
   let editor = '';
   if(open){
@@ -6246,6 +6309,7 @@ function modelRowHtml(kind, name, installed, isAdmin){
     const dis = isAdmin ? '' : 'disabled';
     editor = `
     <div class="model-editor" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}">
+      ${usageHtml(kind, name)}
       <label class="model-field"><span>계열 / 아키텍처</span>
         <input type="text" class="option-input" data-field="architecture" list="model-arch-list" ${dis} placeholder="예: SDXL, Flux, Wan2.2" value="${escapeHtml(e.architecture)}">${archList}</label>
       ${kind === 'loras' ? `
@@ -6288,10 +6352,17 @@ function renderModelRegistry(){
   ).join('');
   const all = namesOf(modelKindActive);
   const filter = document.getElementById('lora-tab-filter').value.trim().toLowerCase();
-  const shown = filter ? all.filter(n => {
+  let shown = filter ? all.filter(n => {
     const e = modelEntry(modelKindActive, n);
     return (n + ' ' + e.architecture + ' ' + (e.tags || []).join(' ') + ' ' + e.notes + ' ' + e.trigger).toLowerCase().includes(filter);
   }) : all;
+  if(modelSort !== 'name'){
+    const val = n => {
+      const u = usageOf(modelKindActive, n);
+      return modelSort === 'count' ? (u ? u.count : 0) : (u && u.last_used ? Date.parse(u.last_used) : 0);
+    };
+    shown = [...shown].sort((a, b) => val(b) - val(a));
+  }
   const notice = connected ? '' : '<div class="comfy-model-empty" style="margin-bottom:8px;">ComfyUI에 연결되지 않아 설치된 목록은 못 가져왔어요 — 등록해 둔 항목만 보여요.</div>';
   if(shown.length === 0){
     listEl.innerHTML = notice + `<div class="comfy-model-empty">${filter && all.length > 0 ? '거른 결과가 없어요' : '이 종류의 모델이 없어요'}</div>`;
@@ -6301,6 +6372,8 @@ function renderModelRegistry(){
   const isAdmin = isAdminUser();
   listEl.innerHTML = notice + `<div class="lora-tab-list">${shown.map(n => modelRowHtml(modelKindActive, n, !connected || installedSet.has(n), isAdmin)).join('')}</div>`;
 }
+
+document.getElementById('model-sort').addEventListener('change', (e) => { modelSort = e.target.value; renderModelRegistry(); });
 
 document.getElementById('model-kind-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('.model-kind-tab');
@@ -6312,6 +6385,8 @@ document.getElementById('model-kind-tabs').addEventListener('click', (e) => {
 });
 
 document.getElementById('lora-tab-list').addEventListener('click', (e) => {
+  const galleryBtn = e.target.closest('.model-usage-gallery-btn');
+  if(galleryBtn){ openGalleryForModel(galleryBtn.dataset.name, galleryBtn.dataset.media); return; }
   const chip = e.target.closest('.lora-tab-family-chip');
   if(chip){
     const checkbox = chip.querySelector('input[type="checkbox"]');
@@ -6390,7 +6465,7 @@ async function initLoraTab(force){
   }catch(e){
     errorEl.textContent = e.message || 'LoRA 목록을 가져오지 못했어요.';
   }
-  await Promise.all([fetchBaseModelFamilies(), fetchModelRegistry()]);
+  await Promise.all([fetchBaseModelFamilies(), fetchModelRegistry(), fetchModelUsage()]);
   renderModelRegistry();
   fetchModelInventory(force).then(renderModelInventory);
   initFamilyTab();
@@ -8516,8 +8591,8 @@ document.getElementById('pod-bar-select').addEventListener('change', (e) => {
 // ---- 결과물 메타: 즐겨찾기·평점·태그·메모, 그리고 그걸로 하는 필터/검색 ----
 // 서버(asset_meta.py)가 결과물 색인(assets)에 저장하고, 갤러리 목록 항목에도 favorite/rating/tags가
 // 같이 온다. 식별은 갤러리가 다루는 이름(출력 폴더 기준 상대경로)이다.
-const galleryFilters = { q: '', favorite: false, tag: '', minRating: 0 };
-const videoGalleryFilters = { q: '', favorite: false, tag: '', minRating: 0 };
+const galleryFilters = { q: '', favorite: false, tag: '', minRating: 0, model: '' };
+const videoGalleryFilters = { q: '', favorite: false, tag: '', minRating: 0, model: '' };
 const AM_OPEN_KEY = 'nightshift-meta-open';
 let assetMetaOpen = false;
 try{ assetMetaOpen = localStorage.getItem(AM_OPEN_KEY) === '1'; }catch(e){ /* 기본값 유지 */ }
@@ -8529,10 +8604,11 @@ function galleryFilterQs(f){
   if(f.favorite) p.set('favorite', 'true');
   if(f.tag) p.set('tag', f.tag);
   if(f.minRating) p.set('min_rating', String(f.minRating));
+  if(f.model) p.set('model', f.model);
   const s = p.toString();
   return s ? `?${s}` : '';
 }
-function galleryFiltersActive(f){ return !!(f.q.trim() || f.favorite || f.tag || f.minRating); }
+function galleryFiltersActive(f){ return !!(f.q.trim() || f.favorite || f.tag || f.minRating || f.model); }
 
 function assetJson(url, body){
   return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -8614,13 +8690,21 @@ async function refreshTagOptions(){
 }
 
 // ---- 갤러리 필터 줄 (이미지/영상 공용) ----
+const galleryFilterSyncs = {};
 function setupGalleryFilters(prefix, filters, refetch){
   const q = document.getElementById(`gf-${prefix}-q`);
   const fav = document.getElementById(`gf-${prefix}-fav`);
   const tag = document.getElementById(`gf-${prefix}-tag`);
   const rating = document.getElementById(`gf-${prefix}-rating`);
   const clear = document.getElementById(`gf-${prefix}-clear`);
-  const sync = () => { clear.style.display = galleryFiltersActive(filters) ? '' : 'none'; };
+  const modelChip = document.getElementById(`gf-${prefix}-model`);
+  const sync = () => {
+    clear.style.display = galleryFiltersActive(filters) ? '' : 'none';
+    modelChip.hidden = !filters.model;
+    modelChip.textContent = filters.model ? `모델: ${filters.model}` : '';
+    modelChip.title = filters.model || '';
+  };
+  galleryFilterSyncs[prefix] = sync;
   let timer = null;
   q.addEventListener('input', () => {
     clearTimeout(timer);
@@ -8635,7 +8719,7 @@ function setupGalleryFilters(prefix, filters, refetch){
   tag.addEventListener('change', () => { filters.tag = tag.value; sync(); refetch(); });
   rating.addEventListener('change', () => { filters.minRating = Number(rating.value) || 0; sync(); refetch(); });
   clear.addEventListener('click', () => {
-    Object.assign(filters, { q: '', favorite: false, tag: '', minRating: 0 });
+    Object.assign(filters, { q: '', favorite: false, tag: '', minRating: 0, model: '' });
     q.value = ''; tag.value = ''; rating.value = '0';
     fav.classList.remove('on'); fav.setAttribute('aria-pressed', 'false');
     sync(); refetch();
