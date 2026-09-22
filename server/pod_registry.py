@@ -32,6 +32,7 @@ comfyui 파드의 url이 비어 있으면 "COMFY_URL 환경변수 → 127.0.0.1 
 
 import json
 import os
+import random
 import threading
 import urllib.parse
 import uuid
@@ -46,6 +47,26 @@ LEGACY_ENDPOINT_FILE = data_path("comfy_endpoint.json")
 
 DEFAULT_KIND = "comfyui"
 DEFAULT_POD_NAME = "기본 파드"
+
+# 이름을 비워두고 파드를 만들면 이 세 목록에서 하나씩 뽑아 이어붙인다(예: "느긋한 다람쥐 사원").
+_RANDOM_NAME_ADJECTIVES = [
+    "느긋한", "용감한", "씩씩한", "활발한", "다정한", "든든한", "재빠른", "명랑한",
+    "성실한", "차분한", "똑똑한", "유쾌한", "온화한", "늠름한", "상냥한", "부지런한",
+    "침착한", "쾌활한", "당당한", "느슨한", "엉뚱한", "말끔한", "느릿한", "든실한",
+]
+_RANDOM_NAME_ANIMALS = [
+    "다람쥐", "코뿔소", "호랑이", "사자", "여우", "곰", "토끼", "늑대",
+    "부엉이", "펭귄", "수달", "고양이", "강아지", "판다", "기린", "코알라",
+    "캥거루", "하마", "악어", "두더지", "고슴도치", "물개", "너구리", "오소리",
+]
+_RANDOM_NAME_TITLES = [
+    "사원", "주임", "대리", "과장", "차장", "부장님", "팀장님", "실장님",
+    "본부장님", "이사님", "상무님", "전무님", "사장님", "대표님",
+]
+
+
+def _random_pod_name() -> str:
+    return f"{random.choice(_RANDOM_NAME_ADJECTIVES)} {random.choice(_RANDOM_NAME_ANIMALS)} {random.choice(_RANDOM_NAME_TITLES)}"
 
 _lock = threading.RLock()
 _pods: list[dict] = []
@@ -277,9 +298,9 @@ def assert_public_url(url: str) -> None:
 
 def create_pod(raw: dict) -> dict:
     raw = dict(raw) if isinstance(raw, dict) else raw
-    # 이름을 비워두면 만든 일시를 이름으로 쓴다(수정할 때 이름을 비우는 건 여전히 오류).
+    # 이름을 비워두면 (형용사+동물+직급) 랜덤 이름을 지어준다(수정할 때 이름을 비우는 건 여전히 오류).
     if isinstance(raw, dict) and not str(raw.get("name") or "").strip():
-        raw["name"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        raw["name"] = _random_pod_name()
     pod = normalize_pod({**raw, "id": ""})  # id는 항상 새로 발급한다
     with _lock:
         _pods.append(pod)
