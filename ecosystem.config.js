@@ -120,12 +120,12 @@ module.exports = {
       // 이제 127.0.0.1에만 묶어서 아래 jupyter-gate를 거치지 않고는 이 머신 밖
       // 어디서도 닿을 수 없게 한다. JUPYTER_TOKEN은 게이트가 모든 프록시 요청에
       // 자동으로 실어 보내는 내부 전용 값이라, 사람이 이 토큰을 보거나 입력할
-      // 일은 없다(잊어버려도 되는 값 — 게이트 키만 실제 로그인에 쓰인다).
+      // 일은 없다(잊어버려도 되는 값 — 실제 로그인은 nightshift 관리자 계정으로 한다).
       name: "jupyterlab",
       script: "jupyter",
       args: "lab --no-browser --ip=127.0.0.1 --port=18888",
       interpreter: "none",
-      cwd: "C:\\Users\\Simon Lomebrote\\Projects\\nightshift",
+      cwd: "C:\\Users\\Simon Lomebrote\\Projects",
       env: {
         PYTHONUNBUFFERED: "1",
         JUPYTER_TOKEN: dotEnv.JUPYTER_INTERNAL_TOKEN || "",
@@ -145,10 +145,10 @@ module.exports = {
       cwd: SERVER_DIR,
       env: {
         PYTHONUNBUFFERED: "1",
-        JUPYTER_GATE_KEY: dotEnv.JUPYTER_GATE_KEY || "",
         JUPYTER_INTERNAL_TOKEN: dotEnv.JUPYTER_INTERNAL_TOKEN || "",
         JUPYTER_GATE_PORT: "8888",
         JUPYTER_UPSTREAM_PORT: "18888",
+        NIGHTSHIFT_INTERNAL_URL: `http://127.0.0.1:${nightshiftPort}`,
       },
       autorestart: true,
       max_restarts: 10,
