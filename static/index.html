@@ -117,13 +117,6 @@
     letter-spacing:var(--track-brand);
     text-transform:uppercase;
   }
-  .queue-depth{
-    font-family:var(--mono);
-    font-size:13px;
-    color:var(--text-dim);
-  }
-  .queue-depth b{ color:var(--text); }
-
   .header-right{
     display:flex;
     align-items:center;
@@ -623,6 +616,16 @@
     flex-direction:column;
     gap:6px;
   }
+  .manual-template-toggle{ font-size:12.5px; }
+  .manual-template-toggle summary{
+    cursor:pointer; color:var(--text-dim); font-family:var(--mono); font-size:11.5px;
+    list-style:none; display:flex; align-items:center; gap:6px;
+  }
+  .manual-template-toggle summary::-webkit-details-marker{ display:none; }
+  .manual-template-toggle summary::before{ content:'▸'; font-size:10px; }
+  .manual-template-toggle[open] summary::before{ content:'▾'; }
+  .manual-template-toggle summary:hover{ color:var(--text); }
+  .manual-template-toggle .field{ margin-top:10px; }
   .field-label{
     font-family:var(--mono);
     font-size:11px;
@@ -1542,11 +1545,9 @@
 
   /* "새 작업 추가" 마법사 바 — 4단계 버튼 + 적용/초기화. */
   .wizard-bar{
-    border:1px solid var(--border);
-    border-radius:var(--radius-sm);
-    padding:14px 16px;
-    margin-bottom:16px;
-    background:var(--panel-alt, var(--panel));
+    border-top:1px solid var(--border);
+    padding-top:14px;
+    margin-bottom:12px;
     display:flex;
     flex-direction:column;
     gap:12px;
@@ -1564,10 +1565,10 @@
     gap:10px;
   }
   .wizard-step-btn{
-    background:var(--panel);
+    background:transparent;
     border:1px solid var(--border);
     border-radius:var(--radius-sm);
-    padding:10px 12px;
+    padding:8px 10px;
     font-family:var(--mono);
     font-size:11.5px;
     color:var(--text-dim);
@@ -2712,7 +2713,6 @@
     <button class="user-chip" id="user-chip" type="button" style="display:none;" title="내 계정"><svg class="ico"><use href="#i-user"/></svg><span class="user-chip-name" id="user-chip-name"></span><span class="role-badge" id="user-chip-role" hidden>Admin</span></button>
     <button class="theme-toggle-btn" id="nsfw-toggle-btn" type="button"></button>
     <button class="theme-toggle-btn" id="theme-toggle-btn" type="button"></button>
-    <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
   </div>
 </header>
 
@@ -2790,103 +2790,6 @@
 
 <main id="tab-jobs" style="display:none;">
 
-  <div class="panel" id="new-job-panel">
-    <div class="panel-header">
-      <div class="panel-header-title">
-        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
-        <div class="section-label">New job</div>
-      </div>
-    </div>
-    <div class="panel-body">
-      <!-- 이 작업이 어느 프로젝트에 속하고 어느 파드에서 도는지. 지금 들어와 있는 스코프가 이미
-           정한 쪽은 숨긴다 — 프로젝트 안에서는 프로젝트가, 파드 안에서는 파드가 정해져 있다. -->
-      <div class="job-target-row" id="job-target-row">
-        <label class="job-target-field" id="job-project-field">
-          <span class="field-label"><svg class="ico"><use href="#i-folder"/></svg> 프로젝트</span>
-          <select class="pod-bar-select" id="job-project-select"></select>
-        </label>
-        <label class="job-target-field" id="job-pod-field">
-          <span class="field-label"><svg class="ico"><use href="#i-server"/></svg> 실행 파드</span>
-          <select class="pod-bar-select" id="job-pod-select"></select>
-        </label>
-      </div>
-      <div class="wizard-bar" id="wizard-bar">
-        <div class="wizard-bar-title"><svg class="ico"><use href="#i-wand-sparkles"/></svg> 새 작업 마법사
-          <span class="opt">순서대로 고르고 "적용"을 누르면 아래 템플릿/옵션/워크플로우가 자동으로 채워져요 — 마법사 없이 직접 템플릿을 골라도 돼요.</span>
-        </div>
-        <div class="wizard-steps">
-          <button type="button" class="wizard-step-btn" id="wizard-step-family">
-            <span class="wizard-step-num">1</span> 베이스 모델<br><span class="wizard-step-value" id="wizard-step-family-value">선택 안 함</span>
-          </button>
-          <button type="button" class="wizard-step-btn" id="wizard-step-type" disabled>
-            <span class="wizard-step-num">2</span> 워크플로우 유형<br><span class="wizard-step-value" id="wizard-step-type-value">선택 안 함</span>
-          </button>
-          <button type="button" class="wizard-step-btn" id="wizard-step-lora" disabled>
-            <span class="wizard-step-num">3</span> LoRA<br><span class="wizard-step-value" id="wizard-step-lora-value">선택 안 함</span>
-          </button>
-          <button type="button" class="wizard-step-btn" id="wizard-step-batchmode" disabled>
-            <span class="wizard-step-num">4</span> 실행 방식<br><span class="wizard-step-value" id="wizard-step-batchmode-value">선택 안 함</span>
-          </button>
-        </div>
-        <div class="wizard-bar-actions">
-          <button type="button" class="submit-btn" id="wizard-apply-btn" disabled><svg class="ico"><use href="#i-circle-check"/></svg> 아래 폼에 적용</button>
-          <button type="button" class="modal-btn-secondary" id="wizard-reset-btn"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 마법사 초기화</button>
-        </div>
-        <div class="upload-error" id="wizard-error"></div>
-      </div>
-
-      <div class="upload-form">
-        <div class="field">
-          <label class="field-label" for="template-select">템플릿</label>
-          <select id="template-select"></select>
-        </div>
-
-        <div class="upload-error" id="load-error"></div>
-        <div class="load-notice" id="load-notice"></div>
-
-        <div class="options-fields" id="options-fields"></div>
-
-        <div class="field" id="workflow-field">
-          <div class="field-label-row">
-            <label class="field-label" id="workflow-field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
-            <button class="load-btn" id="recent-workflows-btn" type="button" title="최근 워크플로우"><svg class="ico"><use href="#i-history"/></svg> 최근</button>
-          </div>
-          <div class="opt" id="workflow-field-hint" style="display:none;"></div>
-          <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
-          <input type="file" class="slot-input" id="workflow-input" accept=".json">
-          <div class="workflow-check" id="workflow-check" hidden></div>
-        </div>
-
-        <div class="field" id="video-workflow-field" style="display:none;">
-          <div class="field-label-row">
-            <label class="field-label">영상 생성 워크플로우 (.json) <span class="opt">— 선택</span></label>
-          </div>
-          <div class="opt" id="video-workflow-field-hint">비워두면 nightshift 내장 기본값(WAN2.2)을 그대로 써요 — 직접 만든 영상 워크플로우가 있으면 여기 올려서 바꿀 수 있어요.</div>
-          <div class="slot" id="video-workflow-slot">.json 파일을 끌어다 놓거나 클릭 (선택)</div>
-          <input type="file" class="slot-input" id="video-workflow-input" accept=".json">
-        </div>
-
-        <div class="field" id="csv-field" style="display:none;">
-          <div class="field-label-row">
-            <label class="field-label">CSV <span class="opt">— 이 템플릿에 필수</span></label>
-            <button class="load-btn" id="csv-editor-btn" type="button" title="표 편집기로 CSV를 직접 작성/수정" style="display:none;"><svg class="ico"><use href="#i-table"/></svg> CSV 편집</button>
-            <button class="load-btn" id="recent-csvs-btn" type="button" title="최근 CSV"><svg class="ico"><use href="#i-history"/></svg> 최근</button>
-          </div>
-          <div class="slot" id="csv-slot">.csv 파일을 끌어다 놓거나 클릭</div>
-          <input type="file" class="slot-input" id="csv-input" accept=".csv">
-        </div>
-
-        <div>
-          <div class="new-job-actions">
-            <button class="submit-btn" id="submit-btn" title="큐에 추가"><svg class="ico"><use href="#i-plus"/></svg> 추가</button>
-            <button class="modal-btn-secondary" id="reset-form-btn" type="button" title="초기화"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 초기화</button>
-          </div>
-          <div class="upload-error" id="upload-error"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <div class="panel">
     <div class="panel-header">
       <div class="panel-header-title">
@@ -2920,6 +2823,107 @@
         </table>
       </div>
       <div class="empty" id="empty-msg" style="display:none;">아직 등록된 작업이 없어요</div>
+    </div>
+  </div>
+
+  <div class="panel" id="new-job-panel">
+    <div class="panel-header">
+      <div class="panel-header-title">
+        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
+        <div class="section-label">New job</div>
+      </div>
+    </div>
+    <div class="panel-body">
+      <!-- 이 작업이 어느 프로젝트에 속하고 어느 파드에서 도는지. 지금 들어와 있는 스코프가 이미
+           정한 쪽은 숨긴다 — 프로젝트 안에서는 프로젝트가, 파드 안에서는 파드가 정해져 있다. -->
+      <div class="job-target-row" id="job-target-row">
+        <label class="job-target-field" id="job-project-field">
+          <span class="field-label"><svg class="ico"><use href="#i-folder"/></svg> 프로젝트</span>
+          <select class="pod-bar-select" id="job-project-select"></select>
+        </label>
+        <label class="job-target-field" id="job-pod-field">
+          <span class="field-label"><svg class="ico"><use href="#i-server"/></svg> 실행 파드</span>
+          <select class="pod-bar-select" id="job-pod-select"></select>
+        </label>
+      </div>
+      <div class="wizard-bar" id="wizard-bar">
+        <div class="wizard-bar-title"><svg class="ico"><use href="#i-wand-sparkles"/></svg> 새 작업 마법사</div>
+        <div class="wizard-steps">
+          <button type="button" class="wizard-step-btn" id="wizard-step-family">
+            <span class="wizard-step-num">1</span> 베이스 모델<br><span class="wizard-step-value" id="wizard-step-family-value">선택 안 함</span>
+          </button>
+          <button type="button" class="wizard-step-btn" id="wizard-step-type" disabled>
+            <span class="wizard-step-num">2</span> 워크플로우 유형<br><span class="wizard-step-value" id="wizard-step-type-value">선택 안 함</span>
+          </button>
+          <button type="button" class="wizard-step-btn" id="wizard-step-lora" disabled>
+            <span class="wizard-step-num">3</span> LoRA<br><span class="wizard-step-value" id="wizard-step-lora-value">선택 안 함</span>
+          </button>
+          <button type="button" class="wizard-step-btn" id="wizard-step-batchmode" disabled>
+            <span class="wizard-step-num">4</span> 실행 방식<br><span class="wizard-step-value" id="wizard-step-batchmode-value">선택 안 함</span>
+          </button>
+        </div>
+        <div class="wizard-bar-actions">
+          <button type="button" class="submit-btn" id="wizard-apply-btn" style="display:none;" disabled><svg class="ico"><use href="#i-refresh-cw"/></svg> 변경사항 다시 적용</button>
+          <button type="button" class="modal-btn-secondary" id="wizard-reset-btn"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 마법사 초기화</button>
+        </div>
+        <div class="upload-error" id="wizard-error"></div>
+      </div>
+
+      <!-- 워크플로우는 마법사 바로 아래 — 처음부터 "직접 올릴지, 마법사로 만들지"를 마주하게 한다.
+           직접 올리면 tryPopulateWizardFromWorkflow()가 알아볼 수 있는 만큼(체크포인트/LoRA/후처리)
+           마법사 스텝에 반영해서, 그걸 보고 세부값을 다시 조정할 수 있게 한다. -->
+      <div class="field" id="workflow-field">
+        <div class="field-label-row">
+          <label class="field-label" id="workflow-field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
+          <button class="load-btn" id="recent-workflows-btn" type="button" title="최근 워크플로우"><svg class="ico"><use href="#i-history"/></svg> 최근</button>
+        </div>
+        <div class="opt" id="workflow-field-hint">직접 만든 워크플로우를 올리거나, 위 마법사로 새로 만들어보세요 — 올리면 마법사가 알아볼 수 있는 만큼(체크포인트·LoRA·후처리) 스텝에 반영해요.</div>
+        <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
+        <input type="file" class="slot-input" id="workflow-input" accept=".json">
+        <div class="workflow-check" id="workflow-check" hidden></div>
+      </div>
+
+      <div class="upload-form">
+        <details class="manual-template-toggle" id="manual-template-toggle">
+          <summary>직접 템플릿 선택 <span class="opt">— 마법사가 다루지 않는 작업(영상 생성, 셸 명령 등)일 때</span></summary>
+          <div class="field">
+            <label class="field-label" for="template-select">템플릿</label>
+            <select id="template-select"></select>
+          </div>
+        </details>
+
+        <div class="upload-error" id="load-error"></div>
+        <div class="load-notice" id="load-notice"></div>
+
+        <div class="options-fields" id="options-fields"></div>
+
+        <div class="field" id="video-workflow-field" style="display:none;">
+          <div class="field-label-row">
+            <label class="field-label">영상 생성 워크플로우 (.json) <span class="opt">— 선택</span></label>
+          </div>
+          <div class="opt" id="video-workflow-field-hint">비워두면 nightshift 내장 기본값(WAN2.2)을 그대로 써요 — 직접 만든 영상 워크플로우가 있으면 여기 올려서 바꿀 수 있어요.</div>
+          <div class="slot" id="video-workflow-slot">.json 파일을 끌어다 놓거나 클릭 (선택)</div>
+          <input type="file" class="slot-input" id="video-workflow-input" accept=".json">
+        </div>
+
+        <div class="field" id="csv-field" style="display:none;">
+          <div class="field-label-row">
+            <label class="field-label">CSV <span class="opt">— 이 템플릿에 필수</span></label>
+            <button class="load-btn" id="csv-editor-btn" type="button" title="표 편집기로 CSV를 직접 작성/수정" style="display:none;"><svg class="ico"><use href="#i-table"/></svg> CSV 편집</button>
+            <button class="load-btn" id="recent-csvs-btn" type="button" title="최근 CSV"><svg class="ico"><use href="#i-history"/></svg> 최근</button>
+          </div>
+          <div class="slot" id="csv-slot">.csv 파일을 끌어다 놓거나 클릭</div>
+          <input type="file" class="slot-input" id="csv-input" accept=".csv">
+        </div>
+
+        <div>
+          <div class="new-job-actions">
+            <button class="submit-btn" id="submit-btn" title="큐에 추가"><svg class="ico"><use href="#i-plus"/></svg> 추가</button>
+            <button class="modal-btn-secondary" id="reset-form-btn" type="button" title="초기화"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 초기화</button>
+          </div>
+          <div class="upload-error" id="upload-error"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3940,7 +3944,6 @@ function render(jobs, pendingCount, running, perPod){
   }else{
     queueRunning = podRuntime ? !!podRuntime.running : !!running;
   }
-  document.getElementById('pending-count').textContent = pendingCount;
   const tbody = document.getElementById('job-rows');
   const emptyMsg = document.getElementById('empty-msg');
 
@@ -4205,12 +4208,15 @@ let selectedFiles = { workflow: null, csv: null };
 // onFile: 파일이 바뀔 때마다(비우는 것 포함) 부르는 선택적 콜백 — 워크플로우
 // 슬롯이 이걸로 "이 서버에서 돌아갈 수 있는지" 검사를 건다. 최근 목록에서 고르거나
 // 작업 설정을 불러올 때도 결국 여기 setFile을 거치므로 모든 경로가 함께 검사된다.
-function setupSlot(slotId, inputId, key, accept, onFile){
+function setupSlot(slotId, inputId, key, accept, onFile, onUserFile){
   const slot = document.getElementById(slotId);
   const input = document.getElementById(inputId);
   const placeholder = slot.textContent;
 
-  function setFile(file){
+  // fromUser: 사람이 방금 이 칸을 직접 눌러 고르거나 끌어다 놓았을 때만 true다(마법사가
+  // 만든 파일을 채워 넣거나, "최근"/작업 불러오기가 채우는 프로그램적 호출은 false) —
+  // onUserFile은 "사용자가 직접 올렸다"는 신호가 필요한 콜백(예: 마법사 역채움)에만 쓴다.
+  function setFile(file, fromUser){
     selectedFiles[key] = file || null;
     if(file){
       slot.textContent = file.name;
@@ -4220,10 +4226,11 @@ function setupSlot(slotId, inputId, key, accept, onFile){
       slot.classList.remove('filled');
     }
     if(onFile) onFile(file || null);
+    if(fromUser && onUserFile) onUserFile(file || null);
   }
 
   slot.addEventListener('click', () => input.click());
-  input.addEventListener('change', (e) => setFile(e.target.files[0]));
+  input.addEventListener('change', (e) => setFile(e.target.files[0], true));
   ['dragenter','dragover'].forEach(evt =>
     slot.addEventListener(evt, (e) => { e.preventDefault(); slot.classList.add('drag'); })
   );
@@ -4232,13 +4239,13 @@ function setupSlot(slotId, inputId, key, accept, onFile){
   );
   slot.addEventListener('drop', (e) => {
     const dropped = e.dataTransfer.files[0];
-    if(dropped && dropped.name.toLowerCase().endsWith(accept)) setFile(dropped);
+    if(dropped && dropped.name.toLowerCase().endsWith(accept)) setFile(dropped, true);
   });
 
   return setFile;
 }
 
-const setWorkflowFile = setupSlot('workflow-slot', 'workflow-input', 'workflow', '.json', checkWorkflowCompatibility);
+const setWorkflowFile = setupSlot('workflow-slot', 'workflow-input', 'workflow', '.json', checkWorkflowCompatibility, populateWizardFromUploadedWorkflow);
 const setVideoWorkflowFile = setupSlot('video-workflow-slot', 'video-workflow-input', 'video_workflow', '.json');
 const setCsvFile = setupSlot('csv-slot', 'csv-input', 'csv', '.csv');
 
@@ -5098,6 +5105,12 @@ function renderOptionFields(template){
       optionsFields.appendChild(field);
       continue;
     }
+
+    // 체크포인트/LoRA는 이제 마법사(1/3단계)로만 고른다 — 이 옵션들은 여전히 존재하고
+    // wizardApply()가 값을 채워 넣지만(preset 조합일 때), 화면에는 안 보이게 감춘다(제출
+    // 시에는 .option-input이라 그대로 같이 올라간다).
+    const hideFromView = opt.name === 'checkpoint' || opt.name === 'lora_name' || opt.name === 'lora_strength';
+    if(hideFromView) field.style.display = 'none';
 
     const label = document.createElement('label');
     label.className = 'field-label';
@@ -6458,11 +6471,15 @@ document.getElementById('lora-tab-filter').addEventListener('input', renderModel
 //   preset — ControlNet/IPAdapter처럼 체크포인트마다 배선이 달라 이 서버가 자동
 //            조립하지 못하는, family별 완성된 워크플로우. base/post와 동시에
 //            쓸 수 없다(하나를 고르면 다른 그룹은 자동으로 비워짐).
+function freshWizardPost(){ return { hires_fix: false, usdu: false, hiresScale: 1.5 }; }
 let wizard = {
   familyId: null, checkpoint: null,
-  base: null, post: { hires_fix: false, usdu: false }, preset: null,
+  base: null, post: freshWizardPost(), preset: null,
   loras: [], batchMode: null,
 };
+// 마지막으로 wizardApply()를 실행했을 때의 wizard 상태 스냅샷(JSON) — null이면 아직 한 번도
+// 적용 안 한 상태. 지금 상태와 다르면 "다시 적용" 버튼을 보여준다(wizardUpdateStepButtons 참고).
+let wizardAppliedSignature = null;
 
 function wizardBaseMeta(baseId){
   return ((workflowTypesCache || {}).base || []).find(t => t.id === baseId);
@@ -6489,7 +6506,7 @@ function wizardTypeSummary(){
   }
   if(!wizard.base) return '선택 안 함';
   const parts = [(wizardBaseMeta(wizard.base) || {}).label || wizard.base];
-  if(wizard.post.hires_fix) parts.push('Hires Fix');
+  if(wizard.post.hires_fix) parts.push(`Hires Fix(${wizard.post.hiresScale}x)`);
   if(wizard.post.usdu) parts.push('USDU');
   return parts.join(' + ');
 }
@@ -6542,20 +6559,108 @@ function wizardUpdateStepButtons(){
     wizard.batchMode === 'seed' ? '시드 반복' : wizard.batchMode === 'csv' ? 'CSV 순회' : '선택 안 함';
   batchBtn.classList.toggle('done', !!wizard.batchMode);
 
-  document.getElementById('wizard-apply-btn').disabled = !(wizard.familyId && wizard.checkpoint && wizardTypeChosen() && wizard.batchMode);
+  // 4단계를 처음 다 고른 순간에는 클릭 없이 바로 적용하고, 그 뒤 스텝을 또 바꾸면(적용된 내용과
+  // 지금 상태가 달라지면) "다시 적용" 버튼만 보여준다 — 자동으로 다시 그리면 이미 입력해둔
+  // 프롬프트 등이 지워질 수 있어서(wizardApply 주석 참고), 그건 사용자가 직접 눌러야 일어난다.
+  const complete = !!(wizard.familyId && wizard.checkpoint && wizardTypeChosen() && wizard.batchMode);
+  const sig = complete ? JSON.stringify(wizard) : null;
+  if(complete && wizardAppliedSignature === null){
+    wizardAppliedSignature = sig;
+    wizardApply();
+  }
+  const stale = complete && wizardAppliedSignature !== null && sig !== wizardAppliedSignature;
+  const applyBtn = document.getElementById('wizard-apply-btn');
+  applyBtn.style.display = stale ? '' : 'none';
+  applyBtn.disabled = !complete;
 }
 
 function wizardReset(){
   wizard = {
     familyId: null, checkpoint: null,
-    base: null, post: { hires_fix: false, usdu: false }, preset: null,
+    base: null, post: freshWizardPost(), preset: null,
     loras: [], batchMode: null,
   };
+  wizardAppliedSignature = null;
   document.getElementById('wizard-error').textContent = '';
   document.getElementById('load-notice').textContent = '';
   wizardUpdateStepButtons();
 }
 document.getElementById('wizard-reset-btn').addEventListener('click', wizardReset);
+
+// ---- 워크플로우를 직접 올리면 마법사를 거꾸로 채운다 ----
+// 워크플로우 슬롯에 사람이 직접(드래그/클릭) 파일을 올렸을 때만 불린다(마법사가 만든 파일을
+// 채우거나 "최근"/작업 불러오기가 채우는 프로그램적 호출에서는 안 불림 — setupSlot의 fromUser
+// 참고). "이런 그래프를 올렸구나"를 최대한 읽어서 마법사 스텝에 반영해, 사용자가 그걸 보고
+// LoRA 종류/강도 같은 세부값을 다시 조정할 수 있게 한다. 알아볼 수 없는 구조(체크포인트가
+// CheckpointLoaderSimple이 아니거나, 등록부가 모르는 체크포인트)면 아무것도 건드리지 않는다 —
+// 마법사가 모르는 워크플로우를 억지로 끼워 맞추면 오히려 헷갈린다.
+async function populateWizardFromUploadedWorkflow(file){
+  if(!file) return;
+  let workflow;
+  try{
+    workflow = JSON.parse(await file.text());
+  }catch(e){
+    return; // JSON이 아니면(또는 못 읽으면) 손대지 않는다 — checkWorkflowCompatibility가 따로 안내함
+  }
+  await tryPopulateWizardFromWorkflow(workflow);
+}
+
+async function tryPopulateWizardFromWorkflow(workflow){
+  if(!workflow || typeof workflow !== 'object') return;
+  const nodes = Object.values(workflow).filter(n => n && typeof n === 'object' && n.class_type);
+
+  const ckptNode = nodes.find(n => n.class_type === 'CheckpointLoaderSimple');
+  const ckptName = ckptNode && ckptNode.inputs && ckptNode.inputs.ckpt_name;
+  if(!ckptName) return; // CheckpointLoaderSimple 기반(SDXL식) 그래프가 아니면 마법사가 다루는 구조가 아니다
+
+  if(!baseModelFamilies || Object.keys(baseModelFamilies).length === 0){
+    await fetchBaseModelFamilies();
+  }
+  await fetchWorkflowTypes(); // 2단계 표시 라벨(Text to Image 등)에 필요 — 없으면 "txt2img" 그대로 보임(캐시돼 있으면 바로 반환)
+  let matchFamilyId = null;
+  for(const [fid, fam] of Object.entries(baseModelFamilies || {})){
+    if((fam.checkpoints || []).includes(ckptName)){ matchFamilyId = fid; break; }
+  }
+  if(!matchFamilyId) return; // 등록부가 모르는 체크포인트 — 억지로 끼워 맞추지 않는다
+
+  const hasEmptyLatent = nodes.some(n => n.class_type === 'EmptyLatentImage');
+  const hasInputImage = nodes.some(n => n.class_type === 'LoadImage' && n._meta && n._meta.title === 'input_image');
+  const base = hasEmptyLatent ? 'txt2img' : (hasInputImage ? 'img2img' : null);
+  if(!base) return; // 베이스 패스를 못 알아보면(워크플로우 빌더가 만드는 모양이 아니면) 멈춘다
+
+  const loras = nodes
+    .filter(n => n.class_type === 'LoraLoader')
+    .map(n => ({
+      name: (n.inputs || {}).lora_name,
+      strength: typeof (n.inputs || {}).strength_model === 'number' ? n.inputs.strength_model : 1,
+    }))
+    .filter(l => l.name);
+  const hiresNode = nodes.find(n => n.class_type === 'KSampler' && n._meta && n._meta.title === 'KSampler (hires-fix)');
+  const upscaleNode = nodes.find(n => n.class_type === 'LatentUpscaleBy');
+  const hasUsdu = nodes.some(n => n.class_type === 'UltimateSDUpscaleNoUpscale');
+
+  wizard.familyId = matchFamilyId;
+  wizard.checkpoint = ckptName;
+  wizard.base = base;
+  wizard.preset = null;
+  wizard.post = freshWizardPost();
+  if(hiresNode){
+    wizard.post.hires_fix = true;
+    if(upscaleNode && typeof (upscaleNode.inputs || {}).scale_by === 'number') wizard.post.hiresScale = upscaleNode.inputs.scale_by;
+  }
+  wizard.post.usdu = hasUsdu;
+  wizard.loras = loras;
+  // 실행 방식(시드 반복/CSV 순회)은 워크플로우만 봐서는 알 수 없다 — 건드리지 않고 4단계에서 직접 고르게 둔다.
+
+  // wizardUpdateStepButtons()의 "처음 다 갖춰지면 자동 적용" 로직이 방금 올린 이 파일을 마법사가
+  // 새로 만든 걸로 덮어써 버리지 않도록, 지금 상태를 먼저 "이미 반영됨"으로 찍어 둔다.
+  wizardAppliedSignature = JSON.stringify(wizard);
+  wizardUpdateStepButtons();
+  document.getElementById('wizard-apply-btn').style.display = 'none';
+  if(typeof flashNotice === 'function'){
+    flashNotice('올린 워크플로우를 마법사 스텝에 반영했어요 — 확인하고 필요하면 조정하세요.');
+  }
+}
 
 // ---- 1단계: 베이스 모델 ----
 async function openWizardFamilyModal(){
@@ -6608,7 +6713,7 @@ document.getElementById('wizard-family-modal-body').addEventListener('click', (e
     // family가 바뀌면 이전 단계에서 고른 워크플로우 유형/LoRA는 더 이상 호환을
     // 보장할 수 없으니 함께 초기화한다.
     wizard.base = null;
-    wizard.post = { hires_fix: false, usdu: false };
+    wizard.post = freshWizardPost();
     wizard.preset = null;
     wizard.loras = [];
     wizard.batchMode = null;
@@ -6652,10 +6757,15 @@ function renderWizardTypeModal(){
     const checked = !!wizard.post[t.id];
     const missingNode = t.requires_node && nodeTypes && !nodeTypes.includes(t.requires_node);
     const badge = missingNode ? `<span class="wizard-pick-row-badge"><svg class="ico"><use href="#i-triangle-alert"/></svg> 설치 필요 (${escapeHtml(t.requires_node)})</span>` : '';
+    // Hires Fix를 켰으면 배율(scale_by)을 바로 그 줄에서 입력받는다 — 서버(workflow_builder.py)는
+    // 이미 이 값을 받는데 마법사가 항상 기본값(1.5)만 보내고 있었다.
+    const scaleInput = (t.id === 'hires_fix' && checked)
+      ? `<input type="number" class="option-input wizard-pick-row-strength wizard-hires-scale-input" value="${wizard.post.hiresScale}" min="1" max="4" step="0.1" title="배율(scale_by)">`
+      : '';
     return `
       <div class="wizard-pick-row${checked ? ' selected' : ''}${wizard.base ? '' : ' disabled'}" data-group="post" data-type-id="${escapeHtml(t.id)}">
         <div class="wizard-pick-row-label">${escapeHtml(t.label)}</div>
-        ${badge}
+        ${badge}${scaleInput}
       </div>`;
   }).join('');
 
@@ -6676,6 +6786,7 @@ function renderWizardTypeModal(){
 }
 
 document.getElementById('wizard-type-modal-body').addEventListener('click', (e) => {
+  if(e.target.classList.contains('wizard-hires-scale-input')) return; // 배율 입력칸 클릭은 선택 토글이 아님
   const row = e.target.closest('.wizard-pick-row');
   if(!row || row.classList.contains('disabled')) return;
   const group = row.dataset.group;
@@ -6698,10 +6809,16 @@ document.getElementById('wizard-type-modal-body').addEventListener('click', (e) 
     }
     wizard.preset = typeId;
     wizard.base = null; // 프리셋을 고르면 베이스/후처리(배타적 그룹)는 해제
-    wizard.post = { hires_fix: false, usdu: false };
+    wizard.post = freshWizardPost();
   }
   wizardUpdateStepButtons();
   renderWizardTypeModal();
+});
+
+document.getElementById('wizard-type-modal-body').addEventListener('input', (e) => {
+  if(!e.target.classList.contains('wizard-hires-scale-input')) return;
+  wizard.post.hiresScale = parseFloat(e.target.value) || 1.5;
+  wizardUpdateStepButtons();
 });
 
 document.getElementById('wizard-step-type').addEventListener('click', openWizardTypeModal);
@@ -6774,6 +6891,7 @@ document.getElementById('wizard-lora-modal-body').addEventListener('input', (e) 
   if(!e.target.classList.contains('wizard-lora-strength-input')) return;
   const entry = wizard.loras.find(l => l.name === e.target.dataset.loraName);
   if(entry) entry.strength = parseFloat(e.target.value) || 1;
+  wizardUpdateStepButtons(); // 강도를 바꾼 것도 "적용된 것과 달라짐"으로 쳐서 다시 적용 배너가 뜨게 한다
 });
 
 document.getElementById('wizard-step-lora').addEventListener('click', openWizardLoraModal);
@@ -6804,7 +6922,11 @@ document.getElementById('wizard-batchmode-modal-body').addEventListener('click',
 document.getElementById('wizard-step-batchmode').addEventListener('click', openWizardBatchModeModal);
 
 // ---- "적용" — 아래 템플릿 선택/옵션 폼/워크플로우 슬롯을 채운다 ----
-document.getElementById('wizard-apply-btn').addEventListener('click', async () => {
+// 4단계를 처음 다 고르면 wizardUpdateStepButtons()가 클릭 없이 바로 이 함수를 부른다(자동 적용).
+// 그 뒤 스텝을 또 바꾸면(재적용이 필요하면) #wizard-apply-btn이 다시 나타나고, 그건 사용자가 직접
+// 눌러야만 이 함수를 다시 부른다 — renderOptionFields가 옵션 폼을 통째로 다시 그려서 이미 입력해둔
+// 프롬프트/시드수 등을 지워버리므로, 자동으로 재실행하면 방금 쓴 값이 조용히 날아갈 수 있어서다.
+async function wizardApply(){
   const errorEl = document.getElementById('wizard-error');
   errorEl.textContent = '';
   if(!wizard.familyId || !wizard.checkpoint || !wizardTypeChosen() || !wizard.batchMode){
@@ -6842,7 +6964,7 @@ document.getElementById('wizard-apply-btn').addEventListener('click', async () =
         positive: '(prompt)',
         loras: wizard.loras.map(l => ({ name: l.name, strength_model: l.strength, strength_clip: l.strength })),
       };
-      if(wizard.post.hires_fix) spec.hires_fix = { enabled: true };
+      if(wizard.post.hires_fix) spec.hires_fix = { enabled: true, scale_by: wizard.post.hiresScale };
       if(wizard.post.usdu) spec.usdu = { enabled: true, upscale_by: 2.0 };
       const res = await fetch(`/api/build-workflow${podQuery()}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec),
@@ -6859,6 +6981,9 @@ document.getElementById('wizard-apply-btn').addEventListener('click', async () =
   resetForm();
   templateSelect.value = templateId;
   await onTemplateChange();
+  // 마법사가 템플릿을 정했으니, 직접 고르는 펼침 토글은 접어 둔다(둘이 동시에 열려 있으면 헷갈림).
+  const manualToggle = document.getElementById('manual-template-toggle');
+  if(manualToggle) manualToggle.open = false;
 
   // builder 조합(txt2img/img2img + 후처리)은 체크포인트/LoRA를 이미 워크플로우에
   // 구워 넣었으므로 런타임 override 옵션(checkpoint/lora_name)은 비워둔다(중복
@@ -6882,6 +7007,13 @@ document.getElementById('wizard-apply-btn').addEventListener('click', async () =
 
   document.getElementById('load-notice').textContent =
     '마법사 설정을 적용했어요 — 아래에서 프롬프트/세부 옵션을 확인하고(CSV 순회라면 CSV 파일도 첨부), 준비되면 "추가"를 눌러 큐에 등록하세요.';
+}
+
+document.getElementById('wizard-apply-btn').addEventListener('click', async () => {
+  await wizardApply();
+  wizardAppliedSignature = JSON.stringify(wizard);
+  const btn = document.getElementById('wizard-apply-btn');
+  btn.style.display = 'none';
   optionsFields.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
