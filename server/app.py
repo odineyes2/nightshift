@@ -1417,6 +1417,10 @@ app = FastAPI(title="RunPod Job Queue", lifespan=lifespan)
 INTERNAL_TOKEN = secrets.token_urlsafe(32)
 os.environ["NIGHTSHIFT_API_KEY"] = INTERNAL_TOKEN
 
+# 로그인 쿠키에 Domain을 찍으면(예: lomebrote.com) 다른 서브도메인(opencut.lomebrote.com의
+# 로그인 게이트 등)도 같은 쿠키를 받아 SSO가 된다. 비워 두면 지금처럼 이 서브도메인 전용(host-only)이다.
+COOKIE_DOMAIN = os.environ.get("NIGHTSHIFT_COOKIE_DOMAIN", "").strip() or None
+
 # 외부 편집기(OpenCut)가 다른 서브도메인에서 쓰는 공유 세션 API(/api/shared/*)는 로그인 쿠키 대신 세션 토큰으로 인증한다.
 # 이 경로들은 아래 미들웨어가 로그인/CSRF 검사를 건너뛰고, 대신 허용한 편집기 출처에만 CORS를 열어 준다.
 OPENCUT_URL = os.environ.get("NIGHTSHIFT_OPENCUT_URL", "https://opencut.lomebrote.com").strip().rstrip("/")
@@ -1549,7 +1553,7 @@ def client_ip(request: Request) -> str:
 def _set_session_cookie(request: Request, response: Response, token: str) -> None:
     secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "") == "https"
     response.set_cookie(auth.SESSION_COOKIE, token, max_age=auth.SESSION_DAYS * 86400, httponly=True,
-                        samesite="lax", secure=secure, path="/")
+                        samesite="lax", secure=secure, path="/", domain=COOKIE_DOMAIN)
 
 
 def _auth_error(e: "auth.AuthError") -> HTTPException:
@@ -1591,7 +1595,7 @@ async def auth_login(request: Request):
 async def auth_logout(request: Request):
     await asyncio.to_thread(auth.delete_session, request.cookies.get(auth.SESSION_COOKIE))
     response = JSONResponse({"ok": True})
-    response.delete_cookie(auth.SESSION_COOKIE, path="/")
+    response.delete_cookie(auth.SESSION_COOKIE, path="/", domain=COOKIE_DOMAIN)
     return response
 
 

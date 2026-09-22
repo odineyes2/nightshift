@@ -157,14 +157,34 @@ module.exports = {
     },
     {
       // OpenCut(classic 포크) — 별도 저장소(../opencut, docs/opencut/ 참고)를 빌드해 둔 것을 띄운다.
-      // Cloudflare Tunnel이 opencut.lomebrote.com을 이 포트(3100)로 연결한다. 편집은 전부 브라우저에서 일어나며
-      // 이 서버는 계정도 DB도 쓰지 않는다(정적 페이지 제공만).
+      // 내부 전용 포트(3101)의 127.0.0.1로만 묶는다 — 앞의 opencut-gate를 거치지 않고는 이 머신
+      // 밖 어디서도 닿을 수 없다(로그인 없이 노출되지 않게).
       name: "opencut",
       script: "node_modules/next/dist/bin/next",
-      args: "start -p 3100",
+      args: "start -p 3101 -H 127.0.0.1",
       interpreter: "node",
       cwd: "C:/Users/Simon Lomebrote/Projects/opencut/apps/web",
       env: { NODE_ENV: "production" },
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
+      watch: false,
+    },
+    {
+      // 위 opencut 앞을 지키는 로그인 게이트(server/opencut_gate.py 참고) — nightshift 계정을
+      // 그대로 쓴다(별도 회원 시스템 없음). Cloudflare Tunnel이 opencut.lomebrote.com을 이제
+      // 이 포트(3100)로 연결한다(예전엔 opencut을 직접 가리켰다).
+      name: "opencut-gate",
+      script: resolvePython3(),
+      args: "opencut_gate.py",
+      interpreter: "none",
+      cwd: SERVER_DIR,
+      env: {
+        PYTHONUNBUFFERED: "1",
+        OPENCUT_GATE_PORT: "3100",
+        OPENCUT_UPSTREAM_PORT: "3101",
+        NIGHTSHIFT_INTERNAL_URL: `http://127.0.0.1:${nightshiftPort}`,
+      },
       autorestart: true,
       max_restarts: 10,
       restart_delay: 2000,

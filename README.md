@@ -259,7 +259,8 @@ ComfyUI는 클립을 하나씩만 만들고 여러 클립을 잇는 기능이 �
 - **CORS**: `/api/shared/*`만 편집기 출처(`NIGHTSHIFT_OPENCUT_URL`의 origin + `NIGHTSHIFT_OPENCUT_EXTRA_ORIGINS`)에 열립니다(GET/POST/OPTIONS, Range 지원). 다른 출처에는 CORS 헤더를 주지 않습니다.
 - **업로드**: 본문은 원본 바이트(`POST /api/shared/sessions/{token}/upload?name=x.mp4`), 확장자는 mp4/webm/mov/m4v, 크기 상한은 `NIGHTSHIFT_SHARE_UPLOAD_MAX_MB`(기본 2048).
 - **끄기**: `NIGHTSHIFT_OPENCUT_URL=`(빈 값)이면 "편집기로" 버튼이 숨겨지고 세션 생성이 막힙니다. 기본값은 `https://opencut.lomebrote.com`.
-- **OpenCut 포크**: OpenCut classic(MIT, 보관됨)에 `docs/opencut/nightshift-integration.patch` 한 커밋을 얹은 것입니다 — Databuddy 분석 스크립트와 BotID를 제거하고, `/nightshift?ns=` 진입 경로(파일 가져오기)와 Export의 "Save to nightshift"를 추가합니다. 빌드할 때 `NEXT_PUBLIC_NIGHTSHIFT_ORIGIN`(이 nightshift의 공개 주소)을 지정해야 하고, OpenCut classic은 폰에서는 열리지 않는 데스크톱 전용입니다.
+- **OpenCut 포크**: OpenCut classic(MIT, 보관됨)에 `docs/opencut/nightshift-integration.patch` 커밋들을 얹은 것입니다 — Databuddy 분석 스크립트와 BotID를 제거하고, `/nightshift?ns=` 진입 경로(파일 가져오기)와 Export의 "Save to nightshift"를 추가합니다(원본 저장소의 빌드 오류 2건도 같이 고쳤습니다). 빌드할 때 `NEXT_PUBLIC_NIGHTSHIFT_ORIGIN`(이 nightshift의 공개 주소)을 지정해야 하고, OpenCut classic은 폰에서는 열리지 않는 데스크톱 전용입니다.
+- **로그인 게이트(`server/opencut_gate.py`)**: OpenCut 자체는 계정이 없는 순수 클라이언트 편집기라, 그대로 두면 주소를 아는 누구나 편집기 화면을 열 수 있습니다(공유 토큰 없이는 가져올 파일이 없을 뿐). 그래서 실제 Next.js 서버는 내부 전용 포트(`127.0.0.1:3101`)로만 묶고, Cloudflare Tunnel이 보는 포트(3100)는 이 게이트가 대신 받습니다. 로그인은 **새 계정 없이 nightshift 계정을 그대로 씁니다** — `NIGHTSHIFT_COOKIE_DOMAIN`(예: `lomebrote.com`)을 지정하면 nightshift 로그인 쿠키가 모든 서브도메인에 공유돼, nightshift에 로그인한 브라우저는 OpenCut도 로그인 화면 없이 그대로 열립니다(SSO). 아직 로그인 안 한 브라우저(폰 등)로 처음 열면 로그인 폼이 뜨고, 입력값은 게이트가 nightshift의 진짜 `/api/auth/login`으로 그대로 넘겨 검사합니다 — 이 게이트는 세션 확인·로그인 어느 쪽도 DB를 직접 열지 않고 전부 REST 호출로 처리합니다("DB는 app.py 프로세스만 연다"는 기존 원칙을 그대로 따릅니다). nightshift에서 로그아웃하면(쿠키가 지워지므로) OpenCut 쪽도 같이 로그아웃됩니다.
 
 ### ComfyUI 접속 주소 (설정 / 환경변수 / 자동 감지) — 레거시, 파드가 여럿이면 각 파드 설정을 쓰세요
 
