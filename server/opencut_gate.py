@@ -261,6 +261,9 @@ async def proxy_http(request: Request):
                 full_path = path + (f"?{request.url.query}" if request.url.query else "")
                 return RedirectResponse(f"/__gate/login?next={quote(full_path, safe='')}", status_code=303)
             return Response(status_code=401)
+        if path == "/" and request.method == "GET":
+            # 로그인한 사람에게는 홍보용 홈페이지 대신 프로젝트 목록으로 바로 보낸다.
+            return RedirectResponse("/projects", status_code=303)
 
     url = f"{UPSTREAM_HTTP}{path}"
     headers = [

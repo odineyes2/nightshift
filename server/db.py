@@ -195,8 +195,20 @@ SCHEMA_V6 = """
 ALTER TABLE models DROP COLUMN families_json
 """
 
+# v7: NSFW(성인) 콘텐츠 표시/숨기기. 프로젝트에 "성인 콘텐츠 포함" 체크박스를 달고, 그 프로젝트에
+# 속한 결과물은 만들어지거나 그 프로젝트로 옮겨질 때 assets.nsfw를 따라 찍는다(결과물 자체에도
+# 컬럼을 두는 이유는 프로젝트 없는 결과물도 값을 가질 수 있게, 그리고 갤러리 필터가 매번 프로젝트
+# 테이블과 조인하지 않고 바로 걸러내게 하려는 것) — server/projects.py의 update_project,
+# server/asset_meta.py의 move_assets, server/assets_index.py의 sync가 이 값을 맞춘다.
+SCHEMA_V7 = """
+ALTER TABLE projects ADD COLUMN is_mature INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE assets ADD COLUMN nsfw INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX assets_nsfw ON assets(nsfw)
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
-MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6)]
+MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
+              (7, SCHEMA_V7)]
 
 
 def now_iso() -> str:

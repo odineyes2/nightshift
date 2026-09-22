@@ -239,6 +239,18 @@ nightshift는 여러 사람이 함께 쓸 수 있는 **회원제**입니다. 예
 - 격자 칸의 미리보기는 서버가 만드는 축소본이 아니라 브라우저의 `<video>` 태그가 `#t=0.1`(0.1초 지점) 프래그먼트로 직접 그리는 첫 프레임입니다 — 이미지처럼 요청마다 축소본을 만들지 않아 서버 부하가 없지만, 브라우저에 따라 프레임이 늦게 뜨거나 검은 화면일 수 있습니다.
 - 라이트박스는 `<video controls>`로 열려서 그 자리에서 재생·탐색(seek)할 수 있습니다 — 파일 응답이 HTTP Range 요청을 지원해서 앞으로 감기가 다운로드를 처음부터 다시 하지 않습니다.
 
+### NSFW(성인) 콘텐츠 표시/숨기기
+
+헤더의 밤/낮 모드 버튼 옆에 눈 모양 버튼이 있습니다 — 눌러서 **보기 → 블러 → 안 보기** 세 단계를 순환합니다(영상 라이트박스의 재생 방식 버튼과 같은 "눌러서 순환" 방식). 브라우저마다 따로 기억하고(테마와 같은 방식, `localStorage`), **기본값은 "안 보기"** 입니다(화면을 공유하거나 다른 사람이 볼 때 실수로 노출되지 않도록).
+  - **보기**: 그대로 보여줍니다.
+  - **블러**: 이미지·영상 갤러리 목록에는 그대로 있되, 미리보기(썸네일)를 프로젝트 대표 이미지가 없을 때 쓰는 것과 같은 아이콘 placeholder로 가립니다 — 실제 썸네일을 아예 받아오지 않아 가볍습니다. 라이트박스를 직접 열면(의도적인 클릭이니) 원본은 그대로 보여줍니다.
+  - **안 보기**: 서버 쪽 `hide_nsfw` 필터로 목록에서 아예 뺍니다.
+
+- 프로젝트 설정(⚙, 새 프로젝트 만들기 모달에도 있음)의 **"Contain mature contents?"** 체크박스로 그 프로젝트를 성인 콘텐츠로 표시합니다. 프로젝트 카드에 🔥 18+ 배지가 붙고, "보기"가 아니면 카드의 대표 이미지도 가려집니다. 체크박스를 바꾸면 **그 순간 그 프로젝트에 속한** 결과물의 `nsfw`가 같은 값으로 한꺼번에 바뀝니다(그 뒤에 만들어지거나 옮겨 오는 결과물에는 새로 켠 값이 적용되지 않습니다 — 아래 참고).
+- 새로 만들어지는 이미지·영상은 그 시점 프로젝트의 `is_mature`를 물려받아 `nsfw`가 정해집니다. 그 뒤로는 **사람이 직접 정하는 값**이라, 갤러리(격자·자세히 보기 둘 다)나 라이트박스에서 개별로, 또는 여러 장 선택한 다중 선택 툴바에서 한꺼번에 NSFW로 표시/해제할 수 있습니다(🔥 아이콘 — 라이트박스의 정보 바, 갤러리 툴바의 "NSFW" 버튼). **프로젝트를 다른 곳으로 옮겨도 이 값은 그대로 유지됩니다** — 즐겨찾기·평점과 같은 성격의, 결과물 자신에 딸린 값이기 때문입니다.
+- 서버 쪽은 `GET /api/output-images`/`GET /api/output-videos`에 `hide_nsfw=true`를 주면 그 조건을 뺀 목록을 돌려주고, `POST /api/output-assets/update`의 `nsfw`(true/false)로 직접 켜고 끕니다(즐겨찾기·평점과 같은 자리). "블러"는 순수 화면 표시 방식이라 서버는 모르고, 브라우저가 목록은 그대로 받되 미리보기 URL만 안 채워 넣습니다.
+- 프로젝트 대시보드의 "최근 이미지" 미리보기(파드 카드)처럼, 갤러리를 거치지 않고 파일 시스템을 직접 훑는 몇몇 작은 미리보기는 이 필터를 타지 않습니다.
+
 ### 영상 편집 — 자르기 / 이어 붙이기 (`server/video_edit.py`)
 
 ComfyUI는 클립을 하나씩만 만들고 여러 클립을 잇는 기능이 코어에 없어서, 영상 갤러리에서 고른 영상으로 **서버가 ffmpeg로 새 영상**을 만듭니다(원본은 그대로). 폰에서도 갤러리에서 고르기만 하면 되도록 가볍게 만들었습니다.
@@ -965,12 +977,12 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `DELETE` | `/api/pods/{pod_id}` | 파드를 지운다. 마지막 하나는 지울 수 없음(400) — 쓰지 않으려면 `enabled: false` |
 | `GET` | `/api/pods/summary` | 대시보드가 폴링할 파드별 요약 — 레코드(+`kind_label`/`effective_url`) + 연결 상태(캐시) + `auto_run`/`queue_len`/`running_jobs`/`waiting_for_pod`/`pending_count`/`images_today` + `card`(드라이버가 주는 카드 정보, ComfyUI는 GPU/VRAM — 20초 캐시에 백그라운드 갱신) + `recent_images`(최근 결과 3장의 상대 경로) + 전체 합계 `totals`. 파드 폴더만 들여다보므로 출력 폴더 전체를 훑지 않는다 |
 | `GET` | `/api/projects` | 프로젝트 목록 `{"projects": [...], "unassigned": {...}}` — 각 프로젝트에 `job_count`/`active_jobs`/`asset_count`/`favorite_count`/`cover_path`/`last_activity`가 붙는다. `unassigned`는 프로젝트에 안 속한 작업·결과물 요약("미분류"). `?include_archived=true`면 보관된 프로젝트도 포함 |
-| `POST` | `/api/projects` | 프로젝트를 만든다(`{"name"(필수), "description", "defaults"}`). 프로젝트는 파드와 무관하게 작업과 결과물을 묶는다 |
-| `GET`/`PATCH`/`DELETE` | `/api/projects/{id}` | 조회 / 부분 수정(`name`·`description`·`defaults`·`archived`·`cover_asset_id`) / 삭제 — 삭제해도 그 안의 작업·결과물은 지워지지 않고 미분류로 돌아온다 |
+| `POST` | `/api/projects` | 프로젝트를 만든다(`{"name"(필수), "description", "defaults", "is_mature"}`). 프로젝트는 파드와 무관하게 작업과 결과물을 묶는다 |
+| `GET`/`PATCH`/`DELETE` | `/api/projects/{id}` | 조회 / 부분 수정(`name`·`description`·`defaults`·`archived`·`is_mature`·`cover_asset_id`) / 삭제 — 삭제해도 그 안의 작업·결과물은 지워지지 않고 미분류로 돌아온다. `is_mature`를 바꾸면 그 프로젝트에 속한 결과물의 `nsfw`도 같이 바뀐다(NSFW 토글 절 참고) |
 | `PUT` | `/api/jobs/{job_id}/project` | 작업을 다른 프로젝트로 옮긴다(`{"project_id": 3}`, 미분류로는 `null`). 그 작업이 만든 결과물도 같이 옮겨간다 |
 | `GET` | `/api/output-assets` | 결과물 색인(SQLite) 조회 — `?project_id=`(숫자 또는 `unassigned`)·`kind`(`image`/`video`)·`job_id`·`favorite`·`q`(공백으로 나눈 단어가 프롬프트·메모·태그·파일명·체크포인트·시드 어딘가에 모두 들어 있는 것)·`tag`(쉼표로 여러 개, 모두 붙은 것)·`min_rating`·`limit`·`offset`. 시드/프롬프트/체크포인트 등 PNG 메타데이터에서 뽑은 값과 태그·평점·메모가 함께 온다 |
 | `GET` | `/api/output-assets/detail?path=` | 결과물 하나의 전체 정보(프롬프트·네거티브·시드·체크포인트·샘플링 파라미터·LoRA·메모·평점·태그·작업/파드). 라이트박스의 정보 패널이 쓴다 |
-| `POST` | `/api/output-assets/update` | 즐겨찾기/평점/메모를 바꾼다 — `{"paths": [...] 또는 "path", "favorite": bool, "rating": 0~5(0=해제), "note": "..."}` (보낸 필드만 바뀜, 메모는 한 장씩만) |
+| `POST` | `/api/output-assets/update` | 즐겨찾기/평점/메모/NSFW 표시를 바꾼다 — `{"paths": [...] 또는 "path", "favorite": bool, "rating": 0~5(0=해제), "note": "...", "nsfw": bool}` (보낸 필드만 바뀜, 메모는 한 장씩만) |
 | `POST` | `/api/output-assets/move` | 결과물(이미지/영상)을 다른 프로젝트로 옮긴다 — `{"paths": [...] 또는 "path", "project_id": 숫자 또는 null(미분류)}`. 파일은 그대로고 소속만 바뀌며, 만든 작업의 프로젝트는 건드리지 않는다. 없는 프로젝트면 400, 없는 결과물이면 404 |
 | `POST` | `/api/output-assets/tags` | 태그를 붙이고/뗀다 — `{"paths": [...], "add": [...], "remove": [...]}`. 바뀐 결과물의 태그 목록을 돌려주고, 아무 데도 안 붙은 태그는 자동으로 사라진다 |
 | `GET` | `/api/tags` | 태그 목록과 붙은 개수(자동완성/필터용) |
@@ -1029,7 +1041,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/jobs/{job_id}/retry` | `interrupted`(서버 재시작으로 중단됨) 상태인 작업을 원래 워크플로우/CSV/옵션 그대로 다시 큐에 올림(`status`를 `queued`로, `queued_at`은 지금 시각으로, `started_at`/`finished_at`/`returncode`/`progress`는 초기화). 자동 실행 모드(`auto_run`)와 무관하게 항상 즉시 큐에 들어감. `interrupted`가 아닌 작업에 호출하면 400, 없거나 삭제된 작업이면 404 |
 | `POST` | `/api/send-email` | 출력 폴더의 이미지를 모아 이메일로 발송 (요청 본문: `{"smtp_user", "smtp_password", "to_email", "max_mb"(선택, 기본 20)}`). 세 필수 필드 중 하나라도 비어 있으면 400, 폴더가 없거나 이미지가 없으면 400, SMTP 로그인/발송 실패도 400과 함께 원인 메시지 반환. 성공하면 `{"total_files", "total_batches", "batches": [...]}` 반환 |
 | `GET` | `/api/download-images` | 출력 폴더의 이미지를 모두 zip으로 묶어 다운로드 응답으로 반환 (`Content-Disposition: attachment`). 작업별 하위 폴더 구조 없이 파일명만으로 평평하게 담기며, 서로 다른 작업 폴더의 파일명이 우연히 겹치면 "이름 (1).ext"처럼 번호를 붙여 구분함. 폴더가 없거나 이미지가 없으면 404 |
-| `GET` | `/api/output-images?q=&tag=&favorite=&min_rating=&model=` | (`model=`은 그 모델 파일명을 체크포인트/LoRA/UNet/VAE/텍스트 인코더로 쓴 결과물만 — `/api/output-videos`도 동일) 출력 폴더의 이미지 목록을 `{"images": [{"name", "job_id", "size", "mtime", "width", "height"}, ...]}`로 반환(수정 시각 내림차순, 최신이 먼저). `job_id`는 `name`(상대 경로)의 첫 폴더 이름이고, 하위 폴더 없이 바로 저장된 이미지는 `null`. `width`/`height`는 이미지 헤더만 읽어서 얻은 픽셀 크기(갤러리 "자세히 보기"용) — 손상된 파일이면 둘 다 `null`. 갤러리 탭(격자/자세히 보기 × 전체/작업별/날짜별)을 채우는 용도. 폴더가 아직 없어도 에러가 아니라 빈 배열 |
+| `GET` | `/api/output-images?q=&tag=&favorite=&min_rating=&model=&hide_nsfw=` | (`hide_nsfw=true`면 성인 콘텐츠로 표시된 프로젝트의 결과물을 뺀다 — NSFW 토글 절 참고, `/api/output-videos`도 동일) (`model=`은 그 모델 파일명을 체크포인트/LoRA/UNet/VAE/텍스트 인코더로 쓴 결과물만 — `/api/output-videos`도 동일) 출력 폴더의 이미지 목록을 `{"images": [{"name", "job_id", "size", "mtime", "width", "height"}, ...]}`로 반환(수정 시각 내림차순, 최신이 먼저). `job_id`는 `name`(상대 경로)의 첫 폴더 이름이고, 하위 폴더 없이 바로 저장된 이미지는 `null`. `width`/`height`는 이미지 헤더만 읽어서 얻은 픽셀 크기(갤러리 "자세히 보기"용) — 손상된 파일이면 둘 다 `null`. 갤러리 탭(격자/자세히 보기 × 전체/작업별/날짜별)을 채우는 용도. 폴더가 아직 없어도 에러가 아니라 빈 배열 |
 | `GET` | `/api/output-images/{filename}` | 그 이미지 원본을 그대로 반환(갤러리 라이트박스용). `filename`은 순수 파일명만 허용(경로 조작 방지), 없으면 404 |
 | `GET` | `/api/output-images/{filename}/thumbnail?size=320&fit=inside` | 그 이미지를 요청마다 즉석에서 축소해 JPEG로 반환(갤러리 격자용, 디스크에 캐시하지 않음). `size`는 픽셀(64~800 사이로 clamp, 기본 320)이고, `fit=inside`(기본)는 긴 변 기준으로 줄이고 `fit=cover`는 정사각형으로 가운데를 잘라 `size`×`size`로 만듭니다(갤러리 격자가 이렇게 부릅니다 — 칸이 정사각형이라 긴 변 기준으로 줄이면 세로로 긴 이미지가 흐릿해져서). 파일의 수정 시각·용량·`size`·`fit`으로 만든 `ETag`와 `Cache-Control: private, max-age=86400`을 응답에 실어서, 브라우저가 같은 축소본을 재요청(`If-None-Match`)할 때는 `304 Not Modified`만 돌려주고 다시 인코딩하지 않습니다 — 원본 파일이 바뀌면(예: 가로형 자동 회전) 수정 시각이 달라지면서 자동으로 무효화됩니다 |
 | `DELETE` | `/api/output-images/{filename}` | 그 이미지 한 장만 삭제(갤러리 칸의 삭제 아이콘/라이트박스의 삭제 버튼용). 응답 `{"ok": true}`, 없으면 404 |

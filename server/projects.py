@@ -45,6 +45,7 @@ def _row(r) -> dict:
     d = dict(r)
     d["defaults"] = json.loads(d.pop("defaults_json") or "{}")
     d["archived"] = d.get("archived_at") is not None
+    d["is_mature"] = bool(d.get("is_mature"))
     return d
 
 
@@ -76,9 +77,6 @@ def unassigned_summary(owner_id: int | None = None) -> dict:
             "AND status IN ('queued','running')" + jo, args).fetchone()[0]
         asset_count = conn.execute(
             "SELECT COUNT(*) FROM assets WHERE project_id IS NULL AND deleted_at IS NULL" + ao, args).fetchone()[0]
-        cover = conn.execute(
-            "SELECT path FROM assets WHERE project_id IS NULL AND kind='image' AND deleted_at IS NULL" + ao +
-            " ORDER BY created_at DESC LIMIT 1", args).fetchone()
         favorites = conn.execute(
             "SELECT COUNT(*) FROM assets WHERE project_id IS NULL AND deleted_at IS NULL AND favorite = 1" + ao,
             args).fetchone()[0]
@@ -91,7 +89,10 @@ def unassigned_summary(owner_id: int | None = None) -> dict:
             "AND finished_at IS NOT NULL AND pod_cost_per_hr IS NULL" + jo, args).fetchone()[0]
     return {"job_count": job_count, "active_jobs": active, "asset_count": asset_count,
             "favorite_count": favorites, "est_cost": cost, "uncosted_jobs": uncosted,
-            "cover_path": cover["path"] if cover else None}
+            # "미분류"는 사람이 대표 이미지를 고를 수 있는 화면이 없어서(진짜 프로젝트가 아니므로) 최근
+            # 이미지를 자동으로 대표로 뽑았었는데, 카드마다 계속 바뀌어 알아보기 어려웠다 — 항상 기본
+            # 아이콘 표시(cover_path 없을 때 카드가 보여주는 것과 동일)로 고정한다.
+            "cover_path": None}
 
 
 def get_project(project_id: int) -> dict | None:
@@ -129,12 +130,15 @@ def project_owner(project_id: int):
     return (row is not None, row["owner_id"] if row else None)
 
 
-def create_project(name: str, description: str = "", defaults: dict | None = None, owner_id: int | None = None) -> dict:
+def create_project(name: str, description: str = "", defaults: dict | None = None, owner_id: int | None = None,
+                   is_mature: bool = False) -> dict:
     now = db.now_iso()
     with db.connect() as conn:
         cur = conn.execute(
-            "INSERT INTO projects(name, description, defaults_json, created_at, updated_at, owner_id) VALUES(?,?,?,?,?,?)",
-            (name, description, json.dumps(defaults or {}, ensure_ascii=False), now, now, owner_id),
+            "INSERT INTO projects(name, description, defaults_json, created_at, updated_at, owner_id, is_mature) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (name, description, json.dumps(defaults or {}, ensure_ascii=False), now, now, owner_id,
+             1 if is_mature else 0),
         )
         project_id = cur.lastrowid
     return get_project(project_id)
@@ -152,6 +156,8 @@ def update_project(project_id: int, fields: dict) -> dict | None:
         sets.append("cover_asset_id=?"); params.append(fields["cover_asset_id"])
     if "archived" in fields:
         sets.append("archived_at=?"); params.append(db.now_iso() if fields["archived"] else None)
+    if "is_mature" in fields:
+        sets.append("is_mature=?"); params.append(1 if fields["is_mature"] else 0)
     if not sets:
         return get_project(project_id)
     sets.append("updated_at=?"); params.append(db.now_iso())
@@ -159,6 +165,10 @@ def update_project(project_id: int, fields: dict) -> dict | None:
         cur = conn.execute(f"UPDATE projects SET {', '.join(sets)} WHERE id=?", (*params, project_id))
         if cur.rowcount == 0:
             return None
+        if "is_mature" in fields:
+            # 이 프로젝트의 결과물도 같은 값으로 맞춘다 — 갤러리 필터가 프로젝트를 매번 조인하지 않고
+            # 결과물 자체의 nsfw만 보고 거를 수 있게(assets.nsfw는 이 값의 캐시다).
+            conn.execute("UPDATE assets SET nsfw=? WHERE project_id=?", (1 if fields["is_mature"] else 0, project_id))
     return get_project(project_id)
 
 
@@ -169,7 +179,8 @@ def delete_project(project_id: int) -> bool:
 
 
 def set_job_assets_project(job_id: str, project_id: int | None) -> int:
-    """job의 프로젝트가 바뀌면 그 job이 만든 결과물도 같이 옮긴다."""
+    """job의 프로젝트가 바뀌면 그 job이 만든 결과물도 같이 옮긴다. nsfw는 건드리지 않는다
+    (move_assets와 같은 이유 — 사람이 직접 정했을 수 있는 값이라 프로젝트 이동으로 덮어쓰지 않는다)."""
     with db.connect() as conn:
         cur = conn.execute("UPDATE assets SET project_id=? WHERE job_id=?", (project_id, job_id))
         return cur.rowcount

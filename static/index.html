@@ -431,6 +431,24 @@
   .gallery-item-fav:hover, .vgallery-item-fav:hover{ transform:scale(1.1); }
   @media (hover:none){ .gallery-item-fav, .vgallery-item-fav{ opacity:0.85; } }
   .gallery-details-col.name .ico.fav{ color:#F59E0B; fill:currentColor; width:12px; height:12px; }
+  .gallery-item-nsfw, .vgallery-item-nsfw{
+    position:absolute; top:34px; left:6px; z-index:2;
+    width:22px; height:22px; border-radius:50%;
+    background:rgba(0,0,0,0.45); color:#F87171;
+    display:flex; align-items:center; justify-content:center;
+    pointer-events:none;
+  }
+  .gallery-item-nsfw .ico, .vgallery-item-nsfw .ico{ width:13px; height:13px; fill:currentColor; }
+  .gallery-details-col.name .ico.nsfw, .vgallery-details-col.name .ico.nsfw{ color:#F87171; fill:currentColor; width:12px; height:12px; }
+  .gallery-item-blur-overlay, .vgallery-item-blur-overlay{
+    position:absolute; inset:0; z-index:1;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(20,20,24,0.82); color:rgba(255,255,255,0.75);
+    pointer-events:none;
+  }
+  .gallery-item-blur-overlay .ico, .vgallery-item-blur-overlay .ico{ width:28px; height:28px; }
+  .gallery-item.details .gallery-item-thumb, .vgallery-item.details .vgallery-item-thumb{ position:relative; }
+  .gallery-item.details .gallery-item-blur-overlay .ico, .vgallery-item.details .vgallery-item-blur-overlay .ico{ width:18px; height:18px; }
 
   /* 이미지/영상은 고정 높이(100vh - 얼마)로 줄이지 않고, 정보 줄·버튼·별점 줄이 차지하는 만큼을 뺀 나머지 칸을
      채우게 한다(flex로 줄어듦, 비율은 object-fit). 세로로 긴 이미지나 폰 주소창 때문에 화면이 낮을 때도 별점·
@@ -444,6 +462,11 @@
   .am-fav:hover, .am-star:hover{ color:#FCD34D; }
   .am-fav.on, .am-star.on{ color:#FBBF24; }
   .am-fav.on .ico, .am-star.on .ico{ fill:currentColor; }
+  .am-nsfw{ background:none; border:none; padding:2px; cursor:pointer; color:rgba(255,255,255,0.4); display:inline-flex; }
+  .am-nsfw .ico{ width:20px; height:20px; }
+  .am-nsfw:hover{ color:#F87171; }
+  .am-nsfw.on{ color:#F87171; }
+  .am-nsfw.on .ico{ fill:currentColor; }
   .am-stars{ display:inline-flex; gap:2px; }
   .am-status{ min-width:5.5em; font-family:var(--mono); font-size:11px; color:#9CA3AF; }
   .am-toggle{
@@ -1175,6 +1198,7 @@
   .badge.running{ color:var(--running); background:rgba(var(--running-rgb),0.10); }
   .badge.done{ color:var(--done); background:rgba(var(--done-rgb),0.10); }
   .badge.failed{ color:var(--failed); background:rgba(var(--failed-rgb),0.10); }
+  .badge.mature{ color:var(--failed); background:rgba(var(--failed-rgb),0.10); }
   .badge.interrupted{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.10); }
   /* ComfyUI(GPU)에 연결될 때까지 큐에서 붙잡혀 있는 작업 — 실패가 아니라 대기다.
      "대기중"(queued)과 눈에 띄게 구분돼야 사용자가 "왜 안 도나"를 바로 안다. */
@@ -2577,6 +2601,7 @@
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
   <symbol id="i-eraser" viewBox="0 0 24 24"><path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21"/><path d="m5.082 11.09 8.828 8.828"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></symbol>
   <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
   <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4"/></symbol>
   <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
@@ -2685,6 +2710,7 @@
   </a>
   <div class="header-right">
     <button class="user-chip" id="user-chip" type="button" style="display:none;" title="내 계정"><svg class="ico"><use href="#i-user"/></svg><span class="user-chip-name" id="user-chip-name"></span><span class="role-badge" id="user-chip-role" hidden>Admin</span></button>
+    <button class="theme-toggle-btn" id="nsfw-toggle-btn" type="button"></button>
     <button class="theme-toggle-btn" id="theme-toggle-btn" type="button"></button>
     <div class="queue-depth">대기 <b id="pending-count">0</b>건</div>
   </div>
@@ -2940,6 +2966,7 @@
       <div class="gallery-toolbar" id="gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="gallery-toolbar-count"></span>
         <button class="load-btn" id="gallery-fav-selected-btn" type="button" title="선택한 이미지를 즐겨찾기에 넣기/빼기 (전부 즐겨찾기면 빼요)"><svg class="ico"><use href="#i-star"/></svg><span class="btn-label">즐겨찾기</span></button>
+        <button class="load-btn" id="gallery-nsfw-selected-btn" type="button" title="선택한 이미지를 NSFW로 표시/해제 (전부 NSFW면 해제)"><svg class="ico"><use href="#i-flame"/></svg><span class="btn-label">NSFW</span></button>
         <button class="load-btn" id="gallery-tag-selected-btn" type="button" title="선택한 이미지에 태그 붙이기/떼기"><svg class="ico"><use href="#i-tag"/></svg><span class="btn-label">태그</span></button>
         <button class="load-btn" id="gallery-move-selected-btn" type="button" title="선택한 이미지를 다른 프로젝트로 옮기기"><svg class="ico"><use href="#i-folder-input"/></svg><span class="btn-label">이동</span></button>
         <button class="load-btn" id="gallery-download-selected-btn" type="button" title="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
@@ -2998,6 +3025,7 @@
       <div class="gallery-toolbar" id="video-gallery-toolbar" style="display:none;">
         <span class="gallery-toolbar-count" id="video-gallery-toolbar-count"></span>
         <button class="load-btn" id="video-gallery-fav-selected-btn" type="button" title="선택한 영상을 즐겨찾기에 넣기/빼기 (전부 즐겨찾기면 빼요)"><svg class="ico"><use href="#i-star"/></svg><span class="btn-label">즐겨찾기</span></button>
+        <button class="load-btn" id="video-gallery-nsfw-selected-btn" type="button" title="선택한 영상을 NSFW로 표시/해제 (전부 NSFW면 해제)"><svg class="ico"><use href="#i-flame"/></svg><span class="btn-label">NSFW</span></button>
         <button class="load-btn" id="video-gallery-tag-selected-btn" type="button" title="선택한 영상에 태그 붙이기/떼기"><svg class="ico"><use href="#i-tag"/></svg><span class="btn-label">태그</span></button>
         <button class="load-btn" id="video-gallery-move-selected-btn" type="button" title="선택한 영상을 다른 프로젝트로 옮기기"><svg class="ico"><use href="#i-folder-input"/></svg><span class="btn-label">이동</span></button>
         <button class="load-btn" id="video-gallery-concat-btn" type="button" style="display:none;" title="선택한 영상을 순서대로 이어 붙여 새 영상 만들기"><svg class="ico"><use href="#i-merge"/></svg><span class="btn-label">이어 붙이기</span></button>
@@ -3604,6 +3632,7 @@
         <label class="field-label" for="project-desc-input">설명 <span class="opt">— 선택</span></label>
         <textarea class="option-input" id="project-desc-input" rows="3" style="max-width:none;"></textarea>
       </div>
+      <label class="home-archived-toggle" id="project-mature-row"><input type="checkbox" id="project-mature-input"> Contain mature contents? (성인 콘텐츠 포함 — 헤더의 NSFW 토글이 "숨김"이면 이 프로젝트의 결과물은 갤러리에서 걸러져요)</label>
       <label class="home-archived-toggle" id="project-archive-row" style="display:none;"><input type="checkbox" id="project-archive-input"> 보관 (홈에서 숨김 — 작업과 결과물은 그대로 남아요)</label>
       <div class="upload-error" id="project-modal-error"></div>
     </div>
@@ -7110,6 +7139,63 @@ if(prefersDarkQuery){
 
 applyTheme(getEffectiveTheme(), false);
 
+// ---- NSFW(성인) 콘텐츠 보기 방식 ----
+// 프로젝트의 "성인 콘텐츠 포함" 체크박스(project-mature-input)로 표시한 것과 그 프로젝트의
+// 결과물은 이 버튼(눌러서 순환 — 영상 자동재생 방식 버튼과 같은 방식)으로 세 단계를 오간다.
+//   보기: 그대로 보여준다.
+//   블러: 목록에는 있되 미리보기를 가린다(프로젝트 대표 이미지가 없을 때 쓰는 것과 같은 아이콘
+//        placeholder — 실제 이미지를 흐리게 처리하는 대신 아예 안 받아오므로 가볍다). 열어서 보는
+//        건(라이트박스) 막지 않는다.
+//   안 보기: 서버 쪽 hide_nsfw 필터로 목록에서 아예 뺀다(galleryFilterQs 참고).
+// 브라우저별 설정이고(테마와 같은 방식), 기본값은 "안 보기"다 — 화면 공유나 다른 사람이 볼 때
+// 실수로 노출되지 않도록 안전한 쪽을 기본으로 한다.
+const NSFW_MODES = ['show', 'blur', 'hide'];
+const NSFW_META = {
+  show: { icon: 'eye',     label: '보기',    hint: '성인 콘텐츠를 그대로 보여줘요' },
+  blur: { icon: 'eye-off', label: '블러',    hint: '성인 콘텐츠는 목록엔 있되 미리보기를 가려요(열면 볼 수 있어요)' },
+  hide: { icon: 'ban',     label: '안 보기', hint: '성인 콘텐츠를 목록에서 아예 빼요' },
+};
+const NSFW_STORAGE_KEY = 'nightshift-nsfw-mode';
+const nsfwToggleBtn = document.getElementById('nsfw-toggle-btn');
+
+function readNsfwMode(){
+  try{
+    const saved = localStorage.getItem(NSFW_STORAGE_KEY);
+    if(NSFW_MODES.includes(saved)) return saved;
+    if(saved === '1') return 'hide';   // 예전 2단계(보기/숨김) 값 이관
+    if(saved === '0') return 'show';
+  }catch(e){ /* 기본값으로 */ }
+  return 'hide';
+}
+let nsfwMode = readNsfwMode();
+
+function isNsfwHidden(){ return nsfwMode === 'hide'; }   // 서버 필터(hide_nsfw)에 쓸 값
+
+function paintNsfwToggle(){
+  const meta = NSFW_META[nsfwMode];
+  nsfwToggleBtn.innerHTML = ico(meta.icon);
+  nsfwToggleBtn.title = `NSFW 콘텐츠: ${meta.label} — ${meta.hint} (눌러서 바꾸기)`;
+}
+
+function applyNsfwMode(mode, persist){
+  nsfwMode = mode;
+  if(persist){
+    try{ localStorage.setItem(NSFW_STORAGE_KEY, mode); }catch(e){ /* 이번 세션 안에서는 그대로 동작 */ }
+  }
+  paintNsfwToggle();
+  if(typeof fetchGalleryImages === 'function') fetchGalleryImages();
+  if(typeof fetchGalleryVideos === 'function') fetchGalleryVideos();
+  if(typeof renderHome === 'function') renderHome();
+}
+
+nsfwToggleBtn.addEventListener('click', () => {
+  const next = NSFW_MODES[(NSFW_MODES.indexOf(nsfwMode) + 1) % NSFW_MODES.length];
+  applyNsfwMode(next, true);
+  if(typeof flashNotice === 'function') flashNotice(`NSFW 콘텐츠: ${NSFW_META[next].label}`);
+});
+
+paintNsfwToggle();
+
 // ---- 로그인 / 회원가입 / 계정 ----
 // 로그인은 세션 쿠키다(서버 auth.py). 로그인·로그아웃에 성공하면 화면을 새로 불러와서, 처음부터 그 회원 기준으로 다시
 // 시작하게 한다(파드·프로젝트·작업이 회원마다 다르므로 이전 화면의 상태를 이어 쓰지 않는다).
@@ -8208,6 +8294,7 @@ function galleryFilterQs(f){
   if(f.tag) p.set('tag', f.tag);
   if(f.minRating) p.set('min_rating', String(f.minRating));
   if(f.model) p.set('model', f.model);
+  if(isNsfwHidden()) p.set('hide_nsfw', 'true');
   const s = p.toString();
   return s ? `?${s}` : '';
 }
@@ -8226,9 +8313,24 @@ function applyAssetPatch(kind, names, patch){
   const itemSel = kind === 'image' ? '#gallery-grid .gallery-item' : '#video-gallery-grid .vgallery-item';
   document.querySelectorAll(itemSel).forEach(el => {
     const it = shown[Number(el.dataset.index)];
-    if(!it || !wanted.has(it.name) || !('favorite' in patch)) return;
-    const btn = el.querySelector('.gallery-item-fav, .vgallery-item-fav');
-    if(btn){ btn.classList.toggle('on', !!it.favorite); btn.setAttribute('aria-pressed', it.favorite ? 'true' : 'false'); }
+    if(!it || !wanted.has(it.name)) return;
+    if('favorite' in patch){
+      const btn = el.querySelector('.gallery-item-fav, .vgallery-item-fav');
+      if(btn){ btn.classList.toggle('on', !!it.favorite); btn.setAttribute('aria-pressed', it.favorite ? 'true' : 'false'); }
+    }
+    if('nsfw' in patch){
+      const badgeClass = kind === 'image' ? 'gallery-item-nsfw' : 'vgallery-item-nsfw';
+      let badge = el.querySelector(`.${badgeClass}`);
+      if(it.nsfw && !badge){
+        badge = document.createElement('span');
+        badge.className = badgeClass;
+        badge.title = 'NSFW로 표시됨';
+        badge.innerHTML = ico('flame');
+        el.insertBefore(badge, el.querySelector('img, video'));
+      }else if(!it.nsfw && badge){
+        badge.remove();
+      }
+    }
   });
 }
 
@@ -8243,6 +8345,27 @@ async function setAssetsFavorite(kind, names, favorite){
     return true;
   }catch(e){
     names.forEach((n, i) => applyAssetPatch(kind, [n], { favorite: before[i] }));
+    return false;
+  }
+}
+
+async function setAssetsNsfw(kind, names, nsfw){
+  const list = kind === 'image' ? galleryImages : galleryVideos;
+  const before = names.map(n => !!(list.find(i => i.name === n) || {}).nsfw);
+  applyAssetPatch(kind, names, { nsfw });
+  try{
+    const res = await assetJson('/api/output-assets/update', { paths: names, nsfw });
+    if(!res.ok) throw new Error('failed');
+    // '블러'는 목록에 남되 미리보기가 바뀌고, '안 보기'는 서버가 아예 뺀다 — 둘 다 낙관적
+    // 패치만으로는 못 맞추니(썸네일 src·목록 자체가 바뀜) 다시 불러온다. '보기'는 항상 그대로
+    // 보이니 다시 부를 필요 없다.
+    if(nsfwMode !== 'show'){
+      if(kind === 'image' && typeof fetchGalleryImages === 'function') fetchGalleryImages();
+      if(kind === 'video' && typeof fetchGalleryVideos === 'function') fetchGalleryVideos();
+    }
+    return true;
+  }catch(e){
+    names.forEach((n, i) => applyAssetPatch(kind, [n], { nsfw: before[i] }));
     return false;
   }
 }
@@ -8350,6 +8473,13 @@ async function bulkFavorite(kind, names){
   await setAssetsFavorite(kind, names, !allFav);
 }
 
+async function bulkNsfw(kind, names){
+  if(names.length === 0) return;
+  const list = kind === 'image' ? galleryImages : galleryVideos;
+  const allNsfw = names.every(n => (list.find(i => i.name === n) || {}).nsfw);
+  await setAssetsNsfw(kind, names, !allNsfw);
+}
+
 async function bulkTags(kind, names){
   if(names.length === 0) return;
   const text = window.prompt(`선택한 ${names.length}장에 붙일 태그를 쉼표로 적으세요.\n앞에 -를 붙이면 그 태그를 뗍니다. 예) 손좋음, -실패작`, '');
@@ -8361,8 +8491,10 @@ async function bulkTags(kind, names){
 }
 
 document.getElementById('gallery-fav-selected-btn').addEventListener('click', () => bulkFavorite('image', Array.from(selectedGalleryNames)));
+document.getElementById('gallery-nsfw-selected-btn').addEventListener('click', () => bulkNsfw('image', Array.from(selectedGalleryNames)));
 document.getElementById('gallery-tag-selected-btn').addEventListener('click', () => bulkTags('image', Array.from(selectedGalleryNames)));
 document.getElementById('video-gallery-fav-selected-btn').addEventListener('click', () => bulkFavorite('video', Array.from(selectedGalleryVideoNames)));
+document.getElementById('video-gallery-nsfw-selected-btn').addEventListener('click', () => bulkNsfw('video', Array.from(selectedGalleryVideoNames)));
 document.getElementById('video-gallery-tag-selected-btn').addEventListener('click', () => bulkTags('video', Array.from(selectedGalleryVideoNames)));
 
 // 이동 창에서 "+ 새 프로젝트 만들기…"를 고르면 이름을 받아 프로젝트를 만든 뒤 바로 그리로 옮긴다(이미지·영상·작업 공용).
@@ -8528,6 +8660,7 @@ function createAssetMetaPanel(root, kind){
       <button type="button" class="am-fav" aria-pressed="false" title="즐겨찾기" aria-label="즐겨찾기">${ico('star')}</button>
       <span class="am-stars" role="group" aria-label="평점">${[1, 2, 3, 4, 5].map(n =>
         `<button type="button" class="am-star" data-star="${n}" aria-label="${n}점" title="${n}점">${ico('star')}</button>`).join('')}</span>
+      <button type="button" class="am-nsfw" aria-pressed="false" title="NSFW(성인) 콘텐츠로 표시" aria-label="NSFW 표시">${ico('flame')}</button>
       <span class="am-status" aria-live="polite"></span>
       <button type="button" class="am-toggle" aria-expanded="false" title="태그 · 메모 · 생성 정보">${ico('chevron-down')}<span class="am-toggle-label">정보</span><span class="am-toggle-count"></span></button>
     </div>
@@ -8539,10 +8672,14 @@ function createAssetMetaPanel(root, kind){
     </div>`;
   const $ = (sel) => root.querySelector(sel);
   const favBtn = $('.am-fav'), starBtns = [...root.querySelectorAll('.am-star')], statusEl = $('.am-status');
+  const nsfwBtn = $('.am-nsfw');
   const toggle = $('.am-toggle'), body = $('.am-body'), tagsEl = $('.am-tags'), tagInput = $('.am-tag-input');
   const noteEl = $('.am-note'), infoEl = $('.am-info'), countEl = $('.am-toggle-count');
   const wrap = root.closest('.lightbox-img-wrap');
-  let path = null, state = { favorite: false, rating: 0, tags: [] }, savedNote = '', statusTimer = null;
+  let path = null, state = { favorite: false, rating: 0, nsfw: false, tags: [] }, savedNote = '', statusTimer = null;
+  // 라이트박스를 열자마자(정보를 아직 받아오는 중에) 별점/즐겨찾기/NSFW를 바로 누르면, 뒤늦게 도착한
+  // 조회 응답이 그 사이의 내 클릭을 덮어써 버릴 수 있었다 — 클릭한 값은 다시 불러오지 않게 기억해 둔다.
+  let dirty = { favorite: false, rating: false, nsfw: false };
 
   function say(text){
     statusEl.textContent = text;
@@ -8553,6 +8690,8 @@ function createAssetMetaPanel(root, kind){
     favBtn.classList.toggle('on', state.favorite);
     favBtn.setAttribute('aria-pressed', state.favorite ? 'true' : 'false');
     starBtns.forEach((b, i) => b.classList.toggle('on', i < state.rating));
+    nsfwBtn.classList.toggle('on', state.nsfw);
+    nsfwBtn.setAttribute('aria-pressed', state.nsfw ? 'true' : 'false');
     countEl.textContent = state.tags.length ? ` · 태그 ${state.tags.length}` : '';
   }
   function paintTags(){
@@ -8594,18 +8733,27 @@ function createAssetMetaPanel(root, kind){
 
   favBtn.addEventListener('click', async () => {
     if(!path) return;
+    dirty.favorite = true;
     const next = !state.favorite;
     state.favorite = next; paintBar();
     if(!await setAssetsFavorite(kind, [path], next)){ state.favorite = !next; paintBar(); say('저장 실패'); }
   });
   starBtns.forEach(btn => btn.addEventListener('click', async () => {
     if(!path) return;
+    dirty.rating = true;
     const n = Number(btn.dataset.star);
     const next = state.rating === n ? 0 : n;    // 같은 별을 다시 누르면 평점 해제
     const prev = state.rating;
     state.rating = next; paintBar();
     if(!await setAssetRating(kind, path, next)){ state.rating = prev; paintBar(); say('저장 실패'); }
   }));
+  nsfwBtn.addEventListener('click', async () => {
+    if(!path) return;
+    dirty.nsfw = true;
+    const next = !state.nsfw;
+    state.nsfw = next; paintBar();
+    if(!await setAssetsNsfw(kind, [path], next)){ state.nsfw = !next; paintBar(); say('저장 실패'); }
+  });
   toggle.addEventListener('click', () => setOpen(body.hidden));
 
   async function addTags(text){
@@ -8654,7 +8802,8 @@ function createAssetMetaPanel(root, kind){
     async show(item){
       saveNote();
       path = item.name;
-      state = { favorite: !!item.favorite, rating: item.rating || 0, tags: (item.tags || []).slice() };
+      state = { favorite: !!item.favorite, rating: item.rating || 0, nsfw: !!item.nsfw, tags: (item.tags || []).slice() };
+      dirty = { favorite: false, rating: false, nsfw: false };
       savedNote = ''; noteEl.value = ''; infoEl.innerHTML = '<span class="am-empty">불러오는 중…</span>'; infoEl._detail = null;
       statusEl.textContent = '';
       paintBar(); paintTags(); setOpen(assetMetaOpen);
@@ -8664,7 +8813,10 @@ function createAssetMetaPanel(root, kind){
         if(!res.ok) throw new Error('failed');
         const d = await res.json();
         if(path !== requested) return;   // 그 사이 다른 이미지로 넘어갔으면 버린다
-        state.tags = d.tags || state.tags; state.favorite = !!d.favorite; state.rating = d.rating || 0;
+        state.tags = d.tags || state.tags;
+        if(!dirty.favorite) state.favorite = !!d.favorite;
+        if(!dirty.rating) state.rating = d.rating || 0;
+        if(!dirty.nsfw) state.nsfw = !!d.nsfw;
         savedNote = d.note || ''; noteEl.value = savedNote;
         paintBar(); paintTags(); paintInfo(d);
       }catch(e){
@@ -8737,9 +8889,13 @@ function projectCardHtml(p){
     ? { id: 'unassigned', name: UNASSIGNED_LABEL, description: '프로젝트에 속하지 않은 작업과 결과물',
         archived: false, favorite_count: 0, last_activity: null, ...unassignedSummary }
     : p;
-  const cover = d.cover_path
+  const coverHidden = d.is_mature && nsfwMode !== 'show';
+  const cover = coverHidden
+    ? `<div class="project-cover-empty" title="NSFW 콘텐츠가 '보기'가 아니라서 대표 이미지를 가렸어요">${ico('eye-off')}</div>`
+    : d.cover_path
     ? `<img class="project-cover-img" loading="lazy" alt="" src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(d.cover_path)}/thumbnail?size=400`)}">`
     : `<div class="project-cover-empty">${ico(inbox ? 'inbox' : 'folder')}</div>`;
+  const mature = d.is_mature ? `<span class="badge mature" title="성인 콘텐츠 포함으로 표시된 프로젝트">${ico('flame')} 18+</span>` : '';
   const active = d.active_jobs > 0
     ? `<span class="badge running"><span class="bdot"></span>실행 중 ${d.active_jobs}</span>` : '';
   const edit = inbox ? '' : `<button class="load-btn project-card-edit" type="button" data-project-edit="${d.id}" title="프로젝트 설정" aria-label="프로젝트 설정">${ico('settings')}</button>`;
@@ -8756,7 +8912,7 @@ function projectCardHtml(p){
         <div class="project-card-head">
           <span class="project-card-name" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}${d.archived ? ' (보관됨)' : ''}</span>
           ${d.owner_name ? `<span class="pod-badge owner-badge" title="이 프로젝트의 주인">${ico('user')} ${escapeHtml(d.owner_name)}</span>` : ''}
-          ${active}${edit}
+          ${mature}${active}${edit}
         </div>
         ${d.description ? `<div class="project-card-desc">${escapeHtml(d.description)}</div>` : ''}
         <div class="project-card-stats">
@@ -8995,6 +9151,7 @@ function openProjectModal(id){
   document.getElementById('project-desc-input').value = p ? (p.description || '') : '';
   document.getElementById('project-archive-input').checked = !!(p && p.archived);
   document.getElementById('project-archive-row').style.display = p ? '' : 'none';
+  document.getElementById('project-mature-input').checked = !!(p && p.is_mature);
   document.getElementById('project-delete-btn').style.display = p ? '' : 'none';
   document.getElementById('project-modal-error').textContent = '';
   document.getElementById('project-modal').style.display = 'flex';
@@ -9019,7 +9176,8 @@ document.getElementById('project-modal-save').addEventListener('click', async ()
   const errorEl = document.getElementById('project-modal-error');
   const name = document.getElementById('project-name-input').value.trim();
   if(!name){ errorEl.textContent = '이름을 입력하세요.'; return; }
-  const body = { name, description: document.getElementById('project-desc-input').value };
+  const body = { name, description: document.getElementById('project-desc-input').value,
+    is_mature: document.getElementById('project-mature-input').checked };
   if(projectModalId !== null) body.archived = document.getElementById('project-archive-input').checked;
   try{
     const res = await fetch(projectModalId === null ? '/api/projects' : `/api/projects/${projectModalId}`, {
@@ -9399,18 +9557,22 @@ function galleryDetailsJobLabel(img){
 
 function galleryItemHtml(img, index){
   const selected = selectedGalleryNames.has(img.name);
+  const blur = !!img.nsfw && nsfwMode === 'blur';
+  const blurOverlay = `<div class="gallery-item-blur-overlay" title="NSFW 블러 — 열어서 보기">${ico('eye-off')}</div>`;
   if(galleryDisplayMode === 'details'){
     const dims = (img.width && img.height) ? `${img.width}×${img.height}` : '-';
     const jobLabel = galleryDetailsJobLabel(img);
+    const thumbSrc = blur ? '' : `src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=80&v=${encodeURIComponent(img.mtime)}`)}"`;
     return `
       <div class="gallery-item details gallery-details-columns${selected ? ' selected' : ''}" data-index="${index}">
         <label class="gallery-item-select" title="선택">
           <input type="checkbox" ${selected ? 'checked' : ''}>
         </label>
         <div class="gallery-item-thumb">
-          <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=80&v=${encodeURIComponent(img.mtime)}`)}" alt="${escapeHtml(img.name)}" loading="lazy">
+          ${blur ? blurOverlay : ''}
+          <img ${thumbSrc} alt="${escapeHtml(img.name)}" loading="lazy">
         </div>
-        <div class="gallery-details-col name" title="${escapeHtml(img.name)}">${img.favorite ? '<svg class="ico fav"><use href="#i-star"/></svg> ' : ''}${escapeHtml(img.name)}</div>
+        <div class="gallery-details-col name" title="${escapeHtml(img.name)}">${img.favorite ? '<svg class="ico fav"><use href="#i-star"/></svg> ' : ''}${img.nsfw ? '<svg class="ico nsfw"><use href="#i-flame"/></svg> ' : ''}${escapeHtml(img.name)}</div>
         <div class="gallery-details-col job" title="${escapeHtml(jobLabel)}">${escapeHtml(jobLabel)}</div>
         <div class="gallery-details-col dim">${dims}</div>
         <div class="gallery-details-col size">${fmtBytes(img.size)}</div>
@@ -9419,6 +9581,7 @@ function galleryItemHtml(img, index){
       </div>
     `;
   }
+  const thumbSrc = blur ? '' : `src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=400&fit=cover&v=${encodeURIComponent(img.mtime)}`)}"`;
   return `
     <div class="gallery-item${selected ? ' selected' : ''}" data-index="${index}">
       <label class="gallery-item-select" title="선택">
@@ -9426,7 +9589,9 @@ function galleryItemHtml(img, index){
       </label>
       <button class="gallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
       <button class="gallery-item-fav${img.favorite ? ' on' : ''}" type="button" aria-label="즐겨찾기" aria-pressed="${img.favorite ? 'true' : 'false'}" title="즐겨찾기">${ico('star')}</button>
-      <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=400&fit=cover&v=${encodeURIComponent(img.mtime)}`)}" alt="${escapeHtml(img.name)}" loading="lazy">
+      ${img.nsfw ? `<span class="gallery-item-nsfw" title="NSFW로 표시됨">${ico('flame')}</span>` : ''}
+      ${blur ? blurOverlay : ''}
+      <img ${thumbSrc} alt="${escapeHtml(img.name)}" loading="lazy">
       <div class="gallery-item-name">${escapeHtml(img.name)}</div>
     </div>
   `;
@@ -9675,8 +9840,12 @@ function updateVideoGalleryScopeUI(){
 // 통째로 다시 만들지 않는다 — 다시 만들면 <img>/<video> 썸네일이 전부 새로 만들어져 깜빡이고 네트워크도 매번 다시 쓴다.
 function gallerySignature(items, extra){
   return JSON.stringify([
-    items.map(i => [i.name, i.mtime, i.size, i.favorite, i.rating, i.tags, i.project_id, i.owner_name, i.synced_pod_id]),
+    items.map(i => [i.name, i.mtime, i.size, i.favorite, i.rating, i.nsfw, i.tags, i.project_id, i.owner_name, i.synced_pod_id]),
     galleryJobLabels, extra,
+    // 블러 모드에서는 썸네일 자체(<img src>가 있는지)가 nsfw 값과 렌더링 방식에 따라 달라지니,
+    // 지금 모드도 서명에 넣는다 — 안 그러면 목록 내용은 그대로인데 토글만 바꿨을 때(예: 보기 -> 블러)
+    // "바뀐 게 없다"고 오판해서 블러 처리를 건너뛴다.
+    nsfwMode,
   ]);
 }
 let lastImageGallerySig = '';
@@ -10570,7 +10739,9 @@ function videoGalleryDetailsHeaderHtml(){
 
 function videoGalleryItemHtml(vid, index){
   const selected = selectedGalleryVideoNames.has(vid.name);
-  const src = window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(vid.name)}`) + '#t=0.1';
+  const blur = !!vid.nsfw && nsfwMode === 'blur';
+  const src = blur ? '' : window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(vid.name)}`) + '#t=0.1';
+  const blurOverlay = `<div class="vgallery-item-blur-overlay" title="NSFW 블러 — 열어서 보기">${ico('eye-off')}</div>`;
   if(videoGalleryDisplayMode === 'details'){
     const meta = videoMetaCache.get(videoMetaKey(vid));
     const jobLabel = galleryDetailsJobLabel(vid);
@@ -10579,8 +10750,8 @@ function videoGalleryItemHtml(vid, index){
         <label class="vgallery-item-select" title="선택">
           <input type="checkbox" ${selected ? 'checked' : ''}>
         </label>
-        <div class="vgallery-item-thumb"><video src="${src}" preload="metadata" muted playsinline></video></div>
-        <div class="vgallery-details-col name" title="${escapeHtml(vid.name)}">${vid.favorite ? '<svg class="ico fav"><use href="#i-star"/></svg> ' : ''}${escapeHtml(vid.name)}</div>
+        <div class="vgallery-item-thumb">${blur ? blurOverlay : ''}<video ${src ? `src="${src}"` : ''} preload="metadata" muted playsinline></video></div>
+        <div class="vgallery-details-col name" title="${escapeHtml(vid.name)}">${vid.favorite ? '<svg class="ico fav"><use href="#i-star"/></svg> ' : ''}${vid.nsfw ? '<svg class="ico nsfw"><use href="#i-flame"/></svg> ' : ''}${escapeHtml(vid.name)}</div>
         <div class="vgallery-details-col job" title="${escapeHtml(jobLabel)}">${escapeHtml(jobLabel)}</div>
         <div class="vgallery-details-col dur">${meta ? fmtDuration(meta.duration) : '…'}</div>
         <div class="vgallery-details-col dim">${meta ? (meta.width && meta.height ? `${meta.width}×${meta.height}` : '-') : '…'}</div>
@@ -10597,7 +10768,9 @@ function videoGalleryItemHtml(vid, index){
       </label>
       <button class="vgallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
       <button class="vgallery-item-fav${vid.favorite ? ' on' : ''}" type="button" aria-label="즐겨찾기" aria-pressed="${vid.favorite ? 'true' : 'false'}" title="즐겨찾기">${ico('star')}</button>
-      <video src="${src}" preload="metadata" muted playsinline></video>
+      ${vid.nsfw ? `<span class="vgallery-item-nsfw" title="NSFW로 표시됨">${ico('flame')}</span>` : ''}
+      ${blur ? blurOverlay : ''}
+      <video ${src ? `src="${src}"` : ''} preload="metadata" muted playsinline></video>
       <div class="vgallery-item-play"><svg class="ico"><use href="#i-play"/></svg></div>
       <div class="vgallery-item-name">${escapeHtml(vid.name)}</div>
     </div>

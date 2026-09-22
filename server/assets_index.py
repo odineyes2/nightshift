@@ -293,6 +293,7 @@ def sync(force: bool = False) -> dict | None:
             job_rows = {r["id"]: (r["project_id"], r["owner_id"])
                         for r in conn.execute("SELECT id, project_id, owner_id FROM jobs")}
             job_projects = {jid: v[0] for jid, v in job_rows.items()}
+            project_mature = {r["id"]: r["is_mature"] for r in conn.execute("SELECT id, is_mature FROM projects")}
             user_ids = {r["id"] for r in conn.execute("SELECT id FROM users")}
             # 주인이 없는 채로 남은 결과물(예전 버전이 남긴 것)을 채운다.
             for r in conn.execute("SELECT id, path, job_id, origin_pod_id FROM assets WHERE owner_id IS NULL").fetchall():
@@ -324,14 +325,16 @@ def sync(force: bool = False) -> dict | None:
                     job_id = parts[0] if len(parts) > 1 and parts[0] in job_projects else None
                     # 주인: 그 작업을 만든 회원, 작업이 없으면(ComfyUI에서 직접 만든 것) 받아온 파드의 주인.
                     owner_id = _owner_for(path, job_rows[job_id][1] if job_id else None, origins.get(path), user_ids)
+                    project_id = job_projects.get(job_id) if job_id else None
+                    nsfw = 1 if project_mature.get(project_id) else 0
                     conn.execute(
                         """INSERT INTO assets(path, kind, project_id, job_id, size_bytes, mtime_ns, width, height,
                                created_at, seed, prompt, negative_prompt, checkpoint, params_json,
-                               origin_pod_id, owner_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (path, kind, job_projects.get(job_id) if job_id else None, job_id,
+                               origin_pod_id, owner_id, nsfw) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (path, kind, project_id, job_id,
                          st.st_size, st.st_mtime_ns, width, height, _iso(st.st_mtime),
                          meta.get("seed"), meta.get("prompt"), meta.get("negative_prompt"),
-                         meta.get("checkpoint"), meta.get("params_json"), origins.get(path), owner_id),
+                         meta.get("checkpoint"), meta.get("params_json"), origins.get(path), owner_id, nsfw),
                     )
                     added += 1
                 elif need_probe or row["deleted_at"] is not None:

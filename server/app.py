@@ -3589,6 +3589,8 @@ def _clean_project_fields(body: dict, creating: bool) -> dict:
         fields["defaults"] = body["defaults"]
     if "archived" in body:
         fields["archived"] = bool(body["archived"])
+    if "is_mature" in body:
+        fields["is_mature"] = bool(body["is_mature"])
     if "cover_asset_id" in body:
         cover = body["cover_asset_id"]
         if cover is not None and (not isinstance(cover, int) or isinstance(cover, bool)):
@@ -3621,7 +3623,7 @@ async def create_project_api(request: Request):
     body = await read_json_object(request, allow_empty=False)
     fields = _clean_project_fields(body, creating=True)
     return project_store.create_project(fields["name"], fields.get("description", ""), fields.get("defaults"),
-                                        owner_id=user["id"])
+                                        owner_id=user["id"], is_mature=fields.get("is_mature", False))
 
 
 @app.get("/api/projects/{project_id}")
@@ -3734,9 +3736,13 @@ async def update_assets_api(request: Request):
         raise HTTPException(400, "note는 문자열이어야 해요.")
     if "favorite" in body and not isinstance(body["favorite"], bool):
         raise HTTPException(400, "favorite은 true/false여야 해요.")
+    if "nsfw" in body and not isinstance(body["nsfw"], bool):
+        raise HTTPException(400, "nsfw는 true/false여야 해요.")
     kwargs = {}
     if "favorite" in body:
         kwargs["favorite"] = body["favorite"]
+    if "nsfw" in body:
+        kwargs["nsfw"] = body["nsfw"]
     if "rating" in body:
         r = body["rating"]
         if r is not None and (not isinstance(r, int) or isinstance(r, bool)):
@@ -4298,7 +4304,7 @@ def _meta_resolver(owner_id: int | None = None):
                 job = jobs.get(job_id)
             if job:
                 project_id = job.get("project_id")
-        return {"asset_id": None, "favorite": False, "rating": None, "project_id": project_id, "tags": []}
+        return {"asset_id": None, "favorite": False, "rating": None, "nsfw": False, "project_id": project_id, "tags": []}
     return resolve
 
 
@@ -4358,16 +4364,16 @@ def list_output_images_meta(user: dict) -> list[dict]:
 @app.get("/api/output-images")
 def list_output_images_api(request: Request, q: str | None = None, tag: str | None = None,
                            favorite: bool | None = None, min_rating: int | None = None,
-                           model: str | None = None):
+                           model: str | None = None, hide_nsfw: bool = False):
     # 갤러리가 4초마다 부르는 곳 — 색인(assets)이 디스크와 어긋나지 않게 짧은 간격
     # 안에서는 건너뛰는 sync를 같이 돌린다(회전/삭제/직접 넣은 파일이 여기서 따라잡힌다).
     # q(프롬프트·메모·태그·파일명·체크포인트·시드)/tag(쉼표로 여러 개, 모두 붙은 것)/favorite/
-    # min_rating을 주면 그 조건에 맞는 것만 남긴다.
+    # min_rating을 주면 그 조건에 맞는 것만 남긴다. hide_nsfw는 헤더의 NSFW 토글이 "숨김"일 때 붙는다.
     _sync_assets_quietly()
     user = me(request)
     items = list_output_images_meta(user)
     allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="image",
-                                      owner_id=auth.owner_scope(user), model=model or None)
+                                      owner_id=auth.owner_scope(user), model=model or None, hide_nsfw=hide_nsfw)
     if allowed is not None:
         items = [i for i in items if i["name"] in allowed]
     return {"images": items}
@@ -4778,12 +4784,12 @@ def list_output_videos_meta(user: dict) -> list[dict]:
 @app.get("/api/output-videos")
 def list_output_videos_api(request: Request, q: str | None = None, tag: str | None = None,
                            favorite: bool | None = None, min_rating: int | None = None,
-                           model: str | None = None):
+                           model: str | None = None, hide_nsfw: bool = False):
     _sync_assets_quietly()
     user = me(request)
     items = list_output_videos_meta(user)
     allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="video",
-                                      owner_id=auth.owner_scope(user), model=model or None)
+                                      owner_id=auth.owner_scope(user), model=model or None, hide_nsfw=hide_nsfw)
     if allowed is not None:
         items = [i for i in items if i["name"] in allowed]
     return {"videos": items}

@@ -63,11 +63,11 @@ def owned_paths(owner_id: int) -> set[str]:
 
 
 def meta_by_path(owner_id: int | None = None) -> dict[str, dict]:
-    """{경로: {asset_id, favorite, rating, tags, owner_id}} — 갤러리 목록이 항목마다 붙일 때 쓴다.
+    """{경로: {asset_id, favorite, rating, nsfw, tags, owner_id}} — 갤러리 목록이 항목마다 붙일 때 쓴다.
     owner_id를 주면 그 회원 것만."""
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT id, path, favorite, rating, project_id, owner_id FROM assets WHERE deleted_at IS NULL"
+            "SELECT id, path, favorite, rating, nsfw, project_id, owner_id FROM assets WHERE deleted_at IS NULL"
             + (" AND owner_id = ?" if owner_id is not None else ""),
             (owner_id,) if owner_id is not None else ()).fetchall()
         tags = {}
@@ -77,14 +77,17 @@ def meta_by_path(owner_id: int | None = None) -> dict[str, dict]:
             tags.setdefault(r["asset_id"], []).append(r["name"])
     return {
         r["path"]: {"asset_id": r["id"], "favorite": bool(r["favorite"]), "rating": r["rating"],
-                    "project_id": r["project_id"], "owner_id": r["owner_id"], "tags": tags.get(r["id"], [])}
+                    "nsfw": bool(r["nsfw"]), "project_id": r["project_id"], "owner_id": r["owner_id"],
+                    "tags": tags.get(r["id"], [])}
         for r in rows
     }
 
 
 def _build_where(q=None, tags=None, favorite=None, min_rating=None, kind=None,
-                 project=None, job_id=None, owner_id=None, model=None) -> tuple[list[str], list]:
+                 project=None, job_id=None, owner_id=None, model=None, hide_nsfw=False) -> tuple[list[str], list]:
     where, params = ["a.deleted_at IS NULL"], []
+    if hide_nsfw:
+        where.append("a.nsfw = 0")
     if model:
         # 체크포인트 칸이거나, params_json 안에 그 파일명이 따옴표째(JSON 문자열로) 들어 있는 것.
         where.append("(a.checkpoint = ? OR a.params_json LIKE ? ESCAPE '\\')")
@@ -121,12 +124,13 @@ def _build_where(q=None, tags=None, favorite=None, min_rating=None, kind=None,
 
 def search_paths(q: str | None = None, tags: list[str] | None = None, favorite: bool | None = None,
                  min_rating: int | None = None, kind: str | None = None, owner_id: int | None = None,
-                 model: str | None = None) -> set[str] | None:
+                 model: str | None = None, hide_nsfw: bool = False) -> set[str] | None:
     """조건에 맞는 경로 집합. 조건이 하나도 없으면 None(거르지 않음) — 갤러리 목록이 쓴다."""
     if (not (q or "").split() and not normalize_tags(tags) and favorite is None and not min_rating
-            and kind is None and not model):
+            and kind is None and not model and not hide_nsfw):
         return None
-    where, params = _build_where(q, tags, favorite, min_rating, kind, owner_id=owner_id, model=model)
+    where, params = _build_where(q, tags, favorite, min_rating, kind, owner_id=owner_id, model=model,
+                                 hide_nsfw=hide_nsfw)
     with db.connect() as conn:
         rows = conn.execute("SELECT a.path FROM assets a WHERE " + " AND ".join(where), params).fetchall()
     return {r["path"] for r in rows}
@@ -181,13 +185,17 @@ def get_detail(path: str, owner_id: int | None = None) -> dict:
         job = conn.execute("SELECT template_label, pod_name FROM jobs WHERE id=?", (r["job_id"],)).fetchone() \
             if r["job_id"] else None
     detail["favorite"] = bool(detail["favorite"])
+    detail["nsfw"] = bool(detail["nsfw"])
     detail["job_label"] = job["template_label"] if job else None
     detail["pod_name"] = job["pod_name"] if job else None
     return detail
 
 
-def update_assets(paths: list[str], favorite=None, rating="unset", note=None, owner_id: int | None = None) -> int:
-    """즐겨찾기/평점/메모를 바꾼다. rating은 0~5(0/None이면 평점 없음), 안 넘기면 그대로."""
+def update_assets(paths: list[str], favorite=None, rating="unset", note=None, nsfw=None,
+                  owner_id: int | None = None) -> int:
+    """즐겨찾기/평점/메모/NSFW 표시를 바꾼다. rating은 0~5(0/None이면 평점 없음), 안 넘기면 그대로.
+    nsfw는 사람이 라이트박스나 다중 선택에서 직접 정하는 값이라(프로젝트의 is_mature와 달리), 여기서
+    바꾼 뒤에는 프로젝트를 옮겨도 이 값이 따라 바뀌지 않는다(move_assets 참고)."""
     paths = list(dict.fromkeys(paths))
     if not paths:
         return 0
@@ -195,6 +203,8 @@ def update_assets(paths: list[str], favorite=None, rating="unset", note=None, ow
     sets, params = [], []
     if favorite is not None:
         sets.append("favorite=?"); params.append(1 if favorite else 0)
+    if nsfw is not None:
+        sets.append("nsfw=?"); params.append(1 if nsfw else 0)
     if rating != "unset":
         value = None if rating in (None, 0) else int(rating)
         if value is not None and not 1 <= value <= 5:
@@ -213,7 +223,9 @@ def update_assets(paths: list[str], favorite=None, rating="unset", note=None, ow
 
 def move_assets(paths: list[str], project_id: int | None, owner_id: int | None = None) -> int:
     """결과물을 다른 프로젝트(None이면 미분류)로 옮긴다. 파일은 그대로고 색인만 바뀐다 —
-    만든 작업(job)의 프로젝트는 건드리지 않는다(그 작업의 다른 결과물은 제자리에 남는다)."""
+    만든 작업(job)의 프로젝트는 건드리지 않는다(그 작업의 다른 결과물은 제자리에 남는다).
+    nsfw는 건드리지 않는다 — 사람이 직접 정한(또는 만들어질 때 프로젝트에서 물려받은) 값이라
+    단순히 프로젝트를 옮긴다고 같이 바뀌면 안 된다(update_assets의 nsfw, projects.update_project 참고)."""
     paths = list(dict.fromkeys(paths))
     if not paths:
         return 0
