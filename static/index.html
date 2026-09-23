@@ -1711,6 +1711,7 @@
   .wizard-pick-list{ display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; }
   .wizard-pick-row{
     display:flex;
+    flex-wrap:wrap;
     align-items:center;
     justify-content:space-between;
     gap:12px;
@@ -1736,6 +1737,23 @@
     flex-shrink:0;
   }
   .wizard-pick-row-strength{ width:70px; flex-shrink:0; }
+  /* MiniMax-H3처럼 부가 입력이 여러 개(참조 개수, 첫/마지막 프레임, 너비/높이 등)일 때
+     쓴다 — flex-basis:100%로 같은 줄에 있는 라벨을 밀어내고 항상 다음 줄로 내려간다
+     (row 자체가 flex-wrap이라 가능). 그 안의 각 입력칸도 자체적으로 줄바꿈되므로
+     PC든 모바일이든 좁아지면 자연스럽게 여러 줄로 쌓인다. */
+  .wizard-pick-row-block{
+    flex:1 0 100%;
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:10px;
+    margin-top:6px;
+    padding-top:10px;
+    border-top:1px dashed var(--border);
+  }
+  .wizard-pick-row-block label{ display:inline-flex; align-items:center; gap:4px; font-size:13px; }
+  .wizard-pick-row-block input[type="number"]{ max-width:80px; }
+  .wizard-pick-row-block select{ max-width:250px; }
 
   .gallery-count{ font-family:var(--mono); font-size:12px; color:var(--text-dim); }
   .gallery-toolbar{
@@ -7131,28 +7149,24 @@ function renderWizardTypeModal(){
            <input type="checkbox" class="wizard-krea2-refine-input" ${wizard.refinePrompt ? 'checked' : ''}> 프롬프트 자동 보강(LLM)
          </label>`
       : t.id === 'minimax_h3_r2v'
-      ? `<div class="wizard-pick-row-strength" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">이미지<input type="number" class="option-input wizard-refimage-count-input" style="max-width:70px;" value="${wizard.refImageCount}" min="0" max="9" step="1" title="참조 이미지 개수(0~9)"></label>
-           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">비디오<input type="number" class="option-input wizard-refvideo-count-input" style="max-width:70px;" value="${wizard.refVideoCount}" min="0" max="3" step="1" title="참조 비디오 개수(0~3)"></label>
-           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">오디오<input type="number" class="option-input wizard-refaudio-count-input" style="max-width:70px;" value="${wizard.refAudioCount}" min="0" max="3" step="1" title="참조 오디오 개수(0~3)"></label>
-           ${wizard.refVideoCount > 0 ? `<select class="option-input wizard-refvideo-mode-input" style="max-width:250px;">
+      ? `<div class="wizard-pick-row-block">
+           <label>이미지<input type="number" class="option-input wizard-refimage-count-input" value="${wizard.refImageCount}" min="0" max="9" step="1" title="참조 이미지 개수(0~9)"></label>
+           <label>비디오<input type="number" class="option-input wizard-refvideo-count-input" value="${wizard.refVideoCount}" min="0" max="3" step="1" title="참조 비디오 개수(0~3)"></label>
+           <label>오디오<input type="number" class="option-input wizard-refaudio-count-input" value="${wizard.refAudioCount}" min="0" max="3" step="1" title="참조 오디오 개수(0~3)"></label>
+           ${wizard.refVideoCount > 0 ? `<select class="option-input wizard-refvideo-mode-input">
              <option value="vhs"${wizard.videoRefMode === 'vhs' ? ' selected' : ''}>비디오 참조: 표준 방식(VHS_LoadVideo)${vhsMissing ? ' — 설치 필요' : ''}</option>
              <option value="native"${wizard.videoRefMode === 'native' ? ' selected' : ''}>비디오 참조: 순정 방식(LoadVideo)</option>
            </select>` : ''}
          </div>`
       : t.id === 'minimax_h3_i2v'
-      ? `<div class="wizard-pick-row-strength" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
-             <input type="checkbox" class="wizard-i2v-first-frame-input" ${wizard.useFirstFrame ? 'checked' : ''}> 첫 프레임으로 사용
-           </label>
-           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
-             <input type="checkbox" class="wizard-i2v-last-frame-input" ${wizard.useLastFrame ? 'checked' : ''}> 마지막 프레임으로 사용
-           </label>
+      ? `<div class="wizard-pick-row-block">
+           <label><input type="checkbox" class="wizard-i2v-first-frame-input" ${wizard.useFirstFrame ? 'checked' : ''}> 첫 프레임으로 사용</label>
+           <label><input type="checkbox" class="wizard-i2v-last-frame-input" ${wizard.useLastFrame ? 'checked' : ''}> 마지막 프레임으로 사용</label>
          </div>`
       : t.id === 'minimax_h3_t2v'
-      ? `<div class="wizard-pick-row-strength" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">너비<input type="number" class="option-input wizard-t2v-width-input" style="max-width:80px;" value="${wizard.t2vWidth}" min="64" step="16" title="영상 너비(참조 이미지가 없어 직접 정함)"></label>
-           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">높이<input type="number" class="option-input wizard-t2v-height-input" style="max-width:80px;" value="${wizard.t2vHeight}" min="64" step="16" title="영상 높이(참조 이미지가 없어 직접 정함)"></label>
+      ? `<div class="wizard-pick-row-block">
+           <label>너비<input type="number" class="option-input wizard-t2v-width-input" value="${wizard.t2vWidth}" min="64" step="16" title="영상 너비(참조 이미지가 없어 직접 정함)"></label>
+           <label>높이<input type="number" class="option-input wizard-t2v-height-input" value="${wizard.t2vHeight}" min="64" step="16" title="영상 높이(참조 이미지가 없어 직접 정함)"></label>
          </div>`
       : '';
     return `
