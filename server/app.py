@@ -4295,6 +4295,70 @@ def retry_job(job_id: str, request: Request):
     return jobs[job_id]
 
 
+@app.post("/api/jobs/{job_id}/start")
+def start_job(job_id: str, request: Request):
+    # Job List 행의 "시작" — auto_run(전체 큐 자동 실행)과 무관하게 이 작업 하나만 콕
+    # 집어 지금 돌린다. retry_job과 거의 같지만 pending/failed까지 넓힌 버전이다.
+    # pod_id가 이미 있으면(정지됨/실패 — 예전에 어느 파드에서 돌았는지 앎) retry와
+    # 똑같이 dispatch_job으로 그 파드 큐에 바로 넣는다. pod_id가 없으면(pending, 한
+    # 번도 배정된 적 없음) dispatch_job으로 바로 넣지 않는다 — 그러면 스케줄러의
+    # 모델/노드 적합성 검사를 건너뛰고 아무 기본 파드에나 꽂힌다. 대신
+    # POST /api/queue/start와 같은 방식(queued + poke_scheduler)으로 보내 스케줄러가
+    # 맞는 파드를 골라 배정하게 한다.
+    job_or_404(me(request), job_id)
+    with lock:
+        job = jobs.get(job_id)
+        if not job or job.get("deleted"):
+            raise HTTPException(404, "없는 작업이에요.")
+        if job["status"] not in ("pending", "interrupted", "failed"):
+            raise HTTPException(400, "대기/정지/실패 상태의 작업만 시작할 수 있어요.")
+        had_pod = bool(job.get("pod_id"))
+        job["status"] = "queued"
+        job["queued_at"] = now_iso()
+        job["started_at"] = None
+        job["finished_at"] = None
+        job["returncode"] = None
+        job["progress"] = None
+        if not had_pod:
+            job["waiting_reason"] = "파드를 찾는 중이에요"
+    save_state()
+    if had_pod:
+        dispatch_job(job_id)
+    else:
+        poke_scheduler()
+    return jobs[job_id]
+
+
+@app.post("/api/jobs/{job_id}/stop")
+def stop_job(job_id: str, request: Request):
+    # Job List 행의 "정지" — 그 파드의 auto_run이나 같은 파드에서 같이 도는 다른 작업은
+    # 안 건드리고, 이 작업 하나의 서브프로세스만 종료 요청한다(stop_pod_jobs와 같은
+    # terminate → 5초 뒤 감시 스레드로 kill 방식을 이 작업 하나에만 좁혀 적용).
+    job_or_404(me(request), job_id)
+    with lock:
+        job = jobs.get(job_id)
+        if not job or job.get("deleted"):
+            raise HTTPException(404, "없는 작업이에요.")
+        if job["status"] != "running":
+            raise HTTPException(400, "진행 중인 작업만 정지할 수 있어요.")
+        pod_id = job.get("pod_id")
+        rt = pod_runtimes.get(pod_id) if pod_id else None
+        proc = rt.running.get(job_id) if rt else None
+        if proc is not None:
+            job["_stop_requested"] = True
+    if proc is None:
+        raise HTTPException(409, "지금 실행 중인 프로세스를 찾지 못했어요(막 끝났을 수 있어요) — 잠시 후 다시 확인해 주세요.")
+    proc.terminate()
+
+    def _kill_if_still_alive(p=proc):
+        time.sleep(5)
+        if p.poll() is None:
+            p.kill()
+
+    threading.Thread(target=_kill_if_still_alive, daemon=True).start()
+    return {"ok": True, "job_id": job_id}
+
+
 @app.post("/api/jobs/{job_id}/move")
 async def move_job(job_id: str, request: Request):
     """작업을 다른 파드로 옮긴다.

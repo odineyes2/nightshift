@@ -389,6 +389,17 @@
   }
   .pod-subtab-btn:hover{ color:var(--text); }
   .pod-subtab-btn.active{ color:var(--queued); border-color:var(--queued); background:rgba(var(--queued-rgb),0.08); }
+  .pod-subtab-btn:disabled{ opacity:0.4; cursor:not-allowed; }
+  .pod-subtab-btn:disabled:hover{ color:var(--text-dim); }
+
+  /* New Job 패널 안에서 "새 작업"(마법사/업로드)과 "세부 설정"(옵션/CSV/제출)을
+     나누는 탭 — .pod-bar-subtabs/.pod-subtab-btn과 같은 페이지 내 탭 패턴. */
+  .new-job-tabs{
+    display:flex; gap:4px;
+    border-bottom:1px solid var(--border);
+    padding-bottom:10px;
+    margin-bottom:14px;
+  }
 
   /* Lucide SVG 아이콘(body 맨 위 스프라이트) — 글자 크기에 맞춰 커지고 글자색을 따른다. */
   .ico{
@@ -632,7 +643,7 @@
     flex-direction:column;
     gap:6px;
   }
-  .manual-template-toggle{ font-size:12.5px; }
+  .manual-template-toggle{ font-size:12.5px; margin-top:18px; }
   .manual-template-toggle summary{
     cursor:pointer; color:var(--text-dim); font-family:var(--mono); font-size:11.5px;
     list-style:none; display:flex; align-items:center; gap:6px;
@@ -788,7 +799,7 @@
   .ref-gallery{ display:flex; flex-wrap:wrap; gap:6px; }
   .ref-gallery-single{ display:inline-block; }
   .ref-card{
-    width:64px; height:64px;
+    width:92px; height:92px;
     border:2px solid var(--border);
     border-radius:var(--radius-sm);
     cursor:pointer;
@@ -801,17 +812,17 @@
   .ref-card:hover{ border-color:var(--queued); }
   .ref-card.selected{ border-color:var(--queued); box-shadow:0 0 0 2px rgba(var(--queued-rgb),0.25); }
   .ref-card img, .ref-card video{ width:100%; height:100%; object-fit:cover; pointer-events:none; }
-  .ref-card-none{ font-size:10px; color:var(--text-dim); text-align:center; padding:2px; line-height:1.2; }
-  .ref-card-audio{ flex-direction:column; gap:2px; padding:4px; }
-  .ref-card-audio .ico{ width:20px; height:20px; color:var(--text-dim); }
-  .ref-card-audio-label{ font-size:9px; color:var(--text-dim); max-width:56px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ref-card-none{ font-size:11px; color:var(--text-dim); text-align:center; padding:2px; line-height:1.2; }
+  .ref-card-audio{ flex-direction:column; gap:4px; padding:4px; }
+  .ref-card-audio .ico{ width:28px; height:28px; color:var(--text-dim); }
+  .ref-card-audio-label{ font-size:9.5px; color:var(--text-dim); max-width:82px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .ref-card-badge{ position:absolute; bottom:2px; right:2px; background:rgba(0,0,0,0.55); border-radius:999px; padding:2px; display:flex; }
   .ref-card-badge .ico{ width:10px; height:10px; color:#fff; }
   .ref-card-upload{ border-style:dashed; color:var(--text-dim); }
   .ref-card-upload:hover{ color:var(--text); }
   .ref-card-add{ border-style:dashed; color:var(--text-dim); }
   .ref-card-add:hover{ color:var(--text); border-color:var(--queued); }
-  .ref-card-add .ico{ width:20px; height:20px; }
+  .ref-card-add .ico{ width:28px; height:28px; }
   .ref-card-remove{
     position:absolute; top:-6px; right:-6px;
     width:18px; height:18px; border-radius:999px;
@@ -1465,7 +1476,8 @@
   .del-btn,
   .edit-btn,
   .load-btn,
-  .retry-btn{
+  .start-btn,
+  .stop-btn{
     background:var(--panel);
     border:1px solid var(--border);
     color:var(--text-dim);
@@ -1479,12 +1491,16 @@
     transition: border-color .15s ease, color .15s ease, background .15s ease;
   }
   .del-btn:hover{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
+  .del-btn:disabled{ opacity:0.45; cursor:not-allowed; }
+  .del-btn:disabled:hover{ border-color:var(--border); color:var(--text-dim); background:var(--panel); }
   .row-actions{ display:flex; gap:var(--gap-xs); flex-wrap:nowrap; }
   .edit-btn:hover,
   .load-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
-  /* interrupted 작업을 다시 큐에 올리는 "재시작" 버튼 — done(초록) 계열로,
+  /* 대기/정지/실패 작업을 (다시) 큐에 올리는 "시작" 버튼 — done(초록) 계열로,
      삭제(빨강)/수정·불러오기(파랑)와 구분되게 한다. */
-  .retry-btn:hover{ border-color:var(--done); color:var(--done); background:rgba(var(--done-rgb),0.06); }
+  .start-btn:hover{ border-color:var(--done); color:var(--done); background:rgba(var(--done-rgb),0.06); }
+  /* 진행 중인 작업 하나만 멈추는 "정지" 버튼 — running(주황/노랑) 계열로 구분. */
+  .stop-btn:hover{ border-color:var(--running); color:var(--running); background:rgba(var(--running-rgb),0.06); }
   .load-notice{ font-size:12.5px; font-family:var(--mono); min-height:1em; white-space:pre-line; color:var(--text-dim); }
   /* 업로드한 워크플로우가 지금 연결된 ComfyUI에서 돌아갈 수 있는지 검사한 결과 —
      통과(초록)/문제 있음(주황)/확인 못 함(회색) 세 가지 톤을 쓴다. */
@@ -1598,8 +1614,6 @@
 
   /* "새 작업 추가" 마법사 바 — 4단계 버튼 + 적용/초기화. */
   .wizard-bar{
-    border-top:1px solid var(--border);
-    padding-top:14px;
     margin-bottom:12px;
     display:flex;
     flex-direction:column;
@@ -2850,10 +2864,6 @@
         <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
         <div class="section-label">Job list</div>
       </div>
-      <div class="panel-header-actions">
-        <button class="del-btn" id="clear-completed-btn" type="button" disabled title="완료/실패/중단된 작업을 한꺼번에 삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 완료 삭제</button>
-        <button class="start-queue-btn" id="start-queue-btn" type="button" disabled title="대기중 작업 시작"><svg class="ico"><use href="#i-play"/></svg> 시작 (<span id="pending-batch-count">0</span>)</button>
-      </div>
     </div>
     <div class="panel-body">
       <div class="table-scroll">
@@ -2900,10 +2910,17 @@
           <select class="pod-bar-select" id="job-pod-select"></select>
         </label>
       </div>
-      <!-- "무엇을 만들지 고르는" 카드 — 마법사로 새로 만들거나 워크플로우를 직접 올리거나.
-           이 밑의 세부 옵션 카드(#new-job-details-panel)는 워크플로우가 실제로 붙기 전엔
-           보여줄 내용이 없어 처음부터 숨겨 둔다(checkWorkflowCompatibility가 토글). -->
-      <div class="subpanel" id="new-job-select-panel">
+      <!-- "새 작업"(마법사/워크플로우 업로드)과 "세부 설정"(템플릿 옵션/CSV/제출)을 탭으로
+           나눈다 — .pod-subtab-btn과 같은, 페이지 안에서 쓰는 탭 패턴(POD_TAB_META 참고).
+           세부 설정 탭은 워크플로우가 실제로 붙기 전엔 보여줄 내용이 없어 처음엔 비활성이고,
+           붙는 순간(checkWorkflowCompatibility/onTemplateChange → updateNewJobTabs) 자동으로
+           그쪽으로 전환된다. -->
+      <div class="new-job-tabs" id="new-job-tabs">
+        <button class="pod-subtab-btn active" id="new-job-tab-select" type="button" data-newjob-tab="select">새 작업</button>
+        <button class="pod-subtab-btn" id="new-job-tab-details" type="button" data-newjob-tab="details" disabled>세부 설정</button>
+      </div>
+
+      <div id="new-job-select-panel">
         <div class="wizard-bar" id="wizard-bar">
           <div class="wizard-bar-title"><svg class="ico"><use href="#i-wand-sparkles"/></svg> 새 작업 마법사</div>
           <div class="wizard-steps">
@@ -2947,10 +2964,10 @@
           <div class="workflow-check" id="workflow-check" hidden></div>
         </div>
 
-        <!-- 마법사가 다루지 않는 작업(영상 생성, 셸 명령 등)으로 가는 탈출구라 워크플로우
-             카드 안에 둔다 — 워크플로우를 안 붙이고도(예: 셸 명령) 이 드롭다운만으로
-             아래 세부 옵션 카드를 열 수 있어야 해서, 세부 옵션 카드 밖(선택 카드 안)에
-             있어야 한다(updateNewJobDetailsVisibility 참고). -->
+        <!-- 마법사가 다루지 않는 작업(영상 생성, 셸 명령 등)으로 가는 탈출구라 "새 작업" 탭
+             안에 둔다 — 워크플로우를 안 붙이고도(예: 셸 명령) 이 드롭다운만으로 "세부 설정"
+             탭을 열 수 있어야 해서, 세부 설정 탭 밖(새 작업 탭 안)에 있어야 한다
+             (updateNewJobTabs 참고). -->
         <details class="manual-template-toggle" id="manual-template-toggle">
           <summary>직접 템플릿 선택 <span class="opt">— 마법사가 다루지 않는 작업(영상 생성, 셸 명령 등)일 때</span></summary>
           <div class="field">
@@ -2960,7 +2977,7 @@
         </details>
       </div>
 
-      <div class="subpanel" id="new-job-details-panel" style="display:none;">
+      <div id="new-job-details-panel" style="display:none;">
       <div class="upload-form">
         <div class="upload-error" id="load-error"></div>
         <div class="load-notice" id="load-notice"></div>
@@ -3872,7 +3889,6 @@ let galleryProjectFilter = null;
 let videoGalleryProjectFilter = null;
 // 프로젝트 스코프의 새 작업 폼에서 고른 "실행 파드"(파드 스코프에서는 그 파드가 정해져 있다).
 let formPodChoice = null;
-let lastPerPod = {};
 
 function multiPod(){ return podsCache.length > 1; }
 function podName(podId){ return (podsById[podId] || {}).name || ''; }
@@ -4001,7 +4017,6 @@ async function fetchJobs(){
   render(data.jobs, data.pending_count, data.running, data.pods || {});
 }
 
-let queueRunning = false; // 서버의 자동 실행 모드(auto_run)를 그대로 반영 — "▶ 시작"/"⏸ 정지" 토글에 쓴다.
 // 마지막으로 그린 작업 목록. render()의 지역 변수 jobs는 그 함수 밖에서는 못 보는데,
 // 모달처럼 나중에 열리는 화면도 작업 정보를 봐야 해서 여기 남겨둔다.
 let lastJobs = [];
@@ -4019,39 +4034,8 @@ function render(jobs, pendingCount, running, perPod){
   // 작업 목록은 언제나 지금 들어와 있는 파드 것만 보여준다(파드 스코프 바 참고).
   if(jobPodFilter) jobs = jobs.filter(j => j.pod_id === jobPodFilter);
   if(jobProjectFilter !== null) jobs = jobs.filter(j => projectMatches(j.project_id, jobProjectFilter));
-  if(perPod) lastPerPod = perPod;
-  // 그래서 "▶ 시작/⏸ 정지"도 그 파드의 큐만 켜고 끈다 — 화면에 안 보이는 다른
-  // 파드까지 같이 움직이면 버튼이 거짓말을 하는 셈이 된다.
-  const podRuntime = (perPod || {})[jobPodFilter] || null;
-  if(jobProjectFilter !== null){
-    // 프로젝트 안의 작업은 여러 파드에 걸쳐 있다 — 이 목록에 나온 파드 중 하나라도 켜져 있으면 켜진 것으로 본다.
-    const pp = perPod || lastPerPod || {};
-    queueRunning = [...new Set(jobs.map(j => j.pod_id))].some(pid => !!(pp[pid] || {}).running)
-      || jobs.some(j => j.status === 'queued' && !j.pod_id);
-  }else{
-    queueRunning = podRuntime ? !!podRuntime.running : !!running;
-  }
   const tbody = document.getElementById('job-rows');
   const emptyMsg = document.getElementById('empty-msg');
-
-  const pendingBatchCount = jobs.filter(j => j.status === 'pending').length;
-  const startBtn = document.getElementById('start-queue-btn');
-  startBtn.classList.toggle('running', queueRunning);
-  if(queueRunning){
-    // 켜져 있는 동안에는 새로 추가하는 작업도 서버가 알아서 계속 큐에 넣어주므로
-    // (auto_run) 대기 개수를 보여줄 필요가 없다 — 헤더의 "대기 N건"이 실행 큐
-    // 깊이를 실시간으로 보여준다.
-    startBtn.innerHTML = ico('pause') + ' 정지';
-    startBtn.title = '자동 실행 정지 (지금 실행 중인 작업도 즉시 중단돼요 — 상태가 "중단됨"으로 바뀌어요)';
-    startBtn.disabled = false;
-  }else{
-    startBtn.innerHTML = `<svg class="ico"><use href="#i-play"/></svg> 시작 (<span id="pending-batch-count">${pendingBatchCount}</span>)`;
-    startBtn.title = '대기중 작업 시작 (켜두는 동안 새로 추가하는 작업도 자동으로 이어서 실행돼요)';
-    startBtn.disabled = pendingBatchCount === 0;
-  }
-
-  const completedBatchCount = jobs.filter(j => j.status === 'done' || j.status === 'failed' || j.status === 'interrupted').length;
-  document.getElementById('clear-completed-btn').disabled = completedBatchCount === 0;
 
   if(jobs.length === 0){
     tbody.innerHTML = '';
@@ -4125,10 +4109,13 @@ function render(jobs, pendingCount, running, perPod){
             <button class="load-btn" data-loadid="${j.id}" title="설정 불러오기"><svg class="ico"><use href="#i-folder-open"/></svg> 불러오기</button>
             ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}" title="워크플로우 수정"><svg class="ico"><use href="#i-pencil"/></svg> 워크플로우</button>` : ''}
             ${j.status === 'pending' && j.csv_filename ? `<button class="edit-btn" data-editkind="csv" data-editid="${j.id}" title="CSV 수정"><svg class="ico"><use href="#i-pencil"/></svg> CSV</button>` : ''}
-            ${j.status === 'interrupted' ? `<button class="retry-btn" data-retry="${j.id}" title="서버 재시작으로 중단된 작업을 다시 큐에 올려요"><svg class="ico"><use href="#i-refresh-cw"/></svg> 재시작</button>` : ''}
+            ${['pending', 'interrupted', 'failed'].includes(j.status) ? `<button class="start-btn" data-start="${j.id}" title="이 작업만 지금 시작해요(자동 실행 여부와 무관)"><svg class="ico"><use href="#i-play"/></svg> 시작</button>` : ''}
+            ${j.status === 'running' ? `<button class="stop-btn" data-stop="${j.id}" title="이 작업만 정지해요 — 상태가 '정지'로 바뀌면 삭제할 수 있어요"><svg class="ico"><use href="#i-pause"/></svg> 정지</button>` : ''}
             <button class="load-btn project-move-btn" data-project-move="${j.id}" title="이 작업(과 결과물)을 다른 프로젝트로 옮겨요"><svg class="ico"><use href="#i-folder-input"/></svg> 프로젝트</button>
             ${movable ? `<button class="load-btn move-btn" data-move="${j.id}" title="이 작업을 다른 파드로 옮겨요"><svg class="ico"><use href="#i-arrow-right"/></svg> 파드 이동</button>` : ''}
-            ${j.status !== 'running' && (j.status !== 'queued' || waitingForPod) ? `<button class="del-btn" data-del="${j.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>` : ''}
+            ${j.status !== 'running' && (j.status !== 'queued' || waitingForPod)
+              ? `<button class="del-btn" data-del="${j.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>`
+              : `<button class="del-btn" disabled title="진행 중인 작업은 먼저 정지해야 삭제할 수 있어요"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>`}
           </div>
         </td>
       </tr>`;
@@ -4160,11 +4147,35 @@ function render(jobs, pendingCount, running, perPod){
     });
   });
 
-  tbody.querySelectorAll('.retry-btn').forEach(btn => {
+  tbody.querySelectorAll('.start-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      await fetch(`/api/jobs/${btn.dataset.retry}/retry`, { method: 'POST' });
-      fetchJobs();
+      btn.disabled = true;
+      try{
+        const res = await fetch(`/api/jobs/${btn.dataset.start}/start`, { method: 'POST' });
+        if(!res.ok){
+          const data = await res.json().catch(() => ({}));
+          alert(data.detail || '시작하지 못했어요.');
+        }
+      }finally{
+        fetchJobs();
+      }
+    });
+  });
+
+  tbody.querySelectorAll('.stop-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      btn.disabled = true;
+      try{
+        const res = await fetch(`/api/jobs/${btn.dataset.stop}/stop`, { method: 'POST' });
+        if(!res.ok){
+          const data = await res.json().catch(() => ({}));
+          alert(data.detail || '정지하지 못했어요.');
+        }
+      }finally{
+        fetchJobs();
+      }
     });
   });
 
@@ -5591,7 +5602,7 @@ async function onTemplateChange(){
   if(needsInputAudios) await fetchInputAudios(false);
   renderOptionFields(template);
   uploadError.textContent = '';
-  updateNewJobDetailsVisibility();
+  updateNewJobTabs();
 }
 
 // "초기화" 버튼 — 템플릿 선택은 그대로 두고, 첨부한 파일과 옵션 입력값만 그
@@ -5918,36 +5929,6 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
     flashNotice('이 파드에 없는 모델이 있어요 — ' + preflightLines(createdJob.preflight).slice(0, 3).join(' / '));
   }
   fetchJobs();
-});
-
-document.getElementById('start-queue-btn').addEventListener('click', async () => {
-  const action = queueRunning ? 'stop' : 'start';
-  // 파드 스코프 안에서는 그 파드의 큐만 — 전역 시작은 파드가 하나뿐일 때의 폴백이다.
-  if(jobProjectFilter !== null){
-    // 프로젝트 안의 작업은 여러 파드에 걸쳐 있다 — 시작은 이 프로젝트의 대기 작업이 배정된 파드들의
-    // 큐를, 정지는 이 목록의 파드 중 켜져 있는 큐를 각각 켜고 끈다(큐는 파드마다 따로 돈다).
-    const mine = lastJobs.filter(j => !j.deleted && projectMatches(j.project_id, jobProjectFilter));
-    const podIds = (action === 'start'
-      ? [...new Set(mine.filter(j => j.status === 'pending').map(j => j.pod_id))]
-      : [...new Set(mine.map(j => j.pod_id))].filter(pid => !!(lastPerPod[pid] || {}).running)).filter(Boolean);
-    await Promise.all(podIds.map(pid => fetch(`/api/pods/${pid}/queue/${action}`, { method: 'POST' })));
-    // 파드를 안 정한 작업은 이 프로젝트 것만 대기 큐로 보내거나(시작) 대기 목록으로 되돌린다(정지).
-    await fetch(`/api/queue/${action}?project_id=${encodeURIComponent(jobProjectFilter)}`, { method: 'POST' });
-  }else{
-    const endpoint = jobPodFilter ? `/api/pods/${jobPodFilter}/queue/${action}` : `/api/queue/${action}`;
-    await fetch(endpoint, { method: 'POST' });
-  }
-  fetchJobs();
-});
-
-document.getElementById('clear-completed-btn').addEventListener('click', async () => {
-  // 소프트 삭제라 "삭제된 작업 설정 불러오기"에서 되돌릴 수 있으므로 확인창 없이 바로 지운다.
-  // 보고 있는 파드 것만 지운다 — 화면에 없는 다른 파드의 작업까지 사라지면 안 된다.
-  const q = jobPodFilter ? `?pod_id=${encodeURIComponent(jobPodFilter)}`
-    : (jobProjectFilter !== null ? `?project_id=${encodeURIComponent(jobProjectFilter)}` : '');
-  await fetch(`/api/jobs/clear-completed${q}`, { method: 'POST' });
-  fetchJobs();
-  fetchDeletedJobs();
 });
 
 document.getElementById('reset-form-btn').addEventListener('click', () => {
@@ -7528,21 +7509,50 @@ function summarizeList(items, limit = 5){
   return shown.join(', ') + (rest > 0 ? ` 외 ${rest}개` : '');
 }
 
-// 세부 옵션 카드는 "워크플로우가 붙어 있다" 또는 "워크플로우가 필요 없는 템플릿을
-// 직접 골랐다"(셸 명령 등) 둘 중 하나일 때만 보여줄 내용이 생긴다 — 그 전엔 화면을
-// 지저분하게 만들 뿐이라 숨겨 둔다(New job 패널 재구성 참고). 워크플로우 첨부
+// "세부 설정" 탭은 "워크플로우가 붙어 있다" 또는 "워크플로우가 필요 없는 템플릿을
+// 직접 골랐다"(셸 명령 등) 둘 중 하나일 때만 보여줄 내용이 생긴다 — 그 전엔 눌러도
+// 의미가 없어 비활성으로 둔다(New job 패널 재구성 참고). 워크플로우 첨부
 // (checkWorkflowCompatibility)와 템플릿 변경(onTemplateChange) 양쪽에서 다시 계산한다.
-function updateNewJobDetailsVisibility(){
+// ready가 되어도 탭을 자동으로 넘기지는 않는다(활성화만) — 워크플로우를 직접 올리면
+// (populateWizardFromUploadedWorkflow) 마법사 단계가 거꾸로 채워지는데, 그 결과를
+// "새 작업" 탭에 그대로 머물러 확인/조정할 수 있어야 하고, 마법사를 적용한 뒤에도
+// 직접 템플릿 선택(같은 탭 안에 있음) 등을 계속 만질 수 있어야 하기 때문이다.
+// 사용자가 준비되면 "세부 설정" 탭을 직접 눌러 넘어간다.
+let newJobActiveTab = 'select';   // 'select' | 'details'
+let newJobDetailsReady = false;
+
+function updateNewJobTabs(){
   const template = templatesById[templateSelect.value];
   const needsWorkflow = !(template && template.requires_workflow === false);
   const hasWorkflow = !!selectedFiles.workflow;
-  document.getElementById('new-job-details-panel').style.display = (!needsWorkflow || hasWorkflow) ? '' : 'none';
+  newJobDetailsReady = !needsWorkflow || hasWorkflow;
+  renderNewJobTabs();
 }
+
+function renderNewJobTabs(){
+  const selectBtn = document.getElementById('new-job-tab-select');
+  const detailsBtn = document.getElementById('new-job-tab-details');
+  selectBtn.classList.toggle('active', newJobActiveTab === 'select');
+  detailsBtn.classList.toggle('active', newJobActiveTab === 'details');
+  detailsBtn.disabled = !newJobDetailsReady;
+  document.getElementById('new-job-select-panel').style.display = newJobActiveTab === 'select' ? '' : 'none';
+  document.getElementById('new-job-details-panel').style.display = newJobActiveTab === 'details' ? '' : 'none';
+}
+
+document.getElementById('new-job-tab-select').addEventListener('click', () => {
+  newJobActiveTab = 'select';
+  renderNewJobTabs();
+});
+document.getElementById('new-job-tab-details').addEventListener('click', () => {
+  if(!newJobDetailsReady) return;
+  newJobActiveTab = 'details';
+  renderNewJobTabs();
+});
 
 async function checkWorkflowCompatibility(file){
   const el = document.getElementById('workflow-check');
   const token = ++workflowCheckToken;
-  updateNewJobDetailsVisibility();
+  updateNewJobTabs();
   if(!file){
     el.hidden = true;
     el.textContent = '';
