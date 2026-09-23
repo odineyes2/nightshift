@@ -74,6 +74,8 @@ import projects as project_store
 import runpod_api
 from email_sender import EmailSendError, find_image_files, send_output_images
 from workflow_builder import WorkflowBuildError, build_workflow
+import workflow_builder_krea2
+import workflow_builder_minimax_h3
 from output_images import (
     IMAGE_EXTENSIONS,
     OUTPUT_DIR,
@@ -106,10 +108,18 @@ from ref_assets import (
 )
 from input_assets import (
     InputAssetError,
+    delete_input_audio,
     delete_input_image,
+    delete_input_video,
+    list_input_audios,
     list_input_images,
+    list_input_videos,
+    resolve_input_audio,
     resolve_input_image,
+    resolve_input_video,
+    save_input_audio,
     save_input_image,
+    save_input_video,
 )
 
 # 프론트엔드(static/index.html)가 작업 목록/ComfyUI 연결 상태를 실시간처럼 보여주려고
@@ -2377,6 +2387,88 @@ def delete_input_image_api(name: str):
     return {"ok": True}
 
 
+@app.get("/api/input-images/{name}/raw")
+def get_input_image_raw(name: str):
+    # 참조 슬롯 카드 갤러리의 <img>가 직접 가리키는 주소 — 원본을 그대로 내려준다.
+    # 입력 이미지는 보통 크지 않아 별도 축소본 생성 없이 원본으로 충분하다.
+    try:
+        path = resolve_input_image(name)
+    except InputAssetError as e:
+        raise HTTPException(404, str(e))
+    return FileResponse(path)
+
+
+# MiniMax-H3 r2v의 비디오/오디오 참조 선택 드롭다운을 채운다 — 이미지 풀과 같은 디렉토리를
+# 공유하고 확장자로만 구분한다(input_assets.py 모듈 설명 참고). 결과 갤러리에서 가져오기는
+# 참조용 원본이 보통 사용자 컴퓨터에 있어 두지 않았다(이미지의 import-from-output과 다름).
+@app.get("/api/input-videos")
+def get_input_videos():
+    return {"videos": list_input_videos()}
+
+
+@app.post("/api/input-videos")
+async def upload_input_video(request: Request):
+    form = await request.form()
+    file = form.get("video")
+    if not isinstance(file, UploadFile) or not file.filename:
+        raise HTTPException(400, "비디오 파일을 첨부하세요.")
+    content = await file.read()
+    try:
+        name = await asyncio.to_thread(save_input_video, file.filename, content)
+    except InputAssetError as e:
+        raise HTTPException(400, str(e))
+    return {"name": name}
+
+
+@app.delete("/api/input-videos/{name}")
+def delete_input_video_api(name: str):
+    try:
+        delete_input_video(name)
+    except InputAssetError as e:
+        raise HTTPException(404, str(e))
+    return {"ok": True}
+
+
+@app.get("/api/input-videos/{name}/raw")
+def get_input_video_raw(name: str):
+    # 참조 슬롯 카드 갤러리의 <video>가 직접 가리키는 주소 — 서버에서 썸네일을 만들지
+    # 않고 원본을 그대로 내려주면, 브라우저가 preload="metadata"로 첫 프레임을 알아서
+    # 그린다(ffmpeg 등 서버 쪽 의존성을 늘리지 않으려는 선택).
+    try:
+        path = resolve_input_video(name)
+    except InputAssetError as e:
+        raise HTTPException(404, str(e))
+    return FileResponse(path)
+
+
+@app.get("/api/input-audios")
+def get_input_audios():
+    return {"audios": list_input_audios()}
+
+
+@app.post("/api/input-audios")
+async def upload_input_audio(request: Request):
+    form = await request.form()
+    file = form.get("audio")
+    if not isinstance(file, UploadFile) or not file.filename:
+        raise HTTPException(400, "오디오 파일을 첨부하세요.")
+    content = await file.read()
+    try:
+        name = await asyncio.to_thread(save_input_audio, file.filename, content)
+    except InputAssetError as e:
+        raise HTTPException(400, str(e))
+    return {"name": name}
+
+
+@app.delete("/api/input-audios/{name}")
+def delete_input_audio_api(name: str):
+    try:
+        delete_input_audio(name)
+    except InputAssetError as e:
+        raise HTTPException(404, str(e))
+    return {"ok": True}
+
+
 @app.post("/api/input-images/import-from-output")
 async def import_output_images_to_input_pool(request: Request):
     # "이미지 선택 — 갤러리에서 선택" 경로 — 결과 이미지 갤러리에서 고른 이미지를
@@ -2438,7 +2530,12 @@ async def get_base_model_families(request: Request, pod_id: str | None = None):
             _, info = fetch_comfy_object_info(False, pod)
         except Exception:
             return None
-        return set(combo_choices(info, *MODEL_LIST_SOURCES["checkpoints"])) if info is not None else None
+        if info is None:
+            return None
+        # 체크포인트(CheckpointLoaderSimple)와 디퓨전 모델(UNETLoader, krea.2/MiniMax-H3처럼
+        # 체크포인트가 없는 family) 둘 다의 설치 목록을 합쳐야 두 kind의 family가 모두 걸러진다.
+        return (set(combo_choices(info, *MODEL_LIST_SOURCES["checkpoints"]))
+                | set(combo_choices(info, *MODEL_LIST_SOURCES["diffusion_models"])))
 
     results = await asyncio.gather(*[asyncio.to_thread(installed_of, p) for p in pods if not p.get("_none")])
     live = [r for r in results if r is not None]
@@ -2478,10 +2575,31 @@ WORKFLOW_TYPES = {
             "id": "img2img", "label": "Image to Image", "requires_input_image": True,
             "template_ids": {"seed": "input_image_batch", "csv": "input_image_csv_batch"},
         },
+        {
+            # family_id가 있으면 그 family(base_id 기준)를 골랐을 때만 마법사 2단계에 보인다
+            # (기존 txt2img/img2img는 family_id가 없어 전 family에 보임 — 그대로 유지).
+            # architecture는 POST /api/build-workflow가 어느 빌더 모듈로 갈지 고르는 키다.
+            "id": "krea2_t2i", "label": "Text to Image (krea.2)",
+            "family_id": "krea.2", "architecture": "krea2",
+            "template_ids": {"seed": "seed_batch", "csv": "csv_batch"},
+        },
+        {
+            "id": "minimax_h3_i2v", "label": "Image to Video (MiniMax-H3)",
+            "family_id": "minimax-h3", "architecture": "minimax_h3_i2v", "requires_input_image": True,
+            "template_ids": {"seed": "minimax_h3_i2v_batch", "csv": "minimax_h3_i2v_csv_batch"},
+        },
+        {
+            "id": "minimax_h3_r2v", "label": "Reference to Video (MiniMax-H3)",
+            "family_id": "minimax-h3", "architecture": "minimax_h3_r2v",
+            "template_ids": {"seed": "minimax_h3_r2v_batch", "csv": "minimax_h3_r2v_csv_batch"},
+        },
     ],
     "post": [
-        {"id": "hires_fix", "label": "Hires Fix"},
-        {"id": "usdu", "label": "Ultimate SD Upscale", "requires_node": "UltimateSDUpscaleNoUpscale"},
+        # applies_to_base가 있으면 그 base를 골랐을 때만 보인다 — hires_fix/usdu는 SDXL식
+        # (EmptyLatentImage+KSampler) 그래프 전용이라 krea2_t2i/minimax_h3_*에는 안 맞는다.
+        {"id": "hires_fix", "label": "Hires Fix", "applies_to_base": ["txt2img", "img2img"]},
+        {"id": "usdu", "label": "Ultimate SD Upscale", "requires_node": "UltimateSDUpscaleNoUpscale",
+         "applies_to_base": ["txt2img", "img2img"]},
     ],
     "preset": [
         {
@@ -2612,7 +2730,10 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
             if installed and value not in installed:
                 raise HTTPException(400, f"{label} '{value}'은(는) 지금 연결된 ComfyUI에 설치돼 있지 않아요.")
 
-        require_installed(str(spec.get("checkpoint") or "").strip(), "checkpoints", "체크포인트")
+        architecture = str(spec.get("architecture") or "sdxl").strip()
+        # krea.2/MiniMax-H3는 체크포인트가 아니라 UNETLoader(디퓨전 모델) 파일을 쓴다.
+        checkpoint_kind = "checkpoints" if architecture == "sdxl" else "diffusion_models"
+        require_installed(str(spec.get("checkpoint") or "").strip(), checkpoint_kind, "체크포인트")
         require_installed(str(spec.get("vae") or "").strip(), "vae", "VAE")
         for lora in (spec.get("loras") or []):
             if isinstance(lora, dict):
@@ -2623,8 +2744,18 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
             if value and choices and value not in choices:
                 raise HTTPException(400, f"{label} '{value}'은(는) 이 ComfyUI가 지원하지 않아요.")
 
+    architecture = str(spec.get("architecture") or "sdxl").strip()
     try:
-        workflow = build_workflow(spec)
+        if architecture == "sdxl":
+            workflow = build_workflow(spec)
+        elif architecture == "krea2":
+            workflow = workflow_builder_krea2.build_workflow(spec)
+        elif architecture == "minimax_h3_i2v":
+            workflow = workflow_builder_minimax_h3.build_i2v_workflow(spec)
+        elif architecture == "minimax_h3_r2v":
+            workflow = workflow_builder_minimax_h3.build_r2v_workflow(spec)
+        else:
+            raise HTTPException(400, f"알 수 없는 architecture 값이에요: {architecture}")
     except WorkflowBuildError as e:
         raise HTTPException(400, str(e))
     return {"workflow": workflow}
@@ -2854,6 +2985,39 @@ def coerce_option(option: dict, raw: str | None, options_so_far: dict, pod: dict
             raise HTTPException(400, f"'{option['label']}' 값을 선택해야 해요.")
         try:
             resolve_input_image(value)
+        except InputAssetError as e:
+            raise HTTPException(400, str(e))
+        return value
+
+    # 아래 세 개는 "안 써도 되는" 참조 슬롯(MiniMax-H3 r2v의 ref_image_1~9/ref_video_1~3/
+    # ref_audio_1~3)이 쓴다 — 비어 있으면 그냥 통과(number_optional과 같은 "_optional
+    # 접미사는 비어도 됨" 규칙), 값이 있으면 그 종류의 자산 풀에 실제로 있는지만 검증한다.
+    if opt_type == "input_image_optional":
+        value = "" if raw is None else str(raw).strip()
+        if not value:
+            return ""
+        try:
+            resolve_input_image(value)
+        except InputAssetError as e:
+            raise HTTPException(400, str(e))
+        return value
+
+    if opt_type == "input_video":
+        value = "" if raw is None else str(raw).strip()
+        if not value:
+            return ""
+        try:
+            resolve_input_video(value)
+        except InputAssetError as e:
+            raise HTTPException(400, str(e))
+        return value
+
+    if opt_type == "input_audio":
+        value = "" if raw is None else str(raw).strip()
+        if not value:
+            return ""
+        try:
+            resolve_input_audio(value)
         except InputAssetError as e:
             raise HTTPException(400, str(e))
         return value

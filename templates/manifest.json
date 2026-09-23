@@ -416,5 +416,85 @@
       { "name": "model", "label": "모델", "type": "select", "choices": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"], "default": "claude-opus-5" },
       { "name": "max_tokens", "label": "최대 출력 토큰", "type": "number", "default": 16000 }
     ]
+  },
+  {
+    "id": "minimax_h3_i2v_batch",
+    "label": "영상 생성 — MiniMax-H3 i2v (시드 반복)",
+    "script_filename": "minimax_h3_i2v_batch.py",
+    "requires_csv": false,
+    "options": [
+      { "name": "video_count", "label": "생성 개수", "type": "number", "default": 1 },
+      { "name": "first_frame_image", "label": "첫 프레임 이미지", "type": "input_image_optional", "default": "" },
+      { "name": "last_frame_image", "label": "마지막 프레임 이미지", "type": "input_image_optional", "default": "" },
+      { "name": "user_prompt", "label": "프롬프트", "type": "textarea", "default": "", "placeholder": "예: a woman walking along the beach at sunset, cinematic lighting" },
+      { "name": "video_duration", "label": "영상 길이(초)", "type": "number_optional", "default": "", "placeholder": "비워두면 5초(기본값)를 사용해요, 2~15초 권장" }
+    ]
+  },
+  {
+    "id": "minimax_h3_i2v_csv_batch",
+    "label": "영상 생성 — MiniMax-H3 i2v (CSV 배치)",
+    "script_filename": "minimax_h3_i2v_csv_batch.py",
+    "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "user_prompt", "label": "프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "first_frame_image", "label": "첫 프레임 이미지", "required": false, "note": "입력 이미지 풀에 있는 파일명 — 첫/마지막 프레임 중 최소 하나는 있어야 함" },
+      { "name": "last_frame_image", "label": "마지막 프레임 이미지", "required": false },
+      { "name": "video_duration", "label": "영상 길이(초)", "required": false, "note": "비워두면 5초(기본값)를 사용해요" }
+    ]
+  },
+  {
+    "id": "minimax_h3_r2v_batch",
+    "label": "영상 생성 — MiniMax-H3 r2v (시드 반복)",
+    "script_filename": "minimax_h3_r2v_batch.py",
+    "requires_csv": false,
+    "options": [
+      { "name": "video_count", "label": "생성 개수", "type": "number", "default": 1 },
+      { "name": "ref_image_1", "label": "참조 이미지 1", "type": "input_image_optional", "default": "" },
+      { "name": "ref_image_2", "label": "참조 이미지 2", "type": "input_image_optional", "default": "" },
+      { "name": "ref_image_3", "label": "참조 이미지 3", "type": "input_image_optional", "default": "" },
+      { "name": "ref_image_4", "label": "참조 이미지 4", "type": "input_image_optional", "default": "" },
+      { "name": "ref_image_5", "label": "참조 이미지 5", "type": "input_image_optional", "default": "" },
+      { "name": "ref_image_6", "label": "참조 이미지 6", "type": "input_image_optional", "default": "" },
+      { "name": "ref_image_7", "label": "참조 이미지 7", "type": "input_image_optional", "default": "" },
+      { "name": "ref_image_8", "label": "참조 이미지 8", "type": "input_image_optional", "default": "" },
+      { "name": "ref_image_9", "label": "참조 이미지 9", "type": "input_image_optional", "default": "" },
+      { "name": "ref_video_1", "label": "참조 비디오 1", "type": "input_video", "default": "" },
+      { "name": "ref_video_2", "label": "참조 비디오 2", "type": "input_video", "default": "" },
+      { "name": "ref_video_3", "label": "참조 비디오 3", "type": "input_video", "default": "" },
+      { "name": "ref_audio_1", "label": "참조 오디오 1", "type": "input_audio", "default": "" },
+      { "name": "ref_audio_2", "label": "참조 오디오 2", "type": "input_audio", "default": "" },
+      { "name": "ref_audio_3", "label": "참조 오디오 3", "type": "input_audio", "default": "" },
+      { "name": "user_prompt", "label": "프롬프트", "type": "textarea", "default": "", "placeholder": "예: two people talking in a busy street" },
+      { "name": "video_duration", "label": "영상 길이(초)", "type": "number_optional", "default": "", "placeholder": "비워두면 15초(기본값)를 사용해요, 2~15초 권장" }
+    ]
+  },
+  {
+    "id": "minimax_h3_r2v_csv_batch",
+    "label": "영상 생성 — MiniMax-H3 r2v (CSV 배치)",
+    "script_filename": "minimax_h3_r2v_csv_batch.py",
+    "requires_csv": true,
+    "csv_columns": [
+      { "name": "title", "label": "제목", "required": false },
+      { "name": "user_prompt", "label": "프롬프트", "required": true, "note": "비워두면 이 행은 건너뜀 (prompt 컬럼도 같은 뜻으로 인식)" },
+      { "name": "seed", "label": "시드", "required": false, "note": "비워두면 무작위" },
+      { "name": "ref_image_1", "label": "참조 이미지 1", "required": false, "note": "입력 이미지 풀에 있는 파일명 — 이미지/비디오/오디오 중 최소 하나는 있어야 함" },
+      { "name": "ref_image_2", "label": "참조 이미지 2", "required": false },
+      { "name": "ref_image_3", "label": "참조 이미지 3", "required": false },
+      { "name": "ref_image_4", "label": "참조 이미지 4", "required": false },
+      { "name": "ref_image_5", "label": "참조 이미지 5", "required": false },
+      { "name": "ref_image_6", "label": "참조 이미지 6", "required": false },
+      { "name": "ref_image_7", "label": "참조 이미지 7", "required": false },
+      { "name": "ref_image_8", "label": "참조 이미지 8", "required": false },
+      { "name": "ref_image_9", "label": "참조 이미지 9", "required": false },
+      { "name": "ref_video_1", "label": "참조 비디오 1", "required": false, "note": "입력 비디오 풀에 있는 파일명" },
+      { "name": "ref_video_2", "label": "참조 비디오 2", "required": false },
+      { "name": "ref_video_3", "label": "참조 비디오 3", "required": false },
+      { "name": "ref_audio_1", "label": "참조 오디오 1", "required": false, "note": "입력 오디오 풀에 있는 파일명" },
+      { "name": "ref_audio_2", "label": "참조 오디오 2", "required": false },
+      { "name": "ref_audio_3", "label": "참조 오디오 3", "required": false },
+      { "name": "video_duration", "label": "영상 길이(초)", "required": false, "note": "비워두면 15초(기본값)를 사용해요" }
+    ]
   }
 ]

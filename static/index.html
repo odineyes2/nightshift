@@ -767,6 +767,32 @@
   }
   .input-image-control select.option-input{ flex:1 1 200px; }
 
+  /* 참조 이미지/비디오/오디오 슬롯의 카드 갤러리(buildAssetGalleryControl) — 드롭다운
+     대신 썸네일이 보이는 작은 카드를 나란히 늘어놓는다. */
+  .ref-gallery{ display:flex; flex-wrap:wrap; gap:6px; }
+  .ref-card{
+    width:64px; height:64px;
+    border:2px solid var(--border);
+    border-radius:var(--radius-sm);
+    cursor:pointer;
+    overflow:hidden;
+    position:relative;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--surface-2, rgba(255,255,255,0.03));
+    flex-shrink:0;
+  }
+  .ref-card:hover{ border-color:var(--queued); }
+  .ref-card.selected{ border-color:var(--queued); box-shadow:0 0 0 2px rgba(var(--queued-rgb),0.25); }
+  .ref-card img, .ref-card video{ width:100%; height:100%; object-fit:cover; pointer-events:none; }
+  .ref-card-none{ font-size:10px; color:var(--text-dim); text-align:center; padding:2px; line-height:1.2; }
+  .ref-card-audio{ flex-direction:column; gap:2px; padding:4px; }
+  .ref-card-audio .ico{ width:20px; height:20px; color:var(--text-dim); }
+  .ref-card-audio-label{ font-size:9px; color:var(--text-dim); max-width:56px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ref-card-badge{ position:absolute; bottom:2px; right:2px; background:rgba(0,0,0,0.55); border-radius:999px; padding:2px; display:flex; }
+  .ref-card-badge .ico{ width:10px; height:10px; color:#fff; }
+  .ref-card-upload{ border-style:dashed; color:var(--text-dim); }
+  .ref-card-upload:hover{ color:var(--text); }
+
   /* 메인 프롬프트의 "직접 입력 → Prompt Enhance(자연어/Danbooru) → 결과" 3단
      레이아웃. 실제로 큐에 보내는 값은 hidden input(.option-input)에 모이므로,
      여기 두 텍스트 에어리어(.enhance-textarea)는 일부러 .option-input 셀렉터
@@ -2614,6 +2640,7 @@
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></symbol>
   <symbol id="i-list-checks" viewBox="0 0 24 24"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/></symbol>
   <symbol id="i-loader-circle" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
   <symbol id="i-mail" viewBox="0 0 24 24"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
@@ -4986,6 +5013,173 @@ function inputImageChoices(){
   return (inputImagesCache || []).map(img => ({ value: img.name, label: img.name, disabled: false }));
 }
 
+// ---- 참조 이미지(안 써도 되는 슬롯)/참조 비디오/참조 오디오 — 공용 카드 갤러리 컨트롤 ----
+// 드롭다운 대신 썸네일이 보이는 작은 카드를 나란히 늘어놓는다("선택 안 함" 카드 +
+// 자산별 카드 + "업로드" 카드). 이미지/비디오는 실제 썸네일(비디오는 브라우저가 첫
+// 프레임을 그리게 함, 서버 썸네일 생성 없음), 오디오는 음표 아이콘으로 대체한다.
+// MiniMax-H3 r2v의 ref_image_1~9/ref_video_1~3/ref_audio_1~3, i2v의 first_frame_image/
+// last_frame_image가 이 컨트롤을 쓴다.
+function buildAssetGalleryControl(opt, cfg){
+  const wrap = document.createElement('div');
+  wrap.className = 'ref-gallery';
+
+  const hidden = document.createElement('input');
+  hidden.type = 'hidden';
+  hidden.className = 'option-input';
+  hidden.dataset.name = opt.name;
+  hidden.value = opt.default || '';
+
+  const selectValue = (value) => {
+    hidden.value = value;
+    wrap.querySelectorAll('.ref-card').forEach(card => {
+      card.classList.toggle('selected', card.dataset.value === value);
+    });
+  };
+
+  const renderCards = () => {
+    // upload 카드는 그대로 두고 나머지(선택 안 함 + 자산별 카드)만 지우고 다시 그린다 —
+    // uploadCard 자체를 지우면 아래 insertBefore(_, uploadCard)가 실패한다.
+    wrap.querySelectorAll('.ref-card:not(.ref-card-upload)').forEach(el => el.remove());
+    const noneCard = document.createElement('div');
+    noneCard.className = 'ref-card ref-card-none';
+    noneCard.dataset.value = '';
+    noneCard.textContent = '선택 안 함';
+    noneCard.title = '선택 안 함';
+    wrap.insertBefore(noneCard, uploadCard);
+
+    for(const choice of cfg.choicesFn()){
+      const card = document.createElement('div');
+      card.className = 'ref-card';
+      card.dataset.value = choice.value;
+      card.title = choice.value;
+      if(cfg.kind === 'image'){
+        const img = document.createElement('img');
+        img.src = cfg.rawUrl(choice.value);
+        img.loading = 'lazy';
+        card.appendChild(img);
+      }else if(cfg.kind === 'video'){
+        const video = document.createElement('video');
+        video.src = cfg.rawUrl(choice.value);
+        video.muted = true;
+        video.preload = 'metadata';
+        // 서버에서 썸네일을 만들지 않는 대신, 메타데이터가 로드되면 살짝 재생 위치를
+        // 옮겨 브라우저가 그 프레임을 그리게 한다(대부분 브라우저가 0초는 검은 화면만
+        // 보여줌 — 0.05초쯽으로 옮기면 실제 첫 프레임 근처가 보인다).
+        video.addEventListener('loadedmetadata', () => { try{ video.currentTime = 0.05; }catch(e){} });
+        card.appendChild(video);
+        const badge = document.createElement('span');
+        badge.className = 'ref-card-badge';
+        badge.innerHTML = ico('play');
+        card.appendChild(badge);
+      }else{
+        card.classList.add('ref-card-audio');
+        card.innerHTML = ico('music');
+        const label = document.createElement('div');
+        label.className = 'ref-card-audio-label';
+        label.textContent = choice.value;
+        card.appendChild(label);
+      }
+      card.classList.toggle('selected', choice.value === hidden.value);
+      wrap.insertBefore(card, uploadCard);
+    }
+    noneCard.classList.toggle('selected', !hidden.value);
+  };
+
+  wrap.addEventListener('click', (e) => {
+    const card = e.target.closest('.ref-card');
+    if(!card || card === uploadCard) return;
+    selectValue(card.dataset.value);
+  });
+
+  const uploadCard = document.createElement('div');
+  uploadCard.className = 'ref-card ref-card-upload';
+  uploadCard.innerHTML = ico('upload');
+  uploadCard.title = cfg.uploadTitle;
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = cfg.accept;
+  fileInput.style.display = 'none';
+  uploadCard.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    if(!file) return;
+    uploadCard.classList.add('disabled');
+    const original = uploadCard.innerHTML;
+    uploadCard.innerHTML = ico('loader-circle', true);
+    try{
+      const form = new FormData();
+      form.append(cfg.uploadField, file);
+      const res = await fetch(cfg.uploadUrl, { method: 'POST', body: form });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(data.detail || '업로드에 실패했어요.');
+      await cfg.fetchFn(true);
+      renderCards();
+      selectValue(data.name);
+    }catch(e){
+      alert(e.message || '업로드에 실패했어요.');
+    }finally{
+      uploadCard.classList.remove('disabled');
+      uploadCard.innerHTML = original;
+    }
+  });
+
+  wrap.appendChild(uploadCard);
+  wrap.appendChild(fileInput);
+  wrap.appendChild(hidden);
+  renderCards();
+  return wrap;
+}
+
+function buildInputImageOptionalControl(opt){
+  return buildAssetGalleryControl(opt, {
+    kind: 'image', choicesFn: inputImageChoices, fetchFn: fetchInputImages,
+    uploadUrl: '/api/input-images', uploadField: 'image', accept: '.png,.jpg,.jpeg,.webp',
+    uploadTitle: '내 컴퓨터에서 이미지 업로드', rawUrl: (name) => `/api/input-images/${encodeURIComponent(name)}/raw`,
+  });
+}
+
+let inputVideosCache = null;
+async function fetchInputVideos(force){
+  if(inputVideosCache && !force) return inputVideosCache;
+  try{
+    const res = await fetch('/api/input-videos');
+    inputVideosCache = res.ok ? (await res.json()).videos || [] : [];
+  }catch(e){ inputVideosCache = []; }
+  return inputVideosCache;
+}
+function inputVideoChoices(){
+  return (inputVideosCache || []).map(v => ({ value: v.name, label: v.name, disabled: false }));
+}
+function buildInputVideoControl(opt){
+  return buildAssetGalleryControl(opt, {
+    kind: 'video', choicesFn: inputVideoChoices, fetchFn: fetchInputVideos,
+    uploadUrl: '/api/input-videos', uploadField: 'video', accept: '.mp4,.webm,.mov,.mkv',
+    uploadTitle: '내 컴퓨터에서 비디오 업로드', rawUrl: (name) => `/api/input-videos/${encodeURIComponent(name)}/raw`,
+  });
+}
+
+let inputAudiosCache = null;
+async function fetchInputAudios(force){
+  if(inputAudiosCache && !force) return inputAudiosCache;
+  try{
+    const res = await fetch('/api/input-audios');
+    inputAudiosCache = res.ok ? (await res.json()).audios || [] : [];
+  }catch(e){ inputAudiosCache = []; }
+  return inputAudiosCache;
+}
+function inputAudioChoices(){
+  return (inputAudiosCache || []).map(a => ({ value: a.name, label: a.name, disabled: false }));
+}
+function buildInputAudioControl(opt){
+  return buildAssetGalleryControl(opt, {
+    kind: 'audio', choicesFn: inputAudioChoices, fetchFn: fetchInputAudios,
+    uploadUrl: '/api/input-audios', uploadField: 'audio', accept: '.mp3,.wav,.flac,.m4a,.ogg,.aac',
+    uploadTitle: '내 컴퓨터에서 오디오 업로드',
+  });
+}
+
 // ---- 입력 이미지 — 갤러리에서 선택 모달 ----
 // 결과 이미지 갤러리(output-images)의 썸네일을 격자로 보여주고, 하나를 클릭하면
 // onPick(name)을 불러 실제 가져오기(복사)를 맡긴다 — 호출부(업로드 vs 다른 용도)에
@@ -5053,6 +5247,15 @@ function buildOptionControl(opt){
   if(opt.type === 'input_image'){
     return buildInputImageControl(opt);
   }
+  if(opt.type === 'input_image_optional'){
+    return buildInputImageOptionalControl(opt);
+  }
+  if(opt.type === 'input_video'){
+    return buildInputVideoControl(opt);
+  }
+  if(opt.type === 'input_audio'){
+    return buildInputAudioControl(opt);
+  }
   if(opt.type === 'select' || opt.type === 'asset_folder' || opt.type === 'char_no'){
     return buildSelectControl(opt);
   }
@@ -5074,6 +5277,24 @@ function buildOptionControl(opt){
   return input;
 }
 
+// 마법사가 minimax_h3_r2v/i2v 템플릿을 적용한 그래프에 실제로 있는 참조 슬롯 개수 —
+// wizardApply()가 채우고, 수동으로 템플릿을 고르면(직접 템플릿 선택) null로 비운다.
+// {image, video, audio}(r2v) 또는 {useFirstFrame, useLastFrame}(i2v) 형태.
+let wizardRefCounts = null;
+
+function isWizardRefSlotHidden(optionName){
+  if(!wizardRefCounts) return false;
+  let m = optionName.match(/^ref_image_(\d+)$/);
+  if(m) return Number(m[1]) > wizardRefCounts.image;
+  m = optionName.match(/^ref_video_(\d+)$/);
+  if(m) return Number(m[1]) > wizardRefCounts.video;
+  m = optionName.match(/^ref_audio_(\d+)$/);
+  if(m) return Number(m[1]) > wizardRefCounts.audio;
+  if(optionName === 'first_frame_image') return !wizardRefCounts.useFirstFrame;
+  if(optionName === 'last_frame_image') return !wizardRefCounts.useLastFrame;
+  return false;
+}
+
 function renderOptionFields(template){
   optionsFields.innerHTML = '';
   // 템플릿을 바꿀 때마다 이전 템플릿이 등록해둔 "제출 직전 훅"(시드별 Danbooru
@@ -5093,6 +5314,10 @@ function renderOptionFields(template){
     // danbooru_seed_prompts는 자체 필드/라벨 없이 buildPromptEnhanceControl이
     // main_prompt 옆에 숨겨진 입력으로 직접 넣는다(아래 참고).
     if(opt.name === 'danbooru_seed_prompts') continue;
+    // 마법사가 이 템플릿을 방금 채웠다면(wizardRefCounts), 실제로 그래프에 없는 참조
+    // 슬롯은 옵션 폼에 아예 안 그린다 — 수동으로 템플릿을 고른 경우엔 wizardRefCounts가
+    // null이라 항상 전부 보인다(wizardApplyRefCountsFor/템플릿 select 리스너 참고).
+    if(isWizardRefSlotHidden(opt.name)) continue;
     const field = document.createElement('div');
     field.className = 'field';
 
@@ -5237,8 +5462,12 @@ async function onTemplateChange(){
   if(needsComfyModels){
     try{ await fetchComfyObjectInfo(false); }catch(e){ /* 목록 없이 "그대로"만 고를 수 있게 둔다 */ }
   }
-  const needsInputImages = template && (template.options || []).some(o => o.type === 'input_image');
+  const needsInputImages = template && (template.options || []).some(o => o.type === 'input_image' || o.type === 'input_image_optional');
   if(needsInputImages) await fetchInputImages(false);
+  const needsInputVideos = template && (template.options || []).some(o => o.type === 'input_video');
+  if(needsInputVideos) await fetchInputVideos(false);
+  const needsInputAudios = template && (template.options || []).some(o => o.type === 'input_audio');
+  if(needsInputAudios) await fetchInputAudios(false);
   renderOptionFields(template);
   uploadError.textContent = '';
 }
@@ -5491,7 +5720,12 @@ document.getElementById('deleted-jobs-load-btn').addEventListener('click', () =>
   if(job) loadJobSettings(job);
 });
 
-templateSelect.addEventListener('change', onTemplateChange);
+templateSelect.addEventListener('change', () => {
+  // 사람이 직접(수동으로) 템플릿을 바꾸면 마법사가 채운 슬롯 개수 정보는 더 이상
+  // 유효하지 않다 — 옵션 폼은 그 템플릿의 슬롯을 전부 보여줘야 한다.
+  wizardRefCounts = null;
+  onTemplateChange();
+});
 
 document.getElementById('submit-btn').addEventListener('click', async () => {
   uploadError.textContent = '';
@@ -6476,6 +6710,9 @@ let wizard = {
   familyId: null, checkpoint: null,
   base: null, post: freshWizardPost(), preset: null,
   loras: [], batchMode: null,
+  // krea2_t2i / minimax_h3_r2v / minimax_h3_i2v 전용(다른 유형에서는 안 씀)
+  refinePrompt: true, refImageCount: 2, refVideoCount: 0, refAudioCount: 0, videoRefMode: 'vhs',
+  useFirstFrame: true, useLastFrame: false,
 };
 // 마지막으로 wizardApply()를 실행했을 때의 wizard 상태 스냅샷(JSON) — null이면 아직 한 번도
 // 적용 안 한 상태. 지금 상태와 다르면 "다시 적용" 버튼을 보여준다(wizardUpdateStepButtons 참고).
@@ -6579,6 +6816,8 @@ function wizardReset(){
     familyId: null, checkpoint: null,
     base: null, post: freshWizardPost(), preset: null,
     loras: [], batchMode: null,
+    refinePrompt: true, refImageCount: 2, refVideoCount: 0, refAudioCount: 0, videoRefMode: 'vhs',
+    useFirstFrame: true, useLastFrame: false,
   };
   wizardAppliedSignature = null;
   document.getElementById('wizard-error').textContent = '';
@@ -6681,7 +6920,7 @@ function renderWizardFamilyModal(){
   body.innerHTML = `<div class="wizard-pick-list">${entries.map(([familyId, family]) => {
     const checkpoints = family.checkpoints || [];
     const disabled = checkpoints.length === 0;
-    const headerSelected = wizard.familyId === familyId && checkpoints.length === 1;
+    const headerSelected = wizard.familyId === familyId && wizard.checkpoint === checkpoints[0];
     const header = `
       <div class="wizard-pick-row${disabled ? ' disabled' : ''}${headerSelected ? ' selected' : ''}" data-family-id="${escapeHtml(familyId)}">
         <div class="wizard-pick-row-label">${escapeHtml(family.label || familyId)}
@@ -6705,9 +6944,12 @@ document.getElementById('wizard-family-modal-body').addEventListener('click', (e
   if(!family) return;
   let checkpoint = row.dataset.checkpoint;
   if(!checkpoint){
+    // family 헤더 줄을 클릭하면 — 체크포인트가 하나면 물론 그것, 여러 개여도 첫 번째
+    // 것을 바로 골라 준다(다른 걸 쓰려면 아래 하위 줄에서 다시 고르면 됨). 헤더를
+    // 클릭했는데 아무 반응이 없어서 하위 줄을 또 찾아 눌러야 하는 게 불편하다는
+    // 피드백으로 이렇게 바꿨다 — "가족만 고르고 체크포인트는 못 정함" 상태를 만들지 않는다.
     const checkpoints = family.checkpoints || [];
-    if(checkpoints.length === 1) checkpoint = checkpoints[0];
-    else return; // 체크포인트가 여러 개면 하위 줄에서 하나를 정확히 골라야 한다
+    checkpoint = checkpoints[0];
   }
   if(wizard.familyId !== familyId){
     // family가 바뀌면 이전 단계에서 고른 워크플로우 유형/LoRA는 더 이상 호환을
@@ -6741,17 +6983,58 @@ async function openWizardTypeModal(){
 function renderWizardTypeModal(){
   const body = document.getElementById('wizard-type-modal-body');
   const catalog = workflowTypesCache || {};
-  const bases = catalog.base || [];
-  const posts = catalog.post || [];
+  const currentFamily = wizard.familyId ? baseModelFamilies[wizard.familyId] : null;
+  // base/post 항목에 family_id/applies_to_base가 있으면 그 조건에 맞을 때만 보인다.
+  // family_id가 없는 범용 항목(txt2img/img2img)은 체크포인트 기반(SDXL식, CheckpointLoaderSimple로
+  // 조립하는 workflow_builder.py) family에서만 보인다 — krea.2/MiniMax-H3처럼 diffusion_models
+  // kind(UNETLoader 기반, 전용 빌더가 조립)인 family에는 안 맞는 유형이라 숨긴다.
+  const bases = (catalog.base || []).filter(t => {
+    if(t.family_id) return t.family_id === wizard.familyId;
+    return !currentFamily || currentFamily.kind !== 'diffusion_models';
+  });
+  const posts = (catalog.post || []).filter(t => !t.applies_to_base || t.applies_to_base.includes(wizard.base));
   // preset 유형(ControlNet/IPAdapter)은 이 family용 프리셋이 없으면 골라봤자 실행할
   // 워크플로우가 없으므로 아예 목록에서 숨긴다(LoRA 호환성 필터링과 같은 원칙).
   const presets = (catalog.preset || []).filter(t => presetExists(wizard.familyId, t.id));
   const nodeTypes = (comfyObjectInfoCache && comfyObjectInfoCache.connected) ? comfyObjectInfoCache.node_types : null;
 
-  const baseRows = bases.map(t => `
-    <div class="wizard-pick-row${wizard.base === t.id ? ' selected' : ''}" data-group="base" data-type-id="${escapeHtml(t.id)}">
+  const baseRows = bases.map(t => {
+    const selected = wizard.base === t.id;
+    // krea2_t2i: 프롬프트를 LLM으로 보강할지 on/off. minimax_h3_r2v: 참조 이미지/비디오/오디오를
+    // 몇 개씩 쓸지(그래프 구조 자체가 바뀌므로 빌드 타임에 정함 — server/workflow_builder_minimax_h3.py
+    // 참고, 이미지 0~9/비디오 0~3/오디오 0~3) + 비디오 참조 방식(표준 VHS_LoadVideo 기본, 파드에
+    // 그 커스텀 노드가 없으면 순정 LoadVideo로 바꿀 수 있음).
+    const vhsMissing = t.id === 'minimax_h3_r2v' && nodeTypes && !nodeTypes.includes('VHS_LoadVideo');
+    const extra = !selected ? '' : t.id === 'krea2_t2i'
+      ? `<label class="wizard-pick-row-strength" style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
+           <input type="checkbox" class="wizard-krea2-refine-input" ${wizard.refinePrompt ? 'checked' : ''}> 프롬프트 자동 보강(LLM)
+         </label>`
+      : t.id === 'minimax_h3_r2v'
+      ? `<div class="wizard-pick-row-strength" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">이미지<input type="number" class="option-input wizard-refimage-count-input" style="max-width:70px;" value="${wizard.refImageCount}" min="0" max="9" step="1" title="참조 이미지 개수(0~9)"></label>
+           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">비디오<input type="number" class="option-input wizard-refvideo-count-input" style="max-width:70px;" value="${wizard.refVideoCount}" min="0" max="3" step="1" title="참조 비디오 개수(0~3)"></label>
+           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">오디오<input type="number" class="option-input wizard-refaudio-count-input" style="max-width:70px;" value="${wizard.refAudioCount}" min="0" max="3" step="1" title="참조 오디오 개수(0~3)"></label>
+           ${wizard.refVideoCount > 0 ? `<select class="option-input wizard-refvideo-mode-input" style="max-width:250px;">
+             <option value="vhs"${wizard.videoRefMode === 'vhs' ? ' selected' : ''}>비디오 참조: 표준 방식(VHS_LoadVideo)${vhsMissing ? ' — 설치 필요' : ''}</option>
+             <option value="native"${wizard.videoRefMode === 'native' ? ' selected' : ''}>비디오 참조: 순정 방식(LoadVideo)</option>
+           </select>` : ''}
+         </div>`
+      : t.id === 'minimax_h3_i2v'
+      ? `<div class="wizard-pick-row-strength" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
+             <input type="checkbox" class="wizard-i2v-first-frame-input" ${wizard.useFirstFrame ? 'checked' : ''}> 첫 프레임으로 사용
+           </label>
+           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
+             <input type="checkbox" class="wizard-i2v-last-frame-input" ${wizard.useLastFrame ? 'checked' : ''}> 마지막 프레임으로 사용
+           </label>
+         </div>`
+      : '';
+    return `
+    <div class="wizard-pick-row${selected ? ' selected' : ''}" data-group="base" data-type-id="${escapeHtml(t.id)}">
       <div class="wizard-pick-row-label">${escapeHtml(t.label)}</div>
-    </div>`).join('');
+      ${extra}
+    </div>`;
+  }).join('');
 
   const postRows = posts.map(t => {
     const checked = !!wizard.post[t.id];
@@ -6786,7 +7069,15 @@ function renderWizardTypeModal(){
 }
 
 document.getElementById('wizard-type-modal-body').addEventListener('click', (e) => {
-  if(e.target.classList.contains('wizard-hires-scale-input')) return; // 배율 입력칸 클릭은 선택 토글이 아님
+  // 배율/체크박스/참조 개수/비디오 참조 방식 같은 인라인 입력칸 클릭은 그 줄의 선택 토글이 아니다.
+  if(e.target.classList.contains('wizard-hires-scale-input')
+     || e.target.classList.contains('wizard-krea2-refine-input')
+     || e.target.classList.contains('wizard-refimage-count-input')
+     || e.target.classList.contains('wizard-refvideo-count-input')
+     || e.target.classList.contains('wizard-refaudio-count-input')
+     || e.target.classList.contains('wizard-refvideo-mode-input')
+     || e.target.classList.contains('wizard-i2v-first-frame-input')
+     || e.target.classList.contains('wizard-i2v-last-frame-input')) return;
   const row = e.target.closest('.wizard-pick-row');
   if(!row || row.classList.contains('disabled')) return;
   const group = row.dataset.group;
@@ -6796,6 +7087,13 @@ document.getElementById('wizard-type-modal-body').addEventListener('click', (e) 
     if(wizard.base !== typeId){
       wizard.loras = [];
       wizard.batchMode = null;
+      wizard.refinePrompt = true;
+      wizard.refImageCount = 2;
+      wizard.refVideoCount = 0;
+      wizard.refAudioCount = 0;
+      wizard.videoRefMode = 'vhs';
+      wizard.useFirstFrame = true;
+      wizard.useLastFrame = false;
     }
     wizard.base = typeId;
     wizard.preset = null; // 베이스를 고르면 프리셋(배타적 그룹)은 해제
@@ -6815,11 +7113,35 @@ document.getElementById('wizard-type-modal-body').addEventListener('click', (e) 
   renderWizardTypeModal();
 });
 
-document.getElementById('wizard-type-modal-body').addEventListener('input', (e) => {
-  if(!e.target.classList.contains('wizard-hires-scale-input')) return;
-  wizard.post.hiresScale = parseFloat(e.target.value) || 1.5;
+function handleWizardTypeModalInput(e){
+  let needsRerender = false;
+  if(e.target.classList.contains('wizard-hires-scale-input')){
+    wizard.post.hiresScale = parseFloat(e.target.value) || 1.5;
+  }else if(e.target.classList.contains('wizard-krea2-refine-input')){
+    wizard.refinePrompt = e.target.checked;
+  }else if(e.target.classList.contains('wizard-refimage-count-input')){
+    wizard.refImageCount = Math.min(9, Math.max(0, parseInt(e.target.value, 10) || 0));
+  }else if(e.target.classList.contains('wizard-refvideo-count-input')){
+    wizard.refVideoCount = Math.min(3, Math.max(0, parseInt(e.target.value, 10) || 0));
+    needsRerender = true; // 0 <-> 양수 전환에 따라 "비디오 참조 방식" select가 나타나거나 사라져야 함
+  }else if(e.target.classList.contains('wizard-refaudio-count-input')){
+    wizard.refAudioCount = Math.min(3, Math.max(0, parseInt(e.target.value, 10) || 0));
+  }else if(e.target.classList.contains('wizard-refvideo-mode-input')){
+    wizard.videoRefMode = e.target.value === 'native' ? 'native' : 'vhs';
+  }else if(e.target.classList.contains('wizard-i2v-first-frame-input')){
+    wizard.useFirstFrame = e.target.checked;
+  }else if(e.target.classList.contains('wizard-i2v-last-frame-input')){
+    wizard.useLastFrame = e.target.checked;
+  }else{
+    return;
+  }
   wizardUpdateStepButtons();
-});
+  if(needsRerender) renderWizardTypeModal();
+}
+document.getElementById('wizard-type-modal-body').addEventListener('input', handleWizardTypeModalInput);
+// <select>는 브라우저에 따라 "input" 대신 "change"만 쏘는 경우가 있어(비디오 참조 방식
+// 드롭다운), 같은 핸들러를 둘 다에 건다.
+document.getElementById('wizard-type-modal-body').addEventListener('change', handleWizardTypeModalInput);
 
 document.getElementById('wizard-step-type').addEventListener('click', openWizardTypeModal);
 
@@ -6947,6 +7269,9 @@ async function wizardApply(){
   }
 
   const isPreset = wizardIsPreset();
+  // architecture가 없으면(txt2img/img2img) 기본 SDXL 빌더(workflow_builder.py)로 간다 —
+  // krea2_t2i/minimax_h3_i2v/minimax_h3_r2v는 각각 전용 빌더로 분기한다(app.py 참고).
+  const architecture = (wizardBaseMeta(wizard.base) || {}).architecture || 'sdxl';
   let workflow;
   try{
     if(isPreset){
@@ -6956,6 +7281,7 @@ async function wizardApply(){
     }else{
       const spec = {
         base: wizard.base,
+        architecture,
         checkpoint: wizard.checkpoint,
         // 진짜 프롬프트는 적용 뒤 아래 옵션 폼(시드 반복이면 main_prompt 필드, CSV
         // 순회면 CSV 파일)에서 입력한다 — 여기는 build_workflow()가 요구하는
@@ -6964,8 +7290,20 @@ async function wizardApply(){
         positive: '(prompt)',
         loras: wizard.loras.map(l => ({ name: l.name, strength_model: l.strength, strength_clip: l.strength })),
       };
-      if(wizard.post.hires_fix) spec.hires_fix = { enabled: true, scale_by: wizard.post.hiresScale };
-      if(wizard.post.usdu) spec.usdu = { enabled: true, upscale_by: 2.0 };
+      if(architecture === 'sdxl'){
+        if(wizard.post.hires_fix) spec.hires_fix = { enabled: true, scale_by: wizard.post.hiresScale };
+        if(wizard.post.usdu) spec.usdu = { enabled: true, upscale_by: 2.0 };
+      }else if(architecture === 'krea2'){
+        spec.refine_prompt = wizard.refinePrompt;
+      }else if(architecture === 'minimax_h3_i2v'){
+        spec.use_first_frame = wizard.useFirstFrame;
+        spec.use_last_frame = wizard.useLastFrame;
+      }else if(architecture === 'minimax_h3_r2v'){
+        spec.ref_image_count = wizard.refImageCount;
+        spec.ref_video_count = wizard.refVideoCount;
+        spec.ref_audio_count = wizard.refAudioCount;
+        spec.video_ref_mode = wizard.videoRefMode;
+      }
       const res = await fetch(`/api/build-workflow${podQuery()}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec),
       });
@@ -6980,6 +7318,14 @@ async function wizardApply(){
 
   resetForm();
   templateSelect.value = templateId;
+  // 이 템플릿 그래프에 실제로 있는 참조 슬롯만 옵션 폼에 그려지도록(isWizardRefSlotHidden
+  // 참고) — architecture가 다르면 그냥 null로 둬서 모든 슬롯이 보이게 한다(그런 슬롯
+  // 이름을 안 쓰는 템플릿이라 어차피 영향 없음).
+  wizardRefCounts = architecture === 'minimax_h3_r2v'
+    ? { image: wizard.refImageCount, video: wizard.refVideoCount, audio: wizard.refAudioCount }
+    : architecture === 'minimax_h3_i2v'
+    ? { useFirstFrame: wizard.useFirstFrame, useLastFrame: wizard.useLastFrame }
+    : null;
   await onTemplateChange();
   // 마법사가 템플릿을 정했으니, 직접 고르는 펼침 토글은 접어 둔다(둘이 동시에 열려 있으면 헷갈림).
   const manualToggle = document.getElementById('manual-template-toggle');
@@ -7002,7 +7348,7 @@ async function wizardApply(){
     }
   }
 
-  const typeSlug = isPreset ? wizard.preset : [wizard.base, wizard.post.hires_fix && 'hires', wizard.post.usdu && 'usdu'].filter(Boolean).join('_');
+  const typeSlug = isPreset ? wizard.preset : [wizard.base, architecture === 'sdxl' && wizard.post.hires_fix && 'hires', architecture === 'sdxl' && wizard.post.usdu && 'usdu'].filter(Boolean).join('_');
   setWorkflowFile(new File([JSON.stringify(workflow)], `wizard_${typeSlug}_workflow.json`, { type: 'application/json' }));
 
   document.getElementById('load-notice').textContent =

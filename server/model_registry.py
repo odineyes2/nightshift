@@ -33,7 +33,7 @@ KINDS = [
 KIND_IDS = {k for k, _ in KINDS}
 
 # 입력칸의 자동완성용 — 이 밖의 값도 자유롭게 적을 수 있다.
-BASE_MODELS = ["SD 1.5", "SDXL", "Illustrious", "Pony", "NoobAI", "Flux", "Wan 2.2", "Wan 2.1", "Qwen-Image", "Z-Image", "기타"]
+BASE_MODELS = ["SD 1.5", "SDXL", "Illustrious", "Pony", "NoobAI", "Flux", "Wan 2.2", "Wan 2.1", "Qwen-Image", "Z-Image", "krea.2", "MiniMax-H3", "기타"]
 
 MAX_TEXT = 4000
 MAX_LIST = 50
@@ -123,18 +123,20 @@ def lora_triggers() -> dict[str, dict]:
 
 
 def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
-    """마법사 1단계용 — base_model이 있는 체크포인트를 그 값으로 묶는다: {id: {label, checkpoints}}.
-    installed를 주면 그 안에 있는(=실제로 쓸 수 있는) 체크포인트만 남긴다."""
+    """마법사 1단계용 — base_model이 있는 체크포인트/디퓨전 모델(UNet)을 그 값으로 묶는다:
+    {id: {label, kind, checkpoints}}. kind는 "checkpoints"(CheckpointLoaderSimple 조립) 또는
+    "diffusion_models"(UNETLoader 기반 — krea.2/MiniMax-H3처럼 전용 빌더가 조립하는 family).
+    installed를 주면 그 안에 있는(=실제로 쓸 수 있는) 파일만 남긴다."""
     groups: dict[str, dict] = {}
     for e in list_entries():
-        if e["kind"] != "checkpoints" or not e["base_model"]:
+        if e["kind"] not in ("checkpoints", "diffusion_models") or not e["base_model"]:
             continue
         if installed is not None and e["filename"] not in installed:
             continue
         gid = base_id(e["base_model"])
         if not gid:
             continue
-        g = groups.setdefault(gid, {"label": e["base_model"], "checkpoints": []})
+        g = groups.setdefault(gid, {"label": e["base_model"], "kind": e["kind"], "checkpoints": []})
         g["checkpoints"].append(e["filename"])
     return dict(sorted(groups.items(), key=lambda kv: kv[1]["label"].lower()))
 
