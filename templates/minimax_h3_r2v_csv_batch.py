@@ -18,7 +18,7 @@ CSV 컬럼:
 환경변수:
     WORKFLOW_PATH, CSV_PATH  (둘 다 필수, nightshift가 주입)
     NIGHTSHIFT_INPUT_IMAGES_DIR, NIGHTSHIFT_ASSETS_DIR, COMFY_URL, JOB_ID,
-    NIGHTSHIFT_URL, NIGHTSHIFT_API_KEY, POLL_INTERVAL_SEC, POLL_TIMEOUT_SEC
+    NIGHTSHIFT_URL, NIGHTSHIFT_API_KEY, POLL_INTERVAL_SEC, POLL_MISSING_GRACE_SEC
                     minimax_h3_r2v_batch.py와 같음
 
 결과물 파일명 규칙:
@@ -259,11 +259,33 @@ def queue_prompt(comfy_url, workflow):
     return data["prompt_id"]
 
 
+def _prompt_in_comfy_queue(comfy_url, prompt_id):
+    # ComfyUI 자체 대기열(실행 중+대기 중)에 이 prompt_id가 아직 있는지 본다. /queue
+    # 조회 자체가 잠깐 실패한 거면 "없어졌다"고 단정하지 않는다(다음 폴링에서 다시 본다).
+    req = urllib.request.Request(f"{comfy_url}/queue", headers={"User-Agent": COMFY_USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            q = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, json.JSONDecodeError):
+        return True
+    ids = {item[1] for item in q.get("queue_running", []) + q.get("queue_pending", []) if len(item) > 1}
+    return prompt_id in ids
+
+
 def wait_for_completion(comfy_url, prompt_id):
     interval = float(env("POLL_INTERVAL_SEC", "2"))
-    timeout = float(env("POLL_TIMEOUT_SEC", "1800"))
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    # 이 프롬프트보다 먼저 넣은 다른 작업(특히 오래 걸리는 영상 생성)이 ComfyUI 자체
+    # 대기열에서 아직 돌고 있으면, 이 프롬프트는 몇십 분이고 자기 차례를 기다릴 수
+    # 있다 — 그 대기는 정상이라 시간으로 실패 처리하면 안 된다(대기열은 밤새 혼자
+    # 돌아가라고 있는 것이므로). 그래서 "얼마나 기다렸나"가 아니라 "ComfyUI가 이
+    # 프롬프트를 아직 알고 있나"로 판단한다 — /history에 결과가 뜰 때까지, 또는
+    # /queue(대기·실행 중)에 남아 있는 동안은 계속 기다리고, 실패는 ComfyUI가 실제로
+    # status_str="error"를 돌려줬을 때만 처리한다. 대기열과 히스토리 양쪽에서 모두
+    # 사라진 채(예: ComfyUI가 재시작돼 큐를 잃어버림) POLL_MISSING_GRACE_SEC를 넘기면
+    # 그때만 "잃어버림"으로 실패 처리한다.
+    missing_grace = float(env("POLL_MISSING_GRACE_SEC", "60"))
+    missing_since = None
+    while True:
         req = urllib.request.Request(
             f"{comfy_url}/history/{prompt_id}", headers={"User-Agent": COMFY_USER_AGENT})
         try:
@@ -272,9 +294,22 @@ def wait_for_completion(comfy_url, prompt_id):
         except urllib.error.URLError as e:
             raise RuntimeError(f"ComfyUI 히스토리 조회 실패: {e}") from e
         if prompt_id in history:
-            return history[prompt_id]
+            entry = history[prompt_id]
+            status = (entry.get("status") or {}).get("status_str")
+            if status == "error":
+                messages = (entry.get("status") or {}).get("messages") or []
+                raise RuntimeError(f"ComfyUI가 이 작업을 실패로 처리했어요(prompt_id={prompt_id}): {messages}")
+            return entry
+        if _prompt_in_comfy_queue(comfy_url, prompt_id):
+            missing_since = None
+        else:
+            if missing_since is None:
+                missing_since = time.time()
+            elif time.time() - missing_since > missing_grace:
+                raise TimeoutError(
+                    f"prompt_id={prompt_id}가 ComfyUI 대기열과 히스토리 어디에도 없어요"
+                    f"({missing_grace:.0f}초 동안 확인) — ComfyUI가 재시작됐을 수 있어요.")
         time.sleep(interval)
-    raise TimeoutError(f"prompt_id={prompt_id} 완료 대기 시간({timeout}s) 초과")
 
 
 def report_progress(job_id, nightshift_url, total, done):
