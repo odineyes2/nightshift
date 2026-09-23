@@ -98,6 +98,54 @@ def _fetch_pod_raw(pod_id: str) -> dict | None:
         return None
 
 
+def list_runpod_pods_verbose() -> tuple[list[dict] | None, str | None]:
+    """계정의 모든 pod를 훑어 (정규화된 목록, None) 또는 (None, 에러 문구)를 돌려준다 —
+    runpod_sync.py(자동 등록)가 "실패 이유를 사람이 알 수 있어야" 해서 get_runpod_info와
+    달리 에러를 삼키지 않는다. 실측(2026-09-23) 응답 필드: id/name/desiredStatus/
+    ports(["8188/http", ...] 형태)/imageName/costPerHr, machine은 빈 객체.
+
+    **env 필드는 절대 읽지 않는다** — 실측해 보니 그 pod에 설정된 다른 환경변수
+    (Jupyter 비밀번호 등)가 평문으로 그대로 들어 있었다. 정규화 결과에도, 이 함수가
+    실패했을 때의 에러 문구에도 raw 응답을 절대 포함하지 않는다."""
+    if not RUNPOD_API_KEY:
+        return None, "RUNPOD_API_KEY가 설정되지 않았어요."
+    req = urllib.request.Request(
+        f"{RUNPOD_API_BASE}/pods",
+        headers={
+            "Authorization": f"Bearer {RUNPOD_API_KEY}",
+            "User-Agent": RUNPOD_USER_AGENT,
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SEC) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return None, f"RunPod 목록을 못 받아왔어요(HTTP {e.code})."
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
+        return None, f"RunPod 목록을 못 받아왔어요: {type(e).__name__}."
+    if not isinstance(raw, list):
+        return None, "RunPod 응답 형식이 예상과 달라요."
+    pods = [
+        {
+            "id": p.get("id"),
+            "name": p.get("name") or "",
+            "status": p.get("desiredStatus") or "",
+            "ports": p.get("ports") or [],
+            "image": p.get("imageName") or "",
+            "cost_per_hr": p.get("costPerHr"),
+        }
+        for p in raw if isinstance(p, dict) and p.get("id")
+    ]
+    return pods, None
+
+
+def list_runpod_pods() -> list[dict] | None:
+    """list_runpod_pods_verbose()의 목록만(에러 문구 없이) 돌려준다 — 실패하면 None."""
+    pods, _error = list_runpod_pods_verbose()
+    return pods
+
+
 def _fetch_gpu_display_name(pod_id: str) -> str | None:
     """REST의 machine이 비어 있을 때 레거시 GraphQL API로 GPU 모델명만 보충한다.
     이 호출 하나가 실패해도(네트워크/스키마 변경 등) 조용히 None — 호출부가 REST
@@ -239,4 +287,5 @@ def get_runpod_info(url: str) -> dict | None:
     return data
 
 
-__all__ = ["get_runpod_info", "debug_probe", "extract_pod_id", "RUNPOD_API_KEY"]
+__all__ = ["get_runpod_info", "debug_probe", "extract_pod_id", "RUNPOD_API_KEY",
+           "list_runpod_pods", "list_runpod_pods_verbose"]

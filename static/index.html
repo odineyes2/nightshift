@@ -309,6 +309,9 @@
   .account-facts{ display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:0 0 14px; font-size:13px; }
   .account-facts dt{ color:var(--text-dim); font-family:var(--mono); font-size:11.5px; }
   .account-facts dd{ margin:0; overflow-wrap:anywhere; }
+  .account-secret-input{ display:flex; gap:6px; align-items:center; }
+  .account-secret-input .option-input{ flex:1; max-width:none; }
+  .account-secret-input .icon-btn{ flex-shrink:0; }
   @media (max-width:640px){ .user-chip-name{ max-width:64px; } .user-chip .role-badge{ display:none; } }
   .login-watermark{
     position:absolute;
@@ -1550,7 +1553,12 @@
   .dl-row{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
   .dl-row .option-input{ flex:1 1 260px; max-width:none; }
   .dl-meta{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); word-break:break-word; }
-  .model-link{ font-size:11px; margin-left:6px; }
+  .model-link{
+    font-size:11px; margin-left:6px;
+    background:none; border:none; padding:0;
+    color:var(--queued); cursor:pointer; font-family:inherit;
+  }
+  .model-link:hover{ text-decoration:underline; }
   .model-pod-row{ display:flex; align-items:center; gap:10px; padding:4px 0; font-size:12.5px; }
   .model-pod-row{ flex-wrap:wrap; }
   .model-pod-row .inv-cell, .model-pod-row .inv-off{ white-space:nowrap; }
@@ -3652,19 +3660,34 @@
         <input type="password" class="option-input" id="account-old-password" autocomplete="current-password" style="max-width:100%;">
       </div>
       <div class="field">
-        <label class="field-label" for="account-new-password">새 비밀번호 (8자 이상)</label>
+        <label class="field-label" for="account-new-password">새 비밀번호 (8자 이상, 바꿀 때만 입력)</label>
         <input type="password" class="option-input" id="account-new-password" autocomplete="new-password" style="max-width:100%;">
       </div>
       <div class="field">
         <label class="field-label" for="account-new-password2">새 비밀번호 확인</label>
         <input type="password" class="option-input" id="account-new-password2" autocomplete="new-password" style="max-width:100%;">
       </div>
+      <div class="email-hint" style="margin-top:16px;">개인 API 키 — 지금은 저장만 해 두고, 실제로 쓰는 기능은 나중에 붙어요.</div>
+      <div class="field">
+        <label class="field-label" for="account-civitai-token">CIVITAI_TOKEN</label>
+        <div class="account-secret-input">
+          <input type="password" class="option-input" id="account-civitai-token" autocomplete="off" spellcheck="false">
+          <button type="button" class="icon-btn account-secret-toggle" data-target="account-civitai-token" title="보이기/숨기기"><svg class="ico"><use href="#i-eye"/></svg></button>
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="account-runpod-key">RUNPOD_API_KEY</label>
+        <div class="account-secret-input">
+          <input type="password" class="option-input" id="account-runpod-key" autocomplete="off" spellcheck="false">
+          <button type="button" class="icon-btn account-secret-toggle" data-target="account-runpod-key" title="보이기/숨기기"><svg class="ico"><use href="#i-eye"/></svg></button>
+        </div>
+      </div>
       <div class="login-error" id="account-error" role="alert"></div>
       <div class="account-ok" id="account-ok" role="status"></div>
     </div>
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="account-logout-btn" type="button"><svg class="ico"><use href="#i-log-out"/></svg> 로그아웃</button>
-      <button class="submit-btn" id="account-save-btn" type="button"><svg class="ico"><use href="#i-key-round"/></svg> 비밀번호 변경</button>
+      <button class="submit-btn" id="account-save-btn" type="button"><svg class="ico"><use href="#i-save"/></svg> 수정사항 저장</button>
     </div>
   </div>
 </div>
@@ -6617,12 +6640,11 @@ function modelRowHtml(kind, name, isAdmin){
         ? `<div class="gallery-details-col" title="${escapeHtml(have.map(p => p.name).join(', '))}">${have.length}/${live.length}</div>`
         : '<div class="gallery-details-col model-missing" title="연결된 파드 어디에도 없어요">없음</div>')
     : '<div class="gallery-details-col dim">-</div>';
-  const downloadIcon = e.download_url
+  const links = e.download_url
     ? (isAdmin
         ? `<button type="button" class="icon-btn icon-btn-neutral model-dlcmd-btn" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}" title="다운로드 명령 복사(RunPod 터미널용)">${ico('download')}</button>`
         : `<span title="다운로드 주소 등록됨">${ico('download')}</span>`)
     : '';
-  const links = `${downloadIcon}${e.page_url ? '<span title="페이지 주소 등록됨">↗</span>' : ''}`;
   const head = `
     <div class="model-cols${isLora ? ' lora' : ''} model-row-head" role="button" tabindex="0">
       ${modelThumbHtml(kind, name)}
@@ -6640,7 +6662,7 @@ function modelRowHtml(kind, name, isAdmin){
     const d = modelEditDraft || modelDraftFromEntry(kind, name);
     const baseList = `<datalist id="model-base-list">${modelRegistry.base_models.map(a => `<option value="${escapeHtml(a)}">`).join('')}</datalist>`;
     const dis = isAdmin ? '' : 'disabled';
-    const link = u => isWebUrl(u) ? ` <a class="model-link" href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">열기</a>` : '';
+    const link = u => isWebUrl(u) ? ` <button type="button" class="model-link" data-copy-url="${escapeHtml(u)}">복사</button>` : '';
     const podRows = invPods().map(p => {
       const has = p.connected && (p.models[kind] || []).includes(name);
       let state;
@@ -6825,7 +6847,11 @@ document.getElementById('lora-tab-list').addEventListener('click', (e) => {
       .catch(err => setModelError(err.message));
     return;
   }
-  if(e.target.closest('.model-link')) return;
+  const linkBtn = e.target.closest('.model-link');
+  if(linkBtn){
+    navigator.clipboard.writeText(linkBtn.dataset.copyUrl).then(() => flashNotice('주소를 복사했어요.'));
+    return;
+  }
   const head = e.target.closest('.model-row-head');
   if(!head) return;
   const row = head.closest('.model-row');
@@ -7991,33 +8017,75 @@ async function logout(){
   location.reload();
 }
 
-// 계정 창 — 내 정보와 비밀번호 변경, 로그아웃.
+// 계정 창 — 내 정보와 비밀번호 변경, 개인 API 키, 로그아웃.
 const accountModal = document.getElementById('account-modal');
-function openAccountModal(){
+async function openAccountModal(){
   if(!currentUser) return;
   const rows = [['아이디', currentUser.username], ['이메일', currentUser.email], ['권한', currentUser.role === 'admin' ? '관리자' : '일반 회원']];
   document.getElementById('account-facts').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('');
   for(const id of ['account-old-password', 'account-new-password', 'account-new-password2']) document.getElementById(id).value = '';
   document.getElementById('account-error').textContent = '';
   document.getElementById('account-ok').textContent = '';
+  document.getElementById('account-civitai-token').value = '';
+  document.getElementById('account-runpod-key').value = '';
+  for(const btn of document.querySelectorAll('.account-secret-toggle')){
+    document.getElementById(btn.dataset.target).type = 'password';
+    btn.innerHTML = '<svg class="ico"><use href="#i-eye"/></svg>';
+  }
   accountModal.style.display = 'flex';
+  try{
+    const res = await fetch('/api/auth/secrets');
+    if(res.ok){
+      const data = await res.json();
+      document.getElementById('account-civitai-token').value = data.civitai_token || '';
+      document.getElementById('account-runpod-key').value = data.runpod_api_key || '';
+    }
+  }catch(e){ /* 못 받아와도 빈 칸으로 두면 그만이다 */ }
 }
 function closeAccountModal(){ accountModal.style.display = 'none'; }
 document.getElementById('user-chip').addEventListener('click', openAccountModal);
 document.getElementById('account-modal-close').addEventListener('click', closeAccountModal);
 accountModal.addEventListener('click', (e) => { if(e.target === accountModal) closeAccountModal(); });
 document.getElementById('account-logout-btn').addEventListener('click', logout);
+
+document.querySelectorAll('.account-secret-toggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const input = document.getElementById(btn.dataset.target);
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    btn.innerHTML = `<svg class="ico"><use href="#i-${showing ? 'eye' : 'eye-off'}"/></svg>`;
+  });
+});
+
+// "수정사항 저장" 하나로 비밀번호 변경(입력했을 때만)과 API 키 저장(항상)을 같이 처리한다.
 document.getElementById('account-save-btn').addEventListener('click', async () => {
   const errorEl = document.getElementById('account-error');
   const okEl = document.getElementById('account-ok');
   errorEl.textContent = ''; okEl.textContent = '';
   const oldPassword = document.getElementById('account-old-password').value;
   const newPassword = document.getElementById('account-new-password').value;
-  if(newPassword !== document.getElementById('account-new-password2').value){ errorEl.textContent = '새 비밀번호 확인이 일치하지 않아요.'; return; }
-  const { ok, data } = await postAuth('/api/auth/change-password', { old_password: oldPassword, new_password: newPassword });
-  if(!ok){ errorEl.textContent = data.detail || '비밀번호를 바꾸지 못했어요.'; return; }
-  okEl.textContent = '비밀번호를 바꿨어요. 다른 기기에서는 로그아웃돼요.';
-  for(const id of ['account-old-password', 'account-new-password', 'account-new-password2']) document.getElementById(id).value = '';
+  const newPassword2 = document.getElementById('account-new-password2').value;
+  const wantsPasswordChange = !!(oldPassword || newPassword || newPassword2);
+  if(wantsPasswordChange){
+    if(!oldPassword || !newPassword){ errorEl.textContent = '비밀번호를 바꾸려면 현재 비밀번호와 새 비밀번호를 모두 입력하세요.'; return; }
+    if(newPassword !== newPassword2){ errorEl.textContent = '새 비밀번호 확인이 일치하지 않아요.'; return; }
+  }
+  const messages = [];
+  if(wantsPasswordChange){
+    const { ok, data } = await postAuth('/api/auth/change-password', { old_password: oldPassword, new_password: newPassword });
+    if(!ok){ errorEl.textContent = data.detail || '비밀번호를 바꾸지 못했어요.'; return; }
+    messages.push('비밀번호를 바꿨어요(다른 기기는 로그아웃돼요)');
+    for(const id of ['account-old-password', 'account-new-password', 'account-new-password2']) document.getElementById(id).value = '';
+  }
+  const secretsPayload = {
+    civitai_token: document.getElementById('account-civitai-token').value,
+    runpod_api_key: document.getElementById('account-runpod-key').value,
+  };
+  const res = await fetch('/api/auth/secrets', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(secretsPayload) });
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok){ errorEl.textContent = data.detail || 'API 키를 저장하지 못했어요.'; return; }
+  messages.push('API 키를 저장했어요');
+  okEl.textContent = messages.join(' · ') + '.';
 });
 
 // 헤더의 사용자 칩과 관리자 전용 탭을 로그인한 회원에 맞춘다.

@@ -1100,7 +1100,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 
 **실행**: `npm start`(pm2)로 `app.py`와 함께 자동으로 뜹니다 (`ecosystem.config.js`의 `nightshift-mcp` 앱). 따로 실행하려면 `cd server && python3 mcp_server.py`.
 
-**환경변수** (`.env.example` 참고): `JOB_QUEUE_BASE_URL`(기본 `http://127.0.0.1:8000` — 같은 머신이면 RunPod 프록시 URL 대신 내부 주소를 쓰는 게 빠르고 안정적), `JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD`(app.py에 로그인할 회원 — 그 회원의 권한·소유 범위 안에서만 동작), `MCP_SERVER_PORT`(기본 8001).
+**환경변수** (`.env.example` 참고): `JOB_QUEUE_BASE_URL`(기본 `http://127.0.0.1:8000` — 같은 머신이면 RunPod 프록시 URL 대신 내부 주소를 쓰는 게 빠르고 안정적), `JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD`(app.py에 로그인할 회원 — 그 회원의 권한·소유 범위 안에서만 동작), `MCP_SERVER_PORT`(기본 8001), `MCP_SERVER_HOST`(기본 `127.0.0.1` — 아래 "인증과 외부 노출" 참고), `MCP_AUTH_TOKEN`(외부에 노출할 때 쓰는 인증 토큰).
 
 | 도구 | 내부 호출 | 설명 |
 |---|---|---|
@@ -1119,8 +1119,31 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `get_output_image` | `GET /api/output-images/{name}` (+`/thumbnail`) | 이미지를 base64 콘텐츠로 반환(MCP 클라이언트가 바로 렌더링). 원본이 5MB 넘으면 자동으로 축소본(`thumbnail=true`와 동일) 사용 |
 | `clear_completed_jobs` | `POST /api/jobs/clear-completed` | 완료/실패/중단 잡 소프트 삭제 |
 | `list_recent_workflows` | `GET /api/recent-workflows` | 최근 워크플로우 30개 — 매번 새로 안 만들고 재사용하고 싶을 때 |
+| `list_pods` | `GET /api/pods` | 등록된 파드(워커) 목록. 파드는 nightshift가 아는 주소 레코드일 뿐, RunPod pod 전원과는 별개 |
+| `sync_runpod_pods` | `POST /api/pods/sync-runpod` | RunPod에서 RUNNING인 ComfyUI pod를 찾아 파드 목록에 자동 등록/정리(멱등). **RunPod에서 pod를 켠 직후 이 도구를 부르면 로그인 없이 등록된다.** 관리자 전용 |
+| `add_pod` | `POST /api/pods` | 파드를 수동으로 등록(RunPod가 아닌 주소도 가능) |
+| `set_pod_enabled` | `PUT /api/pods/{id}` | 이 파드로 새 작업을 보낼지 켜고 끈다 — RunPod 과금(전원)과는 무관 |
+| `pod_health` | `POST /api/pods/{id}/test` | 저장된 파드 주소가 실제로 응답하는지 확인 |
 
 **에러 형식**: 내부 API가 4xx/5xx를 반환하거나(`app.py`가 없어서) 연결 자체가 안 되면, 도구는 예외를 던지는 대신 `{"error": true, "status_code": N|null, "detail": "..."}`를 반환합니다 — 호출한 모델이 그대로 읽고 사용자에게 설명할 수 있게 하기 위함입니다.
+
+### 인증과 외부 노출
+
+`mcp_server.py`는 기본적으로 `MCP_SERVER_HOST=127.0.0.1`에만 묶입니다(`jupyterlab`을 127.0.0.1에 묶은 것과 같은 이유 — `ecosystem.config.js` 주석 참고). 이 서버는 시작할 때 이미 관리자(또는 `JOB_QUEUE_USER`) 계정으로 로그인해 두므로, 아무 보호 없이 외부에 노출하면 주소를 아는 누구나 그 계정 권한으로 nightshift를 조작할 수 있습니다.
+
+claude.ai 커스텀 커넥터로 붙이려면 인터넷에서 닿는 주소가 필요해 Cloudflare Tunnel 같은 터널을 거쳐야 합니다. 순서:
+
+1. **`MCP_AUTH_TOKEN` 만들기**: `python3 -c "import secrets; print(secrets.token_urlsafe(24))"`로 만들어 `.env`에 넣습니다.
+2. **터널에 ingress 추가**: 기존 Cloudflare Tunnel 설정(예: `jupyter.lomebrote.com`을 이미 쓰고 있다면 같은 파일)에 아래와 같은 줄을 추가합니다 — `mcp.lomebrote.com`은 예시이고 원하는 서브도메인으로 바꿔도 됩니다.
+   ```yaml
+   - hostname: mcp.lomebrote.com
+     service: http://127.0.0.1:8001
+   ```
+   **이 파일 자체를 고치는 건 저장소 밖에 있을 수 있어 직접 하지 않습니다 — 위치를 알려주시면 같이 진행합니다.** 추가한 뒤 `cloudflared tunnel` 프로세스를 재시작(또는 `cloudflared tunnel ingress validate`로 확인)하세요.
+3. **claude.ai에 커넥터 등록**: 설정 → 커넥터 → 커스텀 커넥터 추가. Anthropic 공식 문서(2026-09-23 확인, [claude.com/docs/connectors/building/authentication](https://claude.com/docs/connectors/building/authentication))에 따르면 인증 방식은 계정 종류에 따라 다르게 보일 수 있습니다:
+   - **고정 헤더 입력란이 보이면**: 이름은 `Authorization`, 값은 `Bearer <MCP_AUTH_TOKEN>`으로 넣고 서버 URL은 `https://mcp.lomebrote.com/mcp`로 넣습니다. (`static_headers` 방식 — 문서 자체가 "베타"라고 명시하고, "관리자가 입력"이라는 표현이라 개인 계정 화면에 실제로 보이는지는 직접 확인이 필요합니다.)
+   - **헤더 입력란이 안 보이면**: 서버 URL에 `https://mcp.lomebrote.com/mcp/<MCP_AUTH_TOKEN>`처럼 토큰을 경로에 그대로 넣습니다(`TokenAuthMiddleware`, `server/mcp_server.py`가 이 경로를 벗겨서 처리). Anthropic 문서는 URL에 토큰을 넣는 방식을 "권장하지 않음"이라고 명시합니다(서버 로그·프록시·브라우저 기록에 남을 수 있어서) — 그래도 헤더 입력란이 없는 계정에는 이게 유일한 자기서비스 경로일 수 있습니다.
+4. 연결되면 claude.ai 채팅에서 "RunPod에서 켠 파드를 nightshift에 등록해줘" 같은 요청으로 `sync_runpod_pods` 도구를 부를 수 있습니다.
 
 ## 동작 방식 / 디렉터리 구조
 

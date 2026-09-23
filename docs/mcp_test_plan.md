@@ -1,6 +1,6 @@
 # MCP 서버(mcp_server.py) 테스트 시방서
 
-`mcp_server.py`(app.py의 REST API를 감싼 MCP 도구 14개)가 **실제 ComfyUI + GPU가
+`mcp_server.py`(app.py의 REST API를 감싼 MCP 도구 21개)가 **실제 ComfyUI + GPU가
 붙은 환경**(RunPod 파드)에서 정상 동작하는지 확인하기 위한 절차입니다.
 
 이 문서에 있는 절차 중 TC-02~TC-04, TC-11, TC-12는 GPU 없는 환경에서도 이미
@@ -17,13 +17,15 @@
    - 로그인할 회원의 `JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD`를 넣을 것(그 회원의 권한 범위 안에서만 도구가 동작)
    - `JOB_QUEUE_BASE_URL`은 같은 머신이면 비워둬도 됨(기본 `http://127.0.0.1:8000`)
    - `MCP_SERVER_PORT`는 비워두면 8001
+   - TC-19~21(파드 자동 동기화)을 실측하려면 `RUNPOD_API_KEY`도 필요(RunPod 콘솔 → Settings → API Keys)
+   - TC-16(claude.ai 커넥터 등록)을 외부에서 실측하려면 `MCP_AUTH_TOKEN`을 넣고 `MCP_SERVER_HOST`를 터널이 보는 값으로(README "인증과 외부 노출" 참고) — 127.0.0.1로만 확인할 거면 둘 다 안 채워도 됨
 4. `npm run restart` (이미 pm2로 떠 있었다면) 또는 `npm start` (처음이면) — `ecosystem.config.js`에
    `nightshift-mcp` 앱이 추가돼 있으므로 `pm2 status`에 `nightshift`와
    `nightshift-mcp` **둘 다** `online`으로 떠 있어야 합니다.
 5. ComfyUI가 실제로 켜져 있고 체크포인트가 최소 1개는 설치돼 있는지 확인 (웹 UI 헤더의
    연결 상태 표시로 확인 가능).
 
-## 1. 자동화 스모크 테스트 (TC-02, 03, 04, 11, 12 + 가능하면 05~10)
+## 1. 자동화 스모크 테스트 (TC-02, 03, 04, 11, 12, 19, 20 + 가능하면 05~10)
 
 `mcp_smoke_test.py`가 아래 표의 케이스 대부분을 자동으로 실행하고 PASS/FAIL을
 출력합니다. 파드에서 실행:
@@ -64,9 +66,12 @@ python3 mcp_smoke_test.py
 | TC-13 | 타임아웃 처리 | `wait_for_job(job_id=방금 만든 잡, timeout_seconds=1)`을 잡이 끝나기 전에 호출 | 예외 없이 `{"error": true, "detail": "...초 안에 끝나지 않았어요...", "last_job": {...}}` 반환 | 수동 (아래 2.3) |
 | TC-14 | 대용량 이미지 자동 축소 | 5MB 넘는 결과 이미지에 `get_output_image(thumbnail=false)` | 자동으로 축소본(`image/jpeg`)으로 대체돼 반환 (원본이 5MB 안 넘으면 스킵) | 수동, 조건부 |
 | TC-15 | 큐 폭주 가드 | (리뷰로 이미 확인됨 — 실제로 100개씩 채울 필요 없음) `MAX_ACTIVE_JOBS`(기본 100) 이상 쌓이면 `submit_job`이 429 에러 반환 | 코드 레벨에서 이미 검증(별도 PR) | 생략 권장 |
-| TC-16 | claude.ai 커넥터 등록 | claude.ai 설정 → 커넥터 추가 → URL에 `mcp_server.py`의 공개 주소(`https://<pod>-<MCP_SERVER_PORT>.proxy.runpod.net/mcp`) 입력 | 커넥터가 "연결됨" 상태로 뜸 | 수동 (아래 2.4) |
-| TC-17 | 도구 노출 확인 | 커넥터 상세에서 도구 목록 확인 | 14개 도구 이름이 전부 보임 | 수동 |
+| TC-16 | claude.ai 커넥터 등록 | claude.ai 설정 → 커넥터 추가 → URL에 `mcp_server.py`의 공개 주소(`https://mcp.lomebrote.com/mcp` 또는 `/mcp/<MCP_AUTH_TOKEN>`, README "MCP 서버" 절 참고) 입력, `MCP_AUTH_TOKEN`을 헤더로 넣는 입력란이 보이면 그쪽을 우선 시도 | 커넥터가 "연결됨" 상태로 뜸 | 수동 (아래 2.4) |
+| TC-17 | 도구 노출 확인 | 커넥터 상세에서 도구 목록 확인 | 21개 도구 이름이 전부 보임 | 수동 |
 | TC-18 | 실제 채팅에서 호출 | claude.ai 채팅에서 "list_templates 도구로 지금 쓸 수 있는 템플릿 보여줘" 요청 | Claude가 실제로 도구를 호출해 템플릿 목록을 답함 | 수동 |
+| TC-19 | 파드 목록 조회 | `list_pods` 호출 | `{"pods": [...], ...}`, 웹 UI 파드 목록과 개수 일치 | ✅ 스크립트 |
+| TC-20 | RunPod 동기화 조회 | `sync_runpod_pods(dry_run=True)` 호출 | `{"dry_run": true, "runpod_ok": ..., "added": [...], ...}` (RUNPOD_API_KEY 없으면 `runpod_ok:false`+안내 문구, 예외 없음) | ✅ 스크립트 |
+| TC-21 | RunPod pod 자동 등록(실측) | RunPod에서 pod 하나를 RUNNING으로 켠 뒤 `sync_runpod_pods(dry_run=False)` 호출 | `added` 1건, 웹 UI 파드 목록에 tags `runpod`/`auto`가 붙은 새 파드가 보임 | 수동(실제 pod 필요) |
 
 ### 2.1 TC-03 옵션 스키마 수동 대조
 
@@ -160,3 +165,6 @@ RunPod은 보통 파드를 만들 때 지정한 포트만 `https://<pod-id>-<por
 | TC-16 |  |  |
 | TC-17 |  |  |
 | TC-18 |  |  |
+| TC-19 |  |  |
+| TC-20 |  |  |
+| TC-21 |  |  |

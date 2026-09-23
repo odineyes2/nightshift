@@ -206,9 +206,18 @@ ALTER TABLE assets ADD COLUMN nsfw INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX assets_nsfw ON assets(nsfw)
 """
 
+# v8: 회원별 개인 API 키. Civitai/RunPod 다운로드 명령처럼 회원마다 다른 값을 써야 하는 곳에서
+# 예전에는 서버 하나의 .env(CIVITAI_TOKEN 등)를 모두가 같이 썼는데, 회원마다 자기 키를 계정
+# 관리 모달에서 직접 넣어 두게 한다. 이 값을 실제로 읽어 쓰는 코드는 아직 없다(저장만 해 둔다) —
+# auth._public()이 의도적으로 안 돌려주는 값이라, 로그인 응답이나 회원 목록에는 안 보인다.
+SCHEMA_V8 = """
+ALTER TABLE users ADD COLUMN civitai_token TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN runpod_api_key TEXT NOT NULL DEFAULT ''
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
-              (7, SCHEMA_V7)]
+              (7, SCHEMA_V7), (8, SCHEMA_V8)]
 
 
 def now_iso() -> str:

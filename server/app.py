@@ -74,6 +74,7 @@ import model_registry
 import pod_registry
 import projects as project_store
 import runpod_api
+import runpod_sync
 from email_sender import EmailSendError, find_image_files, send_output_images
 from workflow_builder import WorkflowBuildError, build_workflow
 import workflow_builder_krea2
@@ -977,6 +978,11 @@ SCHED_INTERVAL_SEC = float(os.environ.get("NIGHTSHIFT_SCHED_INTERVAL_SEC", "5"))
 MODEL_FILE_EXTS = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx")
 _sched_wake = threading.Event()
 
+# 0(기본)이면 꺼짐 — RunPod pod 자동 동기화(runpod_sync.py)를 사람이 MCP로 부르지
+# 않아도 이 간격마다 스스로 돌게 한다. 관리자 권한으로 돈다(그 계정 소유로 파드가
+# 등록된다) — 자동화라 특정 사람이 부른 게 아니므로.
+RUNPOD_SYNC_INTERVAL_SEC = float(os.environ.get("RUNPOD_SYNC_INTERVAL_SEC", "0"))
+
 
 def poke_scheduler():
     _sched_wake.set()
@@ -1410,6 +1416,8 @@ async def lifespan(app: FastAPI):
     sync_runtimes()
     threading.Thread(target=scheduler_loop, daemon=True, name="scheduler").start()
     poke_scheduler()
+    if RUNPOD_SYNC_INTERVAL_SEC > 0:
+        threading.Thread(target=_runpod_sync_loop, daemon=True, name="runpod-sync").start()
     # 결과물 색인(assets)을 디스크와 맞춘다 — 파일이 많으면 시간이 걸릴 수 있으니
     # 서버가 뜨는 걸 붙잡지 않게 뒤에서 돌린다.
     threading.Thread(target=_sync_assets_quietly, kwargs={"force": True}, daemon=True).start()
@@ -1621,6 +1629,25 @@ async def auth_change_password(request: Request):
     except auth.AuthError as e:
         raise _auth_error(e)
     return {"ok": True}
+
+
+@app.get("/api/auth/secrets")
+def auth_get_secrets(request: Request):
+    # 회원 각자의 API 키(civitai_token/runpod_api_key) — 계정 관리 모달에서 본인만 보고 고친다.
+    # 아직 이 값을 실제로 쓰는 코드는 없다(저장만 해 둔다).
+    user = me(request)
+    return auth.get_secrets(user["id"])
+
+
+@app.put("/api/auth/secrets")
+async def auth_put_secrets(request: Request):
+    user = me(request)
+    body = await read_json_object(request, allow_empty=False)
+    fields = {k: body[k] for k in auth.SECRET_FIELDS if k in body}
+    try:
+        return await asyncio.to_thread(auth.set_secrets, user["id"], fields)
+    except auth.AuthError as e:
+        raise _auth_error(e)
 
 
 # ---- 회원 관리 (admin 전용) ---------------------------------------------------------------
@@ -2161,6 +2188,48 @@ async def test_pod_runpod_api(pod_id: str, request: Request):
     admin_only(request)
     pod = pod_or_404(me(request), pod_id)
     return await asyncio.to_thread(runpod_api.debug_probe, pod.get("url") or "")
+
+
+def _pod_has_running_job(pod_id: str) -> bool:
+    """그 파드에서 지금 실행 중인 작업이 있나 — runpod_sync가 auto 파드를 끄기 전에
+    확인한다(돌고 있는 작업의 서브프로세스를 갑자기 고아로 만들면 안 되므로)."""
+    with lock:
+        return any(j.get("pod_id") == pod_id and j["status"] == "running" for j in jobs.values())
+
+
+@app.post("/api/pods/sync-runpod")
+async def sync_runpod_pods_api(request: Request):
+    """RunPod에서 RUNNING인 ComfyUI pod를 찾아 파드 목록에 자동으로 등록/정리한다
+    (runpod_sync.py). "사람 대신 도는 자동화"라 소유자를 호출한 관리자로 고정하고,
+    셸 파드처럼 관리자만 쓸 수 있다."""
+    user = admin_only(request)
+    body = await read_json_object(request, allow_empty=True)
+    result = await asyncio.to_thread(
+        runpod_sync.sync_runpod_pods, user["id"], bool(body.get("dry_run")),
+        ensure_runtime, _pod_has_running_job)
+    if not result["dry_run"]:
+        for item in result["added"] + result["reenabled"] + result["disabled"]:
+            pod_id = item.get("id")
+            if pod_id:
+                invalidate_comfy_status_cache(pod_id)
+                ComfyUIDriver.invalidate_capabilities(pod_id)
+    return result
+
+
+def _runpod_sync_loop():
+    """RUNPOD_SYNC_INTERVAL_SEC(0보다 클 때만 켜짐, sync_runpod_pods_api 옆의
+    startup 코드가 이 스레드를 띄운다)마다 관리자 권한으로 자동 동기화를 돈다 —
+    사람이 MCP로 sync_runpod_pods를 안 불러도 "RunPod에서 pod를 켜면 몇 분 안에
+    나타난다"가 되게 하려는 것. 관리자가 아직 없으면(초기 설치 단계) 조용히
+    건너뛴다. 실패해도 로그만 남기고 다음 주기에 다시 시도한다."""
+    while True:
+        time.sleep(RUNPOD_SYNC_INTERVAL_SEC)
+        try:
+            admin_id = auth.admin_id()
+            if admin_id is not None:
+                runpod_sync.sync_runpod_pods(admin_id, False, ensure_runtime, _pod_has_running_job)
+        except Exception:
+            logging.getLogger("uvicorn.error").exception("runpod 자동 동기화 실패")
 
 
 @app.get("/api/comfy-object-info")

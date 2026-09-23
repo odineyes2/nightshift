@@ -341,6 +341,36 @@ def change_password(user_id: int, old_password, new_password, keep_token: str | 
             conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
 
 
+SECRET_FIELDS = ("civitai_token", "runpod_api_key")
+MAX_SECRET_LEN = 500
+
+
+def get_secrets(user_id: int) -> dict:
+    """회원 본인의 API 키(civitai_token/runpod_api_key) — _public()이 일반 조회에는 안 섞는 값이라
+    계정 관리 모달이 본인 것을 볼 때만 따로 부른다."""
+    with db.connect() as conn:
+        row = conn.execute("SELECT civitai_token, runpod_api_key FROM users WHERE id=?", (user_id,)).fetchone()
+    if row is None:
+        raise AuthError("없는 회원이에요.", 404)
+    return {k: row[k] for k in SECRET_FIELDS}
+
+
+def set_secrets(user_id: int, fields: dict) -> dict:
+    updates = {}
+    for key in SECRET_FIELDS:
+        if key not in fields:
+            continue
+        value = str(fields[key] or "").strip()
+        if len(value) > MAX_SECRET_LEN:
+            raise AuthError(f"{key}이(가) 너무 길어요(최대 {MAX_SECRET_LEN}자).")
+        updates[key] = value
+    if updates:
+        with db.connect() as conn:
+            set_clause = ", ".join(f"{k}=?" for k in updates)
+            conn.execute(f"UPDATE users SET {set_clause} WHERE id=?", (*updates.values(), user_id))
+    return get_secrets(user_id)
+
+
 def delete_user(user_id: int) -> None:
     """회원을 지운다. 그 사람의 프로젝트·작업·결과물은 지우지 않고 주인 없음(=관리자 것)이 된다."""
     target = get_user(user_id)

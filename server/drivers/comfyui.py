@@ -59,11 +59,18 @@ _object_info_cache: dict[str, dict] = {}
 
 
 def check_url(url: str, timeout: float = CHECK_TIMEOUT) -> bool:
+    # RunPod pod가 막 RUNNING이 된 직후(~1분) 프록시가 "Waiting for service to
+    # respond" HTML 페이지를 200으로 돌려준다 — 상태 코드만 보면 거짓 양성이
+    # 된다. 본문을 JSON으로 파싱해 실제 /system_stats 응답 모양(devices/system
+    # 키)인지까지 확인한다.
     try:
         req = urllib.request.Request(
             f"{url.rstrip('/')}/system_stats", headers={"User-Agent": COMFY_USER_AGENT})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status == 200
+            if resp.status != 200:
+                return False
+            data = json.loads(resp.read().decode("utf-8"))
+            return isinstance(data, dict) and ("devices" in data or "system" in data)
     except Exception:
         return False
 

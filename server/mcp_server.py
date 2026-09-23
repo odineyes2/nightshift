@@ -19,12 +19,20 @@ app.py(FastAPI) 자체는 건드리지 않는다 — 여기서는 그 REST API�
     JOB_QUEUE_PASSWORD  그 회원의 비밀번호. 이 회원의 권한·소유 범위 안에서만 도구가 동작한다
                         (일반 회원이면 자기 프로젝트/작업/결과물/파드만 보인다)
     MCP_SERVER_PORT     이 MCP 서버가 뜰 포트 (기본 8001, app.py의 8000과 겹치면 안 됨)
+    MCP_SERVER_HOST     이 서버가 묶일 주소 (기본 127.0.0.1 — 외부 노출은 터널로만.
+                        jupyterlab을 127.0.0.1에 묶은 것과 같은 이유, ecosystem.config.js 참고)
+    MCP_AUTH_TOKEN      설정하면 이 값과 일치하는 Authorization: Bearer 헤더 또는
+                        /mcp/<토큰> 경로로 온 요청만 통과시킨다(TokenAuthMiddleware
+                        참고). 비워두면 인증이 아예 없다 — MCP_SERVER_HOST를
+                        127.0.0.1로 두고 터널도 아직 안 걸었을 때만 그렇게 둔다.
 """
 
 import asyncio
 import json
 import os
+import secrets
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -33,12 +41,60 @@ from urllib.parse import quote
 import httpx
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
+from starlette.middleware import Middleware
+from starlette.responses import JSONResponse
 
 BASE_URL = os.environ.get("JOB_QUEUE_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 USERNAME = os.environ.get("JOB_QUEUE_USER", "").strip()
 PASSWORD = os.environ.get("JOB_QUEUE_PASSWORD", "")
 SESSION_COOKIE = "ns_session"
 _session_token: str | None = None
+
+MCP_SERVER_HOST = os.environ.get("MCP_SERVER_HOST", "127.0.0.1").strip() or "127.0.0.1"
+MCP_AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "").strip()
+
+
+class TokenAuthMiddleware:
+    """MCP_AUTH_TOKEN이 설정돼 있으면 이 토큰을 확인하는 요청만 통과시킨다(설정 안
+    했으면 그냥 통과 — 127.0.0.1 전용으로만 쓸 때를 위한 것).
+
+    두 가지 방식을 다 받는다:
+      1. `Authorization: Bearer <토큰>` 헤더.
+      2. URL 경로에 토큰을 넣는 `/mcp/<토큰>` 형태.
+
+    claude.ai의 "커스텀 커넥터 추가" 화면이 고정 헤더 입력을 지원하는지는 계정 종류에
+    따라 다를 수 있다 — 공식 문서(2026-09-23 확인,
+    https://claude.com/docs/connectors/building/authentication) 기준 `static_headers`
+    (관리자가 커넥터 추가 시 입력하는 고정 Bearer/API 키 헤더)는 베타로 지원되지만,
+    "organization administrator"가 입력한다는 표현이라 개인 계정 화면에 실제로 입력란이
+    보이는지는 직접 확인해야 한다. 같은 문서는 URL에 토큰을 넣는 방식을 "권장하지 않음"
+    이라고 명시한다(서버 로그·프록시·브라우저 기록에 남을 수 있어서, MCP 스펙도 쿼리
+    스트링 토큰은 금지) — 그래도 헤더 입력란이 없는 계정에는 이게 유일한 자기서비스
+    경로일 수 있어 대안으로 남겨 둔다. 헤더 입력란이 보이면 그쪽을 먼저 써라
+    (README "MCP 서버" 절 참고)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not MCP_AUTH_TOKEN:
+            await self.app(scope, receive, send)
+            return
+        headers = dict(scope.get("headers") or [])
+        auth_header = headers.get(b"authorization", b"").decode("latin-1")
+        path = scope.get("path", "")
+        token_prefix = f"/mcp/{MCP_AUTH_TOKEN}"
+        path_ok = path == token_prefix or path.startswith(token_prefix + "/")
+        header_ok = auth_header.startswith("Bearer ") and secrets.compare_digest(auth_header[7:], MCP_AUTH_TOKEN)
+        if not (path_ok or header_ok):
+            response = JSONResponse({"error": "인증이 필요해요."}, status_code=401)
+            await response(scope, receive, send)
+            return
+        if path_ok:
+            # /mcp/<토큰>(/...) -> /mcp(/...) 로 벗겨서 실제 라우트에 전달한다.
+            scope = dict(scope)
+            scope["path"] = "/mcp" + path[len(token_prefix):]
+        await self.app(scope, receive, send)
 
 # 상태/목록 조회류는 가볍게 10초, 워크플로우 빌드나 잡 등록처럼 서버 쪽에서
 # 검증 작업(ComfyUI 조회 등)이 걸릴 수 있는 호출은 30초로 넉넉하게 잡는다.
@@ -448,6 +504,92 @@ async def list_recent_workflows() -> Any:
     return resp.json()
 
 
+@mcp.tool()
+async def list_pods() -> dict:
+    """nightshift에 등록된 파드(워커) 목록을 반환한다. 각 항목은 id/name/url/enabled/
+    tags/effective_url 등을 담는다. **주의: "파드"는 nightshift가 아는 주소 레코드일
+    뿐이고, RunPod pod의 전원 상태와는 별개다** — 파드가 있어도 그 RunPod pod가 꺼져
+    있으면 그냥 응답이 없는 것으로 보일 뿐이다(전원은 RunPod 커넥터로 따로 다룬다)."""
+    try:
+        async with _client(STATUS_TIMEOUT) as client:
+            resp = await client.get("/api/pods")
+    except httpx.HTTPError as e:
+        return _error_from_exception(e)
+    if resp.status_code != 200:
+        return _error_from_response(resp)
+    return resp.json()
+
+
+@mcp.tool()
+async def sync_runpod_pods(dry_run: bool = False) -> dict:
+    """RunPod 계정에서 지금 RUNNING이고 ComfyUI 포트가 열린 pod를 찾아 nightshift 파드
+    목록에 자동으로 등록/정리한다(멱등 — 이미 등록된 pod는 다시 안 만든다). **RunPod
+    커넥터로 pod를 켠 직후 이 도구를 부르면 된다** — 사람이 로그인해서 화면에 주소를
+    입력할 필요가 없다. dry_run=true면 아무것도 바꾸지 않고 무엇을 했을지만 보고한다.
+    관리자 권한이 필요하다(이 MCP 서버가 로그인한 회원이 관리자가 아니면 403 에러)."""
+    try:
+        async with _client(HEAVY_TIMEOUT) as client:
+            resp = await client.post("/api/pods/sync-runpod", json={"dry_run": dry_run})
+    except httpx.HTTPError as e:
+        return _error_from_exception(e)
+    if resp.status_code != 200:
+        return _error_from_response(resp)
+    return resp.json()
+
+
+@mcp.tool()
+async def add_pod(url: str, name: str = "", pull_outputs: bool = False) -> dict:
+    """파드를 하나 수동으로 등록한다(RunPod가 아닌 주소도 가능 — 다른 클라우드,
+    로컬 등). RunPod pod를 자동으로 찾아 등록하려면 sync_runpod_pods를 대신 써라.
+    name을 비우면 임의의 이름이 지어진다."""
+    try:
+        async with _client(STATUS_TIMEOUT) as client:
+            resp = await client.post("/api/pods", json={"url": url, "name": name, "pull_outputs": pull_outputs})
+    except httpx.HTTPError as e:
+        return _error_from_exception(e)
+    if resp.status_code != 200:
+        return _error_from_response(resp)
+    return resp.json()
+
+
+@mcp.tool()
+async def set_pod_enabled(pod_id: str, enabled: bool) -> dict:
+    """이 파드로 새 작업을 보낼지(enabled)를 켜고 끈다 — nightshift 쪽 사용 여부일
+    뿐이고, **RunPod pod의 전원(과금)과는 무관하다**. RunPod pod를 끄고 싶으면 RunPod
+    커넥터를 따로 써야 한다."""
+    try:
+        async with _client(STATUS_TIMEOUT) as client:
+            resp = await client.put(f"/api/pods/{pod_id}", json={"enabled": enabled})
+    except httpx.HTTPError as e:
+        return _error_from_exception(e)
+    if resp.status_code != 200:
+        return _error_from_response(resp)
+    return resp.json()
+
+
+@mcp.tool()
+async def pod_health(pod_id: str) -> dict:
+    """저장된 그대로의 파드 주소가 실제로 응답하는지 확인한다(설정은 안 바꿈).
+    RunPod pod를 막 켠 직후에는 프록시가 아직 부팅 중이라 최대 1분 정도
+    ok:false가 정상이다 — 잠시 후 다시 확인하면 된다."""
+    try:
+        async with _client(HEAVY_TIMEOUT) as client:
+            resp = await client.post(f"/api/pods/{pod_id}/test")
+    except httpx.HTTPError as e:
+        return _error_from_exception(e)
+    if resp.status_code != 200:
+        return _error_from_response(resp)
+    return resp.json()
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("MCP_SERVER_PORT", "8001"))
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
+    if not MCP_AUTH_TOKEN and MCP_SERVER_HOST != "127.0.0.1":
+        # 일반 print()는 콘솔 코드페이지(예: Windows cp949)가 이 문구의 특수문자를
+        # 표현 못 하면 그 자리에서 UnicodeEncodeError로 서버가 죽는다 — 경고 한 줄
+        # 때문에 서버가 안 뜨면 안 되므로 UTF-8 바이트를 stderr에 직접 쓴다.
+        warning = (f"[경고] MCP_AUTH_TOKEN 없이 {MCP_SERVER_HOST}:{port}에 묶여요. "
+                   f"터널 등으로 노출하면 주소를 아는 누구나 관리자 권한으로 nightshift를 조작할 수 있어요.")
+        sys.stderr.buffer.write(warning.encode("utf-8", errors="replace") + b"\n")
+    mcp.run(transport="streamable-http", host=MCP_SERVER_HOST, port=port,
+            middleware=[Middleware(TokenAuthMiddleware)])

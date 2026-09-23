@@ -89,6 +89,15 @@ async def run(client: Client, args) -> None:
         str(missing_job),
     )
 
+    pods_result = await call(client, "list_pods")
+    record("TC-19 list_pods 응답 형태", isinstance(pods_result, dict) and "pods" in pods_result, str(pods_result)[:200])
+
+    # dry_run=True라 RunPod API 키가 없거나 요청한 회원이 관리자가 아니어도 예외 없이
+    # 형태만 맞으면 통과 — 과금/실제 등록 없이 엔드포인트가 살아 있는지만 본다.
+    sync_result = await call(client, "sync_runpod_pods", dry_run=True)
+    sync_ok = isinstance(sync_result, dict) and "runpod_ok" in sync_result
+    record("TC-20 sync_runpod_pods(dry_run=True) 응답 형태", sync_ok, str(sync_result)[:200])
+
     if args.skip_generation:
         print("\n--skip-generation 지정됨 — 실제 이미지 생성 플로우(TC-05~10)는 건너뜁니다.")
         return
