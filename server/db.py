@@ -215,9 +215,31 @@ ALTER TABLE users ADD COLUMN civitai_token TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN runpod_api_key TEXT NOT NULL DEFAULT ''
 """
 
+# v9: RunPod 세션(사용 내역) 로그 — Claude가 RunPod 커넥터로 pod를 켜고 끌 때마다
+# server/runpod_sessions.py가 이 표에 한 줄씩 남긴다(DB 탭에서 보여줌). 시작/종료
+# 시각은 RunPod API 자체가 주는 실제 발생 시각(lastStartedAt/lastStatusChange)을
+# 파싱한 것이라, nightshift가 sync를 늦게 불러도 정확하다 — server/runpod_sessions.py
+# 모듈 docstring 참고. ended_at이 NULL이면 아직 진행 중인 세션(그 경우
+# duration_sec/cost_total도 NULL — 화면이 그때그때 계산해서 보여준다).
+SCHEMA_V9 = """
+CREATE TABLE runpod_sessions (
+  id             INTEGER PRIMARY KEY,
+  runpod_pod_id  TEXT NOT NULL,
+  pod_name       TEXT NOT NULL DEFAULT '',
+  gpu_type       TEXT NOT NULL DEFAULT '',
+  vram_gb        INTEGER,
+  cost_per_hr    REAL,
+  started_at     TEXT NOT NULL,
+  ended_at       TEXT,
+  duration_sec   INTEGER,
+  cost_total     REAL
+);
+CREATE INDEX runpod_sessions_pod ON runpod_sessions(runpod_pod_id, started_at DESC)
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
-              (7, SCHEMA_V7), (8, SCHEMA_V8)]
+              (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9)]
 
 
 def now_iso() -> str:

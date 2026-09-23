@@ -1614,6 +1614,32 @@
   .model-field{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-dim); margin-top:6px; }
   .model-field .option-input{ max-width:none; }
   .model-editor-actions{ display:flex; gap:8px; }
+
+  /* ---- DB 탭 — RunPod 세션 로그. model-table 계열과 같은 그리드 표 느낌이지만
+     펼치기(row-head/editor) 없이 한 줄짜리 읽기 전용 표라 훨씬 단순하다. ---- */
+  .db-table{ display:flex; flex-direction:column; gap:2px; }
+  .db-cols{
+    display:grid;
+    grid-template-columns: 44px minmax(120px,1.6fr) minmax(90px,1fr) 60px minmax(120px,1.3fr) minmax(120px,1.3fr) 90px 80px;
+    align-items:center;
+    gap:10px;
+    padding:6px 8px;
+  }
+  .db-header{
+    font-family:var(--mono); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;
+    color:var(--text-dim);
+    border-bottom:1px solid var(--border);
+    margin-bottom:2px;
+  }
+  .db-row:nth-child(odd){ background:rgba(255,255,255,0.02); }
+  .db-row.db-row-open{ background:rgba(var(--queued-rgb),0.06); }
+  .db-cell-num{ font-family:var(--mono); color:var(--text-dim); }
+  .db-cell-dim{ color:var(--text-dim); }
+  .db-cell-open{ color:var(--queued); font-weight:600; }
+  @media (max-width:760px){
+    .db-cols{ grid-template-columns: 32px minmax(90px,1.6fr) minmax(70px,1fr) 46px; }
+    .db-cols > :nth-child(n+5){ display:none; }
+  }
  /* 아직 family로 등록 안 된{
     display:flex; flex-wrap:wrap; align-items:center; gap:8px;
     padding:8px 12px; margin-bottom:10px;
@@ -2696,6 +2722,7 @@
   <symbol id="i-workflow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
   <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
   <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
   <symbol id="i-folder-kanban" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M8 10v4"/><path d="M12 10v2"/><path d="M16 10v6"/></symbol>
@@ -2784,6 +2811,7 @@
     <button class="tab-btn" data-tab="models" type="button" title="모델 — 파드와 무관한 모델 기준 데이터(주소·트리거 키워드·베이스 모델)"><svg class="ico"><use href="#i-boxes"/></svg> Models</button>
     <span class="tab-bar-sep"></span>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 파드와 무관한 프롬프트 작업대"><svg class="ico"><use href="#i-tag"/></svg> Danbooru</button>
+    <button class="tab-btn" id="db-tab-btn" data-tab="db" type="button" style="display:none;" title="DB — 앱이 쌓아 둔 여러 기록을 표로 봄(관리자 전용)"><svg class="ico"><use href="#i-database"/></svg> DB</button>
     <button class="tab-btn" id="admin-tab-btn" data-tab="admin" type="button" style="display:none;" title="회원 관리 (관리자 전용)"><svg class="ico"><use href="#i-users"/></svg> Admin<span class="tab-badge" id="admin-pending-badge" hidden></span></button>
   </div>
 </div>
@@ -3115,6 +3143,26 @@
       <div class="upload-error" id="video-gallery-error"></div>
       <div class="vgallery-grid" id="video-gallery-grid"></div>
       <div class="empty" id="video-gallery-empty" style="display:none;"></div>
+    </div>
+  </div>
+</main>
+
+<!-- DB — 앱이 쌓아 둔 여러 데이터베이스 기록을 표로 보여준다. 지금은 RunPod 세션
+     (사용 내역) 하나뿐이지만, 나중에 다른 표를 고르는 셀렉터를 앞에 붙이면 된다.
+     admin만 볼 수 있다(비용 정보라 회원 관리와 같은 기준). -->
+<main id="tab-db" style="display:none;">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label"><svg class="ico"><use href="#i-database"/></svg> RunPod 세션(사용 내역)</div>
+      <div class="panel-header-actions">
+        <span class="gallery-count" id="db-runpod-sessions-count"></span>
+        <button class="load-btn" id="db-runpod-sessions-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="email-hint">Claude가 RunPod 커넥터로 pod를 켜고 끌 때마다, nightshift MCP의 sync 도구를 부른 시점에 이 기록이 쌓여요 — 시작/종료 시각은 RunPod가 실제로 기록해 둔 값을 그대로 가져오므로 sync를 늦게 불러도 정확해요.</div>
+      <div class="upload-error" id="db-runpod-sessions-error"></div>
+      <div id="db-runpod-sessions-list"></div>
     </div>
   </div>
 </main>
@@ -7989,6 +8037,8 @@ function applyUserUi(user){
   }
   const adminBtn = document.getElementById('admin-tab-btn');
   if(adminBtn) adminBtn.style.display = user && user.role === 'admin' ? '' : 'none';
+  const dbBtn = document.getElementById('db-tab-btn');
+  if(dbBtn) dbBtn.style.display = user && user.role === 'admin' ? '' : 'none';
 }
 
 window.__nightshiftAuthReady.then(user => {
@@ -8092,6 +8142,66 @@ document.getElementById('admin-users').addEventListener('click', (e) => {
 document.getElementById('admin-refresh-btn').addEventListener('click', fetchAdminUsers);
 // 승인 대기 배지를 최신으로 — 관리자일 때만 30초마다 확인한다.
 setInterval(() => { if(isAdminUser()) fetchAdminUsers(); }, 30000);
+
+// ---- DB 탭 — RunPod 세션(사용 내역). 지금은 이 표 하나뿐이지만, 나중에 다른
+// 기록도 같은 탭에서 고를 수 있게 늘릴 수 있다. ----
+let runpodSessions = [];
+
+async function fetchRunpodSessions(){
+  const errorEl = document.getElementById('db-runpod-sessions-error');
+  errorEl.textContent = '';
+  try{
+    const res = await fetch('/api/runpod-sessions');
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '불러오지 못했어요.');
+    runpodSessions = data.sessions || [];
+  }catch(e){
+    errorEl.textContent = e.message || '불러오지 못했어요 — 연결을 확인하세요.';
+    return;
+  }
+  renderRunpodSessions();
+}
+
+function fmtDbDuration(sec){
+  if(sec == null) return '-';
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  return h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+}
+
+function fmtDbCost(v){
+  return v == null ? '-' : `$${v.toFixed(2)}`;
+}
+
+function renderRunpodSessions(){
+  document.getElementById('db-runpod-sessions-count').textContent = `${runpodSessions.length}개`;
+  const list = document.getElementById('db-runpod-sessions-list');
+  if(runpodSessions.length === 0){
+    list.innerHTML = '<div class="comfy-model-empty">아직 기록된 세션이 없어요 — Claude에게 RunPod pod를 켜고 nightshift MCP의 sync 도구를 불러달라고 하면 여기 쌓이기 시작해요.</div>';
+    return;
+  }
+  const header = `<div class="db-cols db-header">
+    <span>#</span><span>파드 이름</span><span>GPU</span><span>VRAM</span><span>시작</span><span>종료</span><span>시간</span><span>비용</span>
+  </div>`;
+  const rows = runpodSessions.map(s => `
+    <div class="db-row db-cols${s.ended_at ? '' : ' db-row-open'}">
+      <span class="db-cell-num">${s.id}</span>
+      <span title="${escapeHtml(s.runpod_pod_id)}">${escapeHtml(s.pod_name || s.runpod_pod_id)}</span>
+      <span class="db-cell-dim">${s.gpu_type ? escapeHtml(s.gpu_type) : '-'}</span>
+      <span class="db-cell-dim">${s.vram_gb ? `${s.vram_gb}GB` : '-'}</span>
+      <span>${fmtGalleryDateTime(s.started_at)}</span>
+      <span class="${s.ended_at ? '' : 'db-cell-open'}">${s.ended_at ? fmtGalleryDateTime(s.ended_at) : '진행 중'}</span>
+      <span class="db-cell-dim">${fmtDbDuration(s.duration_sec)}${s.estimated ? ' (추정)' : ''}</span>
+      <span class="db-cell-dim">${fmtDbCost(s.cost_total)}${s.estimated ? ' (추정)' : ''}</span>
+    </div>`).join('');
+  list.innerHTML = `<div class="db-table">${header}${rows}</div>`;
+}
+
+document.getElementById('db-runpod-sessions-refresh-btn').addEventListener('click', fetchRunpodSessions);
+// 진행 중인 세션이 있으면 시간/비용 추정치가 계속 흐르니, DB 탭을 보는 동안만 20초마다 다시 그린다.
+setInterval(() => {
+  if(!isAdminUser() || currentTab !== 'db') return;
+  if(runpodSessions.some(s => !s.ended_at)) fetchRunpodSessions();
+}, 20000);
 
 // ---- 대시보드 (파드 카드 캔버스) ----
 // 카드마다 타입이 있고, 타입별 렌더러가 그 카드의 HTML을 만든다. 지금은 파드 카드
@@ -8650,6 +8760,7 @@ const TAB_MAINS = {
   'video-gallery': document.getElementById('tab-video-gallery'),
   danbooru: document.getElementById('tab-danbooru'),
   admin: document.getElementById('tab-admin'),           // 회원 관리 (admin 전용)
+  db: document.getElementById('tab-db'),                 // DB — RunPod 세션 등 기록 조회 (admin 전용)
   models: document.getElementById('tab-lora'),          // 모델 — 파드와 무관한 기준 데이터
   // 파드 갤러리("그 파드가 만든 것만")는 전역 갤러리와 같은 화면을 그대로 쓴다 —
   // ~500줄짜리 갤러리 구현(격자/작업별·날짜별 보기/선택/삭제/라이트박스)을 통째로
@@ -8777,6 +8888,7 @@ function formPodId(){
 function showTab(tab, { podId = null, projectId = null } = {}){
   if(!TAB_MAINS[tab]) tab = 'dashboard';
   if(tab === 'admin' && !isAdminUser()) tab = 'dashboard';
+  if(tab === 'db' && !isAdminUser()) tab = 'dashboard';
   // 지금 "새 작업 추가" 폼이 겨냥하고 있는 파드의 종류. currentPodId가 아니라
   // formPodId()로 재는 이유는, 전역 화면(Danbooru 등)에서는 currentPodId가 null이라
   // 종류가 바뀐 것처럼 보여서 아래에서 폼을 괜히 다시 그리기 때문이다 —
@@ -8856,6 +8968,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'jobs') fetchJobs();
   if(tab === 'results') renderResultsList();
   if(tab === 'admin') fetchAdminUsers();
+  if(tab === 'db') fetchRunpodSessions();
 
   const want = scopedPodId ? `#pod/${scopedPodId}/${tab}`
     : (scopedProjectId !== null ? `#project/${scopedProjectId}/${tab}` : `#${tab}`);

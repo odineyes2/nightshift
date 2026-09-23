@@ -74,6 +74,7 @@ import model_registry
 import pod_registry
 import projects as project_store
 import runpod_api
+import runpod_sessions
 import runpod_sync
 from email_sender import EmailSendError, find_image_files, send_output_images
 from workflow_builder import WorkflowBuildError, build_workflow
@@ -2214,6 +2215,14 @@ async def sync_runpod_pods_api(request: Request):
                 invalidate_comfy_status_cache(pod_id)
                 ComfyUIDriver.invalidate_capabilities(pod_id)
     return result
+
+
+@app.get("/api/runpod-sessions")
+def get_runpod_sessions(request: Request):
+    """DB 탭 — RunPod 세션(사용 내역) 로그(runpod_sessions.py). 비용 정보라 회원
+    관리와 같은 기준으로 관리자만 볼 수 있다."""
+    admin_only(request)
+    return {"sessions": runpod_sessions.list_sessions()}
 
 
 def _runpod_sync_loop():

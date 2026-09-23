@@ -134,6 +134,11 @@ def list_runpod_pods_verbose() -> tuple[list[dict] | None, str | None]:
             "ports": p.get("ports") or [],
             "image": p.get("imageName") or "",
             "cost_per_hr": p.get("costPerHr"),
+            # 둘 다 RunPod가 실제로 발생한 시각을 담고 있는 원본 문자열이다(파싱은
+            # runpod_sessions.py가 한다) — last_status_change는 사람이 읽는 문장
+            # 형태(예: "Exited by user: Wed Sep 23 2026 10:00:19 GMT+0000 (...)").
+            "last_started_at": p.get("lastStartedAt"),
+            "last_status_change": p.get("lastStatusChange"),
         }
         for p in raw if isinstance(p, dict) and p.get("id")
     ]
@@ -177,6 +182,17 @@ def _fetch_gpu_display_name(pod_id: str) -> str | None:
     pod = (data.get("data") or {}).get("pod") or {}
     machine = pod.get("machine") or {}
     return machine.get("gpuDisplayName") or None
+
+
+# pod 하나에 배정된 GPU 모델은 그 pod의 수명 내내 안 바뀐다(정지했다 다시 켜도 같은
+# 머신) — 매 sync마다 GraphQL을 다시 부르지 않게 프로세스 메모리에 캐시해 둔다.
+_gpu_type_cache: dict[str, str] = {}
+
+
+def get_gpu_type_cached(pod_id: str) -> str | None:
+    if pod_id not in _gpu_type_cache:
+        _gpu_type_cache[pod_id] = _fetch_gpu_display_name(pod_id) or ""
+    return _gpu_type_cache[pod_id] or None
 
 
 def _first(d: dict, *paths):
@@ -298,4 +314,4 @@ def get_runpod_info(url: str) -> dict | None:
 
 
 __all__ = ["get_runpod_info", "debug_probe", "extract_pod_id", "RUNPOD_API_KEY",
-           "list_runpod_pods", "list_runpod_pods_verbose"]
+           "list_runpod_pods", "list_runpod_pods_verbose", "get_gpu_type_cached"]
