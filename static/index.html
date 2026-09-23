@@ -6560,13 +6560,13 @@ async function putModelEntry(payload){
 // ---- 편집 패널 임시 값(저장 버튼을 눌러야 반영) ----
 function modelDraftFromEntry(kind, name){
   const e = modelEntry(kind, name);
-  return { kind, origName: name, filename: name, base_model: e.base_model, notes: e.notes,
+  return { origKind: kind, kind, origName: name, filename: name, base_model: e.base_model, notes: e.notes,
            tags: [...(e.tags || [])], trigger_keyword: e.trigger_keyword, page_url: e.page_url, download_url: e.download_url };
 }
 
 function modelDraftDirty(){
   if(!modelEditDraft) return false;
-  return JSON.stringify(modelEditDraft) !== JSON.stringify(modelDraftFromEntry(modelEditDraft.kind, modelEditDraft.origName));
+  return JSON.stringify(modelEditDraft) !== JSON.stringify(modelDraftFromEntry(modelEditDraft.origKind, modelEditDraft.origName));
 }
 
 // 지금 열려 있는 편집 패널에 저장하지 않은 변경이 있으면 한 번 확인한다 — 행을 접거나
@@ -6581,18 +6581,19 @@ async function saveModelDraft(){
   if(!d) return;
   const newName = d.filename.trim();
   if(!newName){ setModelError('파일명을 입력하세요.'); return; }
-  const renamed = newName !== d.origName;
-  if(renamed && modelRegistry.items[modelKey(d.kind, newName)]){
-    setModelError('이미 등록된 파일명이에요.');
+  const moved = d.kind !== d.origKind || newName !== d.origName;
+  if(moved && modelRegistry.items[modelKey(d.kind, newName)]){
+    setModelError('이미 등록된 항목이에요(종류+파일명이 같음).');
     return;
   }
   const fields = { base_model: d.base_model, notes: d.notes, tags: d.tags,
                     trigger_keyword: d.trigger_keyword, page_url: d.page_url, download_url: d.download_url };
   try{
     await putModelEntry({ kind: d.kind, filename: newName, ...fields });
-    if(renamed){
-      await putModelEntry({ kind: d.kind, filename: d.origName, base_model: '', notes: '', tags: [],
+    if(moved){
+      await putModelEntry({ kind: d.origKind, filename: d.origName, base_model: '', notes: '', tags: [],
                              trigger_keyword: '', page_url: '', download_url: '' });
+      modelKindActive = d.kind;   // 종류를 옮겼으면 그 종류 탭으로 같이 옮겨야 보인다
       modelExpandedKey = modelKey(d.kind, newName);
     }
     setModelError('');
@@ -6672,12 +6673,15 @@ function modelRowHtml(kind, name, isAdmin){
       return `<div class="model-pod-row"><span class="model-pod-name">${escapeHtml(p.name)}</span>${state}</div>`;
     }).join('');
     const dirty = modelDraftDirty();
+    const kindOptions = modelRegistry.kinds.map(k => `<option value="${escapeHtml(k.id)}"${k.id === d.kind ? ' selected' : ''}>${escapeHtml(k.label)}</option>`).join('');
     editor = `
     <div class="model-editor" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}">
       ${usageHtml(kind, name)}
+      <label class="model-field"><span>종류</span>
+        <select class="option-input" data-field="kind" ${dis}>${kindOptions}</select></label>
       <label class="model-field"><span>파일명 <span style="opacity:.6">(하위 폴더는 "폴더/이름.safetensors")</span></span>
         <input type="text" class="option-input" data-field="filename" ${dis} placeholder="예: mmh3/my_style_v2.safetensors" value="${escapeHtml(d.filename)}"></label>
-      <label class="model-field"><span>베이스 모델 <span style="opacity:.6">(마법사가 이 값으로 체크포인트를 묶고 LoRA를 걸러요)</span></span>
+      <label class="model-field"><span>베이스 모델</span>
         <input type="text" class="option-input" data-field="base_model" list="model-base-list" ${dis} placeholder="예: SDXL, Illustrious, Flux, Wan 2.2" value="${escapeHtml(d.base_model)}">${baseList}</label>
       ${isLora ? `<label class="model-field"><span>트리거 키워드</span>
         <input type="text" class="option-input" data-field="trigger_keyword" ${dis} placeholder="없으면 비워둠 — 워크플로우에서 고르면 프롬프트에 자동으로 붙어요" value="${escapeHtml(d.trigger_keyword)}"></label>` : ''}
