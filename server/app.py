@@ -22,9 +22,11 @@ import io
 import json
 import logging
 import os
+import posixpath
 import queue
 import re
 import secrets
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -2351,6 +2353,33 @@ async def put_model_registry_entry(request: Request):
     except model_registry.RegistryError as e:
         raise HTTPException(400, str(e))
     return {"entry": entry}
+
+
+@app.get("/api/models/download-command")
+def model_download_command(request: Request, kind: str, filename: str):
+    # RunPod 자체 터미널에 붙여넣을 curl 명령 한 줄 — model_download.py의 파드 내
+    # 다운로더 노드 인프라와는 별개다(그건 프론트에서 아직 안 쓴다). 명령에 civitai
+    # 토큰이 그대로 드러나므로 등록 정보 수정과 같은 기준으로 관리자만 쓸 수 있다.
+    admin_only(request)
+    entry = model_registry.get_entry(kind, filename)
+    if not entry or not entry.get("download_url"):
+        raise HTTPException(400, "이 모델에는 다운로드 주소가 없어요.")
+    url = entry["download_url"]
+    # kind가 곧 ComfyUI의 실제 모델 폴더 이름이라 그대로 받을 폴더가 된다. filename에
+    # "/"가 있으면 그 앞부분은 kind 폴더 밑의 하위 폴더(ComfyUI 로더들이 combo 값에
+    # 쓰는 "하위폴더/이름" 표기와 같은 규칙), 없으면 kind 폴더 바로 밑이다.
+    sub, base = posixpath.split(filename)
+    target = f"/workspace/shared_models/{kind}" + (f"/{sub}" if sub else "") + f"/{base}"
+    header = ""
+    warning = None
+    if "civitai" in (urllib.parse.urlparse(url).hostname or ""):
+        token = os.environ.get("CIVITAI_TOKEN", "").strip()
+        if token:
+            header = f" -H {shlex.quote('Authorization: Bearer ' + token)}"
+        else:
+            warning = "CIVITAI_TOKEN이 .env에 없어요 — 토큰 없이 받아지는 파일만 될 거예요."
+    command = f"curl -L --create-dirs{header} -o {shlex.quote(target)} {shlex.quote(url)}"
+    return {"command": command, "target": target, "warning": warning}
 
 
 @app.get("/api/input-images")

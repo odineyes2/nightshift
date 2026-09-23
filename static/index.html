@@ -626,12 +626,6 @@
     padding:16px;
   }
   .subpanel + .subpanel{ margin-top:16px; }
-  .workflow-or-divider{
-    text-align:center;
-    font-family:var(--mono);
-    font-size:11.5px;
-    color:var(--text-dim);
-  }
 
   .upload-form{
     display:flex;
@@ -1520,6 +1514,12 @@
   .workflow-check.warn{ border-left-color:var(--failed); color:var(--failed); }
   .workflow-check.unknown{ border-left-color:var(--border); }
   .comfy-model-empty{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
+  .model-list-loading{
+    display:flex; align-items:center; gap:8px;
+    padding:20px 4px;
+    font-family:var(--mono); font-size:11.5px; color:var(--text-dim);
+  }
+  .model-list-loading .btn-spinner{ width:14px; height:14px; }
 
   /* "LoRA" 탭 — 설치된 LoRA마다 트리거 워드를 입력하는 줄. 목록 칸이 좁으면
      이름도 입력칸도 제대로 안 보이는 문제가 있어서, 탭 하나를 통째로 써서
@@ -1605,6 +1605,7 @@
   }
   .model-field{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-dim); margin-top:6px; }
   .model-field .option-input{ max-width:none; }
+  .model-editor-actions{ display:flex; gap:8px; }
  /* 아직 family로 등록 안 된{
     display:flex; flex-wrap:wrap; align-items:center; gap:8px;
     padding:8px 12px; margin-bottom:10px;
@@ -2949,17 +2950,16 @@
              마법사 스텝에 반영해서, 그걸 보고 세부값을 다시 조정할 수 있게 한다.
              #workflow-field-label-row/#workflow-field-hint는 기본은 숨겨 두고, img2video 복합
              템플릿이나 WAN2.2처럼 내장 기본값이 자동으로 채워지는 특수한 경우에만
-             onTemplateChange()가 켠다(그때는 이 안내가 아래 구분선보다 더 중요한 정보라서). -->
+             onTemplateChange()가 켠다(그때는 이 안내가 슬롯의 기본 안내문보다 더 중요한 정보라서). -->
         <div class="field" id="workflow-field">
           <div class="field-label-row" id="workflow-field-label-row" style="display:none;">
             <label class="field-label" id="workflow-field-label"></label>
           </div>
           <div class="opt" id="workflow-field-hint" style="display:none;"></div>
-          <div class="workflow-or-divider" id="workflow-or-divider">…또는 워크플로우(.json) 직접 업로드</div>
           <div class="field-label-row" style="justify-content:flex-end;">
             <button class="load-btn" id="recent-workflows-btn" type="button" title="최근 워크플로우"><svg class="ico"><use href="#i-history"/></svg> 최근</button>
           </div>
-          <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
+          <div class="slot" id="workflow-slot">…또는 워크플로우(.json) 직접 업로드</div>
           <input type="file" class="slot-input" id="workflow-input" accept=".json">
           <div class="workflow-check" id="workflow-check" hidden></div>
         </div>
@@ -3353,6 +3353,9 @@
   </div>
   <div class="gallery-filter-row">
     <input type="search" class="option-input gf-search" id="lora-tab-filter" placeholder="이름 · 베이스 모델 · 태그 · 메모 · 키워드 검색" autocomplete="off" aria-label="검색">
+    <select class="pod-bar-select" id="model-base-filter" title="베이스 모델로 거르기" aria-label="베이스 모델로 거르기">
+      <option value="">베이스 모델: 전체</option>
+    </select>
     <select class="pod-bar-select" id="model-sort" title="정렬" aria-label="정렬">
       <option value="name">이름순</option><option value="count">많이 쓴 순</option><option value="recent">최근 사용순</option>
     </select>
@@ -5553,26 +5556,22 @@ async function onTemplateChange(){
   const wfLabelRow = document.getElementById('workflow-field-label-row');
   const wfLabel = document.getElementById('workflow-field-label');
   const wfHint = document.getElementById('workflow-field-hint');
-  const wfDivider = document.getElementById('workflow-or-divider');
-  // 기본은 "…또는 워크플로우(.json) 직접 업로드" 구분선만 보인다 — img2video 복합
+  // 기본은 슬롯 안내문("…또는 워크플로우(.json) 직접 업로드")만 보인다 — img2video 복합
   // 템플릿이나 WAN2.2처럼 내장 기본값이 자동으로 채워지는 특수한 경우에만, 그
-  // 사실을 알려주는 구체적인 안내(레이블+힌트)가 구분선 대신 나온다.
+  // 사실을 알려주는 구체적인 안내(레이블+힌트)가 추가로 나온다.
   if(comboVideoLabel){
     wfLabelRow.style.display = '';
     wfLabel.innerHTML = '이미지 생성 워크플로우 (.json) <span class="opt">— 필수</span>';
     wfHint.textContent = `여기 올리는 건 이미지 생성 단계 워크플로우예요 — 영상 단계(${comboVideoLabel})는 바로 아래 "영상 생성 워크플로우" 칸에서 따로 올릴 수 있어요(선택, 비워두면 nightshift 내장 기본값을 씁니다).`;
     wfHint.style.display = '';
-    wfDivider.style.display = 'none';
   }else if(bundledWorkflowName){
     wfLabelRow.style.display = '';
     wfLabel.innerHTML = '워크플로우 (.json) <span class="opt">— 필수</span>';
     wfHint.textContent = `기본값으로 nightshift 내장 워크플로우(${bundledWorkflowName}.json)가 자동으로 채워져 있어요 — 다른 .json 파일을 끌어다 놓거나 클릭해서 올리면 그걸로 바뀝니다.`;
     wfHint.style.display = '';
-    wfDivider.style.display = 'none';
   }else{
     wfLabelRow.style.display = 'none';
     wfHint.style.display = 'none';
-    wfDivider.style.display = '';
   }
 
   // img2video 복합 템플릿만 "영상 생성 워크플로우" 칸을 따로 보여준다(선택 —
@@ -6440,7 +6439,9 @@ async function fetchInputImages(force){
 let modelRegistry = { kinds: [], base_models: [], items: {} };
 let modelKindActive = 'checkpoints';
 let modelExpandedKey = null;
-const modelSaveTimers = {};
+// 지금 펼쳐진 편집 패널의 임시 값(저장 버튼을 눌러야 서버로 나간다) — 파일명도 포함해서
+// 여기서만 고친다(원본은 modelRegistry.items). 행을 접거나 다른 행/종류로 옮기면 버린다.
+let modelEditDraft = null;
 
 function modelKey(kind, name){ return `${kind}\u0000${name}`; }
 
@@ -6472,6 +6473,7 @@ async function fetchModelRegistry(){
 
 let modelUsage = {};   // modelKey -> {count, images, videos, favorites, last_used, samples}
 let modelSort = 'name';
+let modelBaseFilter = '';
 
 async function fetchModelUsage(){
   try{
@@ -6520,12 +6522,6 @@ function modelEntry(kind, name){
     || { kind, filename: name, base_model: '', notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '' };
 }
 
-function modelEntryPayload(kind, name){
-  const e = modelEntry(kind, name);
-  return { kind, filename: name, base_model: e.base_model, notes: e.notes, tags: e.tags,
-           trigger_keyword: e.trigger_keyword, page_url: e.page_url, download_url: e.download_url };
-}
-
 function setModelError(text){ document.getElementById('lora-tab-error').textContent = text || ''; }
 
 async function putModelEntry(payload){
@@ -6538,26 +6534,51 @@ async function putModelEntry(payload){
   return data.entry;
 }
 
-function scheduleSaveModelEntry(kind, name){
-  const key = modelKey(kind, name);
-  clearTimeout(modelSaveTimers[key]);
-  modelSaveTimers[key] = setTimeout(async () => {
-    try{
-      await putModelEntry(modelEntryPayload(kind, name));
-      setModelError('');
-    }catch(err){
-      setModelError(err.message || '저장하지 못했어요 — 연결을 확인하세요.');
-    }
-  }, 600);
+// ---- 편집 패널 임시 값(저장 버튼을 눌러야 반영) ----
+function modelDraftFromEntry(kind, name){
+  const e = modelEntry(kind, name);
+  return { kind, origName: name, filename: name, base_model: e.base_model, notes: e.notes,
+           tags: [...(e.tags || [])], trigger_keyword: e.trigger_keyword, page_url: e.page_url, download_url: e.download_url };
 }
 
-function updateModelEntryField(kind, name, field, value){
-  const key = modelKey(kind, name);
-  const e = { ...modelEntry(kind, name) };
-  e[field] = value;
-  modelRegistry.items[key] = e;
-  if(kind === 'loras') rebuildLoraTriggersFromRegistry();
-  scheduleSaveModelEntry(kind, name);
+function modelDraftDirty(){
+  if(!modelEditDraft) return false;
+  return JSON.stringify(modelEditDraft) !== JSON.stringify(modelDraftFromEntry(modelEditDraft.kind, modelEditDraft.origName));
+}
+
+// 지금 열려 있는 편집 패널에 저장하지 않은 변경이 있으면 한 번 확인한다 — 행을 접거나
+// 다른 행/종류로 옮기기 전에 부른다. 확인 없이 넘어가도 되면 true를 돌려준다.
+function confirmDiscardDraft(){
+  if(!modelDraftDirty()) return true;
+  return confirm('저장하지 않은 변경 내용이 있어요. 저장하지 않고 닫을까요?');
+}
+
+async function saveModelDraft(){
+  const d = modelEditDraft;
+  if(!d) return;
+  const newName = d.filename.trim();
+  if(!newName){ setModelError('파일명을 입력하세요.'); return; }
+  const renamed = newName !== d.origName;
+  if(renamed && modelRegistry.items[modelKey(d.kind, newName)]){
+    setModelError('이미 등록된 파일명이에요.');
+    return;
+  }
+  const fields = { base_model: d.base_model, notes: d.notes, tags: d.tags,
+                    trigger_keyword: d.trigger_keyword, page_url: d.page_url, download_url: d.download_url };
+  try{
+    await putModelEntry({ kind: d.kind, filename: newName, ...fields });
+    if(renamed){
+      await putModelEntry({ kind: d.kind, filename: d.origName, base_model: '', notes: '', tags: [],
+                             trigger_keyword: '', page_url: '', download_url: '' });
+      modelExpandedKey = modelKey(d.kind, newName);
+    }
+    setModelError('');
+    modelEditDraft = modelDraftFromEntry(d.kind, newName);
+    renderModelRegistry();
+    flashNotice('저장했어요.');
+  }catch(err){
+    setModelError(err.message || '저장하지 못했어요 — 연결을 확인하세요.');
+  }
 }
 
 // 파드별 설치 현황(modelInventory)에서 — 연결된 파드만 "있다/없다"를 말할 수 있다.
@@ -6596,7 +6617,12 @@ function modelRowHtml(kind, name, isAdmin){
         ? `<div class="gallery-details-col" title="${escapeHtml(have.map(p => p.name).join(', '))}">${have.length}/${live.length}</div>`
         : '<div class="gallery-details-col model-missing" title="연결된 파드 어디에도 없어요">없음</div>')
     : '<div class="gallery-details-col dim">-</div>';
-  const links = `${e.download_url ? `<span title="다운로드 주소 등록됨">${ico('download')}</span>` : ''}${e.page_url ? '<span title="페이지 주소 등록됨">↗</span>' : ''}`;
+  const downloadIcon = e.download_url
+    ? (isAdmin
+        ? `<button type="button" class="icon-btn icon-btn-neutral model-dlcmd-btn" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}" title="다운로드 명령 복사(RunPod 터미널용)">${ico('download')}</button>`
+        : `<span title="다운로드 주소 등록됨">${ico('download')}</span>`)
+    : '';
+  const links = `${downloadIcon}${e.page_url ? '<span title="페이지 주소 등록됨">↗</span>' : ''}`;
   const head = `
     <div class="model-cols${isLora ? ' lora' : ''} model-row-head" role="button" tabindex="0">
       ${modelThumbHtml(kind, name)}
@@ -6611,6 +6637,7 @@ function modelRowHtml(kind, name, isAdmin){
     </div>`;
   let editor = '';
   if(open){
+    const d = modelEditDraft || modelDraftFromEntry(kind, name);
     const baseList = `<datalist id="model-base-list">${modelRegistry.base_models.map(a => `<option value="${escapeHtml(a)}">`).join('')}</datalist>`;
     const dis = isAdmin ? '' : 'disabled';
     const link = u => isWebUrl(u) ? ` <a class="model-link" href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">열기</a>` : '';
@@ -6622,23 +6649,29 @@ function modelRowHtml(kind, name, isAdmin){
       else state = '<span class="inv-cell no">없음</span>';
       return `<div class="model-pod-row"><span class="model-pod-name">${escapeHtml(p.name)}</span>${state}</div>`;
     }).join('');
+    const dirty = modelDraftDirty();
     editor = `
     <div class="model-editor" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}">
       ${usageHtml(kind, name)}
+      <label class="model-field"><span>파일명 <span style="opacity:.6">(하위 폴더는 "폴더/이름.safetensors")</span></span>
+        <input type="text" class="option-input" data-field="filename" ${dis} placeholder="예: mmh3/my_style_v2.safetensors" value="${escapeHtml(d.filename)}"></label>
       <label class="model-field"><span>베이스 모델 <span style="opacity:.6">(마법사가 이 값으로 체크포인트를 묶고 LoRA를 걸러요)</span></span>
-        <input type="text" class="option-input" data-field="base_model" list="model-base-list" ${dis} placeholder="예: SDXL, Illustrious, Flux, Wan 2.2" value="${escapeHtml(e.base_model)}">${baseList}</label>
+        <input type="text" class="option-input" data-field="base_model" list="model-base-list" ${dis} placeholder="예: SDXL, Illustrious, Flux, Wan 2.2" value="${escapeHtml(d.base_model)}">${baseList}</label>
       ${isLora ? `<label class="model-field"><span>트리거 키워드</span>
-        <input type="text" class="option-input" data-field="trigger_keyword" ${dis} placeholder="없으면 비워둠 — 워크플로우에서 고르면 프롬프트에 자동으로 붙어요" value="${escapeHtml(e.trigger_keyword)}"></label>` : ''}
-      <label class="model-field"><span>페이지 주소${link(e.page_url)}</span>
-        <input type="url" class="option-input" data-field="page_url" ${dis} placeholder="https://civitai.com/models/… 또는 https://huggingface.co/…" value="${escapeHtml(e.page_url)}"></label>
-      <label class="model-field"><span>다운로드 주소${link(e.download_url)}</span>
-        <input type="url" class="option-input" data-field="download_url" ${dis} placeholder="https://civitai.com/api/download/models/… 또는 https://huggingface.co/…/resolve/…" value="${escapeHtml(e.download_url)}"></label>
+        <input type="text" class="option-input" data-field="trigger_keyword" ${dis} placeholder="없으면 비워둠 — 워크플로우에서 고르면 프롬프트에 자동으로 붙어요" value="${escapeHtml(d.trigger_keyword)}"></label>` : ''}
+      <label class="model-field"><span>페이지 주소${link(d.page_url)}</span>
+        <input type="url" class="option-input" data-field="page_url" ${dis} placeholder="https://civitai.com/models/… 또는 https://huggingface.co/…" value="${escapeHtml(d.page_url)}"></label>
+      <label class="model-field"><span>다운로드 주소${link(d.download_url)}</span>
+        <input type="url" class="option-input" data-field="download_url" ${dis} placeholder="https://civitai.com/api/download/models/… 또는 https://huggingface.co/…/resolve/…" value="${escapeHtml(d.download_url)}"></label>
       <label class="model-field"><span>태그 (쉼표로 구분)</span>
-        <input type="text" class="option-input" data-field="tags" ${dis} placeholder="예: 캐릭터, 스타일, 실사" value="${escapeHtml((e.tags || []).join(', '))}"></label>
+        <input type="text" class="option-input" data-field="tags" ${dis} placeholder="예: 캐릭터, 스타일, 실사" value="${escapeHtml((d.tags || []).join(', '))}"></label>
       <label class="model-field wide"><span>메모</span>
-        <textarea class="option-input" data-field="notes" rows="3" ${dis} placeholder="권장 가중치, 잘 어울리는 조합 등" style="max-width:none;">${escapeHtml(e.notes)}</textarea></label>
+        <textarea class="option-input" data-field="notes" rows="3" ${dis} placeholder="권장 가중치, 잘 어울리는 조합 등" style="max-width:none;">${escapeHtml(d.notes)}</textarea></label>
       <div class="model-field wide"><span>파드별 설치</span>${podRows || '<span class="comfy-model-empty">ComfyUI 파드가 없어요.</span>'}</div>
-      ${isAdmin ? `<div class="model-full"><button type="button" class="modal-btn-secondary model-clear-btn">등록 정보 지우기</button></div>`
+      ${isAdmin ? `<div class="model-full model-editor-actions">
+          <button type="button" class="submit-btn model-save-btn" ${dirty ? '' : 'disabled'}>저장</button>
+          <button type="button" class="modal-btn-secondary model-clear-btn">등록 정보 지우기</button>
+        </div>`
                 : '<div class="email-hint model-full">등록 정보는 관리자만 고칠 수 있어요.</div>'}
     </div>`;
   }
@@ -6662,11 +6695,25 @@ function renderModelRegistry(){
     `<button type="button" class="enhance-mode-btn model-kind-tab${k.id === modelKindActive ? ' active' : ''}" data-kind="${escapeHtml(k.id)}">${escapeHtml(k.label)}<span class="model-kind-count">${namesOf(k.id).length}</span></button>`
   ).join('');
   const all = namesOf(modelKindActive);
+
+  // 베이스 모델 드롭다운 — 지금 종류에 실제로 쓰인 값만 옵션으로 보여준다(텍스트
+  // 검색과는 무관하게, all 기준으로 다시 만든다). 고른 값이 더는 옵션에 없으면(종류를
+  // 바꿨거나 그 값을 쓰는 항목이 없어졌으면) "전체"로 되돌린다.
+  const baseFilterEl = document.getElementById('model-base-filter');
+  const bases = Array.from(new Set(all.map(n => modelEntry(modelKindActive, n).base_model).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  if(modelBaseFilter && !bases.includes(modelBaseFilter)) modelBaseFilter = '';
+  baseFilterEl.innerHTML = '<option value="">베이스 모델: 전체</option>'
+    + bases.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
+  baseFilterEl.value = modelBaseFilter;
+
   const filter = document.getElementById('lora-tab-filter').value.trim().toLowerCase();
-  let shown = filter ? all.filter(n => {
+  let shown = all.filter(n => {
     const e = modelEntry(modelKindActive, n);
+    if(modelBaseFilter && e.base_model !== modelBaseFilter) return false;
+    if(!filter) return true;
     return (n + ' ' + e.base_model + ' ' + (e.tags || []).join(' ') + ' ' + e.notes + ' ' + e.trigger_keyword + ' ' + e.page_url).toLowerCase().includes(filter);
-  }) : all;
+  });
   if(modelSort !== 'name'){
     const val = n => {
       const u = usageOf(modelKindActive, n);
@@ -6674,12 +6721,13 @@ function renderModelRegistry(){
     };
     shown = [...shown].sort((a, b) => val(b) - val(a));
   }
-  document.getElementById('model-count').textContent = `${filter ? shown.length + ' / ' : ''}${all.length}개`;
+  const filtered = !!(filter || modelBaseFilter);
+  document.getElementById('model-count').textContent = `${filtered ? shown.length + ' / ' : ''}${all.length}개`;
   const notice = live.length ? '' : '<div class="comfy-model-empty" style="margin-bottom:8px;">연결된 ComfyUI 파드가 없어 설치 현황은 못 봐요 — 등록해 둔 항목만 보여요.</div>';
   const addBtn = document.getElementById('model-add-toggle');
   if(addBtn) addBtn.style.display = isAdminUser() ? '' : 'none';
   if(shown.length === 0){
-    listEl.innerHTML = notice + `<div class="comfy-model-empty">${filter && all.length > 0 ? '거른 결과가 없어요' : '이 종류의 모델이 없어요'}</div>`;
+    listEl.innerHTML = notice + `<div class="comfy-model-empty">${filtered && all.length > 0 ? '거른 결과가 없어요' : '이 종류의 모델이 없어요'}</div>`;
     return;
   }
   const isAdmin = isAdminUser();
@@ -6735,12 +6783,16 @@ document.getElementById('model-add-form').addEventListener('click', async (e) =>
 });
 
 document.getElementById('model-sort').addEventListener('change', (e) => { modelSort = e.target.value; renderModelRegistry(); });
+document.getElementById('model-base-filter').addEventListener('change', (e) => { modelBaseFilter = e.target.value; renderModelRegistry(); });
 
 document.getElementById('model-kind-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('.model-kind-tab');
-  if(!btn) return;
+  if(!btn || btn.dataset.kind === modelKindActive) return;
+  if(!confirmDiscardDraft()) return;
   modelKindActive = btn.dataset.kind;
+  modelBaseFilter = '';
   modelExpandedKey = null;
+  modelEditDraft = null;
   document.getElementById('model-add-form').innerHTML = '';
   renderModelRegistry();
 });
@@ -6748,13 +6800,28 @@ document.getElementById('model-kind-tabs').addEventListener('click', (e) => {
 document.getElementById('lora-tab-list').addEventListener('click', (e) => {
   const galleryBtn = e.target.closest('.model-usage-gallery-btn');
   if(galleryBtn){ openGalleryForModel(galleryBtn.dataset.name, galleryBtn.dataset.media); return; }
+  const dlBtn = e.target.closest('.model-dlcmd-btn');
+  if(dlBtn){
+    const kind = dlBtn.dataset.kind, name = dlBtn.dataset.name;
+    fetch(`/api/models/download-command?kind=${encodeURIComponent(kind)}&filename=${encodeURIComponent(name)}`)
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if(!r.ok || !data.command){ setModelError(data.detail || '명령을 만들지 못했어요.'); return; }
+        await navigator.clipboard.writeText(data.command);
+        flashNotice(data.warning ? `복사했어요 — ${data.warning}` : '다운로드 명령을 복사했어요 — RunPod 터미널에 붙여넣으세요.');
+      })
+      .catch(() => setModelError('명령을 만들지 못했어요.'));
+    return;
+  }
+  const saveBtn = e.target.closest('.model-save-btn');
+  if(saveBtn){ saveModelDraft(); return; }
   const clearBtn = e.target.closest('.model-clear-btn');
   if(clearBtn){
     const editor = clearBtn.closest('.model-editor');
     if(!confirm('이 모델의 등록 정보(주소·베이스 모델·트리거 키워드·태그·메모)를 모두 지울까요? 파일은 그대로예요.')) return;
     const kind = editor.dataset.kind, name = editor.dataset.name;
     putModelEntry({ kind, filename: name, base_model: '', notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '' })
-      .then(() => { modelExpandedKey = null; renderModelRegistry(); })
+      .then(() => { modelExpandedKey = null; modelEditDraft = null; renderModelRegistry(); })
       .catch(err => setModelError(err.message));
     return;
   }
@@ -6763,17 +6830,26 @@ document.getElementById('lora-tab-list').addEventListener('click', (e) => {
   if(!head) return;
   const row = head.closest('.model-row');
   const key = modelKey(row.dataset.kind, row.dataset.name);
-  modelExpandedKey = modelExpandedKey === key ? null : key;
+  if(key === modelExpandedKey){
+    if(!confirmDiscardDraft()) return;
+    modelExpandedKey = null;
+    modelEditDraft = null;
+  }else{
+    if(!confirmDiscardDraft()) return;
+    modelExpandedKey = key;
+    modelEditDraft = modelDraftFromEntry(row.dataset.kind, row.dataset.name);
+  }
   renderModelRegistry();
 });
 
 document.getElementById('lora-tab-list').addEventListener('input', (e) => {
   const input = e.target.closest('[data-field]');
   const editor = e.target.closest('.model-editor');
-  if(!input || !editor || !isAdminUser()) return;
+  if(!input || !editor || !isAdminUser() || !modelEditDraft) return;
   const field = input.dataset.field;
-  const value = field === 'tags' ? input.value.split(',').map(t => t.trim()).filter(Boolean) : input.value;
-  updateModelEntryField(editor.dataset.kind, editor.dataset.name, field, value);
+  modelEditDraft[field] = field === 'tags' ? input.value.split(',').map(t => t.trim()).filter(Boolean) : input.value;
+  const saveBtn = editor.querySelector('.model-save-btn');
+  if(saveBtn) saveBtn.disabled = !modelDraftDirty();
 });
 
 // 파드별 설치 현황 — 등록부 목록에 "어느 파드에 있나"를 얹는 데 쓴다.
@@ -6788,6 +6864,8 @@ async function fetchModelInventory(force){
 
 async function initModelsTab(force){
   setModelError('');
+  document.getElementById('lora-tab-list').innerHTML =
+    '<div class="model-list-loading"><span class="btn-spinner"></span>모델 정보를 불러오는 중…</div>';
   await Promise.all([fetchModelRegistry(), fetchModelUsage(), fetchModelInventory(force)]);
   renderModelRegistry();
 }
