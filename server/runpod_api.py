@@ -149,15 +149,20 @@ def list_runpod_pods() -> list[dict] | None:
 def _fetch_gpu_display_name(pod_id: str) -> str | None:
     """REST의 machine이 비어 있을 때 레거시 GraphQL API로 GPU 모델명만 보충한다.
     이 호출 하나가 실패해도(네트워크/스키마 변경 등) 조용히 None — 호출부가 REST
-    쪽 데이터는 그대로 쓸 수 있어야 하므로."""
+    쪽 데이터는 그대로 쓸 수 있어야 하므로.
+
+    키는 쿼리스트링이 아니라 Authorization 헤더로 보낸다 — URL에 실으면 프록시/
+    접속 로그에 평문으로 남을 수 있다(RunPod GraphQL 공식 문서가 권장하는 방식이
+    Authorization: Bearer 헤더다. 쿼리스트링 api_key는 예전 예제에서만 보이는 방식)."""
     body = json.dumps({
         "query": _GPU_DISPLAY_NAME_QUERY,
         "variables": {"podId": pod_id},
     }).encode("utf-8")
     req = urllib.request.Request(
-        f"{RUNPOD_GRAPHQL_URL}?api_key={RUNPOD_API_KEY}",
+        RUNPOD_GRAPHQL_URL,
         data=body,
         headers={
+            "Authorization": f"Bearer {RUNPOD_API_KEY}",
             "Content-Type": "application/json",
             "User-Agent": RUNPOD_USER_AGENT,
             "Accept": "application/json",
@@ -240,6 +245,11 @@ def debug_probe(url: str) -> dict:
                 result["error"] = "응답이 JSON이 아니에요."
                 result["raw_body"] = body[:2000]
                 return result
+            # env 필드는 그 pod에 설정된 다른 환경변수(비밀번호 등)를 평문으로 담고
+            # 있을 수 있어(list_runpod_pods_verbose와 같은 이유) 화면에 그대로 보여주지
+            # 않는다 — 진단 목적(HTTP 코드/기타 필드 확인)에는 필요 없는 값이다.
+            if isinstance(raw, dict) and "env" in raw:
+                raw = {**raw, "env": "(생략 — 비밀값이 담길 수 있어 안 보여줌)"}
             result["raw_response"] = raw
             normalized = _normalize(raw)
             if not normalized.get("gpu_type"):

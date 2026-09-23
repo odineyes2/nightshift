@@ -6778,9 +6778,9 @@ let wizard = {
   familyId: null, checkpoint: null,
   base: null, post: freshWizardPost(), preset: null,
   loras: [], batchMode: null,
-  // krea2_t2i / minimax_h3_r2v / minimax_h3_i2v 전용(다른 유형에서는 안 씀)
+  // krea2_t2i / minimax_h3_r2v / minimax_h3_i2v / minimax_h3_t2v 전용(다른 유형에서는 안 씀)
   refinePrompt: true, refImageCount: 2, refVideoCount: 0, refAudioCount: 0, videoRefMode: 'vhs',
-  useFirstFrame: true, useLastFrame: false,
+  useFirstFrame: true, useLastFrame: false, t2vWidth: 704, t2vHeight: 1280,
 };
 // 마지막으로 wizardApply()를 실행했을 때의 wizard 상태 스냅샷(JSON) — null이면 아직 한 번도
 // 적용 안 한 상태. 지금 상태와 다르면 "다시 적용" 버튼을 보여준다(wizardUpdateStepButtons 참고).
@@ -6885,7 +6885,7 @@ function wizardReset(){
     base: null, post: freshWizardPost(), preset: null,
     loras: [], batchMode: null,
     refinePrompt: true, refImageCount: 2, refVideoCount: 0, refAudioCount: 0, videoRefMode: 'vhs',
-    useFirstFrame: true, useLastFrame: false,
+    useFirstFrame: true, useLastFrame: false, t2vWidth: 704, t2vHeight: 1280,
   };
   wizardAppliedSignature = null;
   document.getElementById('wizard-error').textContent = '';
@@ -7057,7 +7057,12 @@ function renderWizardTypeModal(){
   // 조립하는 workflow_builder.py) family에서만 보인다 — krea.2/MiniMax-H3처럼 diffusion_models
   // kind(UNETLoader 기반, 전용 빌더가 조립)인 family에는 안 맞는 유형이라 숨긴다.
   const bases = (catalog.base || []).filter(t => {
-    if(t.family_id) return t.family_id === wizard.familyId;
+    if(t.family_id && t.family_id !== wizard.familyId) return false;
+    // checkpoint_match: 같은 family(base_model)에 실제로 다른 역할을 하는 파일이
+    // 여러 개 있을 때(예: MiniMax-H3의 fl2va/ref2va UNet) family_id만으로는 못
+    // 가른다 — 1단계에서 고른 파일명에 이 부분 문자열이 있어야만 보인다.
+    if(t.checkpoint_match && !String(wizard.checkpoint || '').toLowerCase().includes(t.checkpoint_match.toLowerCase())) return false;
+    if(t.family_id) return true;
     return !currentFamily || currentFamily.kind !== 'diffusion_models';
   });
   const posts = (catalog.post || []).filter(t => !t.applies_to_base || t.applies_to_base.includes(wizard.base));
@@ -7095,6 +7100,11 @@ function renderWizardTypeModal(){
            <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
              <input type="checkbox" class="wizard-i2v-last-frame-input" ${wizard.useLastFrame ? 'checked' : ''}> 마지막 프레임으로 사용
            </label>
+         </div>`
+      : t.id === 'minimax_h3_t2v'
+      ? `<div class="wizard-pick-row-strength" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">너비<input type="number" class="option-input wizard-t2v-width-input" style="max-width:80px;" value="${wizard.t2vWidth}" min="64" step="16" title="영상 너비(참조 이미지가 없어 직접 정함)"></label>
+           <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">높이<input type="number" class="option-input wizard-t2v-height-input" style="max-width:80px;" value="${wizard.t2vHeight}" min="64" step="16" title="영상 높이(참조 이미지가 없어 직접 정함)"></label>
          </div>`
       : '';
     return `
@@ -7145,7 +7155,9 @@ document.getElementById('wizard-type-modal-body').addEventListener('click', (e) 
      || e.target.classList.contains('wizard-refaudio-count-input')
      || e.target.classList.contains('wizard-refvideo-mode-input')
      || e.target.classList.contains('wizard-i2v-first-frame-input')
-     || e.target.classList.contains('wizard-i2v-last-frame-input')) return;
+     || e.target.classList.contains('wizard-i2v-last-frame-input')
+     || e.target.classList.contains('wizard-t2v-width-input')
+     || e.target.classList.contains('wizard-t2v-height-input')) return;
   const row = e.target.closest('.wizard-pick-row');
   if(!row || row.classList.contains('disabled')) return;
   const group = row.dataset.group;
@@ -7162,6 +7174,8 @@ document.getElementById('wizard-type-modal-body').addEventListener('click', (e) 
       wizard.videoRefMode = 'vhs';
       wizard.useFirstFrame = true;
       wizard.useLastFrame = false;
+      wizard.t2vWidth = 704;
+      wizard.t2vHeight = 1280;
     }
     wizard.base = typeId;
     wizard.preset = null; // 베이스를 고르면 프리셋(배타적 그룹)은 해제
@@ -7200,6 +7214,10 @@ function handleWizardTypeModalInput(e){
     wizard.useFirstFrame = e.target.checked;
   }else if(e.target.classList.contains('wizard-i2v-last-frame-input')){
     wizard.useLastFrame = e.target.checked;
+  }else if(e.target.classList.contains('wizard-t2v-width-input')){
+    wizard.t2vWidth = Math.max(64, parseInt(e.target.value, 10) || 704);
+  }else if(e.target.classList.contains('wizard-t2v-height-input')){
+    wizard.t2vHeight = Math.max(64, parseInt(e.target.value, 10) || 1280);
   }else{
     return;
   }
@@ -7364,8 +7382,17 @@ async function wizardApply(){
       }else if(architecture === 'krea2'){
         spec.refine_prompt = wizard.refinePrompt;
       }else if(architecture === 'minimax_h3_i2v'){
-        spec.use_first_frame = wizard.useFirstFrame;
-        spec.use_last_frame = wizard.useLastFrame;
+        // minimax_h3_t2v와 minimax_h3_i2v(fl2v)는 같은 빌더를 쓴다 — t2v는 이미지를
+        // 하나도 안 쓰고 대신 너비/높이를 직접 정한다(server/workflow_builder_minimax_h3.py 참고).
+        if(wizard.base === 'minimax_h3_t2v'){
+          spec.use_first_frame = false;
+          spec.use_last_frame = false;
+          spec.width = wizard.t2vWidth;
+          spec.height = wizard.t2vHeight;
+        }else{
+          spec.use_first_frame = wizard.useFirstFrame;
+          spec.use_last_frame = wizard.useLastFrame;
+        }
       }else if(architecture === 'minimax_h3_r2v'){
         spec.ref_image_count = wizard.refImageCount;
         spec.ref_video_count = wizard.refVideoCount;
@@ -7392,7 +7419,9 @@ async function wizardApply(){
   wizardRefCounts = architecture === 'minimax_h3_r2v'
     ? { image: wizard.refImageCount, video: wizard.refVideoCount, audio: wizard.refAudioCount }
     : architecture === 'minimax_h3_i2v'
-    ? { useFirstFrame: wizard.useFirstFrame, useLastFrame: wizard.useLastFrame }
+    ? (wizard.base === 'minimax_h3_t2v'
+        ? { useFirstFrame: false, useLastFrame: false }
+        : { useFirstFrame: wizard.useFirstFrame, useLastFrame: wizard.useLastFrame })
     : null;
   await onTemplateChange();
   // 마법사가 템플릿을 정했으니, 직접 고르는 펼침 토글은 접어 둔다(둘이 동시에 열려 있으면 헷갈림).

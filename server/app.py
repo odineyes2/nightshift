@@ -2682,13 +2682,24 @@ WORKFLOW_TYPES = {
             "template_ids": {"seed": "seed_batch", "csv": "csv_batch"},
         },
         {
-            "id": "minimax_h3_i2v", "label": "Image to Video (MiniMax-H3)",
-            "family_id": "minimax-h3", "architecture": "minimax_h3_i2v", "requires_input_image": True,
+            # checkpoint_match: MiniMax-H3에는 UNet 파일이 실제로 2개 있고(fl2va/ref2va),
+            # 어느 워크플로우 유형을 쓸 수 있는지가 그 파일에 달려 있다(model_registry에는
+            # 둘 다 base_model="MiniMax-H3"로 한 family에 묶여 있으므로 family_id만으로는
+            # 못 가른다) — 마법사 1단계에서 고른 체크포인트 파일명에 이 부분 문자열이
+            # 있어야만 2단계에 보인다(대소문자 무시, 프론트 renderWizardTypeModal 참고).
+            "id": "minimax_h3_t2v", "label": "Text to Video (MiniMax-H3)",
+            "family_id": "minimax-h3", "architecture": "minimax_h3_i2v", "checkpoint_match": "fl2va",
+            "template_ids": {"seed": "minimax_h3_i2v_batch", "csv": "minimax_h3_i2v_csv_batch"},
+        },
+        {
+            "id": "minimax_h3_i2v", "label": "First/Last Frame to Video (MiniMax-H3)",
+            "family_id": "minimax-h3", "architecture": "minimax_h3_i2v", "checkpoint_match": "fl2va",
+            "requires_input_image": True,
             "template_ids": {"seed": "minimax_h3_i2v_batch", "csv": "minimax_h3_i2v_csv_batch"},
         },
         {
             "id": "minimax_h3_r2v", "label": "Reference to Video (MiniMax-H3)",
-            "family_id": "minimax-h3", "architecture": "minimax_h3_r2v",
+            "family_id": "minimax-h3", "architecture": "minimax_h3_r2v", "checkpoint_match": "ref2va",
             "template_ids": {"seed": "minimax_h3_r2v_batch", "csv": "minimax_h3_r2v_csv_batch"},
         },
     ],
@@ -2831,7 +2842,18 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
         architecture = str(spec.get("architecture") or "sdxl").strip()
         # krea.2/MiniMax-H3는 체크포인트가 아니라 UNETLoader(디퓨전 모델) 파일을 쓴다.
         checkpoint_kind = "checkpoints" if architecture == "sdxl" else "diffusion_models"
-        require_installed(str(spec.get("checkpoint") or "").strip(), checkpoint_kind, "체크포인트")
+        # MiniMax-H3는 spec["checkpoint"](마법사 1단계에서 고른 파일 — family 표시/LoRA
+        # 필터링용일 뿐)가 아니라 workflow_builder_minimax_h3.py가 정한 고정 UNet 파일을
+        # 실제로 쓴다 — 그 파일이 설치돼 있는지를 확인해야 "설치돼 있다고 나왔는데 실행하면
+        # 없다"는 불일치가 안 생긴다.
+        minimax_required = {
+            "minimax_h3_i2v": workflow_builder_minimax_h3.I2V_UNET_NAME,
+            "minimax_h3_r2v": workflow_builder_minimax_h3.R2V_UNET_NAME,
+        }.get(architecture)
+        if minimax_required is not None:
+            require_installed(minimax_required, checkpoint_kind, "체크포인트")
+        else:
+            require_installed(str(spec.get("checkpoint") or "").strip(), checkpoint_kind, "체크포인트")
         require_installed(str(spec.get("vae") or "").strip(), "vae", "VAE")
         for lora in (spec.get("loras") or []):
             if isinstance(lora, dict):

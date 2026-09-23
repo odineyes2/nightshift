@@ -143,6 +143,16 @@ def _sampling_to_save(add, model_src, cond_node_id, video_vae_src, audio_vae_src
 
 
 def build_i2v_workflow(spec: dict) -> dict:
+    """Image to Video(정확히는 First/Last Frame to Video, "fl2v") 겸 Text to Video("t2v") —
+    둘 다 MiniMaxH3ImageToVideo 노드 하나로 조립되는 같은 워크플로우이고, UNet도 같은
+    파일(I2V_UNET_NAME, 실제로는 "…fl2va…" 파일 — r2v의 "…ref2va…"와 다름)을 쓴다.
+    차이는 이미지를 하나도 안 쓰느냐(t2v)뿐이다:
+      - 이미지를 하나라도 쓰면(fl2v) width/height를 그 이미지의 실제 크기에서 계산한다
+        (ImageScaleToTotalPixels → GetImageSize).
+      - 이미지가 하나도 없으면(t2v) 이미지에서 크기를 셀 수 없으므로, width/height를
+        각각 PrimitiveInt 노드로 만들어 MiniMaxH3ImageToVideo에 직접 연결한다(리터럴이
+        아니라 별도 노드로 두는 이유는 video_duration과 같다 — 나중에 배치별로 값을
+        바꿔 끼우기 쉽게 하기 위함)."""
     if not isinstance(spec, dict):
         raise WorkflowBuildError("스펙이 JSON 객체가 아니에요.")
     positive = str(spec.get("positive") or "").strip()
@@ -151,8 +161,7 @@ def build_i2v_workflow(spec: dict) -> dict:
 
     use_first_frame = bool(spec.get("use_first_frame", True))
     use_last_frame = bool(spec.get("use_last_frame", False))
-    if not use_first_frame and not use_last_frame:
-        raise WorkflowBuildError("첫 프레임/마지막 프레임 중 최소 하나는 써야 해요.")
+    is_t2v = not use_first_frame and not use_last_frame
 
     seed = _int(spec.get("seed"), "시드", default=0, minimum=0)
     duration = _float(spec.get("duration"), "영상 길이(초)", default=5.0, minimum=1.0, maximum=15.0)
@@ -170,34 +179,43 @@ def build_i2v_workflow(spec: dict) -> dict:
     model_src = _lora_chain(add, [unet_id, 0], spec.get("loras") or [])
 
     main_prompt_id = add("PrimitiveStringMultiline", {"value": positive}, "main_prompt")
-
-    # first_frame/last_frame은 MiniMaxH3ImageToVideo에서 둘 다 선택 입력이다(둘 중 하나만
-    # 써도 되고, 둘 다 쓰면 두 이미지 사이를 보간하는 영상이 되며, 같은 이미지를 양쪽에
-    # 넣으면 루프 영상이 된다). width/height 계산용 크기 체인은 둘 다 만들 필요 없이
-    # first_frame이 있으면 그걸, 없으면 last_frame을 기준으로 하나만 만든다.
-    first_frame_id = add("LoadImage", {"image": ""}, "first_frame_image") if use_first_frame else None
-    last_frame_id = add("LoadImage", {"image": ""}, "last_frame_image") if use_last_frame else None
-    size_source_id = first_frame_id if first_frame_id is not None else last_frame_id
-
-    scaled_id = add(
-        "ImageScaleToTotalPixels",
-        {"upscale_method": "nearest-exact", "megapixels": 1, "resolution_steps": 32, "image": [size_source_id, 0]},
-        "총 픽셀 수에 맞춰 이미지 크기 조정",
-    )
-    size_id = add("GetImageSize", {"image": [scaled_id, 0]}, "이미지 크기 가져오기")
     duration_id = add("PrimitiveFloat", {"value": duration}, "video_duration")
     length_id = add(
         "ComfyMathExpression", {"expression": DURATION_TO_LENGTH_EXPR, "values.a": [duration_id, 0]}, "수학식"
     )
 
     cond_inputs = {
-        "prompt": [main_prompt_id, 0], "width": [size_id, 0], "height": [size_id, 1],
-        "length": [length_id, 1], "clip": clip_src, "vae": [video_vae_id, 0],
+        "prompt": [main_prompt_id, 0], "length": [length_id, 1], "clip": clip_src, "vae": [video_vae_id, 0],
     }
-    if first_frame_id is not None:
-        cond_inputs["first_frame"] = [first_frame_id, 0]
-    if last_frame_id is not None:
-        cond_inputs["last_frame"] = [last_frame_id, 0]
+    first_frame_id = last_frame_id = None
+    if is_t2v:
+        width = _int(spec.get("width"), "너비", default=704, minimum=64)
+        height = _int(spec.get("height"), "높이", default=1280, minimum=64)
+        width_id = add("PrimitiveInt", {"value": width}, "width")
+        height_id = add("PrimitiveInt", {"value": height}, "height")
+        cond_inputs["width"] = [width_id, 0]
+        cond_inputs["height"] = [height_id, 0]
+    else:
+        # first_frame/last_frame은 MiniMaxH3ImageToVideo에서 둘 다 선택 입력이다(둘 중
+        # 하나만 써도 되고, 둘 다 쓰면 두 이미지 사이를 보간하는 영상이 되며, 같은
+        # 이미지를 양쪽에 넣으면 루프 영상이 된다). 크기 체인은 둘 다 만들 필요 없이
+        # first_frame이 있으면 그걸, 없으면 last_frame을 기준으로 하나만 만든다.
+        first_frame_id = add("LoadImage", {"image": ""}, "first_frame_image") if use_first_frame else None
+        last_frame_id = add("LoadImage", {"image": ""}, "last_frame_image") if use_last_frame else None
+        size_source_id = first_frame_id if first_frame_id is not None else last_frame_id
+        scaled_id = add(
+            "ImageScaleToTotalPixels",
+            {"upscale_method": "nearest-exact", "megapixels": 1, "resolution_steps": 32, "image": [size_source_id, 0]},
+            "총 픽셀 수에 맞춰 이미지 크기 조정",
+        )
+        size_id = add("GetImageSize", {"image": [scaled_id, 0]}, "이미지 크기 가져오기")
+        cond_inputs["width"] = [size_id, 0]
+        cond_inputs["height"] = [size_id, 1]
+        if first_frame_id is not None:
+            cond_inputs["first_frame"] = [first_frame_id, 0]
+        if last_frame_id is not None:
+            cond_inputs["last_frame"] = [last_frame_id, 0]
+
     cond_id = add("MiniMaxH3ImageToVideo", cond_inputs, "MiniMax H3 Image to Video")
     _sampling_to_save(add, model_src, cond_id, [video_vae_id, 0], [audio_vae_id, 0], seed, filename_prefix)
     return workflow
