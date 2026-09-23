@@ -606,6 +606,22 @@
     box-shadow: 0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.03);
   }
 
+  /* New job 패널 안에서 "무엇을 만들지 고르는 부분"(마법사/워크플로우 업로드)과
+     "그 선택에 따라 달라지는 세부 옵션"을 시각적으로 나누는 카드 — .panel을 중첩해서
+     쓰면 무거워 보여 테두리만 있는 가벼운 변형을 쓴다. */
+  .subpanel{
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:16px;
+  }
+  .subpanel + .subpanel{ margin-top:16px; }
+  .workflow-or-divider{
+    text-align:center;
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--text-dim);
+  }
+
   .upload-form{
     display:flex;
     flex-direction:column;
@@ -770,6 +786,7 @@
   /* 참조 이미지/비디오/오디오 슬롯의 카드 갤러리(buildAssetGalleryControl) — 드롭다운
      대신 썸네일이 보이는 작은 카드를 나란히 늘어놓는다. */
   .ref-gallery{ display:flex; flex-wrap:wrap; gap:6px; }
+  .ref-gallery-single{ display:inline-block; }
   .ref-card{
     width:64px; height:64px;
     border:2px solid var(--border);
@@ -792,6 +809,16 @@
   .ref-card-badge .ico{ width:10px; height:10px; color:#fff; }
   .ref-card-upload{ border-style:dashed; color:var(--text-dim); }
   .ref-card-upload:hover{ color:var(--text); }
+  .ref-card-add{ border-style:dashed; color:var(--text-dim); }
+  .ref-card-add:hover{ color:var(--text); border-color:var(--queued); }
+  .ref-card-add .ico{ width:20px; height:20px; }
+  .ref-card-remove{
+    position:absolute; top:-6px; right:-6px;
+    width:18px; height:18px; border-radius:999px;
+    background:var(--failed); color:#fff; border:none;
+    font-size:13px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
 
   /* 메인 프롬프트의 "직접 입력 → Prompt Enhance(자연어/Danbooru) → 결과" 3단
      레이아웃. 실제로 큐에 보내는 값은 hidden input(.option-input)에 모이므로,
@@ -2873,44 +2900,57 @@
           <select class="pod-bar-select" id="job-pod-select"></select>
         </label>
       </div>
-      <div class="wizard-bar" id="wizard-bar">
-        <div class="wizard-bar-title"><svg class="ico"><use href="#i-wand-sparkles"/></svg> 새 작업 마법사</div>
-        <div class="wizard-steps">
-          <button type="button" class="wizard-step-btn" id="wizard-step-family">
-            <span class="wizard-step-num">1</span> 베이스 모델<br><span class="wizard-step-value" id="wizard-step-family-value">선택 안 함</span>
-          </button>
-          <button type="button" class="wizard-step-btn" id="wizard-step-type" disabled>
-            <span class="wizard-step-num">2</span> 워크플로우 유형<br><span class="wizard-step-value" id="wizard-step-type-value">선택 안 함</span>
-          </button>
-          <button type="button" class="wizard-step-btn" id="wizard-step-lora" disabled>
-            <span class="wizard-step-num">3</span> LoRA<br><span class="wizard-step-value" id="wizard-step-lora-value">선택 안 함</span>
-          </button>
-          <button type="button" class="wizard-step-btn" id="wizard-step-batchmode" disabled>
-            <span class="wizard-step-num">4</span> 실행 방식<br><span class="wizard-step-value" id="wizard-step-batchmode-value">선택 안 함</span>
-          </button>
+      <!-- "무엇을 만들지 고르는" 카드 — 마법사로 새로 만들거나 워크플로우를 직접 올리거나.
+           이 밑의 세부 옵션 카드(#new-job-details-panel)는 워크플로우가 실제로 붙기 전엔
+           보여줄 내용이 없어 처음부터 숨겨 둔다(checkWorkflowCompatibility가 토글). -->
+      <div class="subpanel" id="new-job-select-panel">
+        <div class="wizard-bar" id="wizard-bar">
+          <div class="wizard-bar-title"><svg class="ico"><use href="#i-wand-sparkles"/></svg> 새 작업 마법사</div>
+          <div class="wizard-steps">
+            <button type="button" class="wizard-step-btn" id="wizard-step-family">
+              <span class="wizard-step-num">1</span> 베이스 모델<br><span class="wizard-step-value" id="wizard-step-family-value">선택 안 함</span>
+            </button>
+            <button type="button" class="wizard-step-btn" id="wizard-step-type" disabled>
+              <span class="wizard-step-num">2</span> 워크플로우 유형<br><span class="wizard-step-value" id="wizard-step-type-value">선택 안 함</span>
+            </button>
+            <button type="button" class="wizard-step-btn" id="wizard-step-lora" disabled>
+              <span class="wizard-step-num">3</span> LoRA<br><span class="wizard-step-value" id="wizard-step-lora-value">선택 안 함</span>
+            </button>
+            <button type="button" class="wizard-step-btn" id="wizard-step-batchmode" disabled>
+              <span class="wizard-step-num">4</span> 실행 방식<br><span class="wizard-step-value" id="wizard-step-batchmode-value">선택 안 함</span>
+            </button>
+          </div>
+          <div class="wizard-bar-actions">
+            <button type="button" class="submit-btn" id="wizard-apply-btn" style="display:none;" disabled><svg class="ico"><use href="#i-refresh-cw"/></svg> 변경사항 다시 적용</button>
+            <button type="button" class="modal-btn-secondary" id="wizard-reset-btn"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 마법사 초기화</button>
+          </div>
+          <div class="upload-error" id="wizard-error"></div>
         </div>
-        <div class="wizard-bar-actions">
-          <button type="button" class="submit-btn" id="wizard-apply-btn" style="display:none;" disabled><svg class="ico"><use href="#i-refresh-cw"/></svg> 변경사항 다시 적용</button>
-          <button type="button" class="modal-btn-secondary" id="wizard-reset-btn"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 마법사 초기화</button>
-        </div>
-        <div class="upload-error" id="wizard-error"></div>
-      </div>
 
-      <!-- 워크플로우는 마법사 바로 아래 — 처음부터 "직접 올릴지, 마법사로 만들지"를 마주하게 한다.
-           직접 올리면 tryPopulateWizardFromWorkflow()가 알아볼 수 있는 만큼(체크포인트/LoRA/후처리)
-           마법사 스텝에 반영해서, 그걸 보고 세부값을 다시 조정할 수 있게 한다. -->
-      <div class="field" id="workflow-field">
-        <div class="field-label-row">
-          <label class="field-label" id="workflow-field-label">워크플로우 (.json) <span class="opt">— 필수</span></label>
-          <button class="load-btn" id="recent-workflows-btn" type="button" title="최근 워크플로우"><svg class="ico"><use href="#i-history"/></svg> 최근</button>
+        <!-- 워크플로우는 마법사 바로 아래 — 처음부터 "직접 올릴지, 마법사로 만들지"를 마주하게 한다.
+             직접 올리면 tryPopulateWizardFromWorkflow()가 알아볼 수 있는 만큼(체크포인트/LoRA/후처리)
+             마법사 스텝에 반영해서, 그걸 보고 세부값을 다시 조정할 수 있게 한다.
+             #workflow-field-label-row/#workflow-field-hint는 기본은 숨겨 두고, img2video 복합
+             템플릿이나 WAN2.2처럼 내장 기본값이 자동으로 채워지는 특수한 경우에만
+             onTemplateChange()가 켠다(그때는 이 안내가 아래 구분선보다 더 중요한 정보라서). -->
+        <div class="field" id="workflow-field">
+          <div class="field-label-row" id="workflow-field-label-row" style="display:none;">
+            <label class="field-label" id="workflow-field-label"></label>
+          </div>
+          <div class="opt" id="workflow-field-hint" style="display:none;"></div>
+          <div class="workflow-or-divider" id="workflow-or-divider">…또는 워크플로우(.json) 직접 업로드</div>
+          <div class="field-label-row" style="justify-content:flex-end;">
+            <button class="load-btn" id="recent-workflows-btn" type="button" title="최근 워크플로우"><svg class="ico"><use href="#i-history"/></svg> 최근</button>
+          </div>
+          <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
+          <input type="file" class="slot-input" id="workflow-input" accept=".json">
+          <div class="workflow-check" id="workflow-check" hidden></div>
         </div>
-        <div class="opt" id="workflow-field-hint">직접 만든 워크플로우를 올리거나, 위 마법사로 새로 만들어보세요 — 올리면 마법사가 알아볼 수 있는 만큼(체크포인트·LoRA·후처리) 스텝에 반영해요.</div>
-        <div class="slot" id="workflow-slot">.json 파일을 끌어다 놓거나 클릭</div>
-        <input type="file" class="slot-input" id="workflow-input" accept=".json">
-        <div class="workflow-check" id="workflow-check" hidden></div>
-      </div>
 
-      <div class="upload-form">
+        <!-- 마법사가 다루지 않는 작업(영상 생성, 셸 명령 등)으로 가는 탈출구라 워크플로우
+             카드 안에 둔다 — 워크플로우를 안 붙이고도(예: 셸 명령) 이 드롭다운만으로
+             아래 세부 옵션 카드를 열 수 있어야 해서, 세부 옵션 카드 밖(선택 카드 안)에
+             있어야 한다(updateNewJobDetailsVisibility 참고). -->
         <details class="manual-template-toggle" id="manual-template-toggle">
           <summary>직접 템플릿 선택 <span class="opt">— 마법사가 다루지 않는 작업(영상 생성, 셸 명령 등)일 때</span></summary>
           <div class="field">
@@ -2918,7 +2958,10 @@
             <select id="template-select"></select>
           </div>
         </details>
+      </div>
 
+      <div class="subpanel" id="new-job-details-panel" style="display:none;">
+      <div class="upload-form">
         <div class="upload-error" id="load-error"></div>
         <div class="load-notice" id="load-notice"></div>
 
@@ -2950,6 +2993,7 @@
           </div>
           <div class="upload-error" id="upload-error"></div>
         </div>
+      </div>
       </div>
     </div>
   </div>
@@ -3452,6 +3496,22 @@
       <div class="upload-error" id="input-image-picker-error"></div>
       <div class="gallery-grid" id="input-image-picker-grid"></div>
       <div class="empty" id="input-image-picker-empty" style="display:none;">서버에 저장된 이미지가 없어요</div>
+    </div>
+  </div>
+</div>
+
+<!-- 참조 이미지/비디오/오디오 슬롯(MiniMax-H3 r2v/i2v)의 카드 하나를 클릭하면 여는 선택
+     모달 — "선택 안 함" + 이미 올린 자산 카드 + 업로드 카드. buildAssetGalleryControl 참고.
+     이미지/비디오/오디오 어느 kind든 이 모달 하나를 공유해서 매번 내용만 다시 그린다. -->
+<div class="modal-overlay" id="ref-asset-picker-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title" id="ref-asset-picker-title">참조 선택</div>
+      <button class="modal-close" id="ref-asset-picker-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="upload-error" id="ref-asset-picker-error"></div>
+      <div class="ref-gallery" id="ref-asset-picker-grid" style="max-height:360px;overflow-y:auto;"></div>
     </div>
   </div>
 </div>
@@ -5013,89 +5073,93 @@ function inputImageChoices(){
   return (inputImagesCache || []).map(img => ({ value: img.name, label: img.name, disabled: false }));
 }
 
-// ---- 참조 이미지(안 써도 되는 슬롯)/참조 비디오/참조 오디오 — 공용 카드 갤러리 컨트롤 ----
-// 드롭다운 대신 썸네일이 보이는 작은 카드를 나란히 늘어놓는다("선택 안 함" 카드 +
-// 자산별 카드 + "업로드" 카드). 이미지/비디오는 실제 썸네일(비디오는 브라우저가 첫
-// 프레임을 그리게 함, 서버 썸네일 생성 없음), 오디오는 음표 아이콘으로 대체한다.
+// ---- 참조 이미지(안 써도 되는 슬롯)/참조 비디오/참조 오디오 — 카드 하나 + 선택 모달 ----
+// 갤러리를 항상 펼쳐두지 않는다 — 기본은 "+" 카드 하나뿐이고, 누르면 선택 모달
+// (#ref-asset-picker-modal, 아래)이 열려 "선택 안 함"/이미 올린 자산/업로드 중 하나를
+// 고르게 한다. 고르고 나면 다시 카드 하나(그 자산의 썸네일 + 지우기 배지)만 보인다.
 // MiniMax-H3 r2v의 ref_image_1~9/ref_video_1~3/ref_audio_1~3, i2v의 first_frame_image/
 // last_frame_image가 이 컨트롤을 쓴다.
-function buildAssetGalleryControl(opt, cfg){
-  const wrap = document.createElement('div');
-  wrap.className = 'ref-gallery';
+function buildRefAssetCard(kind, value, rawUrl){
+  const card = document.createElement('div');
+  card.className = 'ref-card';
+  card.title = value;
+  if(kind === 'image'){
+    const img = document.createElement('img');
+    img.src = rawUrl(value);
+    img.loading = 'lazy';
+    card.appendChild(img);
+  }else if(kind === 'video'){
+    const video = document.createElement('video');
+    video.src = rawUrl(value);
+    video.muted = true;
+    video.preload = 'metadata';
+    // 서버에서 썸네일을 만들지 않는 대신, 메타데이터가 로드되면 살짝 재생 위치를 옮겨
+    // 브라우저가 그 프레임을 그리게 한다(0초는 대부분 검은 화면만 보여줌).
+    video.addEventListener('loadedmetadata', () => { try{ video.currentTime = 0.05; }catch(e){} });
+    card.appendChild(video);
+    const badge = document.createElement('span');
+    badge.className = 'ref-card-badge';
+    badge.innerHTML = ico('play');
+    card.appendChild(badge);
+  }else{
+    card.classList.add('ref-card-audio');
+    card.innerHTML = ico('music');
+    const label = document.createElement('div');
+    label.className = 'ref-card-audio-label';
+    label.textContent = value;
+    card.appendChild(label);
+  }
+  return card;
+}
 
-  const hidden = document.createElement('input');
-  hidden.type = 'hidden';
-  hidden.className = 'option-input';
-  hidden.dataset.name = opt.name;
-  hidden.value = opt.default || '';
+// 선택 모달은 하나를 공유해서 매번 kind/선택 콜백만 바꿔 다시 그린다.
+let refAssetPickerCfg = null;
+let refAssetPickerOnPick = null;
 
-  const selectValue = (value) => {
-    hidden.value = value;
-    wrap.querySelectorAll('.ref-card').forEach(card => {
-      card.classList.toggle('selected', card.dataset.value === value);
-    });
-  };
+async function openRefAssetPicker(cfg, onPick){
+  refAssetPickerCfg = cfg;
+  refAssetPickerOnPick = onPick;
+  document.getElementById('ref-asset-picker-title').textContent = cfg.pickerTitle;
+  document.getElementById('ref-asset-picker-error').textContent = '';
+  await cfg.fetchFn(false);
+  renderRefAssetPickerGrid();
+  document.getElementById('ref-asset-picker-modal').style.display = 'flex';
+}
 
-  const renderCards = () => {
-    // upload 카드는 그대로 두고 나머지(선택 안 함 + 자산별 카드)만 지우고 다시 그린다 —
-    // uploadCard 자체를 지우면 아래 insertBefore(_, uploadCard)가 실패한다.
-    wrap.querySelectorAll('.ref-card:not(.ref-card-upload)').forEach(el => el.remove());
-    const noneCard = document.createElement('div');
-    noneCard.className = 'ref-card ref-card-none';
-    noneCard.dataset.value = '';
-    noneCard.textContent = '선택 안 함';
-    noneCard.title = '선택 안 함';
-    wrap.insertBefore(noneCard, uploadCard);
+function closeRefAssetPicker(){
+  document.getElementById('ref-asset-picker-modal').style.display = 'none';
+  refAssetPickerCfg = null;
+  refAssetPickerOnPick = null;
+}
 
-    for(const choice of cfg.choicesFn()){
-      const card = document.createElement('div');
-      card.className = 'ref-card';
-      card.dataset.value = choice.value;
-      card.title = choice.value;
-      if(cfg.kind === 'image'){
-        const img = document.createElement('img');
-        img.src = cfg.rawUrl(choice.value);
-        img.loading = 'lazy';
-        card.appendChild(img);
-      }else if(cfg.kind === 'video'){
-        const video = document.createElement('video');
-        video.src = cfg.rawUrl(choice.value);
-        video.muted = true;
-        video.preload = 'metadata';
-        // 서버에서 썸네일을 만들지 않는 대신, 메타데이터가 로드되면 살짝 재생 위치를
-        // 옮겨 브라우저가 그 프레임을 그리게 한다(대부분 브라우저가 0초는 검은 화면만
-        // 보여줌 — 0.05초쯽으로 옮기면 실제 첫 프레임 근처가 보인다).
-        video.addEventListener('loadedmetadata', () => { try{ video.currentTime = 0.05; }catch(e){} });
-        card.appendChild(video);
-        const badge = document.createElement('span');
-        badge.className = 'ref-card-badge';
-        badge.innerHTML = ico('play');
-        card.appendChild(badge);
-      }else{
-        card.classList.add('ref-card-audio');
-        card.innerHTML = ico('music');
-        const label = document.createElement('div');
-        label.className = 'ref-card-audio-label';
-        label.textContent = choice.value;
-        card.appendChild(label);
-      }
-      card.classList.toggle('selected', choice.value === hidden.value);
-      wrap.insertBefore(card, uploadCard);
-    }
-    noneCard.classList.toggle('selected', !hidden.value);
-  };
+function pickRefAsset(value){
+  const onPick = refAssetPickerOnPick;
+  closeRefAssetPicker();
+  if(onPick) onPick(value);
+}
 
-  wrap.addEventListener('click', (e) => {
-    const card = e.target.closest('.ref-card');
-    if(!card || card === uploadCard) return;
-    selectValue(card.dataset.value);
-  });
+function renderRefAssetPickerGrid(){
+  const cfg = refAssetPickerCfg;
+  const grid = document.getElementById('ref-asset-picker-grid');
+  grid.innerHTML = '';
+
+  const noneCard = document.createElement('div');
+  noneCard.className = 'ref-card ref-card-none';
+  noneCard.textContent = '선택 안 함';
+  noneCard.title = '선택 안 함';
+  noneCard.addEventListener('click', () => pickRefAsset(''));
+  grid.appendChild(noneCard);
+
+  for(const choice of cfg.choicesFn()){
+    const card = buildRefAssetCard(cfg.kind, choice.value, cfg.rawUrl);
+    card.addEventListener('click', () => pickRefAsset(choice.value));
+    grid.appendChild(card);
+  }
 
   const uploadCard = document.createElement('div');
   uploadCard.className = 'ref-card ref-card-upload';
   uploadCard.innerHTML = ico('upload');
   uploadCard.title = cfg.uploadTitle;
-
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
   fileInput.accept = cfg.accept;
@@ -5105,7 +5169,6 @@ function buildAssetGalleryControl(opt, cfg){
     const file = fileInput.files[0];
     fileInput.value = '';
     if(!file) return;
-    uploadCard.classList.add('disabled');
     const original = uploadCard.innerHTML;
     uploadCard.innerHTML = ico('loader-circle', true);
     try{
@@ -5115,20 +5178,66 @@ function buildAssetGalleryControl(opt, cfg){
       const data = await res.json().catch(() => ({}));
       if(!res.ok) throw new Error(data.detail || '업로드에 실패했어요.');
       await cfg.fetchFn(true);
-      renderCards();
-      selectValue(data.name);
+      pickRefAsset(data.name);
     }catch(e){
-      alert(e.message || '업로드에 실패했어요.');
-    }finally{
-      uploadCard.classList.remove('disabled');
+      document.getElementById('ref-asset-picker-error').textContent = e.message || '업로드에 실패했어요.';
       uploadCard.innerHTML = original;
     }
   });
+  grid.appendChild(uploadCard);
+  grid.appendChild(fileInput);
+}
 
-  wrap.appendChild(uploadCard);
-  wrap.appendChild(fileInput);
+document.getElementById('ref-asset-picker-close').addEventListener('click', closeRefAssetPicker);
+document.getElementById('ref-asset-picker-modal').addEventListener('click', (e) => {
+  if(e.target.id === 'ref-asset-picker-modal') closeRefAssetPicker();
+});
+
+function buildAssetGalleryControl(opt, cfg){
+  const wrap = document.createElement('div');
+  wrap.className = 'ref-gallery-single';
+
+  const hidden = document.createElement('input');
+  hidden.type = 'hidden';
+  hidden.className = 'option-input';
+  hidden.dataset.name = opt.name;
+  hidden.value = opt.default || '';
+
+  const openPicker = () => openRefAssetPicker(cfg, (value) => {
+    hidden.value = value;
+    renderSlot();
+  });
+
+  function renderSlot(){
+    wrap.querySelectorAll('.ref-card').forEach(el => el.remove());
+    if(hidden.value){
+      const card = buildRefAssetCard(cfg.kind, hidden.value, cfg.rawUrl);
+      card.classList.add('selected');
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'ref-card-remove';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = '선택 해제';
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hidden.value = '';
+        renderSlot();
+      });
+      card.appendChild(removeBtn);
+      card.addEventListener('click', (e) => { if(e.target !== removeBtn) openPicker(); });
+      wrap.insertBefore(card, hidden);
+    }else{
+      const addCard = document.createElement('div');
+      addCard.className = 'ref-card ref-card-add';
+      addCard.innerHTML = ico('plus');
+      addCard.title = cfg.uploadTitle;
+      addCard.addEventListener('click', openPicker);
+      wrap.insertBefore(addCard, hidden);
+    }
+  }
+
   wrap.appendChild(hidden);
-  renderCards();
+  renderSlot();
   return wrap;
 }
 
@@ -5136,7 +5245,8 @@ function buildInputImageOptionalControl(opt){
   return buildAssetGalleryControl(opt, {
     kind: 'image', choicesFn: inputImageChoices, fetchFn: fetchInputImages,
     uploadUrl: '/api/input-images', uploadField: 'image', accept: '.png,.jpg,.jpeg,.webp',
-    uploadTitle: '내 컴퓨터에서 이미지 업로드', rawUrl: (name) => `/api/input-images/${encodeURIComponent(name)}/raw`,
+    uploadTitle: '내 컴퓨터에서 이미지 업로드', pickerTitle: '참조 이미지 선택',
+    rawUrl: (name) => `/api/input-images/${encodeURIComponent(name)}/raw`,
   });
 }
 
@@ -5156,7 +5266,8 @@ function buildInputVideoControl(opt){
   return buildAssetGalleryControl(opt, {
     kind: 'video', choicesFn: inputVideoChoices, fetchFn: fetchInputVideos,
     uploadUrl: '/api/input-videos', uploadField: 'video', accept: '.mp4,.webm,.mov,.mkv',
-    uploadTitle: '내 컴퓨터에서 비디오 업로드', rawUrl: (name) => `/api/input-videos/${encodeURIComponent(name)}/raw`,
+    uploadTitle: '내 컴퓨터에서 비디오 업로드', pickerTitle: '참조 비디오 선택',
+    rawUrl: (name) => `/api/input-videos/${encodeURIComponent(name)}/raw`,
   });
 }
 
@@ -5176,7 +5287,7 @@ function buildInputAudioControl(opt){
   return buildAssetGalleryControl(opt, {
     kind: 'audio', choicesFn: inputAudioChoices, fetchFn: fetchInputAudios,
     uploadUrl: '/api/input-audios', uploadField: 'audio', accept: '.mp3,.wav,.flac,.m4a,.ogg,.aac',
-    uploadTitle: '내 컴퓨터에서 오디오 업로드',
+    uploadTitle: '내 컴퓨터에서 오디오 업로드', pickerTitle: '참조 오디오 선택',
   });
 }
 
@@ -5428,19 +5539,29 @@ async function onTemplateChange(){
   }
 
   const comboVideoLabel = template && IMG2VIDEO_COMBO_TEMPLATES[template.id];
+  const wfLabelRow = document.getElementById('workflow-field-label-row');
   const wfLabel = document.getElementById('workflow-field-label');
   const wfHint = document.getElementById('workflow-field-hint');
+  const wfDivider = document.getElementById('workflow-or-divider');
+  // 기본은 "…또는 워크플로우(.json) 직접 업로드" 구분선만 보인다 — img2video 복합
+  // 템플릿이나 WAN2.2처럼 내장 기본값이 자동으로 채워지는 특수한 경우에만, 그
+  // 사실을 알려주는 구체적인 안내(레이블+힌트)가 구분선 대신 나온다.
   if(comboVideoLabel){
+    wfLabelRow.style.display = '';
     wfLabel.innerHTML = '이미지 생성 워크플로우 (.json) <span class="opt">— 필수</span>';
     wfHint.textContent = `여기 올리는 건 이미지 생성 단계 워크플로우예요 — 영상 단계(${comboVideoLabel})는 바로 아래 "영상 생성 워크플로우" 칸에서 따로 올릴 수 있어요(선택, 비워두면 nightshift 내장 기본값을 씁니다).`;
     wfHint.style.display = '';
+    wfDivider.style.display = 'none';
   }else if(bundledWorkflowName){
+    wfLabelRow.style.display = '';
     wfLabel.innerHTML = '워크플로우 (.json) <span class="opt">— 필수</span>';
     wfHint.textContent = `기본값으로 nightshift 내장 워크플로우(${bundledWorkflowName}.json)가 자동으로 채워져 있어요 — 다른 .json 파일을 끌어다 놓거나 클릭해서 올리면 그걸로 바뀝니다.`;
     wfHint.style.display = '';
+    wfDivider.style.display = 'none';
   }else{
-    wfLabel.innerHTML = '워크플로우 (.json) <span class="opt">— 필수</span>';
+    wfLabelRow.style.display = 'none';
     wfHint.style.display = 'none';
+    wfDivider.style.display = '';
   }
 
   // img2video 복합 템플릿만 "영상 생성 워크플로우" 칸을 따로 보여준다(선택 —
@@ -5470,6 +5591,7 @@ async function onTemplateChange(){
   if(needsInputAudios) await fetchInputAudios(false);
   renderOptionFields(template);
   uploadError.textContent = '';
+  updateNewJobDetailsVisibility();
 }
 
 // "초기화" 버튼 — 템플릿 선택은 그대로 두고, 첨부한 파일과 옵션 입력값만 그
@@ -7406,9 +7528,21 @@ function summarizeList(items, limit = 5){
   return shown.join(', ') + (rest > 0 ? ` 외 ${rest}개` : '');
 }
 
+// 세부 옵션 카드는 "워크플로우가 붙어 있다" 또는 "워크플로우가 필요 없는 템플릿을
+// 직접 골랐다"(셸 명령 등) 둘 중 하나일 때만 보여줄 내용이 생긴다 — 그 전엔 화면을
+// 지저분하게 만들 뿐이라 숨겨 둔다(New job 패널 재구성 참고). 워크플로우 첨부
+// (checkWorkflowCompatibility)와 템플릿 변경(onTemplateChange) 양쪽에서 다시 계산한다.
+function updateNewJobDetailsVisibility(){
+  const template = templatesById[templateSelect.value];
+  const needsWorkflow = !(template && template.requires_workflow === false);
+  const hasWorkflow = !!selectedFiles.workflow;
+  document.getElementById('new-job-details-panel').style.display = (!needsWorkflow || hasWorkflow) ? '' : 'none';
+}
+
 async function checkWorkflowCompatibility(file){
   const el = document.getElementById('workflow-check');
   const token = ++workflowCheckToken;
+  updateNewJobDetailsVisibility();
   if(!file){
     el.hidden = true;
     el.textContent = '';
@@ -7443,7 +7577,10 @@ async function checkWorkflowCompatibility(file){
   }
   if(token !== workflowCheckToken) return; // 그 사이 다른 파일을 골랐으면 버린다
   if(data.auto){
-    renderWorkflowCheck('unknown', '실행 파드를 정하지 않았어요 — 이 워크플로우에 필요한 모델·노드를 갖춘 파드가 살아 있을 때 시작해요.');
+    // 파드를 아직 안 정한 건 잘못된 상태가 아니다(스케줄러가 나중에 배정) — 굳이
+    // 안내를 띄우지 않고 조용히 넘어간다.
+    el.hidden = true;
+    el.textContent = '';
     return;
   }
   if(!data.connected){
