@@ -107,16 +107,16 @@ def sync_runpod_pods(owner_id: int, dry_run: bool, ensure_runtime_fn, job_has_ru
                 pod_registry.update_pod(pod["id"], {"enabled": False})
             result["disabled"].append({"id": pod["id"], "runpod_pod_id": rpid})
 
-    # 사용 내역(DB 탭) 로깅은 nightshift 파드 등록(위, ComfyUI 포트가 열린 것만)과는
-    # 무관하게 RunPod 계정에 있는 pod 전부를 대상으로 한다 — "얼마나 썼나" 기록이
-    # 목적이라 ComfyUI 포트 유무와 상관없이 완전하게 남겨야 한다. dry_run이면(아무것도
-    # 안 바꾸는 게 정의) 이것도 건너뛴다.
-    if not dry_run:
-        for p in pods:
-            gpu_type = runpod_api.get_gpu_type_cached(p["id"]) or ""
-            runpod_sessions.sync_pod_session(
-                p["id"], p["name"], gpu_type, p.get("cost_per_hr"), p["status"] == "RUNNING",
-                p.get("last_started_at"), p.get("last_status_change"))
+        # 사용 내역(DB 탭) 로깅은 nightshift 파드 등록(위, ComfyUI 포트가 열린 것만)과는
+        # 무관하게 RunPod 계정에 있는 pod 전부를 대상으로 한다 — "얼마나 썼나" 기록이
+        # 목적이라 ComfyUI 포트 유무와 상관없이 완전하게 남겨야 한다. dry_run이면(아무것도
+        # 안 바꾸는 게 정의) 이것도 건너뛴다.
+        if not dry_run:
+            for p in pods:
+                gpu_type = runpod_api.get_gpu_type_cached(p["id"]) or ""
+                runpod_sessions.sync_pod_session(
+                    p["id"], p["name"], gpu_type, p.get("cost_per_hr"), p["status"] == "RUNNING",
+                    p.get("last_started_at"), p.get("last_status_change"))
 
     log.info("runpod 동기화%s: added=%d reenabled=%d disabled=%d unchanged=%d skipped=%d",
               " (dry_run)" if dry_run else "", len(result["added"]), len(result["reenabled"]),
