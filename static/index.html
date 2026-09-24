@@ -4542,7 +4542,7 @@ function buildJobCard(j){
         ${baseModel ? `<div class="job-card-base">${escapeHtml(baseModel)}</div>` : ''}
         ${fetching
           ? `<div class="job-card-wait fetching" title="${escapeHtml(j.fetching_models.names.join('\n'))}">${ico('loader-circle', true)}<span>모델 받는 중 — 다 받으면 저절로 시작해요</span></div>`
-          : blocked && j.fetch_error ? `<div class="job-card-wait" title="${escapeHtml('모델 받기 실패 — ' + j.fetch_error + '\n\n' + (j.waiting_reason || ''))}">${ico('triangle-alert')}<span>받기 실패 — ${escapeHtml(j.fetch_error)}</span></div>`
+          : blocked && j.fetch_error ? `<div class="job-card-wait" title="${escapeHtml('모델 받기 실패 — ' + j.fetch_error + '\n\n' + (j.waiting_reason || ''))}">${ico('triangle-alert')}<span>받기 실패 — ${escapeHtml(/HTTP 40[13]/.test(j.fetch_error) ? 'Civitai 토큰 필요(HTTP ' + j.fetch_error.match(/HTTP (40[13])/)[1] + ') · 카드를 눌러 자세히' : j.fetch_error)}</span></div>`
           : waitingForPod && j.waiting_reason ? `<div class="job-card-wait" title="${escapeHtml(j.waiting_reason)}">${ico('triangle-alert')}<span>${escapeHtml(j.waiting_reason)}</span></div>` : ''}
       </div>
       ${progress ? `
@@ -4633,6 +4633,7 @@ function renderJobDetailModalBody(){
       <div>시작 ${fmtTime(job.started_at)} · 종료 ${fmtTime(job.finished_at)} · 예상 작업시간 ${fmtDuration(est.durationMs)} · 예상 종료 ${fmtTime(est.finishIso)}</div>
     </div>
     ${waitingForPod && job.waiting_reason ? `<div class="job-wait-reason">${escapeHtml(job.waiting_reason)}</div>` : ''}
+    ${waitingForPod && job.fetch_error ? `<div class="job-wait-reason">모델 받기 실패 — ${escapeHtml(job.fetch_error)}${/HTTP 40[13]/.test(job.fetch_error) ? '<br>→ 계정 창(오른쪽 위 계정 이름)의 CIVITAI 토큰을 확인하고, 모델 탭의 다운로드 주소가 civitai.com 주소인지 확인하세요.' : ''}</div>` : ''}
     ${pfLines.length ? `<div class="field"><label class="field-label">모델 확인 필요</label><div class="job-detail-preflight">${escapeHtml(pfLines.join('\n'))}</div></div>` : ''}`;
 
   document.getElementById('job-detail-actions').innerHTML = `
