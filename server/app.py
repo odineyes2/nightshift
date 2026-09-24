@@ -3747,9 +3747,9 @@ async def create_job(
             "pod_cost_per_hr": pod_cost_per_hr,
         }
         if pod is None:
-            # 파드 없이 만든 작업은 곧장 대기 큐로 간다("보내기") — 스케줄러가 갖춰진 파드를 찾는다.
-            jobs[job_id]["status"] = "queued"
-            jobs[job_id]["waiting_reason"] = "파드를 찾는 중이에요"
+            # 파드 없이 만든 작업은 일단 일시정지(pending)로 만든다 — 빈 파드가 있어도 바로 돌지 않고,
+            # 사람이 작업의 ▶(POST /api/jobs/{id}/start)나 큐 ▶ 시작을 눌러야 대기 큐로 가서 스케줄러가
+            # 갖춰진 파드를 찾는다. 대기열에 올린 것과 실제로 돌 것을 화면에서 구분하기 위해서다.
             auto_queued = False
         else:
             # 자동 실행 모드("▶ 시작"이 켜져 있는 동안)면 대기 목록에 머무르지 않고
@@ -3760,9 +3760,7 @@ async def create_job(
             if auto_queued:
                 jobs[job_id]["status"] = "queued"
     save_state()
-    if pod is None:
-        poke_scheduler()
-    elif auto_queued:
+    if auto_queued:
         dispatch_job(job_id, pod["id"])
     return jobs[job_id]
 
@@ -4551,6 +4549,27 @@ def start_job(job_id: str, request: Request):
         dispatch_job(job_id)
     else:
         poke_scheduler()
+    return jobs[job_id]
+
+
+@app.post("/api/jobs/{job_id}/pause")
+def pause_job(job_id: str, request: Request):
+    # 작업 카드의 ⏸ — 대기 큐에서 기다리는(queued) 작업 하나를 다시 일시정지(pending)로 돌린다.
+    # 빈 파드가 생겨도 시작되지 않는다. 이미 파드 큐에 들어가 있어도 워커가 꺼낼 때 상태를 보고
+    # 버리므로(wait_for_pod) 따로 빼낼 필요가 없다. 스케줄러가 골라 준 파드는 풀어서 다시 ▶할 때
+    # 그 시점에 갖춰진 파드를 새로 찾게 하고, 사람이 고정한 파드(pinned_pod_id)는 그대로 둔다.
+    job_or_404(me(request), job_id)
+    with lock:
+        job = jobs.get(job_id)
+        if not job or job.get("deleted"):
+            raise HTTPException(404, "없는 작업이에요.")
+        if job["status"] != "queued":
+            raise HTTPException(400, "대기 중인 작업만 일시정지할 수 있어요(실행 중이면 정지를 쓰세요).")
+        job["status"] = "pending"
+        job["waiting_reason"] = None
+        if job.get("pod_id") and not job.get("pinned_pod_id"):
+            job["pod_id"] = None
+    save_state()
     return jobs[job_id]
 
 
