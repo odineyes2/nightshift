@@ -1121,7 +1121,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `clear_completed_jobs` | `POST /api/jobs/clear-completed` | 완료/실패/중단 잡 소프트 삭제 |
 | `list_recent_workflows` | `GET /api/recent-workflows` | 최근 워크플로우 30개 — 매번 새로 안 만들고 재사용하고 싶을 때 |
 | `list_pods` | `GET /api/pods` | 등록된 파드(워커) 목록. 파드는 nightshift가 아는 주소 레코드일 뿐, RunPod pod 전원과는 별개 |
-| `sync_runpod_pods` | `POST /api/pods/sync-runpod` | RunPod에서 RUNNING인 ComfyUI pod를 찾아 파드 목록에 자동 등록/정리(멱등). **RunPod에서 pod를 켠 직후 이 도구를 부르면 로그인 없이 등록된다.** 관리자 전용 |
+| `sync_runpod_pods` | `POST /api/pods/sync-runpod` | RunPod에서 RUNNING인 ComfyUI pod를 찾아 파드 목록에 자동 등록/정리(멱등). **RunPod에서 pod를 켠 직후 이 도구를 부르면 로그인 없이 등록된다.** 화면에서 손으로 등록할 때처럼 이름은 (형용사+동물+직급)으로 지어지고(RunPod 이름은 카드에 따로 표시), 결과 이미지 가져오기는 켜진 채로 등록된다. 관리자 전용 |
 | `add_pod` | `POST /api/pods` | 파드를 수동으로 등록(RunPod가 아닌 주소도 가능) |
 | `set_pod_enabled` | `PUT /api/pods/{id}` | 이 파드로 새 작업을 보낼지 켜고 끈다 — RunPod 과금(전원)과는 무관 |
 | `pod_health` | `POST /api/pods/{id}/test` | 저장된 파드 주소가 실제로 응답하는지 확인 |
