@@ -418,7 +418,9 @@ ComfyUI는 클립을 하나씩만 만들고 여러 클립을 잇는 기능이 �
 | 층 | 화면 | 주소 |
 |---|---|---|
 | 전역 | 🏠 Home · 🖼 갤러리 · 🎬 영상 · 🎛 모델 · 🏷 Danbooru | `#dashboard` · `#gallery` · `#video-gallery` · `#models` · `#danbooru` |
-| 파드 | 🗂 작업 · 🧩 워크플로우 · 🖼 갤러리(comfyui/shell) 또는 📝 결과(claude_writer) | `#pod/{id}/jobs` · `.../builder` · `.../pgallery` 또는 `.../results` |
+| 파드 | 🖼 갤러리 · 🎬 영상(comfyui/shell) 또는 📝 결과(claude_writer) · ⚙ 설정(파드 설정 창을 엶) | `#pod/{id}/pgallery` · `.../pvideo` 또는 `.../results` |
+
+> 작업(Jobs)은 전역 Jobs 탭에서만 관리합니다. 파드 안에서도 상단 내비게이션은 그대로 보이고(PODS가 켜진 상태), 옛 링크 `#pod/{id}/jobs`는 전역 Jobs로 가면서 새 작업 폼의 실행 파드를 그 파드로 맞춥니다.
 
 **작업·워크플로우가 파드 안에 있는 이유**는 이 둘이 전부 "그 파드가 무엇을 갖고 있는가"를
 읽어서 그리기 때문입니다 — 워크플로우 빌더는 그 파드의 `/object_info`를, 작업
