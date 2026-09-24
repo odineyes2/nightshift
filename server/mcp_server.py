@@ -568,10 +568,11 @@ async def sync_runpod_pods(dry_run: bool = False) -> dict:
 
 
 @mcp.tool()
-async def add_pod(url: str, name: str = "", pull_outputs: bool = False) -> dict:
+async def add_pod(url: str, name: str = "", pull_outputs: bool = True) -> dict:
     """파드를 하나 수동으로 등록한다(RunPod가 아닌 주소도 가능 — 다른 클라우드,
     로컬 등). RunPod pod를 자동으로 찾아 등록하려면 sync_runpod_pods를 대신 써라.
-    name을 비우면 임의의 이름이 지어진다."""
+    name을 비우면 화면에서 등록할 때처럼 (형용사+동물+직급) 이름이 지어지고, 결과 이미지를
+    이 서버로 가져오기(pull_outputs)는 새 파드 기본값대로 켜진다."""
     try:
         async with _client(STATUS_TIMEOUT) as client:
             resp = await client.post("/api/pods", json={"url": url, "name": name, "pull_outputs": pull_outputs})
