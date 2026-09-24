@@ -34,6 +34,7 @@ import secrets
 import shutil
 import sys
 import tempfile
+from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -114,8 +115,25 @@ def _login() -> str | None:
                           headers={"X-Requested-With": "nightshift"}, timeout=STATUS_TIMEOUT)
     except httpx.HTTPError:
         return None
-    _session_token = resp.cookies.get(SESSION_COOKIE) if resp.status_code == 200 else None
+    _session_token = _session_cookie_from(resp) if resp.status_code == 200 else None
     return _session_token
+
+
+def _session_cookie_from(resp: httpx.Response) -> str | None:
+    """Set-Cookie 헤더에서 세션 토큰을 직접 꺼낸다. resp.cookies를 쓰면 안 된다 — app.py가
+    NIGHTSHIFT_COOKIE_DOMAIN(예: lomebrote.com, OpenCut SSO용)으로 쿠키에 Domain을 박으면,
+    127.0.0.1로 요청한 httpx 쿠키 저장소가 도메인 불일치로 그 쿠키를 조용히 버려서 로그인은
+    성공했는데 토큰이 None이 되고 모든 도구가 401로 끝난다. 여기서는 토큰 값만 필요하고
+    보낼 때는 _client()가 쿠키를 직접 실어 보내므로 Domain 속성은 무시해도 된다."""
+    for header in resp.headers.get_list("set-cookie"):
+        jar = SimpleCookie()
+        try:
+            jar.load(header)
+        except CookieError:
+            continue
+        if SESSION_COOKIE in jar:
+            return jar[SESSION_COOKIE].value
+    return None
 
 
 async def _forget_expired_session(resp: httpx.Response) -> None:
