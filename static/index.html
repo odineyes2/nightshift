@@ -4373,20 +4373,58 @@ function jobBatchModeLabel(templateId, templateLabel){
   if(tid.includes('_batch')) return '시드 반복';
   return templateLabel || tid || '-';
 }
-// 마법사로 만든 작업은 체크포인트가 업로드되는 워크플로우 JSON 안에 직접 박히고
+// 마법사로 만든 작업은 체크포인트가 업로드되는 워크플로우 JSON 안에 직접 박히고,
 // options.checkpoint(템플릿 자체의 체크포인트 드롭다운 — "직접 템플릿 선택"으로 쓸 때만
-// 채워짐)는 빈 채로 남는다 — 그래서 이 세션에서 방금 만든 작업만이라도 정확히 보이게,
-// submit-btn 핸들러가 "이 워크플로우를 만들 때 마법사가 실제로 골랐던 체크포인트"
-// (wizardAppliedSignature 스냅샷 기준 — 그 사이 마법사 단계를 더 만졌어도 영향 없음)를
-// 여기 채워 넣는다. 새로고침하면 사라지는, 세션 한정 캐시다.
-const recentJobCheckpoints = {};
+// 채워짐)는 거의 항상 빈 채로 남는다 — 즉 실제로 만드는 작업 대부분(마법사 경로)에서
+// 카드 둘째 줄이 비게 된다. 정확히 알아내려면 결국 워크플로우 파일을 열어 체크포인트
+// 로더 노드를 찾아야 한다: /api/jobs/{id}/workflow(이미 "워크플로우 수정" 기능이 쓰는
+// 엔드포인트, 읽기는 상태 제한 없음)로 한 번 받아 jobWorkflowCheckpointCache에 영구
+// 캐시한다 — 카드가 몇 번을 다시 그려져도 같은 작업은 다시 안 받는다. 동기 함수인
+// jobBaseModelLabel 안에서 fetch를 기다릴 수는 없어서, 캐시에 없으면 백그라운드로
+// 한 번만 받아오기 시작하고(fetchJobWorkflowCheckpoint) 이번 렌더에는 빈 줄로 둔다 —
+// 받아오면 시그니처를 지워 다음 폴링 tick에 카드를 다시 그리게 한다.
+const jobWorkflowCheckpointCache = {};   // jobId -> 체크포인트 파일명 | null(못 찾음/실패)
+const jobWorkflowCheckpointPending = new Set();
+
+function findCheckpointInWorkflow(wf){
+  for(const node of Object.values(wf || {})){
+    if(!node || typeof node !== 'object') continue;
+    const inputs = node.inputs || {};
+    if(node.class_type === 'CheckpointLoaderSimple' && inputs.ckpt_name) return inputs.ckpt_name;
+    if((node.class_type === 'UNETLoader' || node.class_type === 'UnetLoaderGGUF') && inputs.unet_name) return inputs.unet_name;
+  }
+  return null;
+}
+
+async function fetchJobWorkflowCheckpoint(jobId){
+  if(jobId in jobWorkflowCheckpointCache || jobWorkflowCheckpointPending.has(jobId)) return;
+  jobWorkflowCheckpointPending.add(jobId);
+  try{
+    const res = await fetch(`/api/jobs/${jobId}/workflow`);
+    jobWorkflowCheckpointCache[jobId] = res.ok ? findCheckpointInWorkflow(await res.json()) : null;
+  }catch(e){
+    jobWorkflowCheckpointCache[jobId] = null;
+  }finally{
+    jobWorkflowCheckpointPending.delete(jobId);
+    lastJobsRowsSignature = null;   // 알아낸 값을 카드에 반영하도록 다음 tick에 강제로 다시 그린다
+  }
+}
+
 function jobBaseModelLabel(j){
-  const ckpt = recentJobCheckpoints[j.id] || (j.options && j.options.checkpoint);
+  const ckpt = j.options && j.options.checkpoint;
   if(ckpt) return modelEntry('checkpoints', ckpt).base_model || ckpt;
   // wan22/minimax-h3 영상 템플릿은 체크포인트 드롭다운이 아예 없다(고정 내장 모델).
   const tid = j.template_id || '';
   if(tid.startsWith('wan22_')) return 'Wan 2.2';
   if(tid.startsWith('minimax_h3_')) return 'MiniMax-H3';
+  if(j.workflow_filename){
+    if(j.id in jobWorkflowCheckpointCache){
+      const found = jobWorkflowCheckpointCache[j.id];
+      if(found) return modelEntry('checkpoints', found).base_model || found;
+    }else{
+      fetchJobWorkflowCheckpoint(j.id);
+    }
+  }
   return '';
 }
 
@@ -4522,10 +4560,13 @@ async function loadJobDetailOutputs(jobId){
     return;
   }
   try{
-    const qs = isNsfwHidden() ? '?hide_nsfw=true' : '';
+    // 헤더의 NSFW "숨김" 모드를 여기선 안 따른다 — 이 모달은 이미 그 작업의 원본
+    // 프롬프트(NSFW일 수 있음)를 그대로 보여주는 화면이라, 생성물만 따로 가리면
+    // 같은 모달 안에서 앞뒤가 안 맞는다. 본인이 만든 작업을 직접 눌러 들어온
+    // 상세 화면이라 메인 갤러리(둘러보다 우연히 마주칠 수 있는 곳)와는 성격이 다르다.
     const [imgRes, vidRes] = await Promise.all([
-      fetch('/api/output-images' + qs),
-      fetch('/api/output-videos' + qs),
+      fetch('/api/output-images'),
+      fetch('/api/output-videos'),
     ]);
     const imgData = await imgRes.json();
     const vidData = await vidRes.json();
@@ -6296,15 +6337,6 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   submitBtnEl.innerHTML = ico('circle-check') + ' 추가됨';
   setTimeout(() => { submitBtnEl.innerHTML = originalLabel; }, 1200);
   const createdJob = await res.json().catch(() => null);
-  // Job 카드의 베이스 모델 줄(jobBaseModelLabel)이 이 작업을 알아볼 수 있게 — 마법사가
-  // 지금 첨부된 워크플로우를 만들 때 실제로 골랐던 체크포인트를 스냅샷(wizardAppliedSignature)
-  // 에서 꺼내 심어 둔다.
-  if(createdJob && wizardAppliedSignature){
-    try{
-      const snap = JSON.parse(wizardAppliedSignature);
-      if(snap.checkpoint) recentJobCheckpoints[createdJob.id] = snap.checkpoint;
-    }catch(e){ /* 못 읽어도 jobBaseModelLabel이 다른 방식으로 추정한다 */ }
-  }
   if(createdJob && createdJob.status === 'queued' && !createdJob.pod_id){
     flashNotice('대기 큐에 넣었어요 — 필요한 모델을 갖춘 파드가 살아 있으면 바로 시작해요.');
   }
