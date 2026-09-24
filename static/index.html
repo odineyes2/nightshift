@@ -1667,6 +1667,30 @@
     .db-cols{ grid-template-columns: 32px minmax(90px,1.6fr) minmax(70px,1fr) 46px; }
     .db-cols > :nth-child(n+5){ display:none; }
   }
+  /* ---- DB 탭 — 업데이트 내역(git 커밋 로그). 커밋마다 본문 길이가 제각각이라
+     표 대신 세로로 쌓는 목록이 낫다. ---- */
+  .changelog-list{ display:flex; flex-direction:column; }
+  .changelog-entry{ padding:10px 8px; border-bottom:1px solid var(--border); }
+  .changelog-entry:last-child{ border-bottom:none; }
+  .changelog-entry:nth-child(odd){ background:rgba(255,255,255,0.02); }
+  .changelog-head{
+    display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px;
+    font-family:var(--mono); font-size:11px; color:var(--text-dim);
+    margin-bottom:4px;
+  }
+  .changelog-version{
+    color:var(--text); background:var(--bg); border:1px solid var(--border);
+    border-radius:4px; padding:1px 6px;
+  }
+  .changelog-tag{
+    color:var(--queued); background:rgba(var(--queued-rgb),0.08);
+    border-radius:4px; padding:1px 6px; font-weight:600;
+  }
+  .changelog-title{ font-size:13.5px; font-weight:600; color:var(--text); }
+  .changelog-body{
+    font-size:12.5px; color:var(--text-dim); line-height:1.5;
+    white-space:pre-wrap; margin-top:3px;
+  }
  /* 아직 family로 등록 안 된{
     display:flex; flex-wrap:wrap; align-items:center; gap:8px;
     padding:8px 12px; margin-bottom:10px;
@@ -3160,8 +3184,8 @@
   </div>
 </main>
 
-<!-- DB — 앱이 쌓아 둔 여러 데이터베이스 기록을 표로 보여준다. 지금은 RunPod 세션
-     (사용 내역) 하나뿐이지만, 나중에 다른 표를 고르는 셀렉터를 앞에 붙이면 된다.
+<!-- DB — 앱이 쌓아 둔 여러 데이터베이스 기록을 표로 보여준다. 지금은 패널 두 개를
+     세로로 쌓아 뒀다(RunPod 세션, 업데이트 내역) — 더 늘어나면 그때 선택 UI를 고민한다.
      admin만 볼 수 있다(비용 정보라 회원 관리와 같은 기준). -->
 <main id="tab-db" style="display:none;">
   <div class="panel">
@@ -3181,6 +3205,25 @@
     <div class="panel-body">
       <div class="upload-error" id="db-runpod-sessions-error"></div>
       <div id="db-runpod-sessions-list"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label">
+        <svg class="ico"><use href="#i-history"/></svg> 업데이트 내역
+        <span class="help-tip" id="db-git-log-hint-tip">
+          <button class="help-tip-btn" type="button" id="db-git-log-hint-btn" aria-label="도움말"><svg class="ico"><use href="#i-circle-help"/></svg></button>
+          <span class="help-tip-pop">nightshift 저장소의 git 커밋 기록을 그대로 보여줘요 — 따로 기록하는 동작 없이, 평소 커밋 메시지가 곧 이 목록이에요.</span>
+        </span>
+      </div>
+      <div class="panel-header-actions">
+        <span class="gallery-count" id="db-git-log-count"></span>
+        <button class="load-btn" id="db-git-log-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="upload-error" id="db-git-log-error"></div>
+      <div id="db-git-log-list"></div>
     </div>
   </div>
 </main>
@@ -8157,8 +8200,7 @@ document.getElementById('admin-refresh-btn').addEventListener('click', fetchAdmi
 // 승인 대기 배지를 최신으로 — 관리자일 때만 30초마다 확인한다.
 setInterval(() => { if(isAdminUser()) fetchAdminUsers(); }, 30000);
 
-// ---- DB 탭 — RunPod 세션(사용 내역). 지금은 이 표 하나뿐이지만, 나중에 다른
-// 기록도 같은 탭에서 고를 수 있게 늘릴 수 있다. ----
+// ---- DB 탭 — RunPod 세션(사용 내역). ----
 let runpodSessions = [];
 
 async function fetchRunpodSessions(){
@@ -8212,23 +8254,64 @@ function renderRunpodSessions(){
 
 document.getElementById('db-runpod-sessions-refresh-btn').addEventListener('click', fetchRunpodSessions);
 
+// ---- DB 탭 — 업데이트 내역(git 커밋 로그, git_log.py). nightshift 저장소의 커밋을
+// 그대로 읽어 보여준다 — 따로 기록하는 동작이 없다(커밋 메시지가 곧 이 목록). ----
+let gitLogCommits = [];
+
+async function fetchGitLog(){
+  const errorEl = document.getElementById('db-git-log-error');
+  errorEl.textContent = '';
+  try{
+    const res = await fetch('/api/git-log');
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '불러오지 못했어요.');
+    gitLogCommits = data.commits || [];
+  }catch(e){
+    errorEl.textContent = e.message || '불러오지 못했어요 — 연결을 확인하세요.';
+    return;
+  }
+  renderGitLog();
+}
+
+function renderGitLog(){
+  document.getElementById('db-git-log-count').textContent = `${gitLogCommits.length}개`;
+  const list = document.getElementById('db-git-log-list');
+  if(gitLogCommits.length === 0){
+    list.innerHTML = '<div class="comfy-model-empty">불러온 커밋이 없어요 — 이 서버가 git 저장소가 아니거나 git이 없을 수 있어요.</div>';
+    return;
+  }
+  list.innerHTML = `<div class="changelog-list">${gitLogCommits.map(c => `
+    <div class="changelog-entry">
+      <div class="changelog-head">
+        <span>#${c.seq}</span>
+        <span>${fmtGalleryDateTime(c.date)}</span>
+        <span class="changelog-version" title="${escapeHtml(c.hash)}">${escapeHtml(c.version)}</span>
+        ${(c.tags || []).map(t => `<span class="changelog-tag">${escapeHtml(t)}</span>`).join('')}
+      </div>
+      <div class="changelog-title">${escapeHtml(c.title)}</div>
+      ${c.content ? `<div class="changelog-body">${escapeHtml(c.content)}</div>` : ''}
+    </div>
+  `).join('')}</div>`;
+}
+
+document.getElementById('db-git-log-refresh-btn').addEventListener('click', fetchGitLog);
+
 // 도움말 "?" — 데스크탑은 :hover로 이미 보이지만, 터치 기기는 호버가 없으니
 // 탭(클릭)으로 open 클래스를 토글해서 열고, 바깥을 클릭하거나 Esc를 누르면 닫는다.
-(() => {
-  const tip = document.getElementById('db-hint-tip');
-  const btn = document.getElementById('db-hint-btn');
-  if(!tip || !btn) return;
-  btn.addEventListener('click', (e) => {
+// 페이지 전체에 위임해 둬서, .help-tip이 몇 개든(지금 DB 탭에 2개) 따로 안 묶어도 된다.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.help-tip-btn');
+  if(btn){
     e.stopPropagation();
-    tip.classList.toggle('open');
+    btn.closest('.help-tip').classList.toggle('open');
+  }
+  document.querySelectorAll('.help-tip.open').forEach(tip => {
+    if(!tip.contains(e.target)) tip.classList.remove('open');
   });
-  document.addEventListener('click', (e) => {
-    if(tip.classList.contains('open') && !tip.contains(e.target)) tip.classList.remove('open');
-  });
-  document.addEventListener('keydown', (e) => {
-    if(e.key === 'Escape') tip.classList.remove('open');
-  });
-})();
+});
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape') document.querySelectorAll('.help-tip.open').forEach(tip => tip.classList.remove('open'));
+});
 
 // 진행 중인 세션이 있으면 시간/비용 추정치가 계속 흐르니, DB 탭을 보는 동안만 20초마다 다시 그린다.
 setInterval(() => {
@@ -9001,7 +9084,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'jobs') fetchJobs();
   if(tab === 'results') renderResultsList();
   if(tab === 'admin') fetchAdminUsers();
-  if(tab === 'db') fetchRunpodSessions();
+  if(tab === 'db'){ fetchRunpodSessions(); fetchGitLog(); }
 
   const want = scopedPodId ? `#pod/${scopedPodId}/${tab}`
     : (scopedProjectId !== null ? `#project/${scopedProjectId}/${tab}` : `#${tab}`);

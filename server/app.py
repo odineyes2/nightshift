@@ -69,6 +69,7 @@ import assets_index
 import share_sessions
 import video_edit
 import db
+import git_log
 import model_download
 import model_registry
 import pod_registry
@@ -2223,6 +2224,14 @@ def get_runpod_sessions(request: Request):
     관리와 같은 기준으로 관리자만 볼 수 있다."""
     admin_only(request)
     return {"sessions": runpod_sessions.list_sessions()}
+
+
+@app.get("/api/git-log")
+def get_git_log(request: Request):
+    """DB 탭 — 업데이트 내역(git_log.py). nightshift 저장소의 git 커밋 로그를 그대로
+    보여준다 — 따로 기록하는 동작이 없다(커밋 메시지가 곧 기록)."""
+    admin_only(request)
+    return {"commits": git_log.list_commits(REPO_ROOT)}
 
 
 def _runpod_sync_loop():
