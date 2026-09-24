@@ -1752,12 +1752,9 @@
   .dl-row{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
   .dl-row .option-input{ flex:1 1 260px; max-width:none; }
   .dl-meta{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); word-break:break-word; }
-  .model-link{
-    font-size:11px; margin-left:6px;
-    background:none; border:none; padding:0;
-    color:var(--queued); cursor:pointer; font-family:inherit;
-  }
-  .model-link:hover{ text-decoration:underline; }
+  /* 복사(.model-link)/열기(.model-link-open) 둘 다 .icon-btn.icon-btn-neutral로 그려진다 —
+     여기서는 라벨과의 간격만 맞춘다. */
+  .model-link, .model-link-open{ margin-left:6px; }
   .model-pod-row{ display:flex; align-items:center; gap:10px; padding:4px 0; font-size:12.5px; }
   .model-pod-row{ flex-wrap:wrap; }
   .model-pod-row .inv-cell, .model-pod-row .inv-off{ white-space:nowrap; }
@@ -7248,7 +7245,9 @@ function modelRowHtml(kind, name, isAdmin){
   if(open){
     const d = modelEditDraft || modelDraftFromEntry(kind, name);
     const dis = isAdmin ? '' : 'disabled';
-    const link = u => isWebUrl(u) ? ` <button type="button" class="model-link" data-copy-url="${escapeHtml(u)}">복사</button>` : '';
+    const link = u => isWebUrl(u) ? `
+      <button type="button" class="icon-btn icon-btn-neutral model-link" data-copy-url="${escapeHtml(u)}" title="주소 복사">${ico('copy')}</button>
+      <button type="button" class="icon-btn icon-btn-neutral model-link-open" data-open-url="${escapeHtml(u)}" title="새 탭에서 열기">${ico('external-link')}</button>` : '';
     const podRows = invPods().map(p => {
       const has = p.connected && (p.models[kind] || []).includes(name);
       let state;
@@ -7443,6 +7442,11 @@ document.getElementById('lora-tab-list').addEventListener('click', (e) => {
   const linkBtn = e.target.closest('.model-link');
   if(linkBtn){
     navigator.clipboard.writeText(linkBtn.dataset.copyUrl).then(() => flashNotice('주소를 복사했어요.'));
+    return;
+  }
+  const openBtn = e.target.closest('.model-link-open');
+  if(openBtn){
+    window.open(openBtn.dataset.openUrl, '_blank', 'noopener');
     return;
   }
   const head = e.target.closest('.model-row-head');
