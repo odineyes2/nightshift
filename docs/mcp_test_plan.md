@@ -14,7 +14,7 @@
 1. 파드에서 최신 코드 받기: `git pull` (`mcp_server.py`, `mcp_smoke_test.py`가 있는지 확인)
 2. 의존성 설치: `pip install -r requirements.txt` (`fastmcp`, `httpx`가 새로 추가됨)
 3. `.env` 확인/설정 (`.env.example` 참고):
-   - 로그인할 회원의 `JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD`를 넣을 것(그 회원의 권한 범위 안에서만 도구가 동작)
+   - MCP 전용 내부 키 `NIGHTSHIFT_MCP_KEY`를 넣을 것(README "MCP 서버 → 인증과 외부 노출" 참고). 예전 방식인 `JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD` 로그인은 키가 없을 때만 쓰인다
    - `JOB_QUEUE_BASE_URL`은 같은 머신이면 비워둬도 됨(기본 `http://127.0.0.1:8000`)
    - `MCP_SERVER_PORT`는 비워두면 8001
    - TC-19~21(파드 자동 동기화)을 실측하려면 `RUNPOD_API_KEY`도 필요(RunPod 콘솔 → Settings → API Keys)

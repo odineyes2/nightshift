@@ -107,7 +107,7 @@ module.exports = {
       cwd: SERVER_DIR,
       env: {
         PYTHONUNBUFFERED: "1",
-        ...dotEnv, // .env의 JOB_QUEUE_BASE_URL/JOB_QUEUE_USER/JOB_QUEUE_PASSWORD/MCP_SERVER_PORT 전달
+        ...dotEnv, // .env의 JOB_QUEUE_BASE_URL/NIGHTSHIFT_MCP_KEY/MCP_SERVER_PORT 등 전달
       },
       autorestart: true,
       max_restarts: 10,

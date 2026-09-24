@@ -1439,6 +1439,22 @@ app = FastAPI(title="RunPod Job Queue", lifespan=lifespan)
 INTERNAL_TOKEN = secrets.token_urlsafe(32)
 os.environ["NIGHTSHIFT_API_KEY"] = INTERNAL_TOKEN
 
+# MCP 서버(mcp_server.py) 전용 내부 키 — MCP 서버가 사람의 admin 비밀번호로 로그인하지 않고도 admin
+# 권한으로 API를 쓰게 한다(그 비밀번호는 JupyterLab 게이트의 열쇠이기도 해서 .env에 적어 두면 안 된다).
+# 이 키는 서버 밖으로 나가지 않는 값이라는 점이 방어선의 전부다. 그래서:
+# - 32자 미만이면 기능 자체를 끈다(빈 값이나 짧은 값으로 통과되는 일이 없게).
+# - Cloudflare 터널로 들어온 요청은 cloudflared가 localhost로 넘겨 주므로 127.0.0.1에서 온 것처럼 보인다.
+#   그래서 접속 주소만 보지 않고, Cloudflare가 반드시 붙이고 보내는 쪽이 지울 수 없는 CF-Connecting-IP
+#   (그리고 프록시가 붙이는 X-Forwarded-For)가 있으면 키가 맞아도 거절한다.
+# - 키로는 회원·세션을 다루는 /api/auth/*, /api/admin/*를 못 쓴다(비밀번호 변경·회원 관리 불가).
+# - 작업 서브프로세스(셸 파드 등)가 물려받지 않도록 환경변수에서 빼 둔다.
+MCP_INTERNAL_KEY = os.environ.pop("NIGHTSHIFT_MCP_KEY", "").strip()
+MCP_KEY_HEADER = "x-nightshift-mcp-key"
+MCP_KEY_MIN_LEN = 32
+MCP_KEY_BLOCKED_RE = re.compile(r"^/api/(auth|admin)/")
+MCP_KEY_PROXY_HEADERS = ("cf-connecting-ip", "x-forwarded-for")
+LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
+
 # 로그인 쿠키에 Domain을 찍으면(예: lomebrote.com) 다른 서브도메인(opencut.lomebrote.com의
 # 로그인 게이트 등)도 같은 쿠키를 받아 SSO가 된다. 비워 두면 지금처럼 이 서브도메인 전용(host-only)이다.
 COOKIE_DOMAIN = os.environ.get("NIGHTSHIFT_COOKIE_DOMAIN", "").strip() or None
@@ -1498,7 +1514,14 @@ async def authenticate_request(request: Request, call_next):
             return JSONResponse({"detail": "요청이 너무 커요."}, status_code=413)
     except ValueError:
         pass
-    user = await asyncio.to_thread(auth.user_for_token, request.cookies.get(auth.SESSION_COOKIE))
+    if request.headers.get(MCP_KEY_HEADER):
+        user = await asyncio.to_thread(_mcp_key_user, request)
+        if user is None:
+            return JSONResponse({"detail": "MCP 내부 키가 올바르지 않거나, 이 경로로는 쓸 수 없어요."}, status_code=401)
+        if MCP_KEY_BLOCKED_RE.match(path):
+            return JSONResponse({"detail": "MCP 내부 키로는 계정·회원 관리 API를 쓸 수 없어요."}, status_code=403)
+    else:
+        user = await asyncio.to_thread(auth.user_for_token, request.cookies.get(auth.SESSION_COOKIE))
     request.state.user = user
     if user is None and path not in PUBLIC_API_PATHS:
         return JSONResponse({"detail": "로그인이 필요해요."}, status_code=401)
@@ -1507,6 +1530,22 @@ async def authenticate_request(request: Request, call_next):
         return await call_next(request)
     finally:
         auth.current_user.reset(ctx_token)
+
+
+def _mcp_key_user(request: Request) -> dict | None:
+    """X-Nightshift-MCP-Key가 맞고, 같은 머신에서 프록시를 거치지 않고 직접 온 요청이면 admin 회원을
+    돌려준다(아니면 None). 조건은 MCP_INTERNAL_KEY 정의부 주석 참고."""
+    if len(MCP_INTERNAL_KEY) < MCP_KEY_MIN_LEN:
+        return None
+    provided = request.headers.get(MCP_KEY_HEADER, "")
+    if not hmac.compare_digest(provided.encode("utf-8"), MCP_INTERNAL_KEY.encode("utf-8")):
+        return None
+    if any(request.headers.get(h) for h in MCP_KEY_PROXY_HEADERS):
+        return None
+    if (request.client.host if request.client else "") not in LOOPBACK_HOSTS:
+        return None
+    admin_id = auth.admin_id()
+    return auth.get_user(admin_id) if admin_id is not None else None
 
 
 def me(request: Request) -> dict:
