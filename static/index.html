@@ -1530,6 +1530,14 @@
   .job-card-title .ico{ width:14px; height:14px; flex:none; color:var(--text-dim); }
   .job-card-title span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   /* 실행 대기(queued)인데 파드를 못 찾은 이유 — 스케줄러가 적어 둔 waiting_reason. 한 줄로 줄이고 전체는 툴팁·상세 창에. */
+  .model-pods-badge{ display:inline-flex; align-items:center; gap:3px; margin-left:8px; font-size:10.5px; font-family:var(--sans); vertical-align:middle; }
+  .model-pods-badge .ico{ width:12px; height:12px; }
+  .model-pods-badge.ok{ color:var(--done); }
+  .model-pods-badge.warn{ color:#EA580C; }
+  .job-card[data-blocked]{ border-left-color:#EA580C; background:rgba(234,88,12,0.05); }
+  .job-card[data-blocked] .job-card-wait{ color:#EA580C; }
+  .job-card .fetch-models-btn{ color:#EA580C; }
+  .job-card-wait.fetching{ color:var(--queued); }
   .job-card-wait{ display:flex; align-items:center; gap:4px; margin-top:2px; font-size:10.5px; color:var(--running); min-width:0; }
   .job-card-wait .ico{ width:12px; height:12px; flex:none; }
   .job-card-wait span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -4322,6 +4330,7 @@ function render(jobs, pendingCount, running, perPod){
     j.progress && j.progress.done, j.progress && j.progress.total,
     j.project_id, j.project_id != null ? projectName(j.project_id) : '',
     preflightCount(j.preflight), j.waiting_reason, j.pinned_pod_id,
+    j.missing_models && j.missing_models.names.join('|'), !!j.fetching_models,
   ]));
   if(rowsSignature === lastJobsRowsSignature) return;
   lastJobsRowsSignature = rowsSignature;
@@ -4368,6 +4377,25 @@ function render(jobs, pendingCount, running, perPod){
           const data = await res.json().catch(() => ({}));
           alert(data.detail || '시작하지 못했어요.');
         }
+      }finally{
+        fetchJobs();
+      }
+    });
+  });
+
+  board.querySelectorAll('.fetch-models-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      btn.disabled = true;
+      try{
+        const res = await fetch(`/api/jobs/${btn.dataset.fetchModels}/fetch-missing`, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if(!res.ok){ alert(data.detail || '모델을 받지 못했어요.'); return; }
+        const lines = [];
+        if(data.started.length) lines.push(`받기 시작: ${data.started.join(', ')}\n다 받으면 작업이 저절로 시작해요.`);
+        if(data.no_url.length) lines.push(`다운로드 주소가 없어 못 받음: ${data.no_url.join(', ')}\n→ "모델" 탭에서 다운로드 주소를 등록한 뒤 다시 눌러 주세요.`);
+        if(data.failed.length) lines.push(`실패: ${data.failed.map(f => `${f.name} (${f.detail})`).join(', ')}`);
+        if(lines.length) alert(lines.join('\n\n'));
       }finally{
         fetchJobs();
       }
@@ -4494,6 +4522,10 @@ function buildJobCard(j){
   const progress = j.progress;
   const progressPct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
   const waitingForPod = j.status === 'queued' && !j.pod_id;   // 대기 큐에서 갖춘 파드를 기다리는 중
+  // 조치 필요 — 연결된 파드는 있는데 모델이 없어서 못 도는 상태(스케줄러의 missing_models). 모델을
+  // 받으면 저절로 시작되므로 실패로 치지 않고, 카드를 주황으로 구분하고 "없는 모델 받기"를 준다.
+  const blocked = waitingForPod && !!(j.missing_models && j.missing_models.names && j.missing_models.names.length);
+  const fetching = waitingForPod && !!j.fetching_models;
   const pfCount = ['pending', 'queued', 'interrupted', 'failed'].includes(j.status) ? preflightCount(j.preflight) : 0;
   const preflightBadge = pfCount
     ? `<span class="pod-badge preflight-badge" title="${escapeHtml('등록할 때 이 작업이 갈 파드에 없던 것들:\n' + preflightLines(j.preflight).join('\n'))}">${ico('triangle-alert')} 모델 ${pfCount}</span>` : '';
@@ -4503,12 +4535,14 @@ function buildJobCard(j){
   const deletable = j.status !== 'running' && (j.status !== 'queued' || waitingForPod);
 
   return `
-    <div class="job-card" data-id="${j.id}" data-status="${j.status}">
+    <div class="job-card" data-id="${j.id}" data-status="${j.status}"${blocked ? ' data-blocked="1"' : ''}>
       ${preflightBadge}
       <div>
         <div class="job-card-title">${kindIcon}<span>${escapeHtml(batchLabel)}</span></div>
         ${baseModel ? `<div class="job-card-base">${escapeHtml(baseModel)}</div>` : ''}
-        ${waitingForPod && j.waiting_reason ? `<div class="job-card-wait" title="${escapeHtml(j.waiting_reason)}">${ico('triangle-alert')}<span>${escapeHtml(j.waiting_reason)}</span></div>` : ''}
+        ${fetching
+          ? `<div class="job-card-wait fetching" title="${escapeHtml(j.fetching_models.names.join('\n'))}">${ico('loader-circle', true)}<span>모델 받는 중 — 다 받으면 저절로 시작해요</span></div>`
+          : waitingForPod && j.waiting_reason ? `<div class="job-card-wait" title="${escapeHtml(j.waiting_reason)}">${ico('triangle-alert')}<span>${escapeHtml(j.waiting_reason)}</span></div>` : ''}
       </div>
       ${progress ? `
         <div class="progress-wrap">
@@ -4520,6 +4554,7 @@ function buildJobCard(j){
           ? `<button class="del-btn" data-del="${j.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg></button>`
           : `<button class="del-btn" disabled title="진행 중인 작업은 먼저 정지해야 삭제할 수 있어요"><svg class="ico"><use href="#i-trash-2"/></svg></button>`}
         ${j.status === 'running' ? `<button class="stop-btn" data-stop="${j.id}" title="이 작업만 정지해요 — 상태가 '정지'로 바뀌면 삭제할 수 있어요"><svg class="ico"><use href="#i-pause"/></svg></button>` : ''}
+        ${blocked && !fetching ? `<button class="fetch-models-btn" data-fetch-models="${j.id}" title="'${escapeHtml(j.missing_models.pod_name)}'에 없는 모델(${escapeHtml(j.missing_models.names.join(', '))})을 등록부의 다운로드 주소로 받아요 — 다 받으면 저절로 시작해요"><svg class="ico"><use href="#i-download"/></svg></button>` : ''}
         ${j.status === 'queued' ? `<button class="pause-btn" data-pause="${j.id}" title="실행 대기 중 — 누르면 일시정지해요(빈 파드가 있어도 시작하지 않아요)"><svg class="ico"><use href="#i-pause"/></svg></button>` : ''}
         ${startable ? `<button class="start-btn" data-start="${j.id}" title="${j.status === 'pending' ? '일시정지 중 — 누르면 실행 대기로 넘어가요(빈 파드가 있으면 바로 시작)' : '이 작업을 다시 시작해요'}"><svg class="ico"><use href="#i-play"/></svg></button>` : ''}
       </div>
@@ -4840,6 +4875,7 @@ const setCsvFile = setupSlot('csv-slot', 'csv-input', 'csv', '.csv');
 
 function resetForm(){
   setLoraTriggerField([]);
+  lastWizardModels = null;
   setWorkflowFile(null);
   setVideoWorkflowFile(null);
   setCsvFile(null);
@@ -6307,6 +6343,16 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   // 프롬프트" 체크박스가 켜져 있으면 지금 시드 개수/Danbooru 상태로 다시 계산한다.
   danbooruPreSubmitHooks.forEach(fn => fn());
 
+  // 마법사로 만든 작업이면, 고른 체크포인트/LoRA 중 켜진 파드 어디에도 없는 게 있는지 먼저 알려 준다.
+  // 막지는 않는다 — 대기 칸의 "없는 모델 받기"로 나중에 받을 수 있다. 켜진 파드가 없으면 판단을 안 한다.
+  if(lastWizardModels){
+    await fetchModelInventory(false);
+    const wanted = [['checkpoints', lastWizardModels.checkpoint], ...lastWizardModels.loras.map(n => ['loras', n])];
+    const absent = wanted.filter(([kind, name]) => { const pods = podsWithModel(kind, name); return pods !== null && pods.length === 0; })
+                         .map(([, name]) => name);
+    if(absent.length && !confirm(`켜진 파드 어디에도 없는 모델이 있어요:\n- ${absent.join('\n- ')}\n\n그래도 추가할까요? 이 작업은 대기 칸에서 주황색 "조치 필요"로 보이고, 카드의 "없는 모델 받기"로 받을 수 있어요.`)) return;
+  }
+
   const form = new FormData();
   form.append('template_id', templateId);
   // "추가"는 항상 일시정지(pending) 상태로 대기 칸에 넣는다 — 자동으로 곧장
@@ -6787,6 +6833,20 @@ async function fetchComfyObjectInfo(force){
 // 모델" 모달에서 입력할 때마다 로컬 캐시를 즉시 갱신 + 서버에는 살짝 늦게(디바운스)
 // 저장한다 — "워크플로우" 탭에서 LoRA를 고를 때 바로 조회해서 쓴다.
 let loraTriggers = {};
+// 마법사가 마지막으로 적용한 체크포인트/LoRA — 추가할 때 "켜진 파드 어디에도 없는 모델" 경고에 쓴다(resetForm이 비움).
+var lastWizardModels = null;
+
+// 그 모델이 설치된 "연결된" 파드 이름들(modelInventory 기준). 연결된 파드가 하나도 없거나 목록을 아직
+// 못 받았으면 null — 모른다는 뜻이라 배지·경고를 띄우지 않는다(파드가 꺼져 있는 건 정상이다).
+// ComfyUI는 하위 폴더까지 붙인 이름을 주므로 파일 이름(마지막 경로 조각)으로도 맞춰 본다.
+function podsWithModel(kind, name){
+  if(!modelInventory || !name) return null;
+  const connected = (modelInventory.pods || []).filter(p => p.connected);
+  if(!connected.length) return null;
+  const base = String(name).split(/[\\/]/).pop();
+  return connected.filter(p => ((p.models || {})[kind] || []).some(m => m === name || String(m).split(/[\\/]/).pop() === base))
+                  .map(p => p.name);
+}
 
 async function fetchLoraTriggers(){
   try{
@@ -7869,8 +7929,20 @@ async function openWizardLoraModal(){
   const body = document.getElementById('wizard-lora-modal-body');
   body.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
   openWizardModal('wizard-lora-modal');
-  try{ await fetchComfyObjectInfo(false); }catch(e){ /* 아래에서 연결 안 됨으로 안내 */ }
+  await Promise.all([
+    fetchComfyObjectInfo(false).catch(() => { /* 아래에서 연결 안 됨으로 안내 */ }),
+    fetchModelInventory(false),
+  ]);
   renderWizardLoraModal();
+}
+
+// LoRA 목록의 설치 현황 배지 — 켜진 파드 중 어디에 있나. 없으면 경고(고를 수는 있다: 대기 칸에서 받으면 됨).
+function loraPodsBadge(name){
+  const pods = podsWithModel('loras', name);
+  if(pods === null) return '';
+  return pods.length
+    ? `<span class="model-pods-badge ok" title="설치된 파드: ${escapeHtml(pods.join(', '))}">${ico('circle-check')} ${escapeHtml(pods.join(', '))}</span>`
+    : `<span class="model-pods-badge warn" title="켜진 파드 어디에도 없어요 — 골라도 되지만, 작업이 대기 칸에서 '없는 모델 받기'를 기다려요">${ico('triangle-alert')} 켜진 파드에 없음</span>`;
 }
 
 function renderWizardLoraModal(){
@@ -7898,7 +7970,7 @@ function renderWizardLoraModal(){
     const picked = wizard.loras.find(l => l.name === name);
     return `
       <div class="wizard-pick-row${picked ? ' selected' : ''}" data-lora-name="${escapeHtml(name)}">
-        <div class="wizard-pick-row-label">${escapeHtml(name)}</div>
+        <div class="wizard-pick-row-label">${escapeHtml(name)}${loraPodsBadge(name)}</div>
         ${picked ? `<input type="number" class="option-input wizard-pick-row-strength wizard-lora-strength-input" data-lora-name="${escapeHtml(name)}" value="${picked.strength}" step="0.05">` : ''}
       </div>`;
   }).join('')}</div>`;
@@ -8076,6 +8148,7 @@ async function wizardApply(){
   }
 
   setLoraTriggerField(wizard.loras.map(l => l.name));
+  lastWizardModels = { checkpoint: wizard.checkpoint, loras: wizard.loras.map(l => l.name) };
 
   const typeSlug = isPreset ? wizard.preset : [wizard.base, architecture === 'sdxl' && wizard.post.hires_fix && 'hires', architecture === 'sdxl' && wizard.post.usdu && 'usdu'].filter(Boolean).join('_');
   setWorkflowFile(new File([JSON.stringify(workflow)], `wizard_${typeSlug}_workflow.json`, { type: 'application/json' }));
