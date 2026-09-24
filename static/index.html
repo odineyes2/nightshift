@@ -2900,7 +2900,7 @@
     <select class="pod-bar-select" id="pod-bar-select" title="다른 파드로 이동"></select>
     <span class="pod-bar-kind" id="pod-bar-kind"></span>
     <span class="pod-bar-links" id="pod-bar-links"></span>
-    <button class="load-btn" id="pod-bar-settings" type="button" title="이 파드 설정" aria-label="이 파드 설정"><svg class="ico"><use href="#i-settings"/></svg></button>
+    <button class="load-btn" id="pod-bar-settings" type="button" style="display:none;" title="이 파드 설정" aria-label="이 파드 설정"><svg class="ico"><use href="#i-settings"/></svg></button>
     <div class="pod-bar-subtabs" id="pod-bar-subtabs"></div>
   </div>
 </div>
@@ -3080,6 +3080,14 @@
       <div class="upload-form">
         <div class="upload-error" id="load-error"></div>
         <div class="load-notice" id="load-notice"></div>
+
+        <!-- 마법사에서 고른 LoRA의 트리거 키워드("모델" 탭 등록부) — 제출할 때 프롬프트 앞에 붙인다
+             (applyLoraTriggerToForm). 사용자가 눈으로 확인·수정할 수 있게 입력칸으로 보여준다. -->
+        <div class="field lora-trigger-field" id="lora-trigger-field" style="display:none;">
+          <label class="field-label" for="lora-trigger-input">LoRA 트리거 키워드</label>
+          <input type="text" class="option-input" id="lora-trigger-input" autocomplete="off" spellcheck="false" placeholder="비워두면 붙이지 않아요">
+          <div class="email-hint" id="lora-trigger-hint"></div>
+        </div>
 
         <div class="options-fields" id="options-fields"></div>
 
@@ -4433,6 +4441,7 @@ const setVideoWorkflowFile = setupSlot('video-workflow-slot', 'video-workflow-in
 const setCsvFile = setupSlot('csv-slot', 'csv-input', 'csv', '.csv');
 
 function resetForm(){
+  setLoraTriggerField([]);
   setWorkflowFile(null);
   setVideoWorkflowFile(null);
   setCsvFile(null);
@@ -5983,9 +5992,20 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   if(template && template.optional_video_workflow && selectedFiles.video_workflow){
     form.append('video_workflow', selectedFiles.video_workflow);
   }
-  if(template && template.requires_csv) form.append('csv', selectedFiles.csv);
+  const loraField = document.getElementById('lora-trigger-field');
+  const loraTrigger = loraField && loraField.style.display !== 'none'
+    ? document.getElementById('lora-trigger-input').value.trim() : '';
+  if(template && template.requires_csv){
+    form.append('csv', loraTrigger ? await csvWithLoraTrigger(selectedFiles.csv, template, loraTrigger) : selectedFiles.csv);
+  }
   optionsFields.querySelectorAll('.option-input').forEach(input => {
-    form.append(input.dataset.name, input.value);
+    let value = input.value;
+    if(loraTrigger && input.dataset.name === 'main_prompt') value = prependLoraTrigger(value, loraTrigger);
+    if(loraTrigger && input.dataset.name === 'danbooru_seed_prompts' && value.trim()){
+      // 시드마다 다른 프롬프트(JSON 배열)는 MAIN_PROMPT를 대신하므로 각각에도 붙인다.
+      try{ value = JSON.stringify(JSON.parse(value).map(p => typeof p === 'string' && p.trim() ? prependLoraTrigger(p, loraTrigger) : p)); }catch(e){}
+    }
+    form.append(input.dataset.name, value);
   });
 
   const res = await fetch('/api/upload', { method: 'POST', body: form });
@@ -6457,6 +6477,64 @@ function getLoraEntry(name){
   const entry = loraTriggers[name];
   if(entry && typeof entry === 'object') return { trigger: entry.trigger || '', baseId: entry.base_id || '' };
   return { trigger: '', baseId: '' };
+}
+
+// LoRA의 트리거 키워드. ComfyUI는 하위 폴더까지 붙인 이름(예: sdxl/foo.safetensors)을 주는데
+// 등록부에는 파일 이름만 적혀 있을 수 있어서, 정확히 안 맞으면 파일 이름(마지막 경로 조각)으로 한 번 더 찾는다.
+function loraTriggerFor(name){
+  const exact = getLoraEntry(name).trigger;
+  if(exact) return exact;
+  const base = String(name || '').split(/[\\/]/).pop();
+  for(const [key, entry] of Object.entries(loraTriggers)){
+    if(String(key).split(/[\\/]/).pop() === base && entry && entry.trigger) return entry.trigger;
+  }
+  return '';
+}
+
+// 세부 설정 탭의 "LoRA 트리거 키워드" 칸을 고른 LoRA들로 채운다(LoRA가 없으면 숨김).
+function setLoraTriggerField(loraNames){
+  const field = document.getElementById('lora-trigger-field');
+  if(!field) return;
+  const input = document.getElementById('lora-trigger-input');
+  const hint = document.getElementById('lora-trigger-hint');
+  if(!loraNames || loraNames.length === 0){ field.style.display = 'none'; input.value = ''; return; }
+  const triggers = [...new Set(loraNames.map(loraTriggerFor).map(t => t.trim()).filter(Boolean))];
+  const missing = loraNames.filter(n => !loraTriggerFor(n));
+  input.value = triggers.join(', ');
+  field.style.display = '';
+  hint.textContent = (triggers.length
+      ? '작업을 추가할 때 프롬프트 앞에 자동으로 붙어요(CSV 순회면 각 행의 트리거 프롬프트 칸). 이미 들어 있으면 다시 붙이지 않고, 칸을 비우면 붙이지 않아요.'
+      : '')
+    + (missing.length ? `${triggers.length ? ' ' : ''}트리거 키워드가 등록되지 않은 LoRA: ${missing.join(', ')} — 필요하면 여기 직접 적거나 "모델" 탭에 등록하세요.` : '');
+}
+
+// 트리거를 프롬프트 앞에 붙인다. 프롬프트가 비었으면 트리거만, 이미 들어 있으면 그대로.
+function prependLoraTrigger(text, trigger){
+  const t = (trigger || '').trim();
+  const v = text || '';
+  if(!t) return v;
+  if(!v.trim()) return t;
+  if(v.toLowerCase().includes(t.toLowerCase())) return v;
+  return `${t}, ${v}`;
+}
+
+// CSV 파일의 모든 행에 트리거를 넣은 새 파일을 만든다 — trigger_prompt 칸이 있는 템플릿은 그 칸에,
+// 없으면 main_prompt(또는 prompt) 칸에. 원래 파일은 그대로 두고 제출하는 사본만 바꾼다.
+async function csvWithLoraTrigger(file, template, trigger){
+  const cols = (template.csv_columns || []).map(c => c.name);
+  const { header, rows } = parseCsvText(await file.text());
+  if(!header.length) return file;
+  const target = cols.includes('trigger_prompt') ? 'trigger_prompt'
+    : (header.includes('main_prompt') ? 'main_prompt' : (header.includes('prompt') ? 'prompt' : 'main_prompt'));
+  const outHeader = header.includes(target) ? header : [...header, target];
+  const lines = [outHeader.map(csvFieldEscape).join(',')];
+  for(const row of rows){
+    // 같은 행의 다른 프롬프트 칸에 이미 들어 있으면(사용자가 직접 넣은 경우) 두 번 붙이지 않는다.
+    const already = ['trigger_prompt', 'main_prompt', 'prompt'].some(c => (row[c] || '').toLowerCase().includes(trigger.toLowerCase()));
+    if(!already) row[target] = prependLoraTrigger(row[target] || '', trigger);
+    lines.push(outHeader.map(h => csvFieldEscape(row[h])).join(','));
+  }
+  return new File([lines.join('\r\n') + '\r\n'], file.name, { type: 'text/csv' });
 }
 
 // ---- 베이스 모델 그룹 ----
@@ -7670,6 +7748,8 @@ async function wizardApply(){
     }
   }
 
+  setLoraTriggerField(wizard.loras.map(l => l.name));
+
   const typeSlug = isPreset ? wizard.preset : [wizard.base, architecture === 'sdxl' && wizard.post.hires_fix && 'hires', architecture === 'sdxl' && wizard.post.usdu && 'usdu'].filter(Boolean).join('_');
   setWorkflowFile(new File([JSON.stringify(workflow)], `wizard_${typeSlug}_workflow.json`, { type: 'application/json' }));
 
@@ -8877,7 +8957,7 @@ function renderDashboard(){
   }));
   canvas.querySelectorAll('[data-pod-open]').forEach(card => card.addEventListener('click', (e) => {
     if(e.target.closest('button, select, a')) return; // ⚙ 설정, ▶ 시작/⏸ 정지는 자기 할 일만 한다
-    showTab('jobs', { podId: card.dataset.podOpen });
+    showTab(podDefaultTab(podsById[card.dataset.podOpen]), { podId: card.dataset.podOpen });
   }));
   canvas.querySelectorAll('[data-job-pod]').forEach(row => row.addEventListener('click', () => {
     showTab('jobs', { podId: row.dataset.jobPod });
@@ -9203,13 +9283,16 @@ const TAB_MAINS = {
   results: document.getElementById('tab-results'),
 };
 
-const POD_TABS = ['jobs', 'pgallery', 'pvideo', 'results'];
+// 작업(Jobs)은 전역 Jobs 탭에서만 관리한다 — 파드 안에는 결과물(갤러리/영상/글)과 설정만 둔다.
+const POD_TABS = ['pgallery', 'pvideo', 'results'];
 // 폰에서는 글자를 숨기고 아이콘만 보이므로(CSS .btn-label), 라벨은 title/aria-label에도 넣는다.
 const POD_TAB_META = {
   jobs:     { icon: 'list-checks', label: 'Jobs' },
   pgallery: { icon: 'images',      label: 'Gallery' },
   pvideo:   { icon: 'clapperboard', label: 'Videos' },
   results:  { icon: 'file-text',   label: 'Results' },
+  // 화면이 아니라 "이 파드 설정" 모달을 여는 서브탭 버튼이다(POD_TABS에 없음 — 탭 전환이 일어나지 않는다).
+  psettings: { icon: 'settings',   label: 'Settings' },
 };
 // 파드 종류가 서브탭 구성을 정한다 — 셸 파드에는 워크플로우도 설치된 모델도 없다.
 // (예전에는 셸 파드만 등록해도 상단에 🧩·🎛 탭이 그대로 보였고, 눌러봐야 빈
@@ -9218,12 +9301,14 @@ const POD_TAB_META = {
 // 자리에 결과가 이미지/영상이 아니라 글이라는 걸 정직하게 반영해 results 탭을
 // 대신 쓴다.
 const POD_SUBTABS = {
-  comfyui: ['jobs', 'pgallery', 'pvideo'],
-  shell: ['jobs', 'pgallery', 'pvideo'],
-  claude_writer: ['jobs', 'results'],
+  comfyui: ['pgallery', 'pvideo', 'psettings'],
+  shell: ['pgallery', 'pvideo', 'psettings'],
+  claude_writer: ['results', 'psettings'],
 };
 
-function podSubtabs(pod){ return POD_SUBTABS[(pod || {}).kind] || ['jobs']; }
+function podSubtabs(pod){ return POD_SUBTABS[(pod || {}).kind] || ['pgallery', 'psettings']; }
+// 파드에 들어갔을 때 처음 여는 화면 — 그 종류의 첫 번째 "진짜" 서브탭(설정 버튼 제외).
+function podDefaultTab(pod){ return podSubtabs(pod).find(t => POD_TABS.includes(t)) || 'pgallery'; }
 
 // ---- "📝 결과" 탭 (Claude 글쓰기 파드) ----
 // 이미지 갤러리와 달리 별도 폴링/캐시 API가 없다 — 목록 자체는 이미 2초마다 도는
@@ -9319,6 +9404,10 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   // 프로젝트 스코프인지 먼저 정한다 — projectId를 명시했거나, 파드를 명시하지 않고 이미
   // 프로젝트 안에서 그 프로젝트의 서브탭으로 옮겨갈 때다. 전역 화면(Home·Jobs·Danbooru 등)에서 "작업"을 열면
   // 마지막에 보던 프로젝트로 끌려 들어가지 않고 전역 Jobs가 열린다(그래야 상단 내비게이션이 유지된다).
+  // 파드를 정해서 "작업"을 열면(카드의 최근 작업, 라이트박스의 "설정 불러오기" 등) 전역 Jobs를 열고
+  // 새 작업 폼의 실행 파드만 그 파드로 맞춘다 — 작업 화면은 이제 파드 안에 없다.
+  if(tab === 'jobs' && podId){ formPodChoice = podId; podId = null; }
+
   let scopedProjectId = null;
   const explicitProject = projectId !== null;
   const stayInProject = podId === null && currentProjectId !== null && PROJECT_TABS.includes(tab);
@@ -9336,7 +9425,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
     scopedPodId = resolvePodId(podId || currentPodId);
     // 파드 목록을 아직 못 읽었으면(첫 로드가 401이었다든지) 갈 곳이 없다.
     if(!scopedPodId) tab = 'dashboard';
-    else if(!podSubtabs(podsById[scopedPodId]).includes(tab)) tab = 'jobs';
+    else if(!podSubtabs(podsById[scopedPodId]).includes(tab)) tab = podDefaultTab(podsById[scopedPodId]);
   }
   currentPodId = scopedPodId;
   currentProjectId = scopedProjectId;
@@ -9347,7 +9436,8 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   jobPodFilter = (tab === 'jobs') ? scopedPodId : null;
   jobProjectFilter = (tab === 'jobs') ? scopedProjectId : null;
 
-  document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  // 파드 안에 있을 때는 상단 내비게이션의 PODS를 켜 둔다(파드 화면은 PODS 아래 층이다).
+  document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab || (!!scopedPodId && b.dataset.tab === 'pods')));
   const targetMain = TAB_MAINS[tab];
   for(const el of new Set(Object.values(TAB_MAINS))){
     el.style.display = (el === targetMain) ? '' : 'none';
@@ -9405,7 +9495,8 @@ function renderPodBar(){
   // 탭들은 "파드 밖" 개념이라, 파드 스코프 바와 같이 떠 있으면 지금 어느 층에
   // 있는지 헷갈린다. 대시보드로는 파드 스코프 바의 "🏠 Home"으로 돌아간다.
   const globalBar = document.getElementById('global-tab-bar');
-  if(globalBar) globalBar.style.display = (currentPodId || currentProjectId !== null) ? 'none' : '';
+  // 파드 안에서도 상단 내비게이션은 그대로 둔다(프로젝트 안에서만 숨긴다).
+  if(globalBar) globalBar.style.display = currentProjectId !== null ? 'none' : '';
   if(!currentPodId){ bar.style.display = 'none'; return; }
   bar.style.display = '';
   const pod = podsById[currentPodId] || {};
@@ -9444,7 +9535,7 @@ function applyHashRoute(){
   const projectMatch = raw.match(/^project\/([^/]+)(?:\/([^/]+))?$/);
   // 모델 탭은 파드 밖으로 나갔다 — 옛 링크(#pod/{id}/lora · #lora)는 전역 모델 탭으로 보낸다.
   if(podMatch && podMatch[2] === 'lora') showTab('models');
-  else if(podMatch) showTab(podMatch[2] || 'jobs', { podId: podMatch[1] });
+  else if(podMatch) showTab(podMatch[2] || podDefaultTab(podsById[podMatch[1]]), { podId: podMatch[1] });
   else if(projectMatch) showTab(projectMatch[2] || 'prgallery', { projectId: projectMatch[1] === 'unassigned' ? 'unassigned' : Number(projectMatch[1]) });
   // 파드 안으로 옮겨간 옛 링크(#jobs · #lora)는 마지막/기본 파드의 같은
   // 화면으로 보낸다 — showTab이 주소도 새 형태로 고쳐 쓴다. #builder처럼 완전히
@@ -9465,7 +9556,9 @@ document.getElementById('pod-bar-settings').addEventListener('click', () => {
 });
 document.getElementById('pod-bar-subtabs').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-pod-tab]');
-  if(btn) showTab(btn.dataset.podTab, { podId: currentPodId });
+  if(!btn) return;
+  if(btn.dataset.podTab === 'psettings'){ openPodEditModal(currentPodId); return; }
+  showTab(btn.dataset.podTab, { podId: currentPodId });
 });
 // 파드를 바꾸면 같은 서브탭을 그 파드에서 연다. "새 작업 추가" 폼은 그대로 두므로,
 // 프롬프트와 옵션을 다 채운 뒤에 어디서 돌릴지 정하는 순서도 그대로 살아 있다
