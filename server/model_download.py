@@ -30,7 +30,10 @@ NODE_DIR = Path(__file__).resolve().parent.parent / "templates" / "comfy_nodes" 
 NODE_VERSION = 1
 FETCH_TIMEOUT = 15
 MODEL_EXT = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf")
-API_HOSTS = {"civitai.com", "www.civitai.com", "huggingface.co", "www.huggingface.co"}
+# Civitai는 civitai.red 같은 다른 도메인도 같은 계정·API 토큰으로 쓴다 — 등록부에 그 주소가 적혀 있으면
+# 토큰이 안 붙어 401이 났다.
+CIVITAI_HOSTS = {"civitai.com", "www.civitai.com", "civitai.red", "www.civitai.red"}
+API_HOSTS = CIVITAI_HOSTS | {"huggingface.co", "www.huggingface.co"}
 
 # Civitai 모델 type -> 등록부 종류
 CIVITAI_KINDS = {
@@ -192,7 +195,7 @@ def resolve(url: str, token: str | None = None) -> dict:
     if parsed.scheme != "https" or not parsed.hostname:
         raise DownloadError("https:// 로 시작하는 주소를 넣어주세요.")
     host = parsed.hostname.lower()
-    if host in ("civitai.com", "www.civitai.com"):
+    if host in CIVITAI_HOSTS:
         return _resolve_civitai(parsed, token)
     if host in ("huggingface.co", "www.huggingface.co"):
         return _resolve_hf(parsed, token)
