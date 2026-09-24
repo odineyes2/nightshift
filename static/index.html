@@ -8679,6 +8679,42 @@ function renderRunpodLine(info){
   return `<div class="dash-card-runpod">${parts.map(p => `<span>${p}</span>`).join('')}</div>`;
 }
 
+// RunPod 전원 버튼 — 옆의 "시작/정지"(작업 큐)와 다르게 RunPod pod 자체를 켜고 끈다(과금이 걸림).
+// 관리자에게만, RunPod 상태를 아는 카드에만 보인다. 상태는 card.runpod.status(RunPod의 desiredStatus).
+function renderRunpodPowerBtn(p){
+  const rp = p.card && p.card.runpod;
+  if(!isAdminUser() || !rp || !rp.status) return '';
+  const id = escapeHtml(p.id);
+  if(rp.status === 'RUNNING')
+    return `<button class="del-btn" type="button" data-runpod-power="stop" data-pod-id-power="${id}" title="RunPod 파드를 꺼요(과금 중지)"><svg class="ico"><use href="#i-cloud"/></svg> RunPod 끄기</button>`;
+  if(rp.status === 'EXITED' || rp.status === 'ERROR'){
+    const cost = rp.cost_per_hr != null ? ` $${Number(rp.cost_per_hr).toFixed(2)}/hr` : '';
+    return `<button class="load-btn" type="button" data-runpod-power="start" data-pod-id-power="${id}" title="RunPod 파드를 켜요(과금 시작)"><svg class="ico"><use href="#i-cloud"/></svg> RunPod 켜기${cost}</button>`;
+  }
+  return '';
+}
+
+async function runpodPower(btn){
+  const podId = btn.dataset.podIdPower, action = btn.dataset.runpodPower;
+  const pod = (dashSummary.pods || []).find(x => x.id === podId) || {};
+  const rp = (pod.card && pod.card.runpod) || {};
+  const cost = rp.cost_per_hr != null ? `시간당 $${Number(rp.cost_per_hr).toFixed(2)}` : '요금';
+  const msg = action === 'start'
+    ? `'${pod.name || podId}'의 RunPod 파드를 켤까요?\n켜는 순간부터 ${cost}이 청구돼요. ComfyUI가 뜨기까지 1~3분 걸려요.`
+    : `'${pod.name || podId}'의 RunPod 파드를 끌까요?\n과금이 멈추고, 네트워크 볼륨의 데이터는 그대로 남아요.`;
+  if(!confirm(msg)) return;
+  btn.disabled = true;
+  btn.lastChild.textContent = action === 'start' ? ' 켜는 중…' : ' 끄는 중…';
+  try{
+    const res = await fetch(`/api/pods/${encodeURIComponent(podId)}/runpod/${action}`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) alert(data.detail || `실패했어요(HTTP ${res.status}).`);
+  }catch(e){
+    alert(`요청하지 못했어요: ${e.message}`);
+  }
+  fetchDashboard();
+}
+
 // 파드 바로가기 — 드라이버의 card()가 만들어 준 card.links(ComfyUI 화면, RunPod면 JupyterLab·
 // 파일 브라우저)를 새 탭 링크로 그린다. http(s)가 아닌 주소는 그리지 않는다.
 function renderPodLinks(links){
@@ -8769,6 +8805,7 @@ function renderPodCard(p){
         ${p.auto_run
           ? `<button class="del-btn" data-pod-stop="${escapeHtml(p.id)}"><svg class="ico"><use href="#i-pause"/></svg> 정지</button>`
           : `<button class="load-btn" data-pod-start="${escapeHtml(p.id)}"${p.enabled ? '' : ' disabled'}><svg class="ico"><use href="#i-play"/></svg> 시작</button>`}
+        ${renderRunpodPowerBtn(p)}
       </div>
     </div>`;
 }
@@ -8834,6 +8871,7 @@ function renderDashboard(){
     await fetch(`/api/pods/${btn.dataset.podStop}/queue/stop`, { method: 'POST' });
     fetchDashboard();
   }));
+  canvas.querySelectorAll('[data-runpod-power]').forEach(btn => btn.addEventListener('click', () => runpodPower(btn)));
   canvas.querySelectorAll('[data-pod-edit]').forEach(btn => btn.addEventListener('click', () => {
     openPodEditModal(btn.dataset.podEdit);
   }));
