@@ -1123,6 +1123,9 @@ def schedule_once() -> None:
                       if p.get("kind") in allowed and (not pinned or p["id"] == pinned)]
         reasons: list[str] = []
         chosen = None
+        # 연결돼 있고 자리도 있는데 모델만 없는 파드 중 가장 적게 모자란 곳 — 카드의 "조치 필요"와
+        # "없는 모델 받기"(POST /api/jobs/{id}/fetch-missing)가 이 값을 쓴다.
+        best_missing: tuple[dict, list[str]] | None = None
         if not candidates:
             if pinned:
                 reasons.append("지정한 파드를 쓸 수 없어요(없어졌거나 사용 안 함)")
@@ -1142,15 +1145,20 @@ def schedule_once() -> None:
                 continue
             if missing:
                 reasons.append(f"'{name}': 없는 것 — {_short_list(missing)}")
+                if best_missing is None or len(missing) < len(best_missing[1]):
+                    best_missing = (pod, missing)
                 continue
             chosen = pod
             break
         if chosen is None:
             reason = " · ".join(reasons)
+            missing_info = ({"pod_id": best_missing[0]["id"], "pod_name": best_missing[0].get("name") or best_missing[0]["id"],
+                             "names": best_missing[1]} if best_missing else None)
             with lock:
-                if job.get("waiting_reason") == reason:
+                if job.get("waiting_reason") == reason and job.get("missing_models") == missing_info:
                     continue
                 job["waiting_reason"] = reason
+                job["missing_models"] = missing_info
             save_state()
             continue
         _snapshot_pod_into_job(job, chosen)
@@ -1160,6 +1168,8 @@ def schedule_once() -> None:
             job["pod_id"] = chosen["id"]
             job["auto_assigned"] = True
             job["waiting_reason"] = None
+            job["missing_models"] = None
+            job["fetching_models"] = None
             job["preflight"] = None
             free[chosen["id"]] -= 1
         save_state()
@@ -4579,10 +4589,93 @@ def pause_job(job_id: str, request: Request):
             raise HTTPException(400, "대기 중인 작업만 일시정지할 수 있어요(실행 중이면 정지를 쓰세요).")
         job["status"] = "pending"
         job["waiting_reason"] = None
+        job["missing_models"] = None
         if job.get("pod_id") and not job.get("pinned_pod_id"):
             job["pod_id"] = None
     save_state()
     return jobs[job_id]
+
+
+def _registry_entry_for(name: str) -> dict | None:
+    """없는 모델 이름(ComfyUI가 쓰는 하위 폴더 포함 경로)으로 등록부 항목을 찾는다 — 정확히 같은 이름이
+    먼저, 없으면 파일 이름(마지막 경로 조각)이 같은 항목."""
+    entries = model_registry.list_entries()
+    base = name.replace("\\", "/").rsplit("/", 1)[-1]
+    exact = [e for e in entries if e["filename"] == name]
+    loose = [e for e in entries if e["filename"].replace("\\", "/").rsplit("/", 1)[-1] == base]
+    for e in exact + loose:
+        if e.get("download_url"):
+            return e
+    return (exact + loose or [None])[0]
+
+
+def _watch_model_downloads(pod: dict, job_id: str, names: list[str]) -> None:
+    """"없는 모델 받기"로 시작한 다운로드가 끝날 때까지 지켜보다가, 끝날 때마다 파드의 설치 목록 캐시를
+    비우고 스케줄러를 깨운다 — 그래야 사람이 모델 탭을 안 열어도 다 받는 즉시 작업이 시작된다."""
+    pending = set(names)
+    deadline = time.monotonic() + 6 * 3600
+    while pending and time.monotonic() < deadline:
+        time.sleep(10)
+        try:
+            result = model_download.call_node(pod, "GET", "/nightshift/dl/status")
+        except Exception:
+            continue
+        finished = False
+        for item in result.get("downloads", []):
+            fname = str(item.get("filename") or "")
+            match = next((n for n in pending if n == fname or n.endswith("/" + fname) or fname.endswith("/" + n)), None)
+            if match and item.get("status") in ("done", "error", "failed", "cancelled"):
+                pending.discard(match)
+                finished = True
+        if finished:
+            ComfyUIDriver.invalidate_capabilities(pod["id"])
+            poke_scheduler()
+    with lock:
+        job = jobs.get(job_id)
+        if job is not None:
+            job["fetching_models"] = None
+    save_state()
+    ComfyUIDriver.invalidate_capabilities(pod["id"])
+    poke_scheduler()
+
+
+@app.post("/api/jobs/{job_id}/fetch-missing")
+async def fetch_missing_models(job_id: str, request: Request):
+    """카드의 "없는 모델 받기" — 스케줄러가 적어 둔 missing_models(그 파드에 없는 모델)를 등록부의 다운로드
+    주소로 그 파드에 받는다. 주소가 없는 모델은 받지 않고 알려 준다. 다 받으면 작업은 저절로 시작된다."""
+    user = me(request)
+    job_or_404(user, job_id)
+    with lock:
+        job = jobs.get(job_id)
+        info = dict(job.get("missing_models") or {}) if job else {}
+    if not info.get("names"):
+        raise HTTPException(400, "받을 모델이 없어요(이미 갖춰졌거나 아직 확인 전이에요).")
+    pod = _download_pod(user, info["pod_id"])
+    token = (auth.get_secrets(user["id"]) or {}).get("civitai_token") or None
+    started, no_url, failed = [], [], []
+    for name in info["names"]:
+        if name.startswith("노드 "):
+            failed.append({"name": name, "detail": "커스텀 노드는 여기서 받을 수 없어요 — 파드에 직접 설치하세요."})
+            continue
+        entry = _registry_entry_for(name)
+        if not entry or not entry.get("download_url"):
+            no_url.append(name)
+            continue
+        body = {"url": entry["download_url"], "folder": entry["kind"], "filename": name, "overwrite": False,
+                "headers": model_download.auth_header_for(entry["download_url"], token)}
+        try:
+            await asyncio.to_thread(model_download.call_node, pod, "POST", "/nightshift/dl/start", body)
+            started.append(name)
+        except model_download.DownloadError as e:
+            failed.append({"name": name, "detail": str(e)})
+    if started:
+        with lock:
+            job = jobs.get(job_id)
+            if job is not None:
+                job["fetching_models"] = {"pod_id": pod["id"], "names": started, "started_at": now_iso()}
+        save_state()
+        threading.Thread(target=_watch_model_downloads, args=(pod, job_id, started), daemon=True).start()
+    return {"pod_id": pod["id"], "started": started, "no_url": no_url, "failed": failed}
 
 
 @app.post("/api/jobs/{job_id}/stop")
