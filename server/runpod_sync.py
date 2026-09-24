@@ -76,11 +76,14 @@ def sync_runpod_pods(owner_id: int, dry_run: bool, ensure_runtime_fn, job_has_ru
             url = f"https://{rpid}-{comfy_port}.proxy.runpod.net"
             existing_pod = existing_by_runpod_id.get(rpid)
             if existing_pod is None:
-                item = {"id": None, "name": rp["name"] or None, "url": url, "runpod_pod_id": rpid}
+                item = {"id": None, "name": None, "runpod_name": rp["name"] or None, "url": url, "runpod_pod_id": rpid}
                 if not dry_run:
+                    # 화면에서 손으로 등록할 때와 똑같이 한다 — 이름은 비워서 (형용사+동물+직급)
+                    # 랜덤 이름을 받고(RunPod가 붙인 이름은 카드의 "RunPod 이름" 줄에 따로 보인다),
+                    # "결과 이미지를 이 서버로 가져오기"는 새 파드 기본값대로 켠다.
                     created = pod_registry.create_pod({
                         "kind": pod_registry.DEFAULT_KIND, "url": url,
-                        "name": rp["name"], "tags": ["runpod", "auto"],
+                        "name": "", "pull_outputs": True, "tags": ["runpod", "auto"],
                         "note": f"runpod:{rpid}", "owner_id": owner_id,
                     })
                     item["id"] = created["id"]
