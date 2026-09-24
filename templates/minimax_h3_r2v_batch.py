@@ -113,6 +113,31 @@ def find_node(workflow, title_substring=None, class_types=()):
     return fallback if fallback else (None, None)
 
 
+def find_prompt_node(workflow):
+    """프롬프트를 넣을 노드 — nightshift 마법사가 만든 워크플로우는 "main_prompt", ComfyUI 공식 MiniMax-H3
+    워크플로우는 "user_prompt"라는 제목을 쓴다. 공식 파일을 그대로 올려도 프롬프트가 빠지지 않게 둘 다 찾는다."""
+    for title in ("main_prompt", "user_prompt"):
+        node_id, node = find_node(workflow, title_substring=title)
+        if node is not None:
+            return node_id, node
+    return None, None
+
+
+def find_duration_node(workflow):
+    """영상 길이(초) 노드 — 마법사는 "video_duration", 공식 워크플로우는 "duration"이다. 공식 파일에는
+    "Float (duration)"처럼 그 값을 연결로 받기만 하는 중계 노드도 있어서, 값이 직접 들어 있는 쪽을 고른다."""
+    node_id, node = find_node(workflow, title_substring="video_duration")
+    if node is not None:
+        return node_id, node
+    for node_id, node in workflow.items():
+        if not isinstance(node, dict) or node.get("class_type") != "PrimitiveFloat":
+            continue
+        title = str(node.get("_meta", {}).get("title", "")).lower()
+        if "duration" in title and not isinstance((node.get("inputs") or {}).get("value"), list):
+            return node_id, node
+    return None, None
+
+
 def apply_seed(workflow, seed):
     node_id, node = find_node(workflow, class_types=("RandomNoise",))
     if node is None:
@@ -125,7 +150,7 @@ def apply_main_prompt(workflow, prompt):
     prompt = (prompt or "").strip()
     if not prompt:
         return
-    node_id, node = find_node(workflow, title_substring="main_prompt")
+    node_id, node = find_prompt_node(workflow)
     if node is None:
         print("[minimax_h3_r2v] 경고: main_prompt 노드를 찾지 못했습니다.", file=sys.stderr)
         return
@@ -141,7 +166,7 @@ def apply_duration(workflow, duration_raw):
     except ValueError:
         print(f"[minimax_h3_r2v] 경고: VIDEO_DURATION 값 '{duration_raw}'을 숫자로 변환하지 못했습니다.", file=sys.stderr)
         return
-    node_id, node = find_node(workflow, title_substring="video_duration")
+    node_id, node = find_duration_node(workflow)
     if node is None:
         print("[minimax_h3_r2v] 경고: video_duration 노드를 찾지 못했습니다.", file=sys.stderr)
         return
