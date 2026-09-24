@@ -1543,6 +1543,11 @@
   .job-card-wait span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .job-card-base{ font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .job-card-actions{ display:flex; gap:2px; justify-content:flex-end; }
+  /* 경과 시간은 버튼 줄 왼쪽 끝 — 버튼들은 그대로 오른쪽에 붙는다. */
+  .job-card-elapsed{ margin-right:auto; align-self:center; display:inline-flex; align-items:center; gap:3px;
+                     font-family:var(--mono); font-size:11px; color:var(--text-dim); font-variant-numeric:tabular-nums; }
+  .job-card-elapsed .ico{ width:12px; height:12px; }
+  .job-card-elapsed.running{ color:var(--running); }
   /* 카드 안에서는 아이콘 자체가 버튼 — .del-btn/.start-btn/.stop-btn을 감싸던 사각
      테두리·배경을 없애고, hover 시 색만(기존 색 규칙 그대로) 살짝 배경으로 드러낸다. */
   .job-card-actions button{
@@ -1830,6 +1835,19 @@
   .db-cell-num{ font-family:var(--mono); color:var(--text-dim); }
   .db-cell-dim{ color:var(--text-dim); }
   .db-cell-open{ color:var(--queued); font-weight:600; }
+  /* RunPod 사용 내역은 좁은 화면에서 열을 숨기지 않고, 한 세션을 두 칸짜리 작은 카드로 접는다 —
+     파드 이름을 맨 위 한 줄에, 나머지는 항목 이름(data-label)을 앞에 붙여 두 칸씩. 시작·종료·시간·비용이
+     전부 보여야 쓸모 있는 표라서다. */
+  @media (max-width:760px){
+    .db-sessions .db-header{ display:none; }
+    .db-sessions .db-cols{ grid-template-columns:repeat(2, minmax(0,1fr)); gap:3px 12px; padding:8px 10px; }
+    .db-sessions .db-cols > *{ display:block !important; min-width:0; overflow-wrap:anywhere; }
+    .db-sessions .db-cell-num{ display:none !important; }
+    .db-sessions .db-cell-name{ grid-column:1 / -1; font-weight:600; }
+    .db-sessions [data-label]::before{ content:attr(data-label); margin-right:6px; font-size:10px; font-family:var(--mono);
+                                       color:var(--text-dim); text-transform:uppercase; letter-spacing:0.04em; }
+    .db-sessions .db-row{ border-bottom:1px solid var(--border); }
+  }
   @media (max-width:760px){
     .db-cols{ grid-template-columns: 32px minmax(90px,1.6fr) minmax(70px,1fr) 46px; }
     .db-cols > :nth-child(n+5){ display:none; }
@@ -4513,6 +4531,31 @@ function jobBaseModelLabel(j){
 // 정사각형 카드 — 최소 정보만: 종류 아이콘+배치 방식(1줄), 베이스 모델(1줄), 진행률
 // (실행 중일 때만), 시작/정지/삭제 아이콘 버튼. 소유자/파드/프로젝트/워크플로우
 // 파일명/상태 텍스트/대기 사유는 전부 상세 모달에서만 보여준다(openJobDetailModal).
+// 작업 카드의 경과 시간 — 실행 중이면 시작부터 지금까지(1초마다 tickJobElapsed가 글자만 갱신해서 카드
+// 전체를 다시 그리지 않는다), 끝난 작업(완료/실패/중단)은 시작부터 끝까지 걸린 시간을 고정으로 보여준다.
+function fmtElapsed(sec){
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+}
+function jobElapsedHtml(j){
+  const start = Date.parse(j.started_at || '');
+  if(!start) return '';
+  if(j.status === 'running'){
+    return `<span class="job-card-elapsed running" data-elapsed-start="${start}" title="실행 경과 시간">${ico('history')} ${fmtElapsed((Date.now() - start) / 1000)}</span>`;
+  }
+  const end = Date.parse(j.finished_at || '');
+  if(!end || !['done', 'failed', 'interrupted'].includes(j.status)) return '';
+  return `<span class="job-card-elapsed" title="걸린 시간">${ico('history')} ${fmtElapsed((end - start) / 1000)}</span>`;
+}
+function tickJobElapsed(){
+  document.querySelectorAll('.job-card-elapsed[data-elapsed-start]').forEach(el => {
+    const text = ' ' + fmtElapsed((Date.now() - Number(el.dataset.elapsedStart)) / 1000);
+    if(el.lastChild && el.lastChild.nodeType === 3) el.lastChild.textContent = text;
+  });
+}
+setInterval(tickJobElapsed, 1000);
+
 function buildJobCard(j){
   const mediaKind = jobMediaKind(j.template_id);
   const kindIcon = mediaKind === 'video' ? '<svg class="ico"><use href="#i-clapperboard"/></svg>'
@@ -4551,6 +4594,7 @@ function buildJobCard(j){
           <span class="progress-text">${progress.done}/${progress.total}</span>
         </div>` : ''}
       <div class="job-card-actions">
+        ${jobElapsedHtml(j)}
         ${deletable
           ? `<button class="del-btn" data-del="${j.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg></button>`
           : `<button class="del-btn" disabled title="진행 중인 작업은 먼저 정지해야 삭제할 수 있어요"><svg class="ico"><use href="#i-trash-2"/></svg></button>`}
@@ -8867,15 +8911,15 @@ function renderRunpodSessions(){
   const rows = runpodSessions.map(s => `
     <div class="db-row db-cols${s.ended_at ? '' : ' db-row-open'}">
       <span class="db-cell-num">${s.id}</span>
-      <span title="${escapeHtml(s.runpod_pod_id)}">${escapeHtml(s.pod_name || s.runpod_pod_id)}</span>
-      <span class="db-cell-dim">${s.gpu_type ? escapeHtml(s.gpu_type) : '-'}</span>
-      <span class="db-cell-dim">${s.vram_gb ? `${s.vram_gb}GB` : '-'}</span>
-      <span>${fmtGalleryDateTime(s.started_at)}</span>
-      <span class="${s.ended_at ? '' : 'db-cell-open'}">${s.ended_at ? fmtGalleryDateTime(s.ended_at) : '진행 중'}</span>
-      <span class="db-cell-dim">${fmtDbDuration(s.duration_sec)}${s.estimated ? ' (추정)' : ''}</span>
-      <span class="db-cell-dim">${fmtDbCost(s.cost_total)}${s.estimated ? ' (추정)' : ''}</span>
+      <span class="db-cell-name" title="${escapeHtml(s.runpod_pod_id)}">${escapeHtml(s.pod_name || s.runpod_pod_id)}</span>
+      <span class="db-cell-dim" data-label="GPU">${s.gpu_type ? escapeHtml(s.gpu_type) : '-'}</span>
+      <span class="db-cell-dim" data-label="VRAM">${s.vram_gb ? `${s.vram_gb}GB` : '-'}</span>
+      <span data-label="시작">${fmtGalleryDateTime(s.started_at)}</span>
+      <span class="${s.ended_at ? '' : 'db-cell-open'}" data-label="종료">${s.ended_at ? fmtGalleryDateTime(s.ended_at) : '진행 중'}</span>
+      <span class="db-cell-dim" data-label="시간">${fmtDbDuration(s.duration_sec)}${s.estimated ? ' (추정)' : ''}</span>
+      <span class="db-cell-dim" data-label="비용">${fmtDbCost(s.cost_total)}${s.estimated ? ' (추정)' : ''}</span>
     </div>`).join('');
-  list.innerHTML = `<div class="db-table">${header}${rows}</div>`;
+  list.innerHTML = `<div class="db-table db-sessions">${header}${rows}</div>`;
 }
 
 document.getElementById('db-runpod-sessions-refresh-btn').addEventListener('click', fetchRunpodSessions);
