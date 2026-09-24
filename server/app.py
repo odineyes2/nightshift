@@ -2221,6 +2221,37 @@ async def test_pod_api(pod_id: str, request: Request):
     return {"pod_id": pod_id, **health}
 
 
+@app.post("/api/pods/{pod_id}/runpod/{action}")
+async def runpod_power(pod_id: str, action: str, request: Request):
+    """파드 카드의 "RunPod 켜기/끄기" — 그 파드 주소에 박힌 RunPod pod를 RunPod API로 켜고 끈 뒤,
+    파드 목록을 RunPod와 맞춘다(runpod_sync — 자동 등록 파드의 사용 여부·사용 내역 기록).
+    돈이 드는 동작이라 관리자만. 끌 때는 그 파드에서 도는 작업이 있으면 막는다(작업이 중간에 죽으므로)."""
+    user = admin_only(request)
+    if action not in runpod_api.POD_ACTIONS:
+        raise HTTPException(404, "알 수 없는 동작이에요.")
+    pod = pod_or_404(user, pod_id)
+    rp_id = runpod_api.extract_pod_id(pod.get("url") or "")
+    if not rp_id:
+        raise HTTPException(400, "RunPod 파드 주소가 아니에요(https://{POD_ID}-{PORT}.proxy.runpod.net).")
+    if action == "stop" and _pod_has_running_job(pod_id):
+        raise HTTPException(409, "이 파드에서 실행 중인 작업이 있어요. 작업을 먼저 멈춘 뒤 꺼 주세요.")
+    status, error = await asyncio.to_thread(runpod_api.pod_action, rp_id, action)
+    if error:
+        raise HTTPException(502, error)
+    if action == "start" and not pod.get("enabled"):
+        # 사람이 일부러 켠 파드는 nightshift에서도 쓰는 게 당연하다(자동 등록 파드는 아래 동기화가 켠다).
+        pod_registry.update_pod(pod_id, {"enabled": True})
+    try:
+        await asyncio.to_thread(runpod_sync.sync_runpod_pods, user["id"], False, ensure_runtime, _pod_has_running_job)
+    except Exception:
+        logging.getLogger("uvicorn.error").exception("RunPod 켜기/끄기 뒤 동기화 실패")
+    with _pod_card_lock:
+        _pod_card_cache.pop(pod_id, None)
+    invalidate_comfy_status_cache(pod_id)
+    ComfyUIDriver.invalidate_capabilities(pod_id)
+    return {"ok": True, "pod_id": pod_id, "runpod_pod_id": rp_id, "status": status}
+
+
 @app.post("/api/pods/{pod_id}/runpod-test")
 async def test_pod_runpod_api(pod_id: str, request: Request):
     """카드에 뜨는 RunPod 메타데이터(card()의 get_runpod_info())는 실패를 전부 조용히

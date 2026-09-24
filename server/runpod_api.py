@@ -214,6 +214,7 @@ def _first(d: dict, *paths):
 def _normalize(raw: dict) -> dict:
     info = {
         "pod_name": _first(raw, "name"),
+        "status": _first(raw, "desiredStatus"),
         "gpu_type": _first(raw, "machine.gpuDisplayName", "gpuDisplayName", "gpuTypeId", "gpu.displayName"),
         "cost_per_hr": _first(raw, "costPerHr", "costPerHour", "adjustedCostPerHr"),
         "created_at": _first(raw, "createdAt", "created_at"),
@@ -228,6 +229,41 @@ def _normalize(raw: dict) -> dict:
 # 파드 카드·스코프 바의 바로가기 — RunPod 공식 ComfyUI 이미지가 여는 웹 서비스들. 파드에 실제로
 # 열린 http 포트만 링크로 만든다(템플릿마다 다를 수 있으므로 추측해서 만들지 않는다).
 PROXY_LINK_PORTS = [("8188", "comfyui", "ComfyUI"), ("8888", "jupyter", "JupyterLab"), ("8080", "files", "파일 브라우저")]
+
+
+POD_ACTIONS = ("start", "stop")
+
+
+def pod_action(pod_id: str, action: str) -> tuple[str | None, str | None]:
+    """RunPod 파드를 켜거나(start) 끈다(stop). (바뀐 desiredStatus, None) 또는 (None, 에러 문구).
+    성공 응답에는 그 파드의 env(Jupyter 비밀번호 등)가 평문으로 들어 있으므로 상태 값 하나만
+    꺼내고 나머지는 버린다. 실패 문구는 RunPod가 준 이유를 그대로 옮긴다 — "GPU가 모자라서
+    못 켠다" 같은 이유를 사람이 봐야 다음 행동(새 파드 만들기 등)을 정할 수 있어서다."""
+    if action not in POD_ACTIONS:
+        return None, "알 수 없는 동작이에요."
+    if not RUNPOD_API_KEY:
+        return None, "RUNPOD_API_KEY가 설정되지 않았어요."
+    req = urllib.request.Request(
+        f"{RUNPOD_API_BASE}/pods/{pod_id}/{action}", data=b"", method="POST",
+        headers={"Authorization": f"Bearer {RUNPOD_API_KEY}", "User-Agent": RUNPOD_USER_AGENT,
+                 "Accept": "application/json"},
+    )
+    _cache.pop(pod_id, None)   # 켜고 끈 직후 카드가 옛 상태를 보여주지 않게
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = json.loads(resp.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as e:
+        try:
+            err = json.loads(e.read().decode("utf-8") or "{}")
+            reason = err.get("error") or err.get("detail") or err.get("message") or ""
+        except (json.JSONDecodeError, OSError, AttributeError):
+            reason = ""
+        reason = str(reason)[:300]
+        return None, f"RunPod가 거절했어요(HTTP {e.code}){': ' + reason if reason else ''}"
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
+        return None, f"RunPod에 요청하지 못했어요: {type(e).__name__}."
+    status = body.get("desiredStatus") if isinstance(body, dict) else None
+    return status or ("RUNNING" if action == "start" else "EXITED"), None
 
 
 def proxy_links(pod_id: str, ports: list[str]) -> list[dict]:
@@ -328,5 +364,5 @@ def get_runpod_info(url: str) -> dict | None:
     return data
 
 
-__all__ = ["get_runpod_info", "debug_probe", "extract_pod_id", "proxy_links", "RUNPOD_API_KEY",
+__all__ = ["get_runpod_info", "debug_probe", "extract_pod_id", "proxy_links", "pod_action", "RUNPOD_API_KEY",
            "list_runpod_pods", "list_runpod_pods_verbose", "get_gpu_type_cached"]
