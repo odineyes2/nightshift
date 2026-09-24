@@ -718,7 +718,6 @@
     gap:var(--gap-md);
   }
   .field-label-row .field-label{ flex-shrink:0; }
-  .new-job-actions{ display:flex; align-items:center; gap:var(--gap-md); }
   /* "최근 사용한 워크플로우"/"최근 사용한 CSV" 모달 목록 — 둘이 클래스를 공유한다.
      파일명은 길면 말줄임, 시각/선택 버튼은 고정 폭으로 오른쪽에 붙는다. */
   .recent-workflows-list{
@@ -815,6 +814,20 @@
   select.option-input:focus,
   textarea.option-input:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
 
+  /* New Job 모달의 "세부 설정" 탭은 모달 자체가 넓어서(modal-panel-wide), 짧은
+     고정폭(220~520px)으로 잘라두면 오른쪽에 애매하게 빈 공간이 남는다 — 가로로
+     나란히 둘 값(.field-pair, 예: 시드 개수·시드 방식)만 반씩 나누고, 나머지는
+     칸을 끝까지 채운다. */
+  #options-fields input.option-input,
+  #options-fields select.option-input,
+  #options-fields textarea.option-input,
+  #lora-trigger-field input.option-input{
+    max-width:none;
+    width:100%;
+  }
+  .field-pair{ display:flex; gap:16px; flex-wrap:wrap; }
+  .field-pair > .field{ flex:1 1 200px; }
+
   /* "입력 이미지" 옵션 — 드롭다운 + 업로드/갤러리 버튼을 한 줄에 (buildInputImageControl) */
   .input-image-control{
     display:flex;
@@ -861,17 +874,24 @@
     display:flex; align-items:center; justify-content:center;
   }
 
-  /* 메인 프롬프트의 "직접 입력 → Prompt Enhance(자연어/Danbooru) → 결과" 3단
-     레이아웃. 실제로 큐에 보내는 값은 hidden input(.option-input)에 모이므로,
-     여기 두 텍스트 에어리어(.enhance-textarea)는 일부러 .option-input 셀렉터
-     밖에 둬서 제출 시 중복으로 잡히지 않게 한다. */
-  .prompt-enhance{
-    display:grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap:var(--gap-md);
-    align-items:stretch;
-  }
+  /* 메인 프롬프트의 "직접 입력"(항상 보임) 아래로 랜덤생성 버튼(자주 씀 — 항상 보임)과
+     "Prompt Enhance"(AI로 다시 써주는 것 — 실제로는 잘 안 쓴다는 피드백으로 접어둠,
+     .prompt-enhance-details)를 세로로 쌓는다. 실제로 큐에 보내는 값은 hidden
+     input(.option-input)에 모이므로, 여기 두 텍스트 에어리어(.enhance-textarea)는
+     일부러 .option-input 셀렉터 밖에 둬서 제출 시 중복으로 잡히지 않게 한다. */
+  .prompt-enhance{ display:flex; flex-direction:column; gap:10px; }
   .prompt-enhance-col{ display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .prompt-enhance-quick{ display:flex; gap:8px; flex-wrap:wrap; }
+  .prompt-enhance-details summary{
+    cursor:pointer; font-family:var(--mono); font-size:11px; color:var(--text-dim);
+    list-style:none; display:flex; align-items:center; gap:6px;
+  }
+  .prompt-enhance-details summary::-webkit-details-marker{ display:none; }
+  .prompt-enhance-details summary::before{ content:'▸'; font-size:10px; }
+  .prompt-enhance-details[open] summary::before{ content:'▾'; }
+  .prompt-enhance-details summary:hover{ color:var(--text); }
+  .prompt-enhance-details[open] summary{ margin-bottom:10px; }
+  .prompt-enhance-details > .prompt-enhance-col{ margin-top:10px; }
   .prompt-enhance-subtitle-row{
     display:flex;
     align-items:center;
@@ -925,13 +945,14 @@
   }
   textarea.enhance-textarea:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
   textarea.enhance-result{ background:rgba(var(--queued-rgb),0.03); }
+  /* 접었다 펼 수 있는 <details> 안이라 더 이상 두 텍스트 에어리어 사이 좁은 세로
+     칸이 아니다 — 자연어/Danbooru 토글 + Enhance 버튼 + 상태 문구를 가로로 늘어놓는다. */
   .prompt-enhance-middle{
     display:flex;
-    flex-direction:column;
+    flex-direction:row;
     align-items:center;
-    justify-content:center;
-    gap:8px;
-    padding-top:22px;
+    flex-wrap:wrap;
+    gap:10px;
   }
   /* 자연어/Danbooru 모드 토글 — 탭처럼 둘 중 하나만 활성 상태를 띤다. */
   .enhance-mode{
@@ -1035,11 +1056,6 @@
     accent-color:var(--queued);
     cursor:pointer;
   }
-  @media (max-width:640px){
-    .prompt-enhance{ grid-template-columns:1fr; }
-    .prompt-enhance-middle{ padding-top:0; }
-  }
-
   /* width/height "이미지 크기" 필드 — 모드 토글(.enhance-mode 재사용) 아래로
      "직접 입력"/"화면비·해상도" 두 패널 중 하나만 보인다. */
   .resolution-control{ display:flex; flex-direction:column; gap:12px; }
@@ -1953,6 +1969,10 @@
   .wizard-step-btn.done .wizard-step-num{ background:var(--queued); color:#fff; }
   .wizard-step-value{ display:block; font-size:12.5px; color:var(--text); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .new-job-next-row{ display:flex; justify-content:space-between; align-items:center; margin-top:16px; }
+  /* .modal-btn-secondary(테두리 있음, padding 8px)와 .submit-btn(테두리 없음,
+     padding 10px)은 원래 세로 크기가 미묘하게 달라(테두리 1px+패딩 2px 차이가
+     서로 다 안 상쇄됨) — 나란히 놓이는 이 줄에서만 높이를 맞춘다. */
+  .new-job-next-row .modal-btn-secondary{ padding:9px 16px; }
 
   /* 마법사 모달 안의 선택 목록 — "설치된 모델" 모달과 비슷한 어휘를 쓰되 클릭 가능한 줄. */
   .wizard-pick-section-title{
@@ -3263,9 +3283,11 @@
         </div>
 
         <div>
-          <div class="new-job-actions">
-            <button class="submit-btn" id="submit-btn" title="큐에 추가"><svg class="ico"><use href="#i-plus"/></svg> 추가</button>
+          <!-- 워크플로우 설정 서브탭의 하단 버튼 줄(초기화 왼쪽/다음 오른쪽, .new-job-next-row)과
+               위치·크기가 똑같도록 같은 클래스를 그대로 쓴다. -->
+          <div class="new-job-next-row">
             <button class="modal-btn-secondary" id="reset-form-btn" type="button" title="초기화"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 초기화</button>
+            <button class="submit-btn" id="submit-btn" title="큐에 추가"><svg class="ico"><use href="#i-plus"/></svg> 추가</button>
           </div>
           <div class="upload-error" id="upload-error"></div>
         </div>
@@ -5223,11 +5245,14 @@ function buildPromptEnhanceControl(opt){
     rawCol.appendChild(seedPromptsHidden);
   }
 
-  const middle = document.createElement('div');
-  middle.className = 'prompt-enhance-middle';
+  // 자주 쓰는 랜덤생성 버튼은 항상 보이게 두고(quickRow), 실제로는 잘 안 쓴다는
+  // 피드백을 받은 "Prompt Enhance"(자연어/Danbooru 모드로 AI가 다시 써주는 것)만
+  // <details>로 접어서 기본은 숨겨 둔다 — 필요할 때 펼쳐서 쓴다.
+  const quickRow = document.createElement('div');
+  quickRow.className = 'prompt-enhance-quick';
 
   // Danbooru 프롬프트 탭의 카테고리/규칙/랜덤 로직(danbooruRandomizeAll)을 그대로
-  // 재사용해서 왼쪽 "직접 입력"을 채운다 — 그 탭에서 고정해둔 카테고리는
+  // 재사용해서 위 "직접 입력"을 채운다 — 그 탭에서 고정해둔 카테고리는
   // 손대지 않고 나머지만 새로 뽑고, 모순 태그를 피하는 검증도 그대로 적용된다
   // (danbooruRandomizeAll/danbooruDrawRange/danbooruSetNsfwMode 등은 이 함수보다
   // 아래에서 정의되지만 function 선언이라 호이스팅되어 여기서 바로 참조해도
@@ -5239,7 +5264,7 @@ function buildPromptEnhanceControl(opt){
     btn.type = 'button';
     btn.className = 'load-btn';
     btn.innerHTML = ico('dices') + ' ' + label;
-    btn.title = `Danbooru 프롬프트 탭에서 고정해둔 항목은 그대로 두고 나머지만 ${mode === 'sfw' ? 'SFW(NSFW 제외)' : 'NSFW 포함'}로 무작위로 뽑아 왼쪽에 채워요`;
+    btn.title = `Danbooru 프롬프트 탭에서 고정해둔 항목은 그대로 두고 나머지만 ${mode === 'sfw' ? 'SFW(NSFW 제외)' : 'NSFW 포함'}로 무작위로 뽑아 위에 채워요`;
     btn.addEventListener('click', () => {
       danbooruSetNsfwMode(mode);
       danbooruRandomizeAll();
@@ -5248,8 +5273,17 @@ function buildPromptEnhanceControl(opt){
     });
     return btn;
   }
-  middle.appendChild(makeRandomizeBtn('sfw', '랜덤생성(SFW)'));
-  middle.appendChild(makeRandomizeBtn('nsfw', '랜덤생성(NSFW)'));
+  quickRow.appendChild(makeRandomizeBtn('sfw', '랜덤생성(SFW)'));
+  quickRow.appendChild(makeRandomizeBtn('nsfw', '랜덤생성(NSFW)'));
+
+  const details = document.createElement('details');
+  details.className = 'prompt-enhance-details';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Prompt Enhance — AI로 다시 써보기 (선택)';
+  details.appendChild(summary);
+
+  const middle = document.createElement('div');
+  middle.className = 'prompt-enhance-middle';
 
   const modeToggle = document.createElement('div');
   modeToggle.className = 'enhance-mode';
@@ -5325,7 +5359,7 @@ function buildPromptEnhanceControl(opt){
     status.textContent = '';
     status.className = 'enhance-status';
     if(!text){
-      status.textContent = '먼저 왼쪽에 프롬프트를 입력하세요.';
+      status.textContent = '먼저 위에 프롬프트를 입력하세요.';
       status.classList.add('error');
       return;
     }
@@ -5361,9 +5395,12 @@ function buildPromptEnhanceControl(opt){
     }
   });
 
+  details.appendChild(middle);
+  details.appendChild(resultCol);
+
   wrap.appendChild(rawCol);
-  wrap.appendChild(middle);
-  wrap.appendChild(resultCol);
+  wrap.appendChild(quickRow);
+  wrap.appendChild(details);
   wrap.appendChild(hidden);
   return wrap;
 }
@@ -6001,9 +6038,16 @@ function renderOptionFields(template){
   const widthOpt = options.find(o => o.name === 'width');
   const heightOpt = options.find(o => o.name === 'height');
   const hasResolutionPair = !!(widthOpt && heightOpt);
+  // 시드 개수/시드 방식은 값 하나하나가 짧아서(숫자 하나, 선택지 하나) 각각 한 줄을
+  // 다 차지하면 어색하다 — 있으면 반씩 나눠 한 줄에 나란히 둔다(.field-pair, 모바일
+  // 폭에서는 flex-wrap으로 자동으로 위아래로 쌓인다).
+  const seedCountOpt = options.find(o => o.name === 'seed_count');
+  const seedModeOpt = options.find(o => o.name === 'seed_mode');
+  const hasSeedPair = !!(seedCountOpt && seedModeOpt);
 
   for(const opt of options){
     if(hasResolutionPair && opt.name === 'height') continue; // width 자리에서 함께 그려짐
+    if(hasSeedPair && opt.name === 'seed_mode') continue; // seed_count 자리에서 함께 그려짐
     // danbooru_seed_prompts는 자체 필드/라벨 없이 buildPromptEnhanceControl이
     // main_prompt 옆에 숨겨진 입력으로 직접 넣는다(아래 참고).
     if(opt.name === 'danbooru_seed_prompts') continue;
@@ -6021,6 +6065,23 @@ function renderOptionFields(template){
       field.appendChild(label);
       field.appendChild(buildResolutionControl(widthOpt, heightOpt));
       optionsFields.appendChild(field);
+      continue;
+    }
+
+    if(hasSeedPair && opt.name === 'seed_count'){
+      const pair = document.createElement('div');
+      pair.className = 'field-pair';
+      for(const pairOpt of [seedCountOpt, seedModeOpt]){
+        const pairField = document.createElement('div');
+        pairField.className = 'field';
+        const pairLabel = document.createElement('label');
+        pairLabel.className = 'field-label';
+        pairLabel.textContent = pairOpt.label;
+        pairField.appendChild(pairLabel);
+        pairField.appendChild(buildOptionControl(pairOpt));
+        pair.appendChild(pairField);
+      }
+      optionsFields.appendChild(pair);
       continue;
     }
 
