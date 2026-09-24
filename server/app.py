@@ -3526,6 +3526,7 @@ async def create_job(
     video_workflow_filename: str | None = None,
     project_id: int | None = None,
     user: dict | None = None,
+    start_paused: bool = False,
 ) -> dict:
     # POST /api/upload(사람이 브라우저에서 파일 첨부)와 POST /api/jobs(LLM 등
     # 프로그램이 JSON으로 호출)가 공유하는 실제 잡 생성 로직 — 두 경로 모두
@@ -3715,7 +3716,13 @@ async def create_job(
             "pod_gpu": pod_gpu,
             "pod_cost_per_hr": pod_cost_per_hr,
         }
-        if pod is None:
+        # start_paused(브라우저의 "New job" 모달이 항상 켠다)면 pod_id/auto_run과
+        # 무관하게 "pending"(일시정지) 그대로 둔다 — 대기 칸에 카드만 쌓아두고,
+        # 사람이 카드의 ▶ 시작을 직접 눌러야 돈다. LLM/curl이 쓰는 POST /api/jobs는
+        # 이 인자를 안 넘기므로(기본 False) 예전처럼 바로 큐에 들어가는 게 그대로다.
+        if start_paused:
+            auto_queued = False
+        elif pod is None:
             # 파드 없이 만든 작업은 곧장 대기 큐로 간다("보내기") — 스케줄러가 갖춰진 파드를 찾는다.
             jobs[job_id]["status"] = "queued"
             jobs[job_id]["waiting_reason"] = "파드를 찾는 중이에요"
@@ -3729,7 +3736,9 @@ async def create_job(
             if auto_queued:
                 jobs[job_id]["status"] = "queued"
     save_state()
-    if pod is None:
+    if start_paused:
+        pass
+    elif pod is None:
         poke_scheduler()
     elif auto_queued:
         dispatch_job(job_id, pod["id"])
@@ -3786,6 +3795,7 @@ async def upload(request: Request):
         video_workflow.filename if has_video_workflow else None,
         parse_project_id(form.get("project_id")),
         user=user,
+        start_paused=form.get("start_paused") == "1",
     )
 
 
