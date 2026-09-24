@@ -1529,6 +1529,10 @@
   }
   .job-card-title .ico{ width:14px; height:14px; flex:none; color:var(--text-dim); }
   .job-card-title span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* 실행 대기(queued)인데 파드를 못 찾은 이유 — 스케줄러가 적어 둔 waiting_reason. 한 줄로 줄이고 전체는 툴팁·상세 창에. */
+  .job-card-wait{ display:flex; align-items:center; gap:4px; margin-top:2px; font-size:10.5px; color:var(--running); min-width:0; }
+  .job-card-wait .ico{ width:12px; height:12px; flex:none; }
+  .job-card-wait span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .job-card-base{ font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .job-card-actions{ display:flex; gap:2px; justify-content:flex-end; }
   /* 카드 안에서는 아이콘 자체가 버튼 — .del-btn/.start-btn/.stop-btn을 감싸던 사각
@@ -4504,6 +4508,7 @@ function buildJobCard(j){
       <div>
         <div class="job-card-title">${kindIcon}<span>${escapeHtml(batchLabel)}</span></div>
         ${baseModel ? `<div class="job-card-base">${escapeHtml(baseModel)}</div>` : ''}
+        ${waitingForPod && j.waiting_reason ? `<div class="job-card-wait" title="${escapeHtml(j.waiting_reason)}">${ico('triangle-alert')}<span>${escapeHtml(j.waiting_reason)}</span></div>` : ''}
       </div>
       ${progress ? `
         <div class="progress-wrap">
