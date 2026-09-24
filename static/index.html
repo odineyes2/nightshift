@@ -1464,17 +1464,28 @@
      카드는 정사각형 — 최소 정보(종류 아이콘+배치 방식, 베이스 모델, 진행률, 시작/정지/
      삭제 아이콘 버튼)만 보이고 나머지(소유자/파드/프로젝트/워크플로우 파일명/시간·옵션
      상세/로그)는 전부 상세 모달(job-detail-*)에서만 보여준다. ---- */
-  .job-board{ display:flex; flex-direction:column; gap:20px; }
+  /* 4단계(대기/실행/완료/실패)를 칸반처럼 좌→우로 나란히 둔다 — 칸이 좁아지면
+     .job-board-grid의 auto-fill이 자연히 칸 하나짜리 세로 목록으로 줄어든다. */
+  .job-board{ display:flex; flex-direction:row; align-items:flex-start; gap:16px; overflow-x:auto; }
+  .job-section{ flex:1 1 0; min-width:220px; display:flex; flex-direction:column; }
   .job-section-header{
     display:flex; align-items:center; gap:8px;
     font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--text-dim);
     padding:6px 2px; margin-bottom:8px; border-bottom:1px solid var(--border);
   }
   .job-section-count{ color:var(--text); }
+  .job-section-empty{
+    font-size:12px; color:var(--text-dim); text-align:center;
+    padding:18px 4px; border:1px dashed var(--border); border-radius:10px;
+  }
   .job-board-grid{
     display:grid;
     grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));
     gap:10px;
+  }
+  @media (max-width:900px){
+    .job-board{ flex-direction:column; overflow-x:visible; }
+    .job-section{ min-width:0; }
   }
   @media (max-width:640px){
     .job-board-grid{ grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); }
@@ -1508,8 +1519,14 @@
   .job-card-title .ico{ width:14px; height:14px; flex:none; color:var(--text-dim); }
   .job-card-title span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .job-card-base{ font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .job-card-actions{ display:flex; gap:6px; }
-  .job-card-actions button{ flex:1; display:flex; align-items:center; justify-content:center; padding:6px 0; }
+  .job-card-actions{ display:flex; gap:2px; justify-content:flex-end; }
+  /* 카드 안에서는 아이콘 자체가 버튼 — .del-btn/.start-btn/.stop-btn을 감싸던 사각
+     테두리·배경을 없애고, hover 시 색만(기존 색 규칙 그대로) 살짝 배경으로 드러낸다. */
+  .job-card-actions button{
+    flex:none; display:flex; align-items:center; justify-content:center;
+    width:26px; height:26px; padding:0;
+    background:none; border:none; border-radius:var(--radius-sm);
+  }
   .job-detail-actions{ display:flex; flex-wrap:wrap; gap:8px; }
   .job-detail-grid{ display:flex; flex-direction:column; gap:10px; }
   .job-detail-preflight{ font-size:12px; color:var(--text-dim); line-height:1.6; white-space:pre-line; }
@@ -4294,13 +4311,15 @@ function render(jobs, pendingCount, running, perPod){
   if(rowsSignature === lastJobsRowsSignature) return;
   lastJobsRowsSignature = rowsSignature;
 
+  // 카드가 없는 단계도 칸 자체는 늘 보여준다(4단계 칸반 구조를 항상 그대로 유지).
   board.innerHTML = JOB_SECTIONS.map(section => {
     const sectionJobs = jobs.filter(section.match);
-    if(sectionJobs.length === 0) return '';
     return `
       <div class="job-section">
         <div class="job-section-header">${section.label} <span class="job-section-count">${sectionJobs.length}</span></div>
-        <div class="job-board-grid">${sectionJobs.map(buildJobCard).join('')}</div>
+        ${sectionJobs.length
+          ? `<div class="job-board-grid">${sectionJobs.map(buildJobCard).join('')}</div>`
+          : `<div class="job-section-empty">없음</div>`}
       </div>`;
   }).join('');
 
