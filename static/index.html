@@ -1106,6 +1106,30 @@
     min-height:1em;
   }
   .email-hint{ font-size:12.5px; color:var(--text-dim); margin:-4px 0 12px; }
+  /* 항상 떠 있으면 거슬리는 긴 안내문을 "?" 아이콘 뒤에 숨겨 두는 도움말 —
+     데스크탑은 호버로, 터치 기기는 탭(버튼 클릭으로 open 클래스 토글)으로 연다. */
+  .help-tip{ position:relative; display:inline-flex; vertical-align:middle; margin-left:2px; }
+  .help-tip-btn{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:18px; height:18px; padding:0; flex-shrink:0;
+    border:1px solid var(--border); border-radius:50%; background:var(--panel);
+    color:var(--text-dim); cursor:pointer;
+  }
+  .help-tip-btn:hover, .help-tip-btn:focus-visible{ color:var(--queued); border-color:var(--queued); }
+  .help-tip-btn .ico{ width:12px; height:12px; }
+  .help-tip-pop{
+    position:absolute; top:calc(100% + 8px); left:0; z-index:20;
+    width:280px; max-width:min(280px, 70vw); padding:10px 12px;
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius-md);
+    box-shadow:0 6px 20px rgba(0,0,0,0.16);
+    font-size:12.5px; line-height:1.5; color:var(--text-dim); font-weight:400;
+    text-transform:none; letter-spacing:normal;
+    opacity:0; visibility:hidden; transform:translateY(-4px); pointer-events:none;
+    transition:opacity .12s ease, transform .12s ease, visibility .12s;
+  }
+  .help-tip:hover .help-tip-pop,
+  .help-tip.open .help-tip-pop{ opacity:1; visibility:visible; transform:translateY(0); pointer-events:auto; }
+  @media (max-width:760px){ .help-tip-pop{ left:auto; right:0; } }
   /* RunPod에서 가져온 이름을 nightshift 이름 입력칸에 한 번에 채워주는 제안 줄
      — 자동으로 덮어쓰지는 않는다(사용자가 일부러 지은 이름을 조용히 바꾸면
      안 되므로), 눌러야만 채워지는 링크 버튼으로만 둔다. */
@@ -2741,6 +2765,7 @@
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
   <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
   <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></symbol>
+  <symbol id="i-circle-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
   <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
   <symbol id="i-folder-kanban" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M8 10v4"/><path d="M12 10v2"/><path d="M16 10v6"/></symbol>
@@ -3171,14 +3196,19 @@
 <main id="tab-db" style="display:none;">
   <div class="panel">
     <div class="panel-header">
-      <div class="section-label"><svg class="ico"><use href="#i-database"/></svg> RunPod 세션(사용 내역)</div>
+      <div class="section-label">
+        <svg class="ico"><use href="#i-database"/></svg> RunPod 세션(사용 내역)
+        <span class="help-tip" id="db-hint-tip">
+          <button class="help-tip-btn" type="button" id="db-hint-btn" aria-label="도움말"><svg class="ico"><use href="#i-circle-help"/></svg></button>
+          <span class="help-tip-pop">Claude가 RunPod 커넥터로 pod를 켜고 끌 때마다, nightshift MCP의 sync 도구를 부른 시점에 이 기록이 쌓여요 — 시작/종료 시각은 RunPod가 실제로 기록해 둔 값을 그대로 가져오므로 sync를 늦게 불러도 정확해요.</span>
+        </span>
+      </div>
       <div class="panel-header-actions">
         <span class="gallery-count" id="db-runpod-sessions-count"></span>
         <button class="load-btn" id="db-runpod-sessions-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
       </div>
     </div>
     <div class="panel-body">
-      <div class="email-hint">Claude가 RunPod 커넥터로 pod를 켜고 끌 때마다, nightshift MCP의 sync 도구를 부른 시점에 이 기록이 쌓여요 — 시작/종료 시각은 RunPod가 실제로 기록해 둔 값을 그대로 가져오므로 sync를 늦게 불러도 정확해요.</div>
       <div class="upload-error" id="db-runpod-sessions-error"></div>
       <div id="db-runpod-sessions-list"></div>
     </div>
@@ -8211,6 +8241,25 @@ function renderRunpodSessions(){
 }
 
 document.getElementById('db-runpod-sessions-refresh-btn').addEventListener('click', fetchRunpodSessions);
+
+// 도움말 "?" — 데스크탑은 :hover로 이미 보이지만, 터치 기기는 호버가 없으니
+// 탭(클릭)으로 open 클래스를 토글해서 열고, 바깥을 클릭하거나 Esc를 누르면 닫는다.
+(() => {
+  const tip = document.getElementById('db-hint-tip');
+  const btn = document.getElementById('db-hint-btn');
+  if(!tip || !btn) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    tip.classList.toggle('open');
+  });
+  document.addEventListener('click', (e) => {
+    if(tip.classList.contains('open') && !tip.contains(e.target)) tip.classList.remove('open');
+  });
+  document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape') tip.classList.remove('open');
+  });
+})();
+
 // 진행 중인 세션이 있으면 시간/비용 추정치가 계속 흐르니, DB 탭을 보는 동안만 20초마다 다시 그린다.
 setInterval(() => {
   if(!isAdminUser() || currentTab !== 'db') return;
