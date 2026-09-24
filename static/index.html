@@ -1691,6 +1691,30 @@
     font-size:12.5px; color:var(--text-dim); line-height:1.5;
     white-space:pre-wrap; margin-top:3px;
   }
+  /* ---- DB 탭 — 생성 정보(프롬프트 등). 위 업데이트 내역과 같은 세로 목록 틀을
+     쓰되(.changelog-version/.changelog-tag 칩 재사용), 본문은 프롬프트라 어두운
+     라이트박스용 .am-prompt 대신 이 패널의 밝은 배경에 맞는 스타일을 따로 둔다. ---- */
+  .genlog-list{ display:flex; flex-direction:column; }
+  .genlog-entry{ padding:10px 8px; border-bottom:1px solid var(--border); }
+  .genlog-entry:last-child{ border-bottom:none; }
+  .genlog-entry:nth-child(odd){ background:rgba(255,255,255,0.02); }
+  .genlog-head{
+    display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px;
+    font-family:var(--mono); font-size:11px; color:var(--text-dim);
+    margin-bottom:4px;
+  }
+  .genlog-kind{ display:inline-flex; align-items:center; }
+  .genlog-kind .ico{ width:13px; height:13px; }
+  .genlog-kind-image{ color:var(--queued); }
+  .genlog-kind-video{ color:var(--interrupted); }
+  .genlog-prompt{
+    font-size:12.5px; color:var(--text); line-height:1.5;
+    white-space:pre-wrap; word-break:break-word;
+  }
+  .genlog-neg{ margin-top:4px; }
+  .genlog-neg summary{ cursor:pointer; font-size:11.5px; color:var(--text-dim); }
+  .genlog-neg .genlog-prompt{ margin-top:4px; color:var(--text-dim); }
+  .genlog-loras{ font-size:11.5px; color:var(--text-dim); margin-top:4px; }
  /* 아직 family로 등록 안 된{
     display:flex; flex-wrap:wrap; align-items:center; gap:8px;
     padding:8px 12px; margin-bottom:10px;
@@ -3184,11 +3208,17 @@
   </div>
 </main>
 
-<!-- DB — 앱이 쌓아 둔 여러 데이터베이스 기록을 표로 보여준다. 지금은 패널 두 개를
-     세로로 쌓아 뒀다(RunPod 세션, 업데이트 내역) — 더 늘어나면 그때 선택 UI를 고민한다.
+<!-- DB — 앱이 쌓아 둔 여러 데이터베이스 기록을 표로 보여준다. 패널 세 개(RunPod 세션,
+     업데이트 내역, 생성 정보) 중 하나만 보여주고, 위쪽 탭(모델 탭의 종류 탭과 같은
+     .enhance-mode 패턴)으로 고른다 — dbPanelActive가 상태를 들고 있다.
      admin만 볼 수 있다(비용 정보라 회원 관리와 같은 기준). -->
 <main id="tab-db" style="display:none;">
-  <div class="panel">
+  <div class="enhance-mode" id="db-panel-tabs">
+    <button type="button" class="enhance-mode-btn db-panel-tab active" data-panel="runpod"><svg class="ico"><use href="#i-database"/></svg> RunPod 세션</button>
+    <button type="button" class="enhance-mode-btn db-panel-tab" data-panel="gitlog"><svg class="ico"><use href="#i-history"/></svg> 업데이트 내역</button>
+    <button type="button" class="enhance-mode-btn db-panel-tab" data-panel="genlog"><svg class="ico"><use href="#i-images"/></svg> 생성 정보</button>
+  </div>
+  <div class="panel" id="db-panel-runpod">
     <div class="panel-header">
       <div class="section-label">
         <svg class="ico"><use href="#i-database"/></svg> RunPod 세션(사용 내역)
@@ -3207,7 +3237,7 @@
       <div id="db-runpod-sessions-list"></div>
     </div>
   </div>
-  <div class="panel">
+  <div class="panel" id="db-panel-gitlog" style="display:none;">
     <div class="panel-header">
       <div class="section-label">
         <svg class="ico"><use href="#i-history"/></svg> 업데이트 내역
@@ -3224,6 +3254,25 @@
     <div class="panel-body">
       <div class="upload-error" id="db-git-log-error"></div>
       <div id="db-git-log-list"></div>
+    </div>
+  </div>
+  <div class="panel" id="db-panel-genlog" style="display:none;">
+    <div class="panel-header">
+      <div class="section-label">
+        <svg class="ico"><use href="#i-images"/></svg> 생성 정보
+        <span class="help-tip" id="db-genlog-hint-tip">
+          <button class="help-tip-btn" type="button" id="db-genlog-hint-btn" aria-label="도움말"><svg class="ico"><use href="#i-circle-help"/></svg></button>
+          <span class="help-tip-pop">nightshift로 만들었든, RunPod의 ComfyUI를 직접 써서 만든 뒤 "결과 가져오기"로 받았든 상관없이, 파일에 ComfyUI가 남긴 프롬프트·시드 등을 그대로 읽어 최신순으로 보여줘요 — 따로 기록하는 동작은 없어요.</span>
+        </span>
+      </div>
+      <div class="panel-header-actions">
+        <span class="gallery-count" id="db-genlog-count"></span>
+        <button class="load-btn" id="db-genlog-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="upload-error" id="db-genlog-error"></div>
+      <div id="db-genlog-list"></div>
     </div>
   </div>
 </main>
@@ -8296,6 +8345,83 @@ function renderGitLog(){
 
 document.getElementById('db-git-log-refresh-btn').addEventListener('click', fetchGitLog);
 
+// ---- DB 탭 — 생성 정보(프롬프트 등). nightshift 큐로 만든 것과 RunPod의 ComfyUI를
+// 직접 써서 만든 뒤 가져온 것 모두, 파일에 박힌 메타(assets_index.py가 이미 읽어 둠)를
+// 최신순으로 보여준다 — 따로 기록하는 동작이 없다. ----
+let genlogAssets = [];
+
+async function fetchGenerationLog(){
+  const errorEl = document.getElementById('db-genlog-error');
+  errorEl.textContent = '';
+  try{
+    const res = await fetch('/api/generation-log');
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '불러오지 못했어요.');
+    genlogAssets = data.assets || [];
+  }catch(e){
+    errorEl.textContent = e.message || '불러오지 못했어요 — 연결을 확인하세요.';
+    return;
+  }
+  renderGenerationLog();
+}
+
+function renderGenerationLog(){
+  document.getElementById('db-genlog-count').textContent = `${genlogAssets.length}개`;
+  const list = document.getElementById('db-genlog-list');
+  if(genlogAssets.length === 0){
+    list.innerHTML = '<div class="comfy-model-empty">색인된 결과물이 없어요.</div>';
+    return;
+  }
+  list.innerHTML = `<div class="genlog-list">${genlogAssets.map(a => {
+    let params = {};
+    try{ params = a.params_json ? JSON.parse(a.params_json) : {}; }catch(e){ /* 못 읽으면 빈 값 */ }
+    const filename = (a.path || '').split('/').pop();
+    const source = a.job_label ? `<span class="changelog-tag">${escapeHtml(a.job_label)}</span>`
+      : (a.pod_name ? `<span class="changelog-tag">${escapeHtml(a.pod_name)}(직접)</span>` : '');
+    const kindIcon = a.kind === 'video' ? 'clapperboard' : 'images';
+    const loras = Array.isArray(params.loras) ? params.loras.filter(x => typeof x === 'string') : [];
+    return `
+      <div class="genlog-entry">
+        <div class="genlog-head">
+          <span class="genlog-kind genlog-kind-${a.kind}"><svg class="ico"><use href="#i-${kindIcon}"/></svg></span>
+          <span>${fmtGalleryDateTime(a.created_at)}</span>
+          <span title="${escapeHtml(a.path)}">${escapeHtml(filename)}</span>
+          ${a.checkpoint ? `<span class="changelog-version">${escapeHtml(a.checkpoint)}</span>` : ''}
+          ${a.seed != null ? `<span class="changelog-version">seed ${escapeHtml(String(a.seed))}</span>` : ''}
+          ${source}
+        </div>
+        ${a.prompt ? `<div class="genlog-prompt">${escapeHtml(a.prompt)}</div>`
+          : '<div class="comfy-model-empty">ComfyUI가 남긴 생성 정보가 없어요(회전·편집으로 지워졌거나 직접 넣은 파일일 수 있어요).</div>'}
+        ${a.negative_prompt ? `<details class="genlog-neg"><summary>네거티브 프롬프트</summary><div class="genlog-prompt">${escapeHtml(a.negative_prompt)}</div></details>` : ''}
+        ${loras.length ? `<div class="genlog-loras">LoRA: ${escapeHtml(loras.join(', '))}</div>` : ''}
+      </div>`;
+  }).join('')}</div>`;
+}
+
+document.getElementById('db-genlog-refresh-btn').addEventListener('click', fetchGenerationLog);
+
+// DB 탭 패널 선택 — 모델 탭의 종류 탭(model-kind-tabs)과 같은 .enhance-mode 패턴으로
+// 셋 중 하나만 보여준다. 데이터는 (지금은) 탭을 열 때 셋 다 미리 받아 두고, 여기서는
+// 화면에 뭘 보여줄지만 바꾼다 — 패널 전환은 새로고침 없이 즉시 되어야 하므로.
+let dbPanelActive = 'runpod';
+const DB_PANEL_IDS = { runpod: 'db-panel-runpod', gitlog: 'db-panel-gitlog', genlog: 'db-panel-genlog' };
+
+function renderDbPanelTabs(){
+  document.querySelectorAll('#db-panel-tabs .db-panel-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.panel === dbPanelActive);
+  });
+  for(const [key, id] of Object.entries(DB_PANEL_IDS)){
+    document.getElementById(id).style.display = key === dbPanelActive ? '' : 'none';
+  }
+}
+
+document.getElementById('db-panel-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.db-panel-tab');
+  if(!btn || btn.dataset.panel === dbPanelActive) return;
+  dbPanelActive = btn.dataset.panel;
+  renderDbPanelTabs();
+});
+
 // 도움말 "?" — 데스크탑은 :hover로 이미 보이지만, 터치 기기는 호버가 없으니
 // 탭(클릭)으로 open 클래스를 토글해서 열고, 바깥을 클릭하거나 Esc를 누르면 닫는다.
 // 페이지 전체에 위임해 둬서, .help-tip이 몇 개든(지금 DB 탭에 2개) 따로 안 묶어도 된다.
@@ -9084,7 +9210,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'jobs') fetchJobs();
   if(tab === 'results') renderResultsList();
   if(tab === 'admin') fetchAdminUsers();
-  if(tab === 'db'){ fetchRunpodSessions(); fetchGitLog(); }
+  if(tab === 'db'){ renderDbPanelTabs(); fetchRunpodSessions(); fetchGitLog(); fetchGenerationLog(); }
 
   const want = scopedPodId ? `#pod/${scopedPodId}/${tab}`
     : (scopedProjectId !== null ? `#project/${scopedProjectId}/${tab}` : `#${tab}`);

@@ -2234,6 +2234,23 @@ def get_git_log(request: Request):
     return {"commits": git_log.list_commits(REPO_ROOT)}
 
 
+@app.get("/api/generation-log")
+def get_generation_log(request: Request):
+    """DB 탭 — 생성 정보(프롬프트 등) 기록(asset_meta.list_generation_log). nightshift
+    큐로 만든 것과 RunPod의 ComfyUI를 직접 써서 만든 뒤 "결과 가져오기"로 받은 것 모두
+    파일에 박힌 메타를 assets_index.sync()가 이미 읽어 뒀으므로(server/assets_index.py)
+    여기서도 따로 기록하는 동작이 없다 — 있는 값을 최신순으로 보여줄 뿐이다."""
+    admin_only(request)
+    rows = asset_meta.list_generation_log(limit=300)
+    for r in rows:
+        pod_name = r.get("job_pod_name")
+        if not pod_name and r.get("origin_pod_id"):
+            pod = pod_registry.get_pod(r["origin_pod_id"])
+            pod_name = pod["name"] if pod else r["origin_pod_id"]
+        r["pod_name"] = pod_name
+    return {"assets": rows}
+
+
 def _runpod_sync_loop():
     """RUNPOD_SYNC_INTERVAL_SEC(0보다 클 때만 켜짐, sync_runpod_pods_api 옆의
     startup 코드가 이 스레드를 띄운다)마다 관리자 권한으로 자동 동기화를 돈다 —

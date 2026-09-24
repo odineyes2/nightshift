@@ -285,6 +285,26 @@ def list_tags(limit: int = 500, owner_id: int | None = None) -> list[dict]:
 _USAGE_PARAM_KEYS = {"loras": "loras", "diffusion_models": "unets", "vae": "vaes", "text_encoders": "text_encoders"}
 
 
+def list_generation_log(limit: int = 300, owner_id: int | None = None) -> list[dict]:
+    """DB 탭 — 생성 정보(프롬프트 등) 기록. nightshift 큐로 만든 것과, RunPod의 ComfyUI를
+    직접 써서 만든 뒤 "결과 가져오기"로 받아온 것 모두 포함한다 — 파일에 박힌 메타를
+    assets_index.sync()가 이미 읽어 두므로(server/assets_index.py의 extract_comfy_meta/
+    extract_video_meta) 여기서는 최신순으로 보여주기만 한다(따로 기록하는 동작 없음).
+    job으로 만든 것은 job_label을, 아니면(job_id가 없으면) 호출부가 origin_pod_id로
+    파드 이름을 찾아 붙인다."""
+    query = ("SELECT a.*, j.template_label AS job_label, j.pod_name AS job_pod_name "
+             "FROM assets a LEFT JOIN jobs j ON j.id = a.job_id WHERE a.deleted_at IS NULL")
+    params: list = []
+    if owner_id is not None:
+        query += " AND a.owner_id = ?"
+        params.append(owner_id)
+    query += " ORDER BY a.created_at DESC, a.id DESC LIMIT ?"
+    params.append(limit)
+    with db.connect() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
+
+
 def model_usage(owner_id: int | None = None, samples: int = 4) -> list[dict]:
     """모델(종류+파일명)별로 그 모델로 만든 결과물 수·마지막 사용·즐겨찾기 수와 대표 결과물(즐겨찾기·평점 높은 순).
     작업 파일이 아니라 결과물에 박힌 메타(체크포인트/LoRA/UNet/VAE/텍스트 인코더)로 세므로, ComfyUI에서 직접
