@@ -1715,6 +1715,7 @@
   .genlog-neg summary{ cursor:pointer; font-size:11.5px; color:var(--text-dim); }
   .genlog-neg .genlog-prompt{ margin-top:4px; color:var(--text-dim); }
   .genlog-loras{ font-size:11.5px; color:var(--text-dim); margin-top:4px; }
+  .db-filter-dash{ color:var(--text-dim); font-size:12.5px; }
  /* 아직 family로 등록 안 된{
     display:flex; flex-wrap:wrap; align-items:center; gap:8px;
     padding:8px 12px; margin-bottom:10px;
@@ -3252,6 +3253,12 @@
       </div>
     </div>
     <div class="panel-body">
+      <div class="gallery-filter-row">
+        <input type="date" class="option-input" id="db-gitlog-date-from" title="시작일" aria-label="시작일">
+        <span class="db-filter-dash">~</span>
+        <input type="date" class="option-input" id="db-gitlog-date-to" title="종료일" aria-label="종료일">
+        <button class="modal-btn-secondary" id="db-gitlog-filter-clear" type="button" style="display:none;" title="필터 지우기"><svg class="ico"><use href="#i-x"/></svg> 필터 지우기</button>
+      </div>
       <div class="upload-error" id="db-git-log-error"></div>
       <div id="db-git-log-list"></div>
     </div>
@@ -3271,6 +3278,17 @@
       </div>
     </div>
     <div class="panel-body">
+      <div class="gallery-filter-row">
+        <div class="enhance-mode" id="db-genlog-kind-tabs">
+          <button type="button" class="enhance-mode-btn db-genlog-kind-tab active" data-kind="">전체</button>
+          <button type="button" class="enhance-mode-btn db-genlog-kind-tab" data-kind="image"><svg class="ico"><use href="#i-images"/></svg> 이미지</button>
+          <button type="button" class="enhance-mode-btn db-genlog-kind-tab" data-kind="video"><svg class="ico"><use href="#i-clapperboard"/></svg> 비디오</button>
+        </div>
+        <input type="date" class="option-input" id="db-genlog-date-from" title="시작일" aria-label="시작일">
+        <span class="db-filter-dash">~</span>
+        <input type="date" class="option-input" id="db-genlog-date-to" title="종료일" aria-label="종료일">
+        <button class="modal-btn-secondary" id="db-genlog-filter-clear" type="button" style="display:none;" title="필터 지우기"><svg class="ico"><use href="#i-x"/></svg> 필터 지우기</button>
+      </div>
       <div class="upload-error" id="db-genlog-error"></div>
       <div id="db-genlog-list"></div>
     </div>
@@ -8304,8 +8322,12 @@ function renderRunpodSessions(){
 document.getElementById('db-runpod-sessions-refresh-btn').addEventListener('click', fetchRunpodSessions);
 
 // ---- DB 탭 — 업데이트 내역(git 커밋 로그, git_log.py). nightshift 저장소의 커밋을
-// 그대로 읽어 보여준다 — 따로 기록하는 동작이 없다(커밋 메시지가 곧 이 목록). ----
+// 그대로 읽어 보여준다 — 따로 기록하는 동작이 없다(커밋 메시지가 곧 이 목록).
+// 날짜로 거르는 건 이미 받아 둔 목록 안에서만 하면 되니(최대 300개) 서버를 다시
+// 부르지 않고 여기서 필터링한다. ----
 let gitLogCommits = [];
+let gitlogDateFrom = '';
+let gitlogDateTo = '';
 
 async function fetchGitLog(){
   const errorEl = document.getElementById('db-git-log-error');
@@ -8323,13 +8345,25 @@ async function fetchGitLog(){
 }
 
 function renderGitLog(){
-  document.getElementById('db-git-log-count').textContent = `${gitLogCommits.length}개`;
+  document.getElementById('db-gitlog-filter-clear').style.display = (gitlogDateFrom || gitlogDateTo) ? '' : 'none';
+  const filtered = gitLogCommits.filter(c => {
+    const day = (c.date || '').slice(0, 10);
+    if(gitlogDateFrom && day < gitlogDateFrom) return false;
+    if(gitlogDateTo && day > gitlogDateTo) return false;
+    return true;
+  });
+  document.getElementById('db-git-log-count').textContent = filtered.length === gitLogCommits.length
+    ? `${gitLogCommits.length}개` : `${filtered.length} / ${gitLogCommits.length}개`;
   const list = document.getElementById('db-git-log-list');
   if(gitLogCommits.length === 0){
     list.innerHTML = '<div class="comfy-model-empty">불러온 커밋이 없어요 — 이 서버가 git 저장소가 아니거나 git이 없을 수 있어요.</div>';
     return;
   }
-  list.innerHTML = `<div class="changelog-list">${gitLogCommits.map(c => `
+  if(filtered.length === 0){
+    list.innerHTML = '<div class="comfy-model-empty">이 기간에는 커밋이 없어요.</div>';
+    return;
+  }
+  list.innerHTML = `<div class="changelog-list">${filtered.map(c => `
     <div class="changelog-entry">
       <div class="changelog-head">
         <span>#${c.seq}</span>
@@ -8344,11 +8378,23 @@ function renderGitLog(){
 }
 
 document.getElementById('db-git-log-refresh-btn').addEventListener('click', fetchGitLog);
+document.getElementById('db-gitlog-date-from').addEventListener('change', (e) => { gitlogDateFrom = e.target.value; renderGitLog(); });
+document.getElementById('db-gitlog-date-to').addEventListener('change', (e) => { gitlogDateTo = e.target.value; renderGitLog(); });
+document.getElementById('db-gitlog-filter-clear').addEventListener('click', () => {
+  gitlogDateFrom = ''; gitlogDateTo = '';
+  document.getElementById('db-gitlog-date-from').value = '';
+  document.getElementById('db-gitlog-date-to').value = '';
+  renderGitLog();
+});
 
 // ---- DB 탭 — 생성 정보(프롬프트 등). nightshift 큐로 만든 것과 RunPod의 ComfyUI를
 // 직접 써서 만든 뒤 가져온 것 모두, 파일에 박힌 메타(assets_index.py가 이미 읽어 둠)를
-// 최신순으로 보여준다 — 따로 기록하는 동작이 없다. ----
+// 최신순으로 보여준다 — 따로 기록하는 동작이 없다. 종류/날짜로 거르는 건 이미 받아 둔
+// 목록 안에서만 하면 되니(최대 300개) 서버를 다시 부르지 않고 여기서 필터링한다. ----
 let genlogAssets = [];
+let genlogKindFilter = '';
+let genlogDateFrom = '';
+let genlogDateTo = '';
 
 async function fetchGenerationLog(){
   const errorEl = document.getElementById('db-genlog-error');
@@ -8366,13 +8412,27 @@ async function fetchGenerationLog(){
 }
 
 function renderGenerationLog(){
-  document.getElementById('db-genlog-count').textContent = `${genlogAssets.length}개`;
+  document.getElementById('db-genlog-filter-clear').style.display =
+    (genlogKindFilter || genlogDateFrom || genlogDateTo) ? '' : 'none';
+  const filtered = genlogAssets.filter(a => {
+    if(genlogKindFilter && a.kind !== genlogKindFilter) return false;
+    const day = (a.created_at || '').slice(0, 10);
+    if(genlogDateFrom && day < genlogDateFrom) return false;
+    if(genlogDateTo && day > genlogDateTo) return false;
+    return true;
+  });
+  document.getElementById('db-genlog-count').textContent = filtered.length === genlogAssets.length
+    ? `${genlogAssets.length}개` : `${filtered.length} / ${genlogAssets.length}개`;
   const list = document.getElementById('db-genlog-list');
   if(genlogAssets.length === 0){
     list.innerHTML = '<div class="comfy-model-empty">색인된 결과물이 없어요.</div>';
     return;
   }
-  list.innerHTML = `<div class="genlog-list">${genlogAssets.map(a => {
+  if(filtered.length === 0){
+    list.innerHTML = '<div class="comfy-model-empty">조건에 맞는 결과물이 없어요.</div>';
+    return;
+  }
+  list.innerHTML = `<div class="genlog-list">${filtered.map(a => {
     let params = {};
     try{ params = a.params_json ? JSON.parse(a.params_json) : {}; }catch(e){ /* 못 읽으면 빈 값 */ }
     const filename = (a.path || '').split('/').pop();
@@ -8399,6 +8459,22 @@ function renderGenerationLog(){
 }
 
 document.getElementById('db-genlog-refresh-btn').addEventListener('click', fetchGenerationLog);
+document.getElementById('db-genlog-kind-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.db-genlog-kind-tab');
+  if(!btn || btn.dataset.kind === genlogKindFilter) return;
+  genlogKindFilter = btn.dataset.kind;
+  document.querySelectorAll('.db-genlog-kind-tab').forEach(b => b.classList.toggle('active', b === btn));
+  renderGenerationLog();
+});
+document.getElementById('db-genlog-date-from').addEventListener('change', (e) => { genlogDateFrom = e.target.value; renderGenerationLog(); });
+document.getElementById('db-genlog-date-to').addEventListener('change', (e) => { genlogDateTo = e.target.value; renderGenerationLog(); });
+document.getElementById('db-genlog-filter-clear').addEventListener('click', () => {
+  genlogKindFilter = ''; genlogDateFrom = ''; genlogDateTo = '';
+  document.querySelectorAll('.db-genlog-kind-tab').forEach(b => b.classList.toggle('active', b.dataset.kind === ''));
+  document.getElementById('db-genlog-date-from').value = '';
+  document.getElementById('db-genlog-date-to').value = '';
+  renderGenerationLog();
+});
 
 // DB 탭 패널 선택 — 모델 탭의 종류 탭(model-kind-tabs)과 같은 .enhance-mode 패턴으로
 // 셋 중 하나만 보여준다. 데이터는 (지금은) 탭을 열 때 셋 다 미리 받아 두고, 여기서는
