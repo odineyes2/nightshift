@@ -32,6 +32,10 @@ _last_sync = 0.0
 _SAMPLER_TYPES = ("KSampler", "KSamplerAdvanced", "SamplerCustom", "SamplerCustomAdvanced")
 
 
+_NON_TEXT_INPUTS = {"clip", "model", "vae", "image", "images", "mask", "latent", "latent_image", "samples",
+                    "pixels", "video", "audio", "clip_vision", "clip_vision_output", "start_image", "end_image"}
+
+
 def _collect_texts(graph: dict, ref, out: list, seen: set, depth: int = 0) -> None:
     """conditioning 연결을 거슬러 올라가며 프롬프트 문자열을 모은다. 프롬프트를
     ConditioningConcat/Combine으로 여러 조각을 이어 붙이는 워크플로우가 많아서, 하나만
@@ -45,6 +49,10 @@ def _collect_texts(graph: dict, ref, out: list, seen: set, depth: int = 0) -> No
     node = graph.get(nid)
     if not isinstance(node, dict):
         return
+    # 영상 워크플로우는 사람이 쓴 프롬프트(user_prompt)에 시스템 프롬프트를 붙여 LLM(TextGenerate)으로
+    # 늘린 뒤 인코더에 넣는다 — 시스템 프롬프트는 사람이 쓴 프롬프트가 아니므로 모으지 않는다.
+    if "system" in str((node.get("_meta") or {}).get("title") or "").lower():
+        return
     inputs = node.get("inputs") or {}
     text = inputs.get("text")
     if isinstance(text, str) and text.strip():
@@ -56,9 +64,26 @@ def _collect_texts(graph: dict, ref, out: list, seen: set, depth: int = 0) -> No
             if isinstance(inputs.get(key), str) and inputs[key].strip():
                 out.append(inputs[key].strip())
                 break
+    # 긍정·부정을 둘 다 받아 둘 다 내보내는 노드(WanImageToVideo·ControlNetApplyAdvanced 등, 출력 0=긍정
+    # 1=부정)는 들어온 출력 번호에 맞는 쪽만 따라간다 — 양쪽을 다 따라가면 긍정·부정 프롬프트가 섞인다.
+    slot = ref[1] if len(ref) > 1 else 0
+    pair_only = ("positive" if slot == 0 else "negative" if slot == 1 else None) \
+        if "positive" in inputs and "negative" in inputs else False
     for key, val in inputs.items():
-        if key != "text" and isinstance(val, list) and ("conditioning" in key or key in ("positive", "negative")):
+        if key == "text" or not isinstance(val, list):
+            continue
+        if key in ("positive", "negative"):
+            if pair_only is False or key == pair_only:
+                _collect_texts(graph, val, out, seen, depth + 1)
+        elif "conditioning" in key:
             _collect_texts(graph, val, out, seen, depth + 1)
+    # 문자열을 이어 주기만 하는 노드(PreviewAny·TextGenerate·StringConcatenate 등)는 자기 텍스트가 없으니
+    # 연결된 입력을 따라 원문까지 거슬러 간다. 모델·이미지 같은 입력은 텍스트가 아니라 건너뛴다.
+    if "text" not in inputs and not any(k in inputs for k in ("value", "string")) and \
+            not any("conditioning" in k or k in ("positive", "negative") for k in inputs):
+        for key, val in inputs.items():
+            if isinstance(val, list) and key not in _NON_TEXT_INPUTS:
+                _collect_texts(graph, val, out, seen, depth + 1)
 
 
 def _prompt_for(graph: dict, ref) -> str | None:
@@ -229,17 +254,20 @@ def _origin_pods() -> dict:
 
 
 _BACKFILL_KEY = "asset_model_meta_v1"
+# 영상 프롬프트를 못 읽던 문제(프롬프트가 PreviewAny→TextGenerate→StringConcatenate→user_prompt를 거쳐
+# 들어가는데 그 연결을 안 따라갔다)를 고친 뒤, 프롬프트가 빈 영상만 한 번 더 읽는다.
+_BACKFILL_VIDEO_PROMPT_KEY = "asset_video_prompt_v1"
 
 
-def _backfill_model_meta(found: dict) -> None:
+def _backfill_model_meta(found: dict, key: str = _BACKFILL_KEY, where: str = "") -> None:
     """예전에 색인한 결과물에는 UNet/VAE/텍스트 인코더 이름이 없고(영상은 아예 메타를 안 읽었다), 그래서
-    모델별 사용 통계가 비어 보인다. DB마다 한 번만 파일을 다시 읽어 그 칸들을 채운다.
+    모델별 사용 통계가 비어 보인다. DB마다(key마다) 한 번만 파일을 다시 읽어 그 칸들을 채운다.
     이미 값이 있는 seed/prompt/checkpoint는 그대로 두고 비어 있는 것만 채운다."""
     with db.connect() as conn:
-        if db.get_meta(conn, _BACKFILL_KEY):
+        if db.get_meta(conn, key):
             return
         rows = conn.execute("SELECT id, path, kind, seed, prompt, negative_prompt, checkpoint FROM assets "
-                            "WHERE deleted_at IS NULL").fetchall()
+                            "WHERE deleted_at IS NULL" + where).fetchall()
         for r in rows:
             item = found.get(r["path"])
             if item is None:
@@ -258,11 +286,11 @@ def _backfill_model_meta(found: dict) -> None:
                 continue
             conn.execute(
                 "UPDATE assets SET params_json=COALESCE(?, params_json), checkpoint=COALESCE(checkpoint, ?), "
-                "seed=COALESCE(seed, ?), prompt=COALESCE(prompt, ?), negative_prompt=COALESCE(negative_prompt, ?) "
-                "WHERE id=?",
+                "seed=COALESCE(seed, ?), prompt=COALESCE(NULLIF(prompt, ''), ?), "
+                "negative_prompt=COALESCE(NULLIF(negative_prompt, ''), ?) WHERE id=?",
                 (meta.get("params_json"), meta.get("checkpoint"), meta.get("seed"),
                  meta.get("prompt"), meta.get("negative_prompt"), r["id"]))
-        db.set_meta(conn, _BACKFILL_KEY, db.now_iso())
+        db.set_meta(conn, key, db.now_iso())
 
 
 def sync(force: bool = False) -> dict | None:
@@ -352,6 +380,7 @@ def sync(force: bool = False) -> dict | None:
                         conn.execute("UPDATE assets SET deleted_at=? WHERE id=?", (now, row["id"]))
                         removed += 1
         _backfill_model_meta(found)
+        _backfill_model_meta(found, _BACKFILL_VIDEO_PROMPT_KEY, " AND kind = 'video' AND (prompt IS NULL OR prompt = '')")
         _last_sync = time.monotonic()
         return {"added": added, "updated": updated, "removed": removed, "total": len(found)}
     finally:
