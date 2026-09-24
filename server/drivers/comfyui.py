@@ -18,10 +18,11 @@ ComfyUI 파드 드라이버 — 지금까지 app.py에 흩어져 있던 "ComfyUI
 import json
 import os
 import time
+import urllib.parse
 import urllib.request
 
 from comfy_outputs import OutputSyncError, sync_outputs
-from runpod_api import get_runpod_info
+from runpod_api import extract_pod_id, get_runpod_info, proxy_links
 
 from .base import PodDriver
 
@@ -190,10 +191,31 @@ class ComfyUIDriver(PodDriver):
             except Exception:
                 pass
 
-        runpod_info = get_runpod_info(pod.get("url") or health.get("url") or "")
+        pod_url = pod.get("url") or health.get("url") or ""
+        runpod_info = get_runpod_info(pod_url)
         if runpod_info:
-            card["runpod"] = runpod_info
+            card["runpod"] = {k: v for k, v in runpod_info.items() if k != "ports"}
+        card["links"] = _web_links(pod_url, runpod_info)
         return card
+
+
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+def _web_links(pod_url: str, runpod_info: dict | None) -> list[dict]:
+    """카드에 띄울 바로가기(ComfyUI 화면, RunPod면 JupyterLab·파일 브라우저까지). RunPod 파드는
+    RunPod API가 알려 준 열린 포트로 만들고, 그 밖의 주소는 ComfyUI 주소 하나만 — 단 이
+    서버 자신을 가리키는 주소(localhost 등)는 사용자의 브라우저에서는 엉뚱한 곳이므로 뺀다."""
+    rp_id = extract_pod_id(pod_url)
+    if rp_id and runpod_info and runpod_info.get("ports"):
+        return proxy_links(rp_id, runpod_info["ports"])
+    try:
+        parsed = urllib.parse.urlparse(pod_url)
+    except ValueError:
+        return []
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.hostname in _LOCAL_HOSTS:
+        return []
+    return [{"kind": "comfyui", "label": "ComfyUI", "url": pod_url}]
 
 
 __all__ = ["ComfyUIDriver", "OutputSyncError", "check_url",
