@@ -142,10 +142,16 @@ def _sampling_to_save(add, model_src, cond_node_id, video_vae_src, audio_vae_src
     )
 
 
+def unet_for(spec: dict, default: str) -> str:
+    """마법사 1단계에서 고른 UNet 파일(spec["checkpoint"]). 안 골랐으면 공식 파일(default).
+    파인튜닝 모델(예: dasiwa…)도 같은 그래프에 파일만 바꿔 끼우면 되므로 고른 파일을 그대로 쓴다."""
+    return str(spec.get("checkpoint") or "").strip() or default
+
+
 def build_i2v_workflow(spec: dict) -> dict:
     """Image to Video(정확히는 First/Last Frame to Video, "fl2v") 겸 Text to Video("t2v") —
     둘 다 MiniMaxH3ImageToVideo 노드 하나로 조립되는 같은 워크플로우이고, UNet도 같은
-    파일(I2V_UNET_NAME, 실제로는 "…fl2va…" 파일 — r2v의 "…ref2va…"와 다름)을 쓴다.
+    파일(마법사에서 고른 UNet, 안 고르면 I2V_UNET_NAME — 실제로는 "…fl2va…" 파일, r2v의 "…ref2va…"와 다름)을 쓴다.
     차이는 이미지를 하나도 안 쓰느냐(t2v)뿐이다:
       - 이미지를 하나라도 쓰면(fl2v) width/height를 그 이미지의 실제 크기에서 계산한다
         (ImageScaleToTotalPixels → GetImageSize).
@@ -170,7 +176,7 @@ def build_i2v_workflow(spec: dict) -> dict:
     workflow: dict = {}
     add = _new_adder(workflow)
 
-    unet_id = add("UNETLoader", {"unet_name": I2V_UNET_NAME, "weight_dtype": UNET_WEIGHT_DTYPE}, "확산 모델 로드")
+    unet_id = add("UNETLoader", {"unet_name": unet_for(spec, I2V_UNET_NAME), "weight_dtype": UNET_WEIGHT_DTYPE}, "확산 모델 로드")
     clip_id = add("CLIPLoader", {"clip_name": CLIP_NAME, "type": "minimax", "device": "default"}, "CLIP 로드")
     video_vae_id = add("VAELoader", {"vae_name": VIDEO_VAE_NAME}, "VAE 로드")
     audio_vae_id = add("VAELoader", {"vae_name": AUDIO_VAE_NAME}, "VAE 로드")
@@ -250,7 +256,7 @@ def build_r2v_workflow(spec: dict) -> dict:
     workflow: dict = {}
     add = _new_adder(workflow)
 
-    unet_id = add("UNETLoader", {"unet_name": R2V_UNET_NAME, "weight_dtype": UNET_WEIGHT_DTYPE}, "확산 모델 로드")
+    unet_id = add("UNETLoader", {"unet_name": unet_for(spec, R2V_UNET_NAME), "weight_dtype": UNET_WEIGHT_DTYPE}, "확산 모델 로드")
     clip_id = add("CLIPLoader", {"clip_name": CLIP_NAME, "type": "minimax", "device": "default"}, "CLIP 로드")
     video_vae_id = add("VAELoader", {"vae_name": VIDEO_VAE_NAME}, "VAE 로드")
     audio_vae_id = add("VAELoader", {"vae_name": AUDIO_VAE_NAME}, "VAE 로드")

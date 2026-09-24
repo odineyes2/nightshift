@@ -7741,9 +7741,25 @@ async function openWizardTypeModal(){
   renderWizardTypeModal();
 }
 
+// 1단계에서 고른 모델이 checkpoint_match(예: MiniMax-H3의 fl2va/ref2va) 계열인지. 파일 이름에 그 글자가 있거나,
+// 모델 탭 등록부의 태그에 있으면(파인튜닝 모델처럼 이름에 계열이 안 드러나는 경우 — 태그는 "fl2va, ref2va"처럼
+// 한 칸에 여러 개를 적어도 된다) 맞는 것으로 본다. 이름과 태그 어디에도 이 family의 계열 표시가 없으면 'unknown'.
+function wizardVariantInfo(variants){
+  const name = String(wizard.checkpoint || '');
+  const base = name.split(/[\\/]/).pop();
+  const entry = Object.values(modelRegistry.items || {}).find(e =>
+    (e.kind === 'diffusion_models' || e.kind === 'checkpoints') && (e.filename === name || String(e.filename).split(/[\\/]/).pop() === base));
+  const tags = ((entry && entry.tags) || []).flatMap(t => String(t).toLowerCase().split(/[\s,]+/)).filter(Boolean);
+  const has = v => name.toLowerCase().includes(v.toLowerCase()) || tags.includes(v.toLowerCase());
+  const known = variants.filter(has);
+  return { has, unknown: variants.length > 0 && known.length === 0 };
+}
+
 function renderWizardTypeModal(){
   const body = document.getElementById('wizard-type-modal-body');
   const catalog = workflowTypesCache || {};
+  const familyVariants = [...new Set((catalog.base || []).filter(t => t.family_id === wizard.familyId && t.checkpoint_match).map(t => t.checkpoint_match))];
+  const variant = wizardVariantInfo(familyVariants);
   const currentFamily = wizard.familyId ? baseModelFamilies[wizard.familyId] : null;
   // base/post 항목에 family_id/applies_to_base가 있으면 그 조건에 맞을 때만 보인다.
   // family_id가 없는 범용 항목(txt2img/img2img)은 체크포인트 기반(SDXL식, CheckpointLoaderSimple로
@@ -7754,7 +7770,8 @@ function renderWizardTypeModal(){
     // checkpoint_match: 같은 family(base_model)에 실제로 다른 역할을 하는 파일이
     // 여러 개 있을 때(예: MiniMax-H3의 fl2va/ref2va UNet) family_id만으로는 못
     // 가른다 — 1단계에서 고른 파일명에 이 부분 문자열이 있어야만 보인다.
-    if(t.checkpoint_match && !String(wizard.checkpoint || '').toLowerCase().includes(t.checkpoint_match.toLowerCase())) return false;
+    // 파일 이름이나 등록부 태그로 계열을 알 수 없으면 막지 않고 전부 보여 준다(아래 안내 문구).
+    if(t.checkpoint_match && !variant.unknown && !variant.has(t.checkpoint_match)) return false;
     if(t.family_id) return true;
     return !currentFamily || currentFamily.kind !== 'diffusion_models';
   });
@@ -7826,7 +7843,11 @@ function renderWizardTypeModal(){
         <div class="wizard-pick-row-label">${escapeHtml(t.label)}</div>
       </div>`).join('')}</div>`;
 
+  const variantHint = variant.unknown
+    ? `<div class="email-hint">고른 모델이 ${familyVariants.join('/')} 중 어느 계열인지 파일 이름으로 알 수 없어서 모든 유형을 보여 줘요. "모델" 탭에서 이 모델의 태그에 ${familyVariants.join(' 또는 ')}을(를) 적어 두면 맞는 유형만 보여요.</div>`
+    : '';
   body.innerHTML = `
+    ${variantHint}
     <div class="wizard-pick-section-title">베이스 (하나 선택)</div>
     <div class="wizard-pick-list">${baseRows}</div>
     <div class="wizard-pick-section-title">후처리 <span class="wizard-pick-row-hint">— 여러 개 함께 켤 수 있어요(베이스를 먼저 고르세요)</span></div>
