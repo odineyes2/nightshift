@@ -2967,7 +2967,8 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
             "minimax_h3_r2v": workflow_builder_minimax_h3.R2V_UNET_NAME,
         }.get(architecture)
         if minimax_required is not None:
-            require_installed(minimax_required, checkpoint_kind, "체크포인트")
+            # 고른 UNet(파인튜닝 모델 포함)이 있으면 빌더가 그 파일을 쓰므로 그걸 확인한다.
+            require_installed(workflow_builder_minimax_h3.unet_for(spec, minimax_required), checkpoint_kind, "체크포인트")
         else:
             require_installed(str(spec.get("checkpoint") or "").strip(), checkpoint_kind, "체크포인트")
         require_installed(str(spec.get("vae") or "").strip(), "vae", "VAE")
