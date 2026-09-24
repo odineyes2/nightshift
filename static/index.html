@@ -4330,7 +4330,7 @@ function render(jobs, pendingCount, running, perPod){
     j.progress && j.progress.done, j.progress && j.progress.total,
     j.project_id, j.project_id != null ? projectName(j.project_id) : '',
     preflightCount(j.preflight), j.waiting_reason, j.pinned_pod_id,
-    j.missing_models && j.missing_models.names.join('|'), !!j.fetching_models,
+    j.missing_models && j.missing_models.names.join('|'), !!j.fetching_models, j.fetch_error,
   ]));
   if(rowsSignature === lastJobsRowsSignature) return;
   lastJobsRowsSignature = rowsSignature;
@@ -4542,6 +4542,7 @@ function buildJobCard(j){
         ${baseModel ? `<div class="job-card-base">${escapeHtml(baseModel)}</div>` : ''}
         ${fetching
           ? `<div class="job-card-wait fetching" title="${escapeHtml(j.fetching_models.names.join('\n'))}">${ico('loader-circle', true)}<span>모델 받는 중 — 다 받으면 저절로 시작해요</span></div>`
+          : blocked && j.fetch_error ? `<div class="job-card-wait" title="${escapeHtml('모델 받기 실패 — ' + j.fetch_error + '\n\n' + (j.waiting_reason || ''))}">${ico('triangle-alert')}<span>받기 실패 — ${escapeHtml(j.fetch_error)}</span></div>`
           : waitingForPod && j.waiting_reason ? `<div class="job-card-wait" title="${escapeHtml(j.waiting_reason)}">${ico('triangle-alert')}<span>${escapeHtml(j.waiting_reason)}</span></div>` : ''}
       </div>
       ${progress ? `

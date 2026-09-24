@@ -1170,6 +1170,7 @@ def schedule_once() -> None:
             job["waiting_reason"] = None
             job["missing_models"] = None
             job["fetching_models"] = None
+            job["fetch_error"] = None
             job["preflight"] = None
             free[chosen["id"]] -= 1
         save_state()
@@ -4613,6 +4614,7 @@ def _watch_model_downloads(pod: dict, job_id: str, names: list[str]) -> None:
     """"없는 모델 받기"로 시작한 다운로드가 끝날 때까지 지켜보다가, 끝날 때마다 파드의 설치 목록 캐시를
     비우고 스케줄러를 깨운다 — 그래야 사람이 모델 탭을 안 열어도 다 받는 즉시 작업이 시작된다."""
     pending = set(names)
+    errors: list[str] = []
     deadline = time.monotonic() + 6 * 3600
     while pending and time.monotonic() < deadline:
         time.sleep(10)
@@ -4627,6 +4629,8 @@ def _watch_model_downloads(pod: dict, job_id: str, names: list[str]) -> None:
             if match and item.get("status") in ("done", "error", "failed", "cancelled"):
                 pending.discard(match)
                 finished = True
+                if item.get("status") != "done":
+                    errors.append(f"{match}: {item.get('error') or item.get('status')}")
         if finished:
             ComfyUIDriver.invalidate_capabilities(pod["id"])
             poke_scheduler()
@@ -4634,6 +4638,11 @@ def _watch_model_downloads(pod: dict, job_id: str, names: list[str]) -> None:
         job = jobs.get(job_id)
         if job is not None:
             job["fetching_models"] = None
+            # 실패한 받기는 이유를 남겨 카드에 보인다(없으면 받는 중 표시만 사라지고 원래 대기 이유로
+            # 돌아가 "받았는데 왜 또 없다고 하지?"가 된다). 시간 안에 안 끝난 것도 알린다.
+            if pending:
+                errors.append(f"{', '.join(sorted(pending))}: 6시간 안에 끝나지 않았어요")
+            job["fetch_error"] = " · ".join(errors) or None
     save_state()
     ComfyUIDriver.invalidate_capabilities(pod["id"])
     poke_scheduler()
@@ -4673,6 +4682,7 @@ async def fetch_missing_models(job_id: str, request: Request):
             job = jobs.get(job_id)
             if job is not None:
                 job["fetching_models"] = {"pod_id": pod["id"], "names": started, "started_at": now_iso()}
+                job["fetch_error"] = None
         save_state()
         threading.Thread(target=_watch_model_downloads, args=(pod, job_id, started), daemon=True).start()
     return {"pod_id": pod["id"], "started": started, "no_url": no_url, "failed": failed}
