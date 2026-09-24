@@ -4643,6 +4643,11 @@ def _watch_model_downloads(pod: dict, job_id: str, names: list[str]) -> None:
             if pending:
                 errors.append(f"{', '.join(sorted(pending))}: 6시간 안에 끝나지 않았어요")
             job["fetch_error"] = " · ".join(errors) or None
+            if not errors and job.get("status") == "queued" and not job.get("pod_id"):
+                # 다 받았으면 옛 "없는 것 — …"을 지운다 — 스케줄러가 새 설치 목록으로 다시 볼 때까지(최대 몇 초)
+                # 카드에 옛 이유가 다시 보여 "받았는데 또 없다고?"처럼 깜빡였다. 아직 모자라면 스케줄러가 다시 적는다.
+                job["missing_models"] = None
+                job["waiting_reason"] = "모델을 다 받았어요 — 곧 시작해요"
     save_state()
     ComfyUIDriver.invalidate_capabilities(pod["id"])
     poke_scheduler()
