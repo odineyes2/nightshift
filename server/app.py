@@ -4564,6 +4564,27 @@ def start_job(job_id: str, request: Request):
     return jobs[job_id]
 
 
+@app.post("/api/jobs/{job_id}/pause")
+def pause_job(job_id: str, request: Request):
+    # 작업 카드의 ⏸ — 대기 큐에서 기다리는(queued) 작업 하나를 다시 일시정지(pending)로 돌린다.
+    # 빈 파드가 생겨도 시작되지 않는다. 이미 파드 큐에 들어가 있어도 워커가 꺼낼 때 상태를 보고
+    # 버리므로(wait_for_pod) 따로 빼낼 필요가 없다. 스케줄러가 골라 준 파드는 풀어서 다시 ▶할 때
+    # 그 시점에 갖춰진 파드를 새로 찾게 하고, 사람이 고정한 파드(pinned_pod_id)는 그대로 둔다.
+    job_or_404(me(request), job_id)
+    with lock:
+        job = jobs.get(job_id)
+        if not job or job.get("deleted"):
+            raise HTTPException(404, "없는 작업이에요.")
+        if job["status"] != "queued":
+            raise HTTPException(400, "대기 중인 작업만 일시정지할 수 있어요(실행 중이면 정지를 쓰세요).")
+        job["status"] = "pending"
+        job["waiting_reason"] = None
+        if job.get("pod_id") and not job.get("pinned_pod_id"):
+            job["pod_id"] = None
+    save_state()
+    return jobs[job_id]
+
+
 @app.post("/api/jobs/{job_id}/stop")
 def stop_job(job_id: str, request: Request):
     # Job List 행의 "정지" — 그 파드의 auto_run이나 같은 파드에서 같이 도는 다른 작업은

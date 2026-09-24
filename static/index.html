@@ -383,6 +383,17 @@
   }
   .tab-btn:hover{ color:var(--text); }
   .tab-btn.active{ color:var(--queued); border-bottom-color:var(--queued); }
+  /* 상단 내비는 평소 아이콘만 보이고, 마우스를 올리면 오른쪽으로 제목이 펼쳐진다. 호버가 없는
+     기기(폰·태블릿)에서는 늘 아이콘만 — 제목은 title로 남는다. */
+  #global-tab-bar .tab-btn{ display:inline-flex; align-items:center; padding:12px 10px; }
+  #global-tab-bar .tab-btn .ico{ width:17px; height:17px; vertical-align:0; }
+  #global-tab-bar .tab-label{ display:inline-block; max-width:0; opacity:0; overflow:hidden; margin-left:0;
+                              transition:max-width .28s ease, opacity .2s ease, margin-left .28s ease; }
+  @media (hover:hover){
+    #global-tab-bar .tab-btn:hover .tab-label,
+    #global-tab-bar .tab-btn:focus-visible .tab-label{ max-width:12em; opacity:1; margin-left:7px; }
+  }
+  @media (prefers-reduced-motion:reduce){ #global-tab-bar .tab-label{ transition:none; } }
   .tab-bar-sep{ width:1px; height:16px; align-self:center; background:var(--border); margin:0 8px; }
 
   /* 파드 스코프 바 — 전역 탭바 아래에 한 줄 더 붙는다. 바탕색을 본문과 같게 해서
@@ -1501,6 +1512,13 @@
   .job-card[data-status="done"]{ border-left-color:var(--done); }
   .job-card[data-status="failed"]{ border-left-color:var(--failed); }
   .job-card[data-status="interrupted"]{ border-left-color:var(--interrupted); }
+  /* 일시정지(pending) — 대기열에 있지만 빈 파드가 있어도 시작하지 않는다. 회색 카드로 가라앉히고
+     ▶ 버튼만 또렷하게 둔다. 실행 대기(queued)는 보통 카드에 ⏸. */
+  .job-card[data-status="pending"]{ background:var(--bg); border-left-color:var(--text-dim); border-style:dashed; border-left-style:solid; }
+  .job-card[data-status="pending"] > :not(.job-card-actions){ opacity:.5; filter:grayscale(1); }
+  .job-card[data-status="pending"] .start-btn{ color:var(--done); }
+  .job-card .pause-btn{ color:var(--queued); }
+  .job-card-actions .start-btn .ico, .job-card-actions .pause-btn .ico{ width:16px; height:16px; }
   /* 카드 안에서만 쓰는 위치 지정 — 배지 자체 모양(.pod-badge/.preflight-badge)은
      기존 걸 그대로 재사용해서 모델탭 등과 스타일이 갈라지지 않게 한다. */
   .job-card .preflight-badge{ position:absolute; top:8px; right:8px; }
@@ -1637,6 +1655,7 @@
   .edit-btn,
   .load-btn,
   .start-btn,
+  .pause-btn,
   .stop-btn{
     background:var(--panel);
     border:1px solid var(--border);
@@ -1659,6 +1678,7 @@
      삭제(빨강)/수정·불러오기(파랑)와 구분되게 한다. */
   .start-btn:hover{ border-color:var(--done); color:var(--done); background:rgba(var(--done-rgb),0.06); }
   /* 진행 중인 작업 하나만 멈추는 "정지" 버튼 — running(주황/노랑) 계열로 구분. */
+  .pause-btn:hover{ border-color:var(--text-dim); color:var(--text); }
   .stop-btn:hover{ border-color:var(--running); color:var(--running); background:rgba(var(--running-rgb),0.06); }
   .load-notice{ font-size:12.5px; font-family:var(--mono); min-height:1em; white-space:pre-line; color:var(--text-dim); }
   /* 업로드한 워크플로우가 지금 연결된 ComfyUI에서 돌아갈 수 있는지 검사한 결과 —
@@ -2997,16 +3017,16 @@
      구분선 뒤에 둔다. -->
 <div class="tab-bar" id="global-tab-bar">
   <div class="tab-bar-inner">
-    <button class="tab-btn active" data-tab="dashboard" type="button" title="홈 — 프로젝트"><svg class="ico"><use href="#i-house"/></svg> Home</button>
-    <button class="tab-btn" data-tab="pods" type="button" title="파드(워커) — 연결 상태와 큐"><svg class="ico"><use href="#i-server"/></svg> Pods</button>
-    <button class="tab-btn" data-tab="jobs" type="button" title="작업 — 파드를 정하지 않고 구상해서 대기 큐로 보내면, 필요한 모델을 갖춘 파드가 살아날 때 시작해요"><svg class="ico"><use href="#i-list-checks"/></svg> Jobs</button>
-    <button class="tab-btn" data-tab="gallery" type="button"><svg class="ico"><use href="#i-images"/></svg> Gallery</button>
-    <button class="tab-btn" data-tab="video-gallery" type="button" title="영상 갤러리 — 출력 폴더에 쌓인 영상 파일을 확인"><svg class="ico"><use href="#i-clapperboard"/></svg> Videos</button>
-    <button class="tab-btn" data-tab="models" type="button" title="모델 — 파드와 무관한 모델 기준 데이터(주소·트리거 키워드·베이스 모델)"><svg class="ico"><use href="#i-boxes"/></svg> Models</button>
+    <button class="tab-btn active" data-tab="dashboard" type="button" title="홈 — 프로젝트"><svg class="ico"><use href="#i-house"/></svg><span class="tab-label">Home</span></button>
+    <button class="tab-btn" data-tab="pods" type="button" title="파드(워커) — 연결 상태와 큐"><svg class="ico"><use href="#i-server"/></svg><span class="tab-label">Pods</span></button>
+    <button class="tab-btn" data-tab="jobs" type="button" title="작업 — 파드를 정하지 않고 구상해서 대기 큐로 보내면, 필요한 모델을 갖춘 파드가 살아날 때 시작해요"><svg class="ico"><use href="#i-list-checks"/></svg><span class="tab-label">Jobs</span></button>
+    <button class="tab-btn" data-tab="gallery" type="button" title="갤러리 — 결과 이미지"><svg class="ico"><use href="#i-images"/></svg><span class="tab-label">Gallery</span></button>
+    <button class="tab-btn" data-tab="video-gallery" type="button" title="영상 갤러리 — 출력 폴더에 쌓인 영상 파일을 확인"><svg class="ico"><use href="#i-clapperboard"/></svg><span class="tab-label">Videos</span></button>
+    <button class="tab-btn" data-tab="models" type="button" title="모델 — 파드와 무관한 모델 기준 데이터(주소·트리거 키워드·베이스 모델)"><svg class="ico"><use href="#i-boxes"/></svg><span class="tab-label">Models</span></button>
     <span class="tab-bar-sep"></span>
-    <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 파드와 무관한 프롬프트 작업대"><svg class="ico"><use href="#i-tag"/></svg> Danbooru</button>
-    <button class="tab-btn" id="db-tab-btn" data-tab="db" type="button" style="display:none;" title="DB — 앱이 쌓아 둔 여러 기록을 표로 봄(관리자 전용)"><svg class="ico"><use href="#i-database"/></svg> DB</button>
-    <button class="tab-btn" id="admin-tab-btn" data-tab="admin" type="button" style="display:none;" title="회원 관리 (관리자 전용)"><svg class="ico"><use href="#i-users"/></svg> Admin<span class="tab-badge" id="admin-pending-badge" hidden></span></button>
+    <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 파드와 무관한 프롬프트 작업대"><svg class="ico"><use href="#i-tag"/></svg><span class="tab-label">Danbooru</span></button>
+    <button class="tab-btn" id="db-tab-btn" data-tab="db" type="button" style="display:none;" title="DB — 앱이 쌓아 둔 여러 기록을 표로 봄(관리자 전용)"><svg class="ico"><use href="#i-database"/></svg><span class="tab-label">DB</span></button>
+    <button class="tab-btn" id="admin-tab-btn" data-tab="admin" type="button" style="display:none;" title="회원 관리 (관리자 전용)"><svg class="ico"><use href="#i-users"/></svg><span class="tab-label">Admin</span><span class="tab-badge" id="admin-pending-badge" hidden></span></button>
   </div>
 </div>
 
@@ -4350,6 +4370,22 @@ function render(jobs, pendingCount, running, perPod){
     });
   });
 
+  board.querySelectorAll('.pause-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      btn.disabled = true;
+      try{
+        const res = await fetch(`/api/jobs/${btn.dataset.pause}/pause`, { method: 'POST' });
+        if(!res.ok){
+          const data = await res.json().catch(() => ({}));
+          alert(data.detail || '일시정지하지 못했어요.');
+        }
+      }finally{
+        fetchJobs();
+      }
+    });
+  });
+
   board.querySelectorAll('.stop-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -4457,9 +4493,9 @@ function buildJobCard(j){
   const pfCount = ['pending', 'queued', 'interrupted', 'failed'].includes(j.status) ? preflightCount(j.preflight) : 0;
   const preflightBadge = pfCount
     ? `<span class="pod-badge preflight-badge" title="${escapeHtml('등록할 때 이 작업이 갈 파드에 없던 것들:\n' + preflightLines(j.preflight).join('\n'))}">${ico('triangle-alert')} 모델 ${pfCount}</span>` : '';
-  // 대기 큐(pending/queued)는 시작 또는 정지 둘 중 하나가 항상 보여야 한다 — queued도
-  // "지금 강제로 시작" 버튼을 준다(자동으로 곧 시작될 수도 있지만, 안 눌러도 해는 없다).
-  const startable = ['pending', 'queued', 'interrupted', 'failed'].includes(j.status);
+  // 대기 칸의 두 상태를 카드 모양과 버튼으로 가른다 — pending(일시정지: 빈 파드가 있어도 시작 안 함)은
+  // 회색 카드에 ▶, queued(빈 파드가 생기면 바로 실행)는 보통 카드에 ⏸(POST /api/jobs/{id}/pause).
+  const startable = ['pending', 'interrupted', 'failed'].includes(j.status);
   const deletable = j.status !== 'running' && (j.status !== 'queued' || waitingForPod);
 
   return `
@@ -4475,11 +4511,12 @@ function buildJobCard(j){
           <span class="progress-text">${progress.done}/${progress.total}</span>
         </div>` : ''}
       <div class="job-card-actions">
-        ${startable ? `<button class="start-btn" data-start="${j.id}" title="이 작업만 지금 시작해요(자동 실행 여부와 무관)"><svg class="ico"><use href="#i-play"/></svg></button>` : ''}
-        ${j.status === 'running' ? `<button class="stop-btn" data-stop="${j.id}" title="이 작업만 정지해요 — 상태가 '정지'로 바뀌면 삭제할 수 있어요"><svg class="ico"><use href="#i-pause"/></svg></button>` : ''}
         ${deletable
           ? `<button class="del-btn" data-del="${j.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg></button>`
           : `<button class="del-btn" disabled title="진행 중인 작업은 먼저 정지해야 삭제할 수 있어요"><svg class="ico"><use href="#i-trash-2"/></svg></button>`}
+        ${j.status === 'running' ? `<button class="stop-btn" data-stop="${j.id}" title="이 작업만 정지해요 — 상태가 '정지'로 바뀌면 삭제할 수 있어요"><svg class="ico"><use href="#i-pause"/></svg></button>` : ''}
+        ${j.status === 'queued' ? `<button class="pause-btn" data-pause="${j.id}" title="실행 대기 중 — 누르면 일시정지해요(빈 파드가 있어도 시작하지 않아요)"><svg class="ico"><use href="#i-pause"/></svg></button>` : ''}
+        ${startable ? `<button class="start-btn" data-start="${j.id}" title="${j.status === 'pending' ? '일시정지 중 — 누르면 실행 대기로 넘어가요(빈 파드가 있으면 바로 시작)' : '이 작업을 다시 시작해요'}"><svg class="ico"><use href="#i-play"/></svg></button>` : ''}
       </div>
     </div>`;
 }
