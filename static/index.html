@@ -12,6 +12,18 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#14161B">
 <style>
+  /* 한글 UI 폰트 — Inter/IBM Plex Mono는 한글 글리프가 없어서, 지금까지 한글은 전부 OS
+     기본 폰트(Windows는 맑은 고딕 등)로 대체 렌더링되고 있었다. Pretendard는 Apple SD
+     Gothic Neo/San Francisco 계열과 잘 어울리는 굵기·비례로 만들어진 가변 폰트라, 헤더
+     워드마크가 주는 느낌(Inter/IBM Plex Mono)을 크게 벗어나지 않으면서 한글까지 통일된
+     글꼴로 보여준다. 서버가 static/ 전체를 "/"로 그대로 서빙하므로 /fonts/...로 받는다. */
+  @font-face{
+    font-family: 'Pretendard Variable';
+    font-weight: 45 920;
+    font-style: normal;
+    font-display: swap;
+    src: url('/fonts/PretendardVariable.woff2') format('woff2-variations');
+  }
   :root{
     --bg: #F7F8FA;
     --panel: #FFFFFF;
@@ -24,10 +36,13 @@
     --done: #15803D; --done-rgb: 21,128,61;
     --failed: #DC2626; --failed-rgb: 220,38,38;
     --interrupted: #7C3AED; --interrupted-rgb: 124,58,237;
-    --mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+    /* 두 스택 모두 한글 대체 폰트로 Pretendard Variable을 추가한다 — 영문/숫자는 원래
+       폰트(IBM Plex Mono/Inter) 그대로 쓰이고, 그 폰트에 없는 한글 글리프만 브라우저가
+       자동으로 Pretendard로 넘어가 렌더링한다(폰트 스택의 문자 단위 폴백 특성 이용). */
+    --mono: 'IBM Plex Mono', 'Pretendard Variable', 'SFMono-Regular', Menlo, Consolas, monospace;
     /* 로고·메뉴·제목이 함께 쓰는 자간 — 로그인 화면 워드마크의 느낌을 앱 전체로 */
     --track-brand: 0.24em; --track-nav: 0.14em; --track-label: 0.16em;
-    --sans: 'Inter', -apple-system, sans-serif;
+    --sans: 'Pretendard Variable', 'Inter', -apple-system, sans-serif;
 
     /* 버튼 디자인 시스템 — 색상별(파랑=주요 동작/초록=시작/빨강=위험) 그라데이션과
        hover/disabled 상태를 한곳에서 정의해서, 페이지 전체 버튼이 같은 규칙(그라데이션
@@ -61,6 +76,7 @@
       --text: #E7E9ED;
       --text-dim: #97A0AC;
       --log-text: #B8C0CC;
+      color-scheme: dark;
     }
   }
   html[data-theme="dark"]{
@@ -70,7 +86,13 @@
     --text: #E7E9ED;
     --text-dim: #97A0AC;
     --log-text: #B8C0CC;
+    color-scheme: dark;
   }
+  /* color-scheme을 지정해두면 <input type="date"> 달력 아이콘·팝업 같은 브라우저
+     기본 폼 컨트롤이 테마에 맞게 알아서 뒤집힌다 — 밤 모드에서 아이콘이 배경과 겹쳐
+     안 보이던 문제를 막는다. data-theme="light"로 명시했을 땐 OS가 밤 모드여도 낮
+     모드로 고정해야 하므로 명시적으로 되돌려준다. */
+  html[data-theme="light"]{ color-scheme: light; }
   *{ box-sizing: border-box; }
   html{
     /* 문서 어딘가가 뷰포트보다 넓어지면(줄바꿈 안 되는 요소 등) 일부 모바일
@@ -431,6 +453,21 @@
   .gallery-filter-row{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px; }
   .gallery-filter-row .gf-search{ flex:1 1 200px; min-width:150px; max-width:340px; padding:7px 10px; font-size:13px; cursor:text; }
   .gallery-filter-row select{ font-size:12.5px; }
+  /* 날짜 범위 입력(DB 탭의 생성 정보/업데이트 내역 등) — 기본 .option-input은 모달 폼에
+     맞춘 굵은 패딩/큰 글자라 옆의 종류 탭(.enhance-mode)·필터 지우기 버튼과 높이·글꼴이
+     안 맞았다. 같은 줄의 고스트 버튼 계열(.load-btn 등, 4px 10px / 11px mono)에 맞춘다. */
+  .gallery-filter-row input[type="date"]{
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    padding:4px 8px;
+    border-radius:var(--radius-sm);
+    max-width:128px;
+  }
+  .db-filter-dash{ color:var(--text-dim); font-size:11px; font-family:var(--mono); }
+  /* "필터 지우기"는 모달 취소 버튼(.modal-btn-secondary)을 그대로 쓰고 있어 크기가
+     한 단계 컸다 — .gallery-toolbar에서 이미 쓰던 것과 같은 축소 규칙을 적용한다. */
+  .gallery-filter-row .modal-btn-secondary{ padding:4px 10px; font-size:11px; }
   .gf-toggle{ display:inline-flex; align-items:center; gap:6px; }
   .gf-toggle.on{ color:var(--queued); border-color:var(--queued); background:rgba(var(--queued-rgb),0.08); }
   .gf-toggle.on .ico{ fill:currentColor; }
@@ -744,24 +781,6 @@
   .recent-workflow-item .icon-btn{
     width:56px;
     justify-content:center;
-  }
-  /* "삭제된 작업 설정 불러오기" — 아코디언 없이 항상 펼쳐진 채로 제목/드롭다운/
-     버튼을 한 줄에 붙여 보여준다. 드롭다운이 남는 폭을 채우고, 제목과 버튼은
-     고정 폭. 좁은 화면에서는 세로로 쌓는다. */
-  .deleted-jobs-row{
-    display:flex;
-    align-items:center;
-    gap:var(--gap-md);
-    flex-wrap:wrap;
-    padding:16px 24px;
-  }
-  .deleted-jobs-row .section-label{ margin-bottom:0; flex-shrink:0; }
-  .deleted-jobs-row select{ flex:1 1 240px; min-width:160px; max-width:none; }
-  #deleted-jobs-load-btn{ flex-shrink:0; }
-  @media (max-width:520px){
-    .deleted-jobs-row{ align-items:stretch; }
-    .deleted-jobs-row select{ flex-basis:100%; }
-    #deleted-jobs-load-btn{ width:100%; }
   }
   .options-fields{
     display:flex;
@@ -1431,6 +1450,118 @@
   .dash-card-actions{ display:flex; flex-wrap:wrap; gap:6px; margin-top:auto; padding-top:4px; }
   .dash-card.disabled{ opacity:0.62; }
 
+  /* ---- JOBS 탭 — Job Queue 카드 보드. 대기/실행/완료/실패 4섹션으로 나눠서 보여준다
+     (render()가 채움). 섹션은 갤러리 작업별/날짜별 보기(.gallery-group)와 같은
+     "소제목 + 전용 grid" 패턴을 따른다. 카드가 비동기(폴링)로 채워지므로 .card-canvas와
+     같은 이유로 모바일에서는 grid 대신 flex-column으로 전환한다.
+     카드는 정사각형 — 최소 정보(종류 아이콘+배치 방식, 베이스 모델, 진행률, 시작/정지/
+     삭제 아이콘 버튼)만 보이고 나머지(소유자/파드/프로젝트/워크플로우 파일명/시간·옵션
+     상세/로그)는 전부 상세 모달(job-detail-*)에서만 보여준다. ---- */
+  /* 4단계(대기/실행/완료/실패)를 칸반처럼 좌→우로 나란히 둔다 — 칸이 좁아지면
+     .job-board-grid의 auto-fill이 자연히 칸 하나짜리 세로 목록으로 줄어든다. */
+  .job-board{ display:flex; flex-direction:row; align-items:flex-start; gap:16px; overflow-x:auto; }
+  .job-section{ flex:1 1 0; min-width:220px; display:flex; flex-direction:column; }
+  .job-section-header{
+    display:flex; align-items:center; gap:8px;
+    font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--text-dim);
+    padding:6px 2px; margin-bottom:8px; border-bottom:1px solid var(--border);
+  }
+  .job-section-count{ color:var(--text); }
+  .job-section-empty{
+    font-size:12px; color:var(--text-dim); text-align:center;
+    padding:18px 4px; border:1px dashed var(--border); border-radius:10px;
+  }
+  .job-board-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));
+    gap:10px;
+  }
+  @media (max-width:900px){
+    .job-board{ flex-direction:column; overflow-x:visible; }
+    .job-section{ min-width:0; }
+  }
+  @media (max-width:640px){
+    .job-board-grid{ grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); }
+  }
+  .job-card{
+    position:relative;
+    aspect-ratio:2;
+    display:flex; flex-direction:column; justify-content:space-between; gap:4px;
+    padding:8px;
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    border-left-width:3px; border-left-style:solid;
+    cursor:pointer;
+    transition:border-color .12s ease, background .12s ease;
+    -webkit-touch-callout:none;
+  }
+  /* 대기 칸 맨 끝 "+" 카드 — 잡 카드와 같은 크기·모서리를 쓰되 점선 테두리로
+     "아직 잡이 아니다"를 드러낸다. 눌러서 openNewJobModal(). */
+  .job-card-add{
+    aspect-ratio:2;
+    display:flex; align-items:center; justify-content:center;
+    background:none; border:1.5px dashed var(--border); border-radius:10px;
+    color:var(--text-dim); cursor:pointer;
+    transition:border-color .12s ease, color .12s ease, background .12s ease;
+  }
+  .job-card-add:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.04); }
+  .job-card-add .ico{ width:20px; height:20px; }
+  @media (hover:none){ .job-card{ -webkit-user-select:none; user-select:none; } }
+  .job-card:hover{ border-color:var(--queued); background:rgba(var(--queued-rgb),0.04); }
+  .job-card[data-status="pending"], .job-card[data-status="queued"]{ border-left-color:var(--queued); }
+  .job-card[data-status="running"]{ border-left-color:var(--running); }
+  .job-card[data-status="done"]{ border-left-color:var(--done); }
+  .job-card[data-status="failed"]{ border-left-color:var(--failed); }
+  .job-card[data-status="interrupted"]{ border-left-color:var(--interrupted); }
+  /* 일시정지(pending) — 대기열에 있지만 빈 파드가 있어도 시작하지 않는다. 회색 카드로 가라앉히고
+     ▶ 버튼만 또렷하게 둔다. 실행 대기(queued)는 보통 카드에 ⏸. */
+  .job-card[data-status="pending"]{ background:var(--bg); border-left-color:var(--text-dim); border-style:dashed; border-left-style:solid; }
+  .job-card[data-status="pending"] > :not(.job-card-actions){ opacity:.5; filter:grayscale(1); }
+  .job-card[data-status="pending"] .start-btn{ color:var(--done); }
+  .job-card .pause-btn{ color:var(--queued); }
+  .job-card-actions .start-btn .ico, .job-card-actions .pause-btn .ico{ width:16px; height:16px; }
+  /* 카드 안에서만 쓰는 위치 지정 — 배지 자체 모양(.pod-badge/.preflight-badge)은
+     기존 걸 그대로 재사용해서 모델탭 등과 스타일이 갈라지지 않게 한다. */
+  .job-card .preflight-badge{ position:absolute; top:8px; right:8px; }
+  .job-card-title{
+    display:flex; align-items:center; gap:6px;
+    font-family:var(--mono); font-size:12px; color:var(--text);
+    padding-right:22px; overflow:hidden;
+  }
+  .job-card-title .ico{ width:14px; height:14px; flex:none; color:var(--text-dim); }
+  .job-card-title span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .job-card-base{ font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .job-card-actions{ display:flex; gap:2px; justify-content:flex-end; }
+  /* 카드 안에서는 아이콘 자체가 버튼 — .del-btn/.start-btn/.stop-btn을 감싸던 사각
+     테두리·배경을 없애고, hover 시 색만(기존 색 규칙 그대로) 살짝 배경으로 드러낸다. */
+  .job-card-actions button{
+    flex:none; display:flex; align-items:center; justify-content:center;
+    width:22px; height:22px; padding:0;
+    background:none; border:none; border-radius:var(--radius-sm);
+  }
+  .job-detail-actions{ display:flex; flex-wrap:wrap; gap:8px; }
+  .job-detail-grid{ display:flex; flex-direction:column; gap:10px; }
+  .job-detail-preflight{ font-size:12px; color:var(--text-dim); line-height:1.6; white-space:pre-line; }
+  .job-detail-prompt{ font-size:13px; color:var(--text); line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+  /* 상세 모달의 생성물 섹션 — 작게 썸네일+파일명, 누르면 그 갤러리 항목으로 이동
+     (openGalleryForJobOutput). */
+  .job-detail-outputs{ display:flex; flex-wrap:wrap; gap:8px; }
+  .job-detail-output{
+    display:flex; flex-direction:column; gap:3px; align-items:center;
+    width:64px; background:none; border:none; padding:0; cursor:pointer;
+  }
+  .job-detail-output-thumb{
+    width:64px; height:64px; border-radius:6px; border:1px solid var(--border);
+    object-fit:cover; background:#000;
+  }
+  .job-detail-output-name{
+    width:100%; font-size:9.5px; color:var(--text-dim); text-align:center;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  /* 로그는 기본 접힘 — <details>는 요소를 다시 안 만들고 display만 바꾸므로, 안의
+     <pre id="job-detail-log">가 절대 재생성되지 않아야 한다는 규칙(위 HTML 주석)과
+     충돌하지 않는다. */
+  .job-detail-log-details summary{ cursor:pointer; font-size:11px; color:var(--text-dim); font-family:var(--mono); }
+
   /* Claude 글쓰기 파드의 "📝 결과" 탭 — 이미지가 아니라 글이라 갤러리(썸네일 격자)
      대신 이 목록을 쓴다. 행을 누르면 그 자리에서 펼쳐지고(별도 라이트박스 없음),
      펼친 순간에만 서버에서 전문을 받아온다(resultTextCache로 재요청 방지). */
@@ -1502,10 +1633,6 @@
     font-size:13px;
   }
 
-  .log-row td{
-    background:var(--bg);
-    padding:0;
-  }
   .log-toolbar{ display:flex; justify-content:flex-end; padding:8px 16px 0; }
   pre.log{
     margin:0;
@@ -1521,8 +1648,9 @@
   }
   /* "고스트" 버튼 계열 — 흰 배경 + 테두리로 있는 듯 없는 듯 있다가, hover 시에만
      자기 역할에 맞는 색(삭제=빨강, 수정/불러오기=파랑, 취소=중립)을 드러낸다.
-     테이블 행 안에 여러 개가 붙어도(.row-actions) 크기·간격이 흔들리지 않도록
-     같은 padding/font-size/radius를 공유한다. */
+     작업 카드(.job-card-actions)나 상세 모달(.job-detail-actions)처럼 여러 개가
+     한 줄에 붙어도 크기·간격이 흔들리지 않도록 같은 padding/font-size/radius를
+     공유한다. */
   .del-btn,
   .edit-btn,
   .load-btn,
@@ -1544,7 +1672,6 @@
   .del-btn:hover{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
   .del-btn:disabled{ opacity:0.45; cursor:not-allowed; }
   .del-btn:disabled:hover{ border-color:var(--border); color:var(--text-dim); background:var(--panel); }
-  .row-actions{ display:flex; gap:var(--gap-xs); flex-wrap:nowrap; }
   .edit-btn:hover,
   .load-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
   /* 대기/정지/실패 작업을 (다시) 큐에 올리는 "시작" 버튼 — done(초록) 계열로,
@@ -1743,7 +1870,6 @@
   .genlog-neg summary{ cursor:pointer; font-size:11.5px; color:var(--text-dim); }
   .genlog-neg .genlog-prompt{ margin-top:4px; color:var(--text-dim); }
   .genlog-loras{ font-size:11.5px; color:var(--text-dim); margin-top:4px; }
-  .db-filter-dash{ color:var(--text-dim); font-size:12.5px; }
  /* 아직 family로 등록 안 된{
     display:flex; flex-wrap:wrap; align-items:center; gap:8px;
     padding:8px 12px; margin-bottom:10px;
@@ -2965,42 +3091,28 @@
     <div class="panel-header">
       <div class="panel-header-title">
         <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
-        <div class="section-label">Job list</div>
+        <div class="section-label">Job Queue</div>
       </div>
     </div>
     <div class="panel-body">
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:26px;"></th>
-              <th>템플릿</th>
-              <th>옵션</th>
-              <th>워크플로우</th>
-              <th>CSV</th>
-              <th>상태</th>
-              <th>시작</th>
-              <th>종료</th>
-              <th>예상 작업시간</th>
-              <th>예상 종료</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="job-rows"></tbody>
-        </table>
-      </div>
-      <div class="empty" id="empty-msg" style="display:none;">아직 등록된 작업이 없어요</div>
+      <div class="job-board" id="job-board"></div>
     </div>
   </div>
+</main>
 
-  <div class="panel" id="new-job-panel">
-    <div class="panel-header">
-      <div class="panel-header-title">
-        <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
-        <div class="section-label">New job</div>
-      </div>
+<!-- New Job은 항상 붙박이로 보이던 패널이었지만, 대기 칸의 카드 개수가 늘면서 화면을
+     너무 많이 차지해 모달로 옮겼다 — Job Queue의 대기 칸 맨 끝 "+" 카드(job-card-add,
+     render() 참고)를 눌러야 열린다(openNewJobModal). 안의 id들은 하나도 안 바꿨으므로
+     마법사/워크플로우 업로드/옵션 폼 관련 JS는 그대로 동작한다. #tab-jobs 안에 두지
+     않고 다른 모달들처럼 최상위 형제로 뺐다 — 안 그러면 다른 탭(갤러리 등)에서
+     "불러오기"로 열 때 #tab-jobs의 display:none에 가려 안 보인다. -->
+<div class="modal-overlay" id="new-job-modal" style="display:none;">
+  <div class="modal-panel modal-panel-wide">
+    <div class="modal-header">
+      <div class="modal-title">New Job</div>
+      <button class="modal-close" id="new-job-modal-close" aria-label="닫기">&times;</button>
     </div>
-    <div class="panel-body">
+    <div class="modal-body">
       <!-- 이 작업이 어느 프로젝트에 속하고 어느 파드에서 도는지. 지금 들어와 있는 스코프가 이미
            정한 쪽은 숨긴다 — 프로젝트 안에서는 프로젝트가, 파드 안에서는 파드가 정해져 있다. -->
       <div class="job-target-row" id="job-target-row">
@@ -3134,13 +3246,7 @@
       </div>
     </div>
   </div>
-
-  <div class="panel deleted-jobs-row" id="deleted-jobs-panel">
-    <div class="section-label">Deleted jobs</div>
-    <select id="deleted-jobs-select" class="option-input" disabled title="삭제된 작업"></select>
-    <button class="submit-btn" id="deleted-jobs-load-btn" disabled title="이 설정 불러오기"><svg class="ico"><use href="#i-folder-open"/></svg> 불러오기</button>
   </div>
-</main>
 
 <main id="tab-gallery" style="display:none;">
   <div class="panel">
@@ -3495,6 +3601,43 @@
     <div class="lightbox-error" id="video-gallery-lightbox-error"></div>
   </div>
   <button class="lightbox-nav lightbox-next" id="video-gallery-next" aria-label="다음 영상" type="button">&rsaquo;</button>
+</div>
+
+<!-- workflow-modal/csv-editor-modal/job-project-modal/job-move-modal보다 반드시 먼저
+     나와야 한다 — .modal-overlay는 전부 z-index:70이라, 이 상세 모달 안에서 그 넷을
+     열었을 때 같은 스택에서 "DOM에 나중에 나온 게 위" 규칙으로 올바르게 그 위에
+     그려지려면 이 넷보다 앞에 있어야 한다. -->
+<div class="modal-overlay" id="job-detail-modal" style="display:none;">
+  <div class="modal-panel modal-panel-wide">
+    <div class="modal-header">
+      <div class="modal-title" id="job-detail-title">Job</div>
+      <button class="modal-close" id="job-detail-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="job-detail-grid" id="job-detail-fields"></div>
+      <div class="job-detail-actions" id="job-detail-actions"></div>
+      <div class="field" id="job-detail-outputs-field" style="display:none;">
+        <label class="field-label">생성물</label>
+        <div class="job-detail-outputs" id="job-detail-outputs"></div>
+      </div>
+      <div class="field">
+        <details class="job-detail-log-details">
+          <summary>로그</summary>
+          <div class="log-toolbar" style="padding:8px 0 0;"><button type="button" class="load-btn" id="job-detail-log-copy-btn" title="로그 전체를 클립보드로 복사"><svg class="ico"><use href="#i-copy"/></svg> 로그 복사</button></div>
+          <!-- render()의 매 폴링 tick마다 위 두 칸(job-detail-fields/-actions)은 통째로
+               다시 그리지만, 이 <pre>는 절대 다시 만들지 않고 loadLog()가 textContent만
+               (실제로 바뀔 때만) 갱신한다 — 로그를 드래그로 선택/복사하는 도중 DOM이
+               갈아끼워져 선택이 풀리는 문제를 막기 위해서다(예전 tbody 재생성 문제와
+               같은 이유, loadLog() 주석 참고). <details>는 내용을 지우지 않고 display만
+               바꾸므로 접혀 있어도 이 규칙은 그대로 유지된다. -->
+          <pre class="log" id="job-detail-log">불러오는 중…</pre>
+        </details>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="job-detail-close-btn" type="button"><svg class="ico"><use href="#i-x"/></svg> 닫기</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="video-edit-modal" style="display:none;">
@@ -4032,8 +4175,6 @@ document.querySelectorAll('.panel > .panel-header > .panel-header-title').forEac
   });
 });
 
-let expandedId = null;
-
 function pad2(n){ return String(n).padStart(2, '0'); }
 
 function fmtTime(iso){
@@ -4132,6 +4273,16 @@ let lastJobs = [];
 // 때만" 다시 그린다 — 바뀐 게 없으면 이번 tick은 손대지 않고 그대로 둔다.
 let lastJobsRowsSignature = null;
 
+// 상태를 대기/실행/완료/실패 4섹션으로 묶는다 — "중단됨"(interrupted)은 실패
+// 섹션에 같이 묶이지만 배지 자체(.badge.interrupted)는 그대로 렌더링해 색으로
+// 실제 실패와 구분된다.
+const JOB_SECTIONS = [
+  { key: 'queue', label: '대기', match: j => j.status === 'pending' || j.status === 'queued' },
+  { key: 'running', label: '실행', match: j => j.status === 'running' },
+  { key: 'done', label: '완료', match: j => j.status === 'done' },
+  { key: 'failed', label: '실패', match: j => j.status === 'failed' || j.status === 'interrupted' },
+];
+
 function render(jobs, pendingCount, running, perPod){
   lastJobs = jobs;
   // "📝 결과" 탭이 열려 있는 동안 새 작업이 끝나면 목록에 바로 반영되게, 작업
@@ -4140,16 +4291,25 @@ function render(jobs, pendingCount, running, perPod){
   // 작업 목록은 언제나 지금 들어와 있는 파드 것만 보여준다(파드 스코프 바 참고).
   if(jobPodFilter) jobs = jobs.filter(j => j.pod_id === jobPodFilter);
   if(jobProjectFilter !== null) jobs = jobs.filter(j => projectMatches(j.project_id, jobProjectFilter));
-  const tbody = document.getElementById('job-rows');
-  const emptyMsg = document.getElementById('empty-msg');
+  const board = document.getElementById('job-board');
 
-  if(jobs.length === 0){
-    tbody.innerHTML = '';
-    emptyMsg.style.display = 'block';
-    lastJobsRowsSignature = null;
-    return;
+  // 상세 모달이 열려 있는 작업이 이번 목록에서 사라졌으면(삭제됐거나 필터로
+  // 빠졌으면) 모달을 닫는다. 남아있으면 카드 그리드의 시그니처 가드와 무관하게
+  // 매 tick마다 다시 그린다 — 로그 <pre>만 loadLog()의 "텍스트가 실제로 바뀔 때만"
+  // 가드로 보호되므로(그 <pre>는 이 재렌더 대상 밖에 고정 배치돼 있다), 드래그
+  // 선택이 폴링으로 풀리는 문제가 재발하지 않는다.
+  if(openJobDetailId){
+    const openJob = jobs.find(j => j.id === openJobDetailId);
+    if(openJob){
+      renderJobDetailModalBody();
+      loadLog(openJobDetailId);
+      // 실행 중인 동안만 생성물 목록을 다시 받는다 — 끝난 작업은 더 안 늘어나므로
+      // openJobDetailModal이 연 시점의 한 번으로 충분하다.
+      if(openJob.status === 'running') loadJobDetailOutputs(openJobDetailId);
+    }else{
+      closeJobDetailModal();
+    }
   }
-  emptyMsg.style.display = 'none';
 
   // 화면에 실제로 영향을 주는 값만 서명에 넣는다 — template_label/options 같은
   // 것들은 작업이 생성될 때 정해지고 이후 안 바뀌므로 뺐다.
@@ -4158,103 +4318,43 @@ function render(jobs, pendingCount, running, perPod){
     j.progress && j.progress.done, j.progress && j.progress.total,
     j.project_id, j.project_id != null ? projectName(j.project_id) : '',
     preflightCount(j.preflight), j.waiting_reason, j.pinned_pod_id,
-  ])) + '|' + expandedId;
+  ]));
   if(rowsSignature === lastJobsRowsSignature) return;
   lastJobsRowsSignature = rowsSignature;
 
-  tbody.innerHTML = jobs.map(j => {
-    const isOpen = expandedId === j.id;
-    const templateText = j.template_label || j.template_id;
-    const optionsText = fmtOptions(j.options);
-    const workflowText = j.workflow_original_name || '-';
-    const csvText = j.csv_original_name || '-';
-    const progress = j.progress;
-    const progressPct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
-    const est = estimateJob(j);
-    // 서버가 ComfyUI 연결을 기다리며 붙잡아 둔 작업(app.py의 wait_for_comfy).
-    const waitingForComfy = !!j.waiting_for_comfy;
-    // 파드가 둘 이상일 때만 "어느 워커에서 도는지"를 보여준다.
-    const podBadge = (multiPod() || jobProjectFilter !== null) && j.pod_id
-      ? `<span class="pod-badge" title="이 작업이 배정된 파드">${escapeHtml(podName(j.pod_id) || j.pod_id)}</span>`
-      : '';
-    const waitingForPod = j.status === 'queued' && !j.pod_id;   // 대기 큐에서 갖춘 파드를 기다리는 중
-    const pinnedNote = j.pinned_pod_id ? ` (${escapeHtml(podName(j.pinned_pod_id) || '지정한 파드')}만)` : '';
-    const movable = podsCache.some(p => p.enabled) && ['pending', 'queued', 'interrupted'].includes(j.status);
-    // 프로젝트 안에서는 어차피 다 그 프로젝트 것이라 칩을 생략한다.
-    const projectBadge = (jobProjectFilter === null && j.project_id != null && projectsById[j.project_id])
-      ? `<span class="pod-badge project-badge" title="이 작업이 속한 프로젝트">${ico('folder')} ${escapeHtml(projectName(j.project_id))}</span>`
-      : '';
-    const pfCount = ['pending', 'queued', 'interrupted', 'failed'].includes(j.status) ? preflightCount(j.preflight) : 0;
-    const preflightBadge = pfCount
-      ? `<span class="pod-badge preflight-badge" title="${escapeHtml('등록할 때 이 작업이 갈 파드에 없던 것들:\n' + preflightLines(j.preflight).join('\n'))}">${ico('triangle-alert')} 모델 ${pfCount}</span>` : '';
-    const ownerBadge = j.owner_name
-      ? `<span class="pod-badge owner-badge" title="이 작업을 만든 회원">${ico('user')} ${escapeHtml(j.owner_name)}</span>` : '';
-    let rows = `
-      <tr data-id="${j.id}" class="job-row">
-        <td>${isOpen ? '<svg class="ico"><use href="#i-chevron-down"/></svg>' : '<svg class="ico"><use href="#i-chevron-right"/></svg>'}</td>
-        <td class="fname" title="${escapeHtml(templateText)}">${escapeHtml(templateText)}</td>
-        <td class="fname${Object.keys(j.options || {}).length ? '' : ' dim'}" title="${escapeHtml(optionsText)}">${escapeHtml(optionsText)}</td>
-        <td class="fname${j.workflow_original_name ? '' : ' dim'}" title="${escapeHtml(workflowText)}">${escapeHtml(workflowText)}</td>
-        <td class="fname${j.csv_original_name ? '' : ' dim'}" title="${escapeHtml(csvText)}">${escapeHtml(csvText)}</td>
-        <td>
-          ${ownerBadge}${podBadge}${projectBadge}${preflightBadge}
-          <span class="badge ${(waitingForComfy || waitingForPod) ? 'waiting' : j.status}"${waitingForComfy ? ' title="ComfyUI(GPU) 서버에 연결되면 자동으로 이어서 시작해요. 헤더의 연결 상태를 눌러 주소를 확인할 수 있어요."' : (waitingForPod ? ` title="${escapeHtml(j.waiting_reason || '필요한 모델을 갖춘 파드가 살아나면 시작해요')}"` : '')}><span class="bdot"></span>${waitingForComfy ? 'GPU 대기' : (waitingForPod ? '파드 대기' + pinnedNote : (STATUS_LABEL[j.status] || j.status))}</span>
-          ${waitingForPod && j.waiting_reason ? `<div class="job-wait-reason">${escapeHtml(j.waiting_reason)}</div>` : ''}
-          ${progress ? `
-            <div class="progress-wrap">
-              <div class="progress-track"><div class="progress-fill ${j.status}" style="width:${progressPct}%"></div></div>
-              <span class="progress-text">${progress.done}/${progress.total}</span>
-            </div>` : ''}
-        </td>
-        <td class="time-cell">${fmtTime(j.started_at)}</td>
-        <td class="time-cell">${fmtTime(j.finished_at)}</td>
-        <td class="time-cell${est.durationMs == null ? ' dim' : ''}">${fmtDuration(est.durationMs)}</td>
-        <td class="time-cell${est.finishIso == null ? ' dim' : ''}">${fmtTime(est.finishIso)}</td>
-        <td>
-          <div class="row-actions">
-            <button class="load-btn" data-loadid="${j.id}" title="설정 불러오기"><svg class="ico"><use href="#i-folder-open"/></svg> 불러오기</button>
-            ${j.status === 'pending' ? `<button class="edit-btn" data-editkind="workflow" data-editid="${j.id}" title="워크플로우 수정"><svg class="ico"><use href="#i-pencil"/></svg> 워크플로우</button>` : ''}
-            ${j.status === 'pending' && j.csv_filename ? `<button class="edit-btn" data-editkind="csv" data-editid="${j.id}" title="CSV 수정"><svg class="ico"><use href="#i-pencil"/></svg> CSV</button>` : ''}
-            ${['pending', 'interrupted', 'failed'].includes(j.status) ? `<button class="start-btn" data-start="${j.id}" title="이 작업만 지금 시작해요(자동 실행 여부와 무관)"><svg class="ico"><use href="#i-play"/></svg> 시작</button>` : ''}
-            ${j.status === 'queued' ? `<button class="pause-btn" data-pause="${j.id}" title="대기 큐에서 빼서 다시 일시정지해요 — 빈 파드가 있어도 시작되지 않아요"><svg class="ico"><use href="#i-pause"/></svg> 일시정지</button>` : ''}
-            ${j.status === 'running' ? `<button class="stop-btn" data-stop="${j.id}" title="이 작업만 정지해요 — 상태가 '정지'로 바뀌면 삭제할 수 있어요"><svg class="ico"><use href="#i-pause"/></svg> 정지</button>` : ''}
-            <button class="load-btn project-move-btn" data-project-move="${j.id}" title="이 작업(과 결과물)을 다른 프로젝트로 옮겨요"><svg class="ico"><use href="#i-folder-input"/></svg> 프로젝트</button>
-            ${movable ? `<button class="load-btn move-btn" data-move="${j.id}" title="이 작업을 다른 파드로 옮겨요"><svg class="ico"><use href="#i-arrow-right"/></svg> 파드 이동</button>` : ''}
-            ${j.status !== 'running' && (j.status !== 'queued' || waitingForPod)
-              ? `<button class="del-btn" data-del="${j.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>`
-              : `<button class="del-btn" disabled title="진행 중인 작업은 먼저 정지해야 삭제할 수 있어요"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>`}
-          </div>
-        </td>
-      </tr>`;
-    if(isOpen){
-      rows += `<tr class="log-row"><td colspan="11">
-        <div class="log-toolbar"><button type="button" class="load-btn log-copy-btn" data-copyid="${j.id}" title="로그 전체를 클립보드로 복사"><svg class="ico"><use href="#i-copy"/></svg> 로그 복사</button></div>
-        <pre class="log" id="log-${j.id}">불러오는 중…</pre>
-      </td></tr>`;
-    }
-    return rows;
+  // 카드가 없는 단계도 칸 자체는 늘 보여준다(4단계 칸반 구조를 항상 그대로 유지).
+  board.innerHTML = JOB_SECTIONS.map(section => {
+    const sectionJobs = jobs.filter(section.match);
+    // 대기 칸 맨 끝에는 항상 "+" 카드를 붙인다(openNewJobModal) — 그래서 대기 칸은
+    // 절대 "없음" 플레이스홀더로 안 빠지고 늘 그리드로 그려진다.
+    const cardsHtml = sectionJobs.map(buildJobCard).join('')
+      + (section.key === 'queue' ? '<button type="button" class="job-card-add" id="job-add-card" title="새 작업 추가"><svg class="ico"><use href="#i-plus"/></svg></button>' : '');
+    return `
+      <div class="job-section">
+        <div class="job-section-header">${section.label} <span class="job-section-count">${sectionJobs.length}</span></div>
+        ${cardsHtml ? `<div class="job-board-grid">${cardsHtml}</div>` : `<div class="job-section-empty">없음</div>`}
+      </div>`;
   }).join('');
 
-  tbody.querySelectorAll('.job-row').forEach(row => {
-    row.addEventListener('click', (e) => {
-      if(e.target.closest('.del-btn')) return;
-      const id = row.dataset.id;
-      expandedId = expandedId === id ? null : id;
-      render(jobs, pendingCount);
-      if(expandedId) loadLog(expandedId);
+  board.querySelectorAll('.job-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      if(e.target.closest('.start-btn, .stop-btn, .del-btn')) return;
+      openJobDetailModal(card.dataset.id);
     });
   });
 
-  tbody.querySelectorAll('.del-btn').forEach(btn => {
+  const addCard = document.getElementById('job-add-card');
+  if(addCard) addCard.addEventListener('click', openNewJobModal);
+
+  board.querySelectorAll('.del-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       await fetch('/api/jobs/' + btn.dataset.del, { method: 'DELETE' });
       fetchJobs();
-      fetchDeletedJobs();
     });
   });
 
-  tbody.querySelectorAll('.start-btn').forEach(btn => {
+  board.querySelectorAll('.start-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       btn.disabled = true;
@@ -4270,7 +4370,7 @@ function render(jobs, pendingCount, running, perPod){
     });
   });
 
-  tbody.querySelectorAll('.pause-btn').forEach(btn => {
+  board.querySelectorAll('.pause-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       btn.disabled = true;
@@ -4286,7 +4386,7 @@ function render(jobs, pendingCount, running, perPod){
     });
   });
 
-  tbody.querySelectorAll('.stop-btn').forEach(btn => {
+  board.querySelectorAll('.stop-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       btn.disabled = true;
@@ -4301,36 +4401,315 @@ function render(jobs, pendingCount, running, perPod){
       }
     });
   });
+}
 
-  tbody.querySelectorAll('.edit-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openAttachmentEditor(btn.dataset.editid, btn.dataset.editkind);
-    });
-  });
+// 작업 하나를 카드로 만든다 — 최소 정보만(상태·배지·템플릿·워크플로우 파일명·진행률
+// 또는 대기 사유 + 시작/정지/삭제). 옵션 요약/CSV 파일명/시간 4종/전체 preflight
+// 목록/로그/불러오기·수정·이동 버튼은 카드를 눌러 여는 상세 모달에만 있다
+// (openJobDetailModal/renderJobDetailModalBody).
+// job 객체 자체엔 "이미지/영상 중 뭘 만드는지"·"시드 반복/CSV 배치 중 어떤 방식인지"·
+// "베이스 모델이 뭔지"를 나타내는 필드가 없다(서버 템플릿 매니페스트에도 없음, 20개
+// 템플릿을 직접 조사해 확인함) — template_id 문자열 패턴과 options.checkpoint로
+// 추정한다. 카드 제목을 짧게 줄이기 위한 용도라, 못 맞혀도(빈 문자열) 카드가 깨지진
+// 않는다.
+function jobMediaKind(templateId){
+  const tid = templateId || '';
+  if(tid === 'shell_command' || tid === 'claude_write') return null;
+  return /i2v|flf2v|r2v/.test(tid) ? 'video' : 'image';
+}
+function jobBatchModeLabel(templateId, templateLabel){
+  const tid = templateId || '';
+  if(tid.includes('csv_batch')) return 'CSV 배치';
+  if(tid.includes('_batch')) return '시드 반복';
+  return templateLabel || tid || '-';
+}
+// 마법사로 만든 작업은 체크포인트가 업로드되는 워크플로우 JSON 안에 직접 박히고,
+// options.checkpoint(템플릿 자체의 체크포인트 드롭다운 — "직접 템플릿 선택"으로 쓸 때만
+// 채워짐)는 거의 항상 빈 채로 남는다 — 즉 실제로 만드는 작업 대부분(마법사 경로)에서
+// 카드 둘째 줄이 비게 된다. 정확히 알아내려면 결국 워크플로우 파일을 열어 체크포인트
+// 로더 노드를 찾아야 한다: /api/jobs/{id}/workflow(이미 "워크플로우 수정" 기능이 쓰는
+// 엔드포인트, 읽기는 상태 제한 없음)로 한 번 받아 jobWorkflowCheckpointCache에 영구
+// 캐시한다 — 카드가 몇 번을 다시 그려져도 같은 작업은 다시 안 받는다. 동기 함수인
+// jobBaseModelLabel 안에서 fetch를 기다릴 수는 없어서, 캐시에 없으면 백그라운드로
+// 한 번만 받아오기 시작하고(fetchJobWorkflowCheckpoint) 이번 렌더에는 빈 줄로 둔다 —
+// 받아오면 시그니처를 지워 다음 폴링 tick에 카드를 다시 그리게 한다.
+const jobWorkflowCheckpointCache = {};   // jobId -> 체크포인트 파일명 | null(못 찾음/실패)
+const jobWorkflowCheckpointPending = new Set();
 
-  tbody.querySelectorAll('.load-btn').forEach(btn => {
-    if(!btn.dataset.loadid) return;   // "파드 이동" 버튼도 같은 클래스로 스타일을 쓴다
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const job = jobs.find(j => j.id === btn.dataset.loadid);
-      if(job) loadJobSettings(job);
-    });
-  });
+function findCheckpointInWorkflow(wf){
+  for(const node of Object.values(wf || {})){
+    if(!node || typeof node !== 'object') continue;
+    const inputs = node.inputs || {};
+    if(node.class_type === 'CheckpointLoaderSimple' && inputs.ckpt_name) return inputs.ckpt_name;
+    if((node.class_type === 'UNETLoader' || node.class_type === 'UnetLoaderGGUF') && inputs.unet_name) return inputs.unet_name;
+  }
+  return null;
+}
 
-  tbody.querySelectorAll('.move-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openJobMoveModal(btn.dataset.move);
-    });
+async function fetchJobWorkflowCheckpoint(jobId){
+  if(jobId in jobWorkflowCheckpointCache || jobWorkflowCheckpointPending.has(jobId)) return;
+  jobWorkflowCheckpointPending.add(jobId);
+  try{
+    const res = await fetch(`/api/jobs/${jobId}/workflow`);
+    jobWorkflowCheckpointCache[jobId] = res.ok ? findCheckpointInWorkflow(await res.json()) : null;
+  }catch(e){
+    jobWorkflowCheckpointCache[jobId] = null;
+  }finally{
+    jobWorkflowCheckpointPending.delete(jobId);
+    lastJobsRowsSignature = null;   // 알아낸 값을 카드에 반영하도록 다음 tick에 강제로 다시 그린다
+  }
+}
+
+function jobBaseModelLabel(j){
+  const ckpt = j.options && j.options.checkpoint;
+  if(ckpt) return modelEntry('checkpoints', ckpt).base_model || ckpt;
+  // wan22/minimax-h3 영상 템플릿은 체크포인트 드롭다운이 아예 없다(고정 내장 모델).
+  const tid = j.template_id || '';
+  if(tid.startsWith('wan22_')) return 'Wan 2.2';
+  if(tid.startsWith('minimax_h3_')) return 'MiniMax-H3';
+  if(j.workflow_filename){
+    if(j.id in jobWorkflowCheckpointCache){
+      const found = jobWorkflowCheckpointCache[j.id];
+      if(found) return modelEntry('checkpoints', found).base_model || found;
+    }else{
+      fetchJobWorkflowCheckpoint(j.id);
+    }
+  }
+  return '';
+}
+
+// 정사각형 카드 — 최소 정보만: 종류 아이콘+배치 방식(1줄), 베이스 모델(1줄), 진행률
+// (실행 중일 때만), 시작/정지/삭제 아이콘 버튼. 소유자/파드/프로젝트/워크플로우
+// 파일명/상태 텍스트/대기 사유는 전부 상세 모달에서만 보여준다(openJobDetailModal).
+function buildJobCard(j){
+  const mediaKind = jobMediaKind(j.template_id);
+  const kindIcon = mediaKind === 'video' ? '<svg class="ico"><use href="#i-clapperboard"/></svg>'
+    : mediaKind === 'image' ? '<svg class="ico"><use href="#i-images"/></svg>' : '';
+  const batchLabel = jobBatchModeLabel(j.template_id, j.template_label);
+  const baseModel = jobBaseModelLabel(j);
+  const progress = j.progress;
+  const progressPct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
+  const waitingForPod = j.status === 'queued' && !j.pod_id;   // 대기 큐에서 갖춘 파드를 기다리는 중
+  const pfCount = ['pending', 'queued', 'interrupted', 'failed'].includes(j.status) ? preflightCount(j.preflight) : 0;
+  const preflightBadge = pfCount
+    ? `<span class="pod-badge preflight-badge" title="${escapeHtml('등록할 때 이 작업이 갈 파드에 없던 것들:\n' + preflightLines(j.preflight).join('\n'))}">${ico('triangle-alert')} 모델 ${pfCount}</span>` : '';
+  // 대기 칸의 두 상태를 카드 모양과 버튼으로 가른다 — pending(일시정지: 빈 파드가 있어도 시작 안 함)은
+  // 회색 카드에 ▶, queued(빈 파드가 생기면 바로 실행)는 보통 카드에 ⏸(POST /api/jobs/{id}/pause).
+  const startable = ['pending', 'interrupted', 'failed'].includes(j.status);
+  const deletable = j.status !== 'running' && (j.status !== 'queued' || waitingForPod);
+
+  return `
+    <div class="job-card" data-id="${j.id}" data-status="${j.status}">
+      ${preflightBadge}
+      <div>
+        <div class="job-card-title">${kindIcon}<span>${escapeHtml(batchLabel)}</span></div>
+        ${baseModel ? `<div class="job-card-base">${escapeHtml(baseModel)}</div>` : ''}
+      </div>
+      ${progress ? `
+        <div class="progress-wrap">
+          <div class="progress-track"><div class="progress-fill ${j.status}" style="width:${progressPct}%"></div></div>
+          <span class="progress-text">${progress.done}/${progress.total}</span>
+        </div>` : ''}
+      <div class="job-card-actions">
+        ${deletable
+          ? `<button class="del-btn" data-del="${j.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg></button>`
+          : `<button class="del-btn" disabled title="진행 중인 작업은 먼저 정지해야 삭제할 수 있어요"><svg class="ico"><use href="#i-trash-2"/></svg></button>`}
+        ${j.status === 'running' ? `<button class="stop-btn" data-stop="${j.id}" title="이 작업만 정지해요 — 상태가 '정지'로 바뀌면 삭제할 수 있어요"><svg class="ico"><use href="#i-pause"/></svg></button>` : ''}
+        ${j.status === 'queued' ? `<button class="pause-btn" data-pause="${j.id}" title="실행 대기 중 — 누르면 일시정지해요(빈 파드가 있어도 시작하지 않아요)"><svg class="ico"><use href="#i-pause"/></svg></button>` : ''}
+        ${startable ? `<button class="start-btn" data-start="${j.id}" title="${j.status === 'pending' ? '일시정지 중 — 누르면 실행 대기로 넘어가요(빈 파드가 있으면 바로 시작)' : '이 작업을 다시 시작해요'}"><svg class="ico"><use href="#i-play"/></svg></button>` : ''}
+      </div>
+    </div>`;
+}
+
+// ---- 작업 카드를 눌러 여는 상세 모달 ----
+// 카드에서 뺀 옵션 요약/CSV 파일명/시간 4종/전체 preflight 목록/불러오기·워크플로우·CSV
+// 수정·프로젝트·파드 이동 버튼/로그를 여기 모아 보여준다. jobMoveTargetId와 같은
+// 패턴으로 지금 열려 있는 작업의 id만 들고 있는다.
+let openJobDetailId = null;
+
+function openJobDetailModal(jobId){
+  openJobDetailId = jobId;
+  renderJobDetailModalBody();
+  // 이전에 열었던 다른 작업의 로그/생성물이 잠깐 남아 보이지 않도록, 새로 받아오는
+  // 동안은 안내 문구/빈 상태로 되돌려 둔다 — <pre>는 재생성하지 않고(위 HTML 주석
+  // 참고) 텍스트만 바꾼다.
+  document.getElementById('job-detail-log').textContent = '불러오는 중…';
+  jobDetailOutputs = null;
+  renderJobDetailOutputs();
+  document.getElementById('job-detail-modal').style.display = 'flex';
+  loadLog(jobId);
+  loadJobDetailOutputs(jobId);
+}
+
+function closeJobDetailModal(){
+  document.getElementById('job-detail-modal').style.display = 'none';
+  openJobDetailId = null;
+}
+
+// 대기 칸 맨 끝 "+" 카드(job-card-add)나 "불러오기"류 진입점들이 이 모달을 연다 —
+// 안의 폼/마법사 id는 전부 예전 New Job 패널 그대로라 별도 초기화가 필요 없다.
+function openNewJobModal(){
+  document.getElementById('new-job-modal').style.display = 'flex';
+}
+function closeNewJobModal(){
+  document.getElementById('new-job-modal').style.display = 'none';
+}
+document.getElementById('new-job-modal-close').addEventListener('click', closeNewJobModal);
+document.getElementById('new-job-modal').addEventListener('click', (e) => {
+  if(e.target === document.getElementById('new-job-modal')) closeNewJobModal();
+});
+
+// render()가 매 폴링 tick마다(카드 그리드의 시그니처 가드와 무관하게) 다시 부른다 —
+// 로그 <pre>는 여기서 손대지 않고 loadLog()의 자체 가드로만 갱신된다.
+function renderJobDetailModalBody(){
+  const job = lastJobs.find(j => j.id === openJobDetailId);
+  if(!job){ closeJobDetailModal(); return; }
+  const templateText = job.template_label || job.template_id;
+  // 프롬프트는 "옵션" 요약 문자열에 섞여 들어가면 한눈에 안 들어와서 따로 뺀다.
+  const optsEntries = Object.entries(job.options || {});
+  const promptText = job.options && job.options.main_prompt;
+  const otherOptionsText = fmtOptions(Object.fromEntries(optsEntries.filter(([k]) => k !== 'main_prompt')));
+  const est = estimateJob(job);
+  const waitingForComfy = !!job.waiting_for_comfy;
+  const waitingForPod = job.status === 'queued' && !job.pod_id;
+  const pinnedNote = job.pinned_pod_id ? ` (${escapeHtml(podName(job.pinned_pod_id) || '지정한 파드')}만)` : '';
+  const movable = podsCache.some(p => p.enabled) && ['pending', 'queued', 'interrupted'].includes(job.status);
+  const pfLines = preflightLines(job.preflight);
+
+  document.getElementById('job-detail-title').innerHTML =
+    `<span class="badge ${(waitingForComfy || waitingForPod) ? 'waiting' : job.status}"><span class="bdot"></span>${waitingForComfy ? 'GPU 대기' : (waitingForPod ? '파드 대기' + pinnedNote : (STATUS_LABEL[job.status] || job.status))}</span> ${escapeHtml(templateText)}`;
+
+  document.getElementById('job-detail-fields').innerHTML = `
+    ${promptText ? `<div class="field"><label class="field-label">프롬프트</label><div class="job-detail-prompt">${escapeHtml(promptText)}</div></div>` : ''}
+    <div class="field"><label class="field-label">옵션</label><div>${escapeHtml(otherOptionsText)}</div></div>
+    <div class="field"><label class="field-label">워크플로우</label><div>${escapeHtml(job.workflow_original_name || '-')}</div></div>
+    <div class="field"><label class="field-label">CSV</label><div>${escapeHtml(job.csv_original_name || '-')}</div></div>
+    ${job.owner_name ? `<div class="field"><label class="field-label">만든 사람</label><div>${escapeHtml(job.owner_name)}</div></div>` : ''}
+    ${job.pod_id ? `<div class="field"><label class="field-label">파드</label><div>${escapeHtml(podName(job.pod_id) || job.pod_id)}</div></div>` : ''}
+    ${job.project_id != null && projectsById[job.project_id] ? `<div class="field"><label class="field-label">프로젝트</label><div>${escapeHtml(projectName(job.project_id))}</div></div>` : ''}
+    <div class="field">
+      <label class="field-label">시간</label>
+      <div>시작 ${fmtTime(job.started_at)} · 종료 ${fmtTime(job.finished_at)} · 예상 작업시간 ${fmtDuration(est.durationMs)} · 예상 종료 ${fmtTime(est.finishIso)}</div>
+    </div>
+    ${waitingForPod && job.waiting_reason ? `<div class="job-wait-reason">${escapeHtml(job.waiting_reason)}</div>` : ''}
+    ${pfLines.length ? `<div class="field"><label class="field-label">모델 확인 필요</label><div class="job-detail-preflight">${escapeHtml(pfLines.join('\n'))}</div></div>` : ''}`;
+
+  document.getElementById('job-detail-actions').innerHTML = `
+    <button class="load-btn" id="job-detail-load-btn" title="설정 불러오기"><svg class="ico"><use href="#i-folder-open"/></svg> 불러오기</button>
+    ${job.status === 'pending' ? `<button class="edit-btn" id="job-detail-edit-workflow-btn" title="워크플로우 수정"><svg class="ico"><use href="#i-pencil"/></svg> 워크플로우 수정</button>` : ''}
+    ${job.status === 'pending' && job.csv_filename ? `<button class="edit-btn" id="job-detail-edit-csv-btn" title="CSV 수정"><svg class="ico"><use href="#i-pencil"/></svg> CSV 수정</button>` : ''}
+    <button class="load-btn" id="job-detail-project-btn" title="이 작업(과 결과물)을 다른 프로젝트로 옮겨요"><svg class="ico"><use href="#i-folder-input"/></svg> 프로젝트 이동</button>
+    ${movable ? `<button class="load-btn" id="job-detail-move-btn" title="이 작업을 다른 파드로 옮겨요"><svg class="ico"><use href="#i-arrow-right"/></svg> 파드 이동</button>` : ''}`;
+
+  document.getElementById('job-detail-load-btn').addEventListener('click', () => {
+    closeJobDetailModal();
+    loadJobSettings(job);
   });
-  tbody.querySelectorAll('.project-move-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openJobProjectModal(btn.dataset.projectMove);
-    });
+  const editWfBtn = document.getElementById('job-detail-edit-workflow-btn');
+  if(editWfBtn) editWfBtn.addEventListener('click', () => openAttachmentEditor(job.id, 'workflow'));
+  const editCsvBtn = document.getElementById('job-detail-edit-csv-btn');
+  if(editCsvBtn) editCsvBtn.addEventListener('click', () => openAttachmentEditor(job.id, 'csv'));
+  document.getElementById('job-detail-project-btn').addEventListener('click', () => openJobProjectModal(job.id));
+  const moveBtn = document.getElementById('job-detail-move-btn');
+  if(moveBtn) moveBtn.addEventListener('click', () => openJobMoveModal(job.id));
+}
+
+// 이 작업이 만든 생성물(이미지/영상) — 서버에 job_id로 거르는 API가 따로 없어서
+// (MCP list_output_images의 job_id 인자도 같은 이유로 전체를 받아 여기서 거른다고
+// 문서화돼 있다) /api/output-images·/api/output-videos를 통째로 받아 job_id로
+// 거른다. 대기 중인 작업은 당연히 아직 아무것도 없으니 건너뛴다.
+let jobDetailOutputs = null;   // { images: [...], videos: [...] } | null(아직 못 받음)
+
+async function loadJobDetailOutputs(jobId){
+  const job = lastJobs.find(j => j.id === jobId);
+  if(!job || ['pending', 'queued'].includes(job.status)){
+    if(openJobDetailId === jobId){ jobDetailOutputs = { images: [], videos: [] }; renderJobDetailOutputs(); }
+    return;
+  }
+  try{
+    // 헤더의 NSFW "숨김" 모드를 여기선 안 따른다 — 이 모달은 이미 그 작업의 원본
+    // 프롬프트(NSFW일 수 있음)를 그대로 보여주는 화면이라, 생성물만 따로 가리면
+    // 같은 모달 안에서 앞뒤가 안 맞는다. 본인이 만든 작업을 직접 눌러 들어온
+    // 상세 화면이라 메인 갤러리(둘러보다 우연히 마주칠 수 있는 곳)와는 성격이 다르다.
+    const [imgRes, vidRes] = await Promise.all([
+      fetch('/api/output-images'),
+      fetch('/api/output-videos'),
+    ]);
+    const imgData = await imgRes.json();
+    const vidData = await vidRes.json();
+    if(openJobDetailId !== jobId) return;   // 그 사이 다른 작업으로 넘어갔으면 버린다
+    jobDetailOutputs = {
+      images: (imgData.images || []).filter(a => a.job_id === jobId),
+      videos: (vidData.videos || []).filter(a => a.job_id === jobId),
+    };
+  }catch(e){
+    if(openJobDetailId !== jobId) return;
+    jobDetailOutputs = { images: [], videos: [] };
+  }
+  renderJobDetailOutputs();
+}
+
+function renderJobDetailOutputs(){
+  const field = document.getElementById('job-detail-outputs-field');
+  const wrap = document.getElementById('job-detail-outputs');
+  const items = jobDetailOutputs
+    ? [...jobDetailOutputs.images.map(a => ({ ...a, kind: 'image' })), ...jobDetailOutputs.videos.map(a => ({ ...a, kind: 'video' }))]
+    : [];
+  if(items.length === 0){ field.style.display = 'none'; wrap.innerHTML = ''; return; }
+  field.style.display = '';
+  wrap.innerHTML = items.map(a => {
+    const thumb = a.kind === 'video'
+      ? `<video class="job-detail-output-thumb" muted preload="metadata" src="${window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(a.name)}`)}#t=0.1"></video>`
+      : `<img class="job-detail-output-thumb" src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(a.name)}/thumbnail?size=128&fit=cover&v=${encodeURIComponent(a.mtime)}`)}" alt="" loading="lazy">`;
+    return `<button type="button" class="job-detail-output" data-name="${escapeHtml(a.name)}" data-kind="${a.kind}" title="${escapeHtml(a.name)}">${thumb}<span class="job-detail-output-name">${escapeHtml(a.name)}</span></button>`;
+  }).join('');
+  wrap.querySelectorAll('.job-detail-output').forEach(btn => {
+    btn.addEventListener('click', () => openGalleryForJobOutput(btn.dataset.name, btn.dataset.kind));
   });
 }
+
+// 생성물 썸네일을 누르면 그 이미지/영상을 갤러리에서 바로 연다 —
+// openGalleryForModel과 같은 패턴(필터를 비우고 탭을 전환한 뒤 라이트박스를 연다).
+async function openGalleryForJobOutput(name, kind){
+  const isVideo = kind === 'video';
+  const filters = isVideo ? videoGalleryFilters : galleryFilters;
+  const prefix = isVideo ? 'video' : 'image';
+  Object.assign(filters, { q: '', favorite: false, tag: '', minRating: 0, model: '' });
+  document.getElementById(`gf-${prefix}-q`).value = '';
+  document.getElementById(`gf-${prefix}-tag`).value = '';
+  document.getElementById(`gf-${prefix}-rating`).value = '0';
+  const fav = document.getElementById(`gf-${prefix}-fav`);
+  fav.classList.remove('on'); fav.setAttribute('aria-pressed', 'false');
+  galleryFilterSyncs[prefix]();
+  closeJobDetailModal();
+  showTab(isVideo ? 'video-gallery' : 'gallery');
+  await (isVideo ? fetchGalleryVideos() : fetchGalleryImages());
+  const list = isVideo ? displayedGalleryVideos : displayedGalleryImages;
+  const idx = list.findIndex(x => x.name === name);
+  if(idx >= 0) (isVideo ? openVideoLightbox : openLightbox)(idx);
+}
+
+document.getElementById('job-detail-modal-close').addEventListener('click', closeJobDetailModal);
+document.getElementById('job-detail-close-btn').addEventListener('click', closeJobDetailModal);
+document.getElementById('job-detail-modal').addEventListener('click', (e) => {
+  if(e.target === document.getElementById('job-detail-modal')) closeJobDetailModal();
+});
+// 로그 전체를 클립보드로 복사 — <pre id="job-detail-log">는 절대 다시 안 만들어지는
+// 고정 요소라(위 HTML 주석 참고), 예전 #job-rows 델리게이션과 달리 딱 한 번만
+// 붙이면 된다.
+document.getElementById('job-detail-log-copy-btn').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const el = document.getElementById('job-detail-log');
+  const text = el ? el.textContent : '';
+  const original = btn.innerHTML;
+  try{
+    await navigator.clipboard.writeText(text);
+    btn.innerHTML = ico('circle-check') + ' 복사됨';
+  }catch(err){
+    btn.innerHTML = ico('triangle-alert') + ' 복사 실패 — 직접 드래그해서 복사해주세요';
+  }
+  setTimeout(() => { btn.innerHTML = original; }, 1500);
+});
 
 // ---- 작업을 다른 파드로 옮기기 ----
 // 파드마다 큐가 따로 돌기 때문에 파드 하나가 죽으면 그 큐만 멈춘다(옆 파드가 놀아도
@@ -4386,42 +4765,26 @@ document.getElementById('job-move-confirm').addEventListener('click', async () =
   }
 });
 
+// 상세 모달이 열려 있는 작업의 로그를 받아온다 — 모달 인스턴스가 하나뿐이라
+// 항상 고정된 #job-detail-log를 대상으로 한다(예전엔 작업마다 log-${id} 요소가
+// 따로 있었다).
 async function loadLog(id){
   const res = await fetch(`/api/jobs/${id}/log`);
   // 401 등으로 실패하면 "아직 출력이 없어요"로 잘못 보이지 않게, 마지막으로
   // 받아온 로그를 그대로 두고 다음 폴링(2초 뒤)에서 다시 시도한다.
   if(!res.ok) return;
   const data = await res.json();
-  const el = document.getElementById('log-' + id);
+  const el = document.getElementById('job-detail-log');
   if(!el) return;
   const text = data.log || '(아직 출력이 없어요)';
   // 내용이 실제로 같으면 손대지 않는다 — textContent를 다시 대입하면 문자열이
   // 같아도 DOM 텍스트 노드가 새로 생겨서, 그 안의 텍스트를 드래그로 선택해
   // 복사하려던 게 풀려버린다(끝난 작업의 에러 메시지를 복사하기 불편하다는
-  // 문제의 원인 중 하나였다 — 나머지 원인은 render()의 tbody 재생성이었다).
+  // 문제의 원인 중 하나였다 — 나머지 원인은 예전 tbody 재생성이었다. 지금은
+  // render()가 매 tick마다 상세 모달을 다시 그려도 이 <pre> 자체는 절대 다시
+  // 만들지 않으므로 그 문제가 재발하지 않는다).
   if(el.textContent !== text) el.textContent = text;
 }
-
-// 로그 전체를 클립보드로 복사 — 실행 중인 로그는 계속 늘어나서 드래그로 끝까지
-// 선택하기 번거롭고, 끝난 작업의 에러 메시지도 선택 중 화면이 갱신되면 풀리기
-// 쉬우니 버튼 한 번으로 지금 보이는 전체를 복사한다. tbody가 통째로 다시
-// 그려져도(위 lastJobsRowsSignature 가드로 어차피 드물다) 델리게이션이라
-// 다시 붙일 필요가 없다.
-document.getElementById('job-rows').addEventListener('click', async (e) => {
-  const btn = e.target.closest('.log-copy-btn');
-  if(!btn) return;
-  e.stopPropagation();
-  const el = document.getElementById('log-' + btn.dataset.copyid);
-  const text = el ? el.textContent : '';
-  const original = btn.innerHTML;
-  try{
-    await navigator.clipboard.writeText(text);
-    btn.innerHTML = ico('circle-check') + ' 복사됨';
-  }catch(err){
-    btn.innerHTML = ico('triangle-alert') + ' 복사 실패 — 직접 드래그해서 복사해주세요';
-  }
-  setTimeout(() => { btn.innerHTML = original; }, 1500);
-});
 
 let templatesById = {};
 let selectedFiles = { workflow: null, csv: null };
@@ -5894,84 +6257,13 @@ async function loadJobSettings(job){
     }
   }
 
-  const newJobPanel = document.getElementById('new-job-panel');
-  if(newJobPanel.classList.contains('collapsed')){
-    newJobPanel.classList.remove('collapsed');
-    const collapseBtn = newJobPanel.querySelector('.collapse-btn');
-    if(collapseBtn) collapseBtn.setAttribute('aria-expanded', 'true');
-  }
-  newJobPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openNewJobModal();
 
   let msg = `'${job.id}' 작업의 설정을 불러왔어요.`;
   if(warnings.length) msg += '\n' + warnings.join('\n');
   loadNotice.textContent = msg;
   loadNotice.style.color = warnings.length ? 'var(--running)' : 'var(--done)';
 }
-
-// "작업 목록"에서 삭제한 작업(소프트 삭제 — 서버가 최근 N개까지는 워크플로우/CSV를
-// 그대로 보관함)의 설정을 상단 드롭다운에서 다시 불러오는 기능. loadJobSettings()는
-// job 객체의 모양(id/template_id/options/workflow_original_name/csv_original_name)만
-// 보므로, GET /api/jobs/deleted가 돌려주는 항목을 그대로 넘기면 된다.
-let deletedJobsById = {};
-
-function formatDeletedJobLabel(job){
-  let whenText = '';
-  if(job.deleted_at){
-    const d = new Date(job.deleted_at);
-    whenText = `[삭제 ${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}] `;
-  }
-  const label = job.template_label || job.template_id;
-  // 템플릿명(작업 종류)만으로는 같은 템플릿을 여러 번 돌린 작업들을 구분하기
-  // 어려우므로, 어떤 워크플로우 파일을 썼는지도 함께 보여준다.
-  const workflowText = job.workflow_original_name || '워크플로우 없음';
-  return `${whenText}${label} · ${workflowText} · ${fmtOptions(job.options)}`;
-}
-
-async function fetchDeletedJobs(){
-  const select = document.getElementById('deleted-jobs-select');
-  const loadBtn = document.getElementById('deleted-jobs-load-btn');
-  let data;
-  try{
-    const res = await fetch('/api/jobs/deleted');
-    data = await res.json();
-  }catch(e){
-    data = { jobs: [] };
-  }
-
-  // 예전엔 이 안내를 별도 문구 줄로 보여줬으나, 한 줄짜리 패널로 압축하면서
-  // select의 title(hover 툴팁)로 옮겼다 — 정보는 그대로 남기되 자리를 차지하지 않게.
-  if(data.retention !== undefined){
-    select.title = `삭제된 작업 — 최근 ${data.retention}개까지 여기서 설정을 다시 불러올 수 있어요.`;
-  }
-
-  deletedJobsById = {};
-  select.innerHTML = '';
-  const jobsList = data.jobs || [];
-  if(jobsList.length === 0){
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = '(삭제된 작업 없음)';
-    select.appendChild(opt);
-    select.disabled = true;
-    loadBtn.disabled = true;
-    return;
-  }
-  select.disabled = false;
-  loadBtn.disabled = false;
-  for(const job of jobsList){
-    deletedJobsById[job.id] = job;
-    const opt = document.createElement('option');
-    opt.value = job.id;
-    opt.textContent = formatDeletedJobLabel(job);
-    select.appendChild(opt);
-  }
-}
-
-document.getElementById('deleted-jobs-load-btn').addEventListener('click', () => {
-  const select = document.getElementById('deleted-jobs-select');
-  const job = deletedJobsById[select.value];
-  if(job) loadJobSettings(job);
-});
 
 templateSelect.addEventListener('change', () => {
   // 사람이 직접(수동으로) 템플릿을 바꾸면 마법사가 채운 슬롯 개수 정보는 더 이상
@@ -6012,6 +6304,10 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
 
   const form = new FormData();
   form.append('template_id', templateId);
+  // "추가"는 항상 일시정지(pending) 상태로 대기 칸에 넣는다 — 자동으로 곧장
+  // 돌기 시작하지 않고, 카드의 ▶ 시작을 직접 눌러야 돈다(서버의 start_paused
+  // 처리 참고, POST /api/jobs로 프로그램이 만드는 작업은 이 값을 안 보내므로 영향 없음).
+  form.append('start_paused', '1');
   // 새 작업은 지금 열려 있는 파드로 간다 — 파드 스코프 바가 그 파드를 말해준다.
   // (비어 있으면 서버가 기본 파드로 보낸다.)
   const podId = formPodId();
@@ -6045,19 +6341,15 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
     return;
   }
   // 워크플로우/CSV/옵션 값은 일부러 그대로 둔다 — 같은 워크플로우로 옵션만 바꿔가며
-  // 여러 개를 잇달아 추가하는 경우가 많아서, 매번 파일을 다시 첨부하지 않아도 되게
-  // 하기 위함이다. 필요할 때는 "↺ 초기화" 버튼으로 직접 비운다. 대신 방금 추가됐다는
-  // 걸 버튼 라벨을 잠깐 바꿔서 알려준다.
-  const submitBtnEl = document.getElementById('submit-btn');
-  const originalLabel = submitBtnEl.innerHTML;
-  submitBtnEl.innerHTML = ico('circle-check') + ' 추가됨';
-  setTimeout(() => { submitBtnEl.innerHTML = originalLabel; }, 1200);
+  // 여러 개를 잇달아 추가하는 경우가 많아서, 다시 열었을 때(+ 카드) 매번 파일을
+  // 다시 첨부하지 않아도 되게 하기 위함이다. 필요할 때는 "↺ 초기화" 버튼으로
+  // 직접 비운다.
   const createdJob = await res.json().catch(() => null);
-  if(createdJob && createdJob.status === 'queued' && !createdJob.pod_id){
-    flashNotice('대기 큐에 넣었어요 — 필요한 모델을 갖춘 파드가 살아 있으면 바로 시작해요.');
-  }
+  closeNewJobModal();
   if(createdJob && preflightCount(createdJob.preflight) > 0){
-    flashNotice('이 파드에 없는 모델이 있어요 — ' + preflightLines(createdJob.preflight).slice(0, 3).join(' / '));
+    flashNotice('대기 칸에 추가했어요 — 이 파드에 없는 모델이 있어요: ' + preflightLines(createdJob.preflight).slice(0, 3).join(' / '));
+  }else if(createdJob){
+    flashNotice('대기 칸에 추가했어요 — 카드의 ▶ 시작을 누르면 돌아가요.');
   }
   fetchJobs();
 });
@@ -11643,7 +11935,6 @@ document.getElementById('gallery-lightbox-load-job-btn').addEventListener('click
   // 떨어뜨린다) — 같은 설정을 다른 종류의 파드에서 열면 템플릿부터 맞지 않는다.
   showTab('jobs', { podId: job.pod_id });
   await loadJobSettings(job);
-  document.getElementById('new-job-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 async function rotateCurrentLightboxImage(){
   const img = displayedGalleryImages[lightboxIndex];
@@ -11753,10 +12044,9 @@ async function startI2vFromImage(img){
   loadError.textContent = '';
   loadNotice.textContent = '';
   if(Object.keys(templatesById).length === 0) await fetchTemplates();
-  const panel = document.getElementById('new-job-panel');
+  openNewJobModal();
   if(!selectHasOptionValue(templateSelect, I2V_TEMPLATE_ID)){
     loadError.textContent = '이 파드에서는 영상 생성(WAN2.2 i2v) 템플릿을 쓸 수 없어요 — ComfyUI 파드를 골라 주세요.';
-    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
   resetForm();
@@ -11765,7 +12055,6 @@ async function startI2vFromImage(img){
   const startEl = optionsFields.querySelector('[data-name="start_image"]');
   if(startEl) startEl.value = stored;
   loadNotice.textContent = `'${stored}'을(를) 시작 이미지로 골랐어요. 영상 프롬프트를 적고 "추가"를 누르세요.`;
-  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const promptEl = optionsFields.querySelector('[data-name="user_prompt"]');
   if(promptEl) promptEl.focus({ preventScroll: true });
 }
@@ -13423,15 +13712,19 @@ window.__nightshiftAuthReady.then(user => {
   fetchPods().then(fetchProjects).then(applyHashRoute).then(fetchTemplates);
 });
 fetchJobs();
-fetchDeletedJobs();
 fetchComfyStatus();
 fetchLoraTriggers();
 fetchBaseModelFamilies();
+// Job 카드의 베이스 모델 줄(jobBaseModelLabel)이 modelRegistry.items를 읽는데, 그건
+// 원래 모델 탭을 열어야만(initModelsTab) 받아오던 것이라 — 모델 탭을 한 번도 안 열면
+// 카드에 베이스 모델이 안 보인다. 시작할 때 미리 한 번 받아 두고, 받아온 뒤 작업
+// 목록을 강제로 다시 그린다(시그니처를 지워서 — 안 그러면 그 사이 작업 필드가 하나도
+// 안 바뀌었으면 다음 폴링에도 카드가 안 새로 그려진다).
+fetchModelRegistry().then(() => { lastJobsRowsSignature = null; fetchJobs(); });
 initDanbooru();
 setInterval(fetchJobs, 2000);
 setInterval(fetchPods, 15000);
 setInterval(() => { if(currentProjectId !== null) fetchProjects(); }, 15000);
-setInterval(() => { if(expandedId) loadLog(expandedId); }, 2000);
 setInterval(fetchComfyStatus, 5000);
 // 갤러리 탭이 보이는 동안에는 새 이미지가 생겨도 자동으로 반영되게 주기적으로 새로 받아온다.
 // 라이트박스가 열려 있을 때는 건드리지 않는다 — 보고 있던 이미지가 목록 순서 변화로
