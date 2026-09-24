@@ -593,7 +593,8 @@
   /* 폰에서는 파드 바/서브탭/라이트박스 버튼의 글자를 숨기고 아이콘만 남긴다 — 폭이
      좁아 글자가 한 자씩 세로로 쪼개지던 문제. 서브탭은 한 줄을 똑같은 폭으로 나눠 쓴다. */
   @media (max-width:640px){
-    .pod-bar-back .btn-label, .pod-subtab-btn .btn-label, .lightbox-actions .btn-label, .gallery-toolbar .btn-label{ display:none; }
+    .pod-bar-back .btn-label, .pod-subtab-btn .btn-label, .lightbox-actions .btn-label, .gallery-toolbar .btn-label,
+    #pod-edit-modal .modal-footer .btn-label{ display:none; }
     .pod-bar-back{ padding:7px 10px; }
     .pod-bar-subtabs{ flex:1 1 100%; margin-left:0; gap:6px; }
     .pod-subtab-btn{ flex:1; padding:9px 0; }
@@ -601,6 +602,8 @@
     .lightbox-actions{ flex-wrap:wrap; justify-content:center; gap:8px; }
     .lightbox-actions button{ width:40px; height:40px; padding:0; }
     .lightbox-actions .ico{ width:20px; height:20px; }
+    #pod-edit-modal .modal-footer{ flex-wrap:wrap; }
+    #pod-edit-modal .modal-footer button{ padding:8px; }
   }
 
   main{
@@ -1911,27 +1914,16 @@
     cursor:pointer;
     accent-color:var(--queued);
   }
-  .gallery-item-delete{
-    position:absolute;
-    top:6px; right:6px;
-    z-index:2;
-    width:22px; height:22px;
-    border-radius:50%;
-    border:none;
-    background:rgba(0,0,0,0.45);
-    color:#fff;
-    font-size:15px;
-    line-height:1;
-    cursor:pointer;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    opacity:0;
-    transition:opacity .15s ease, background .15s ease, transform .15s ease;
-  }
-  .gallery-item:hover .gallery-item-delete{ opacity:1; }
-  .gallery-item-delete:hover{ background:rgba(var(--failed-rgb),0.85); transform:scale(1.08); }
   .gallery-item.selected{ outline:2px solid var(--queued); outline-offset:-2px; }
+  /* 길게 눌러 삭제 — 파드 카드와 같은 동작. 터치에서는 길게 눌러도 저장 메뉴가 뜨지 않게 한다. */
+  .gallery-item{ -webkit-touch-callout:none; }
+  @media (hover:none){ .gallery-item{ -webkit-user-select:none; user-select:none; } }
+  .gallery-item.item-pressing{
+    outline:2px solid var(--failed); outline-offset:-2px;
+    transform:scale(0.98);
+    transition:transform .38s ease, outline-color .2s ease;
+  }
+  .gallery-item.details.item-pressing{ transform:none; background:rgba(var(--failed-rgb),0.06); }
 
   /* "📋 자세히" 보기 — 탐색기 자세히 보기처럼 썸네일은 작게, 파일명/작업/해상도/
      용량/수정 시각을 열로 나란히 보여준다. 헤더 행과 각 데이터 행이 같은
@@ -2002,15 +1994,6 @@
   .gallery-details-col.dim,
   .gallery-details-col.size,
   .gallery-details-col.mtime{ color:var(--text-dim); }
-  .gallery-item.details .gallery-item-delete{
-    position:static;
-    opacity:0.5;
-    background:none;
-    color:var(--text-dim);
-    width:20px; height:20px;
-  }
-  .gallery-item.details:hover .gallery-item-delete{ opacity:1; color:var(--failed); }
-  .gallery-item.details .gallery-item-delete:hover{ background:rgba(var(--failed-rgb),0.12); transform:none; }
   @media (max-width:760px){
     .gallery-details-columns{ grid-template-columns: 22px 40px minmax(100px,2fr) 22px; }
     .gallery-details-col.job, .gallery-details-col.dim, .gallery-details-col.size, .gallery-details-col.mtime{ display:none; }
@@ -2110,9 +2093,6 @@
   }
   .vgallery-details-col.dur, .vgallery-details-col.dim, .vgallery-details-col.size, .vgallery-details-col.mtime{ color:var(--text-dim); }
   .vgallery-details-col.name .ico.fav{ color:#F59E0B; fill:currentColor; width:12px; height:12px; }
-  .vgallery-item.details .vgallery-item-delete{ position:static; opacity:0.5; background:none; color:var(--text-dim); width:20px; height:20px; }
-  .vgallery-item.details:hover .vgallery-item-delete{ opacity:1; color:var(--failed); }
-  .vgallery-item.details .vgallery-item-delete:hover{ background:rgba(var(--failed-rgb),0.12); transform:none; }
   @media (max-width:760px){
     .vgallery-details-columns{ grid-template-columns: 22px 40px minmax(100px,2fr) 22px; }
     .vgallery-details-col.job, .vgallery-details-col.dur, .vgallery-details-col.dim,
@@ -2148,27 +2128,15 @@
     cursor:pointer;
     accent-color:var(--queued);
   }
-  .vgallery-item-delete{
-    position:absolute;
-    top:6px; right:6px;
-    z-index:2;
-    width:22px; height:22px;
-    border-radius:50%;
-    border:none;
-    background:rgba(0,0,0,0.45);
-    color:#fff;
-    font-size:15px;
-    line-height:1;
-    cursor:pointer;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    opacity:0;
-    transition:opacity .15s ease, background .15s ease, transform .15s ease;
-  }
-  .vgallery-item:hover .vgallery-item-delete{ opacity:1; }
-  .vgallery-item-delete:hover{ background:rgba(var(--failed-rgb),0.85); transform:scale(1.08); }
   .vgallery-item.selected{ outline:2px solid var(--queued); outline-offset:-2px; }
+  .vgallery-item{ -webkit-touch-callout:none; }
+  @media (hover:none){ .vgallery-item{ -webkit-user-select:none; user-select:none; } }
+  .vgallery-item.item-pressing{
+    outline:2px solid var(--failed); outline-offset:-2px;
+    transform:scale(0.98);
+    transition:transform .38s ease, outline-color .2s ease;
+  }
+  .vgallery-item.details.item-pressing{ transform:none; background:rgba(var(--failed-rgb),0.06); }
   .vgallery-item-play{
     position:absolute;
     inset:0;
@@ -3126,6 +3094,7 @@
         <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg><span class="btn-label">해제</span></button>
       </div>
       <div class="upload-error" id="gallery-error"></div>
+      <div class="dash-longpress-hint">항목을 길게 누르면 삭제할 수 있어요.</div>
       <div class="gallery-grid" id="gallery-grid"></div>
       <div class="empty" id="gallery-empty" style="display:none;"></div>
     </div>
@@ -3184,6 +3153,7 @@
         <button class="modal-btn-secondary" id="video-gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg><span class="btn-label">해제</span></button>
       </div>
       <div class="upload-error" id="video-gallery-error"></div>
+      <div class="dash-longpress-hint">항목을 길게 누르면 삭제할 수 있어요.</div>
       <div class="vgallery-grid" id="video-gallery-grid"></div>
       <div class="empty" id="video-gallery-empty" style="display:none;"></div>
     </div>
@@ -3693,11 +3663,11 @@
       <div class="upload-error" id="pod-edit-error"></div>
     </div>
     <div class="modal-footer">
-      <button class="del-btn" id="pod-edit-delete" type="button" style="margin-right:auto;"><svg class="ico"><use href="#i-trash-2"/></svg> 삭제</button>
-      <button class="modal-btn-secondary" id="pod-edit-test" type="button"><svg class="ico"><use href="#i-plug-zap"/></svg> 연결 테스트</button>
-      <button class="modal-btn-secondary" id="pod-edit-runpod-test" type="button"><svg class="ico"><use href="#i-cloud"/></svg> RunPod 정보 테스트</button>
-      <button class="modal-btn-secondary" id="pod-edit-cancel" type="button"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
-      <button class="submit-btn" id="pod-edit-save" type="button"><svg class="ico"><use href="#i-save"/></svg> 저장</button>
+      <button class="del-btn" id="pod-edit-delete" type="button" style="margin-right:auto;" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label"> 삭제</span></button>
+      <button class="modal-btn-secondary" id="pod-edit-test" type="button" title="연결 테스트"><svg class="ico"><use href="#i-plug-zap"/></svg><span class="btn-label"> 연결 테스트</span></button>
+      <button class="modal-btn-secondary" id="pod-edit-runpod-test" type="button" title="RunPod 정보 테스트"><svg class="ico"><use href="#i-cloud"/></svg><span class="btn-label"> RunPod 정보 테스트</span></button>
+      <button class="modal-btn-secondary" id="pod-edit-cancel" type="button" title="취소"><svg class="ico"><use href="#i-x"/></svg><span class="btn-label"> 취소</span></button>
+      <button class="submit-btn" id="pod-edit-save" type="button" title="저장"><svg class="ico"><use href="#i-save"/></svg><span class="btn-label"> 저장</span></button>
     </div>
   </div>
 </div>
@@ -10411,7 +10381,6 @@ function galleryItemHtml(img, index){
         <div class="gallery-details-col dim">${dims}</div>
         <div class="gallery-details-col size">${fmtBytes(img.size)}</div>
         <div class="gallery-details-col mtime">${fmtGalleryDateTime(img.mtime)}</div>
-        <button class="gallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
       </div>
     `;
   }
@@ -10421,7 +10390,6 @@ function galleryItemHtml(img, index){
       <label class="gallery-item-select" title="선택">
         <input type="checkbox" ${selected ? 'checked' : ''}>
       </label>
-      <button class="gallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
       <button class="gallery-item-fav${img.favorite ? ' on' : ''}" type="button" aria-label="즐겨찾기" aria-pressed="${img.favorite ? 'true' : 'false'}" title="즐겨찾기">${ico('star')}</button>
       ${img.nsfw ? `<span class="gallery-item-nsfw" title="NSFW로 표시됨">${ico('flame')}</span>` : ''}
       ${blur ? blurOverlay : ''}
@@ -10452,10 +10420,6 @@ function wireGalleryItems(){
       if(groupEl) updateGroupCheckboxState(groupEl);
     });
 
-    el.querySelector('.gallery-item-delete').addEventListener('click', (e) => {
-      e.stopPropagation();
-      deleteGalleryImages([name]);
-    });
     const favBtn = el.querySelector('.gallery-item-fav');
     if(favBtn) favBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -10463,6 +10427,57 @@ function wireGalleryItems(){
     });
   });
 }
+
+// 길게 눌러 삭제 — 파드 대시보드 카드에서 쓰던 것과 같은 패턴을 갤러리 항목에도
+// 그대로 적용한다. 컨테이너 하나에 포인터 이벤트를 위임해 두면(itemSelector로
+// 걸러서), 매번 innerHTML로 다시 그려지는 항목들에 대해 따로 연결할 필요가 없다.
+function setupItemLongPressDelete(container, itemSelector, onFire){
+  const MS = 600, VISUAL_MS = 220, MOVE_PX = 10;
+  const state = { active: false, timer: null, visualTimer: null, el: null, x: 0, y: 0, firedAt: 0, touch: false };
+  const cancel = () => {
+    clearTimeout(state.timer);
+    clearTimeout(state.visualTimer);
+    if(state.el) state.el.classList.remove('item-pressing');
+    state.active = false;
+    state.el = null;
+  };
+  container.addEventListener('pointerdown', (e) => {
+    state.touch = e.pointerType === 'touch' || e.pointerType === 'pen';
+    if(e.pointerType === 'mouse' && e.button !== 0) return;
+    const el = e.target.closest(itemSelector);
+    if(!el || e.target.closest('button, select, a, input, label')) return;
+    cancel();
+    state.active = true;
+    state.el = el;
+    state.x = e.clientX;
+    state.y = e.clientY;
+    state.visualTimer = setTimeout(() => el.classList.add('item-pressing'), VISUAL_MS);
+    state.timer = setTimeout(() => {
+      state.firedAt = Date.now();
+      cancel();
+      if(navigator.vibrate) navigator.vibrate(40);
+      onFire(el);
+    }, MS);
+  });
+  container.addEventListener('pointermove', (e) => {
+    if(!state.active) return;
+    if(Math.hypot(e.clientX - state.x, e.clientY - state.y) > MOVE_PX) cancel();
+  });
+  for(const type of ['pointerup', 'pointercancel', 'pointerleave']) container.addEventListener(type, cancel);
+  // 롱프레스가 끝난 직후의 클릭(라이트박스 열기)은 삼킨다 — 캡처 단계에서 먼저 막는다.
+  container.addEventListener('click', (e) => {
+    if(Date.now() - state.firedAt < 900){ e.stopPropagation(); e.preventDefault(); }
+  }, true);
+  // 터치로 길게 누르면 브라우저가 이미지 저장 메뉴를 띄우려 한다 — 항목 위에서는 막는다.
+  container.addEventListener('contextmenu', (e) => {
+    if(state.touch && e.target.closest(itemSelector)) e.preventDefault();
+  });
+}
+
+setupItemLongPressDelete(document.getElementById('gallery-grid'), '.gallery-item', (el) => {
+  const img = displayedGalleryImages[Number(el.dataset.index)];
+  if(img) deleteGalleryImages([img.name]);
+});
 
 // 그룹(작업별/날짜별 보기의 소제목) 체크박스를 그 그룹 안 이미지들의 현재 선택
 // 상태에 맞춘다 — 전부 선택돼 있으면 체크, 하나도 없으면 빈 채, 일부만 선택돼
@@ -11591,7 +11606,6 @@ function videoGalleryItemHtml(vid, index){
         <div class="vgallery-details-col dim">${meta ? (meta.width && meta.height ? `${meta.width}×${meta.height}` : '-') : '…'}</div>
         <div class="vgallery-details-col size">${fmtBytes(vid.size)}</div>
         <div class="vgallery-details-col mtime">${fmtGalleryDateTime(vid.mtime)}</div>
-        <button class="vgallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
       </div>
     `;
   }
@@ -11600,7 +11614,6 @@ function videoGalleryItemHtml(vid, index){
       <label class="vgallery-item-select" title="선택">
         <input type="checkbox" ${selected ? 'checked' : ''}>
       </label>
-      <button class="vgallery-item-delete" type="button" aria-label="삭제" title="삭제">&times;</button>
       <button class="vgallery-item-fav${vid.favorite ? ' on' : ''}" type="button" aria-label="즐겨찾기" aria-pressed="${vid.favorite ? 'true' : 'false'}" title="즐겨찾기">${ico('star')}</button>
       ${vid.nsfw ? `<span class="vgallery-item-nsfw" title="NSFW로 표시됨">${ico('flame')}</span>` : ''}
       ${blur ? blurOverlay : ''}
@@ -11643,10 +11656,6 @@ function wireVideoGalleryItems(){
       if(groupEl) updateVideoGroupCheckboxState(groupEl);
     });
 
-    el.querySelector('.vgallery-item-delete').addEventListener('click', (e) => {
-      e.stopPropagation();
-      deleteGalleryVideos([name]);
-    });
     const favBtn = el.querySelector('.vgallery-item-fav');
     if(favBtn) favBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -11654,6 +11663,11 @@ function wireVideoGalleryItems(){
     });
   });
 }
+
+setupItemLongPressDelete(document.getElementById('video-gallery-grid'), '.vgallery-item', (el) => {
+  const vid = displayedGalleryVideos[Number(el.dataset.index)];
+  if(vid) deleteGalleryVideos([vid.name]);
+});
 
 function updateVideoGroupCheckboxState(groupEl){
   const groupCheckbox = groupEl.querySelector('.vgallery-group-checkbox');
