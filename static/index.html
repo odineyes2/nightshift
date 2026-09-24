@@ -8618,8 +8618,18 @@ function setAuthMode(mode){
   if(first && loginScreen.style.display !== 'none') first.focus();
 }
 
-function hideLoginScreen(){ loginScreen.style.display = 'none'; }
+// 로그인 폼(특히 #login-password, type="password")이 display:none이어도 DOM에 남아
+// 있으면 안드로이드 크롬 등의 비밀번호 관리자가 페이지의 다른 입력칸(예: 시드 개수)에
+// 포커스만 줘도 "저장된 비밀번호를 사용할까요?"를 계속 들이댄다 — visibility가 아니라
+// DOM에 존재하는지만 본다. 로그인한 동안은 아예 떼어 둔다(position:fixed라 body 안
+// 어디에 다시 붙여도 자리는 같다). __nightshiftOnSignedOut(세션 끊김)처럼 새로고침 없이
+// 다시 보여줘야 할 때는 showLoginScreen이 도로 붙인다.
+function hideLoginScreen(){
+  loginScreen.style.display = 'none';
+  if(loginScreen.isConnected) loginScreen.remove();
+}
 function showLoginScreen(message, mode){
+  if(!loginScreen.isConnected) document.body.appendChild(loginScreen);
   loginScreen.style.display = 'flex';
   setAuthMode(mode || 'login');
   loginScreenError.textContent = message || '';
@@ -8690,6 +8700,10 @@ async function logout(){
 const accountModal = document.getElementById('account-modal');
 async function openAccountModal(){
   if(!currentUser) return;
+  // 평소엔(모달을 안 열었을 때) DOM에서 떼어 둔다 — 아래 hideLoginScreen 주석과 같은 이유
+  // (비밀번호·토큰 칸이 display:none이어도 DOM에 남아 있으면 안드로이드 자동완성이 계속
+  // 들이댄다). 열 때만 도로 붙인다.
+  if(!accountModal.isConnected) document.body.appendChild(accountModal);
   const rows = [['아이디', currentUser.username], ['이메일', currentUser.email], ['권한', currentUser.role === 'admin' ? '관리자' : '일반 회원']];
   document.getElementById('account-facts').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('');
   for(const id of ['account-old-password', 'account-new-password', 'account-new-password2']) document.getElementById(id).value = '';
@@ -8711,7 +8725,10 @@ async function openAccountModal(){
     }
   }catch(e){ /* 못 받아와도 빈 칸으로 두면 그만이다 */ }
 }
-function closeAccountModal(){ accountModal.style.display = 'none'; }
+function closeAccountModal(){
+  accountModal.style.display = 'none';
+  if(accountModal.isConnected) accountModal.remove();
+}
 document.getElementById('user-chip').addEventListener('click', openAccountModal);
 document.getElementById('account-modal-close').addEventListener('click', closeAccountModal);
 accountModal.addEventListener('click', (e) => { if(e.target === accountModal) closeAccountModal(); });
@@ -8756,6 +8773,11 @@ document.getElementById('account-save-btn').addEventListener('click', async () =
   messages.push('API 키를 저장했어요');
   okEl.textContent = messages.join(' · ') + '.';
 });
+
+// 여기까지 계정 모달 안 요소를 getElementById로 찾아 리스너를 건 다음에야(리스너는
+// 노드 자체에 붙으므로 이후 떼었다 붙여도 그대로 유지된다) 처음 한 번 떼어 둔다 —
+// 페이지를 열자마자 비밀번호/토큰 칸이 이유 없이 DOM에 계속 남아 있지 않게.
+if(accountModal.isConnected) accountModal.remove();
 
 // 헤더의 사용자 칩과 관리자 전용 탭을 로그인한 회원에 맞춘다.
 function applyUserUi(user){
