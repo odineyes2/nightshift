@@ -6563,8 +6563,12 @@ function openGalleryForModel(name, mediaKind){
   const fav = document.getElementById(`gf-${prefix}-fav`);
   fav.classList.remove('on'); fav.setAttribute('aria-pressed', 'false');
   galleryFilterSyncs[prefix]();
-  location.hash = isVideo ? '#video-gallery' : '#gallery';
-  if(isVideo) fetchGalleryVideos(); else fetchGalleryImages();
+  // location.hash를 직접 대입하면(예전 코드) history 기록이 하나 더 쌓인다 — 이 앱의
+  // 다른 모든 화면 전환은 showTab()이 history.replaceState로만 주소를 바꿔서 기록이
+  // 안 쌓이는데, 여기만 예외였다. 설치된 앱(standalone)에서는 "뒤로 가기로 종료" 가드
+  // (setupBackToExit)가 기록 쌓임에 민감해서, 이 버튼을 누르면 정작 뒤로 가기를 누르지
+  // 않았는데도 "한 번 더 누르면 앱이 종료돼요" 안내가 뜨는 버그가 있었다.
+  showTab(isVideo ? 'video-gallery' : 'gallery');
 }
 
 function usageHtml(kind, name){
@@ -6586,6 +6590,18 @@ function usageHtml(kind, name){
 function modelEntry(kind, name){
   return modelRegistry.items[modelKey(kind, name)]
     || { kind, filename: name, base_model: '', notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '' };
+}
+
+// 베이스 모델은 이제 자유 입력이 아니라 서버가 정해 둔 기준 목록(modelRegistry.base_models,
+// server/model_registry.py의 BASE_MODELS)에서만 고른다 — 대소문자가 미묘하게 다른 값이
+// 새로 생겨 필터가 못 알아보는 일이 없도록(전에 "Krea.2"/"krea.2"가 따로 놀던 문제).
+// selected가 그 목록에 없으면(예전에 API로 직접 넣은 값 등) 지우지 않고 맨 끝에 얹어 둔다.
+function baseModelSelectOptions(selected){
+  const canon = modelRegistry.base_models || [];
+  const opts = ['<option value="">선택 안 함</option>'];
+  for(const b of canon) opts.push(`<option value="${escapeHtml(b)}"${b === selected ? ' selected' : ''}>${escapeHtml(b)}</option>`);
+  if(selected && !canon.includes(selected)) opts.push(`<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)} (목록에 없음)</option>`);
+  return opts.join('');
 }
 
 function setModelError(text){ document.getElementById('lora-tab-error').textContent = text || ''; }
@@ -6704,7 +6720,6 @@ function modelRowHtml(kind, name, isAdmin){
   let editor = '';
   if(open){
     const d = modelEditDraft || modelDraftFromEntry(kind, name);
-    const baseList = `<datalist id="model-base-list">${modelRegistry.base_models.map(a => `<option value="${escapeHtml(a)}">`).join('')}</datalist>`;
     const dis = isAdmin ? '' : 'disabled';
     const link = u => isWebUrl(u) ? ` <button type="button" class="model-link" data-copy-url="${escapeHtml(u)}">복사</button>` : '';
     const podRows = invPods().map(p => {
@@ -6725,7 +6740,7 @@ function modelRowHtml(kind, name, isAdmin){
       <label class="model-field"><span>파일명 <span style="opacity:.6">(하위 폴더는 "폴더/이름.safetensors")</span></span>
         <input type="text" class="option-input" data-field="filename" ${dis} placeholder="예: mmh3/my_style_v2.safetensors" value="${escapeHtml(d.filename)}"></label>
       <label class="model-field"><span>베이스 모델</span>
-        <input type="text" class="option-input" data-field="base_model" list="model-base-list" ${dis} placeholder="예: SDXL, Illustrious, Flux, Wan 2.2" value="${escapeHtml(d.base_model)}">${baseList}</label>
+        <select class="option-input" data-field="base_model" ${dis}>${baseModelSelectOptions(d.base_model)}</select></label>
       ${isLora ? `<label class="model-field"><span>트리거 키워드</span>
         <input type="text" class="option-input" data-field="trigger_keyword" ${dis} placeholder="없으면 비워둠 — 워크플로우에서 고르면 프롬프트에 자동으로 붙어요" value="${escapeHtml(d.trigger_keyword)}"></label>` : ''}
       <label class="model-field"><span>페이지 주소${link(d.page_url)}</span>
@@ -6765,13 +6780,15 @@ function renderModelRegistry(){
   ).join('');
   const all = namesOf(modelKindActive);
 
-  // 베이스 모델 드롭다운 — 지금 종류에 실제로 쓰인 값만 옵션으로 보여준다(텍스트
-  // 검색과는 무관하게, all 기준으로 다시 만든다). 고른 값이 더는 옵션에 없으면(종류를
-  // 바꿨거나 그 값을 쓰는 항목이 없어졌으면) "전체"로 되돌린다.
+  // 베이스 모델 드롭다운 — "베이스 모델"은 체크포인트냐 디퓨전 모델(UNet)이냐 같은
+  // 구현 형태와 무관하게 사용자가 인식하는 기술 단위라, 지금 고른 종류 탭과 상관없이
+  // 등록부 전체에서 실제로 쓰인 값만 보여준다(종류 탭을 바꿔도 안 바뀜). 대소문자
+  // 차이는 같은 베이스 모델로 본다(전에 등록된 값이 기준 표기와 살짝 다를 수 있어서).
   const baseFilterEl = document.getElementById('model-base-filter');
-  const bases = Array.from(new Set(all.map(n => modelEntry(modelKindActive, n).base_model).filter(Boolean)))
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-  if(modelBaseFilter && !bases.includes(modelBaseFilter)) modelBaseFilter = '';
+  const usedBasesLower = new Set(
+    Object.values(modelRegistry.items).map(e => (e.base_model || '').trim().toLowerCase()).filter(Boolean));
+  const bases = (modelRegistry.base_models || []).filter(b => usedBasesLower.has(b.toLowerCase()));
+  if(modelBaseFilter && !bases.some(b => b.toLowerCase() === modelBaseFilter.toLowerCase())) modelBaseFilter = '';
   baseFilterEl.innerHTML = '<option value="">베이스 모델: 전체</option>'
     + bases.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
   baseFilterEl.value = modelBaseFilter;
@@ -6779,7 +6796,7 @@ function renderModelRegistry(){
   const filter = document.getElementById('lora-tab-filter').value.trim().toLowerCase();
   let shown = all.filter(n => {
     const e = modelEntry(modelKindActive, n);
-    if(modelBaseFilter && e.base_model !== modelBaseFilter) return false;
+    if(modelBaseFilter && e.base_model.toLowerCase() !== modelBaseFilter.toLowerCase()) return false;
     if(!filter) return true;
     return (n + ' ' + e.base_model + ' ' + (e.tags || []).join(' ') + ' ' + e.notes + ' ' + e.trigger_keyword + ' ' + e.page_url).toLowerCase().includes(filter);
   });
@@ -6815,7 +6832,7 @@ function renderModelAddForm(){
         <input type="text" class="option-input" id="model-add-filename" placeholder="예: my_style_v2.safetensors"></label>
       <label class="model-field"><span>페이지 주소</span><input type="url" class="option-input" id="model-add-page" placeholder="https://…"></label>
       <label class="model-field"><span>다운로드 주소</span><input type="url" class="option-input" id="model-add-download" placeholder="https://…"></label>
-      <label class="model-field"><span>베이스 모델</span><input type="text" class="option-input" id="model-add-base" list="model-base-list" placeholder="예: SDXL"></label>
+      <label class="model-field"><span>베이스 모델</span><select class="option-input" id="model-add-base">${baseModelSelectOptions('')}</select></label>
       ${kind === 'loras' ? '<label class="model-field"><span>트리거 키워드</span><input type="text" class="option-input" id="model-add-trigger"></label>' : ''}
       <div class="dl-row model-full" style="margin-top:6px;">
         <button type="button" class="submit-btn" id="model-add-save">추가</button>
@@ -6859,7 +6876,9 @@ document.getElementById('model-kind-tabs').addEventListener('click', (e) => {
   if(!btn || btn.dataset.kind === modelKindActive) return;
   if(!confirmDiscardDraft()) return;
   modelKindActive = btn.dataset.kind;
-  modelBaseFilter = '';
+  // modelBaseFilter는 이제 종류와 무관한 전체 목록이라(베이스 모델 = 사용자가 인식하는
+  // 기술 단위, 구현 형태와 무관) 종류 탭을 옮겨도 그대로 둔다 — renderModelRegistry()가
+  // 그 값을 쓰는 항목이 아예 없어졌을 때만 알아서 "전체"로 되돌린다.
   modelExpandedKey = null;
   modelEditDraft = null;
   document.getElementById('model-add-form').innerHTML = '';
