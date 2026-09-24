@@ -1384,6 +1384,14 @@
   .dash-card-url{ font-family:var(--mono); font-size:11px; color:var(--text-dim); word-break:break-all; }
   .dash-card-runpod{ display:flex; flex-wrap:wrap; gap:4px 10px; font-size:10.5px; color:var(--text-dim); }
   .dash-card-runpod b{ color:var(--text); font-weight:500; }
+  /* 파드 바로가기(ComfyUI·JupyterLab·파일 브라우저) — 새 탭으로 연다. 카드 클릭(파드 열기)은
+     <a>를 누른 경우 무시하므로 링크만 눌러도 카드 이동이 일어나지 않는다. */
+  .pod-links{ display:flex; flex-wrap:wrap; gap:6px; }
+  .pod-link{ display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--queued); text-decoration:none;
+             border:1px solid var(--border); border-radius:5px; padding:2px 7px; background:var(--bg); }
+  .pod-link:hover{ border-color:var(--queued); }
+  .pod-link .ico{ width:12px; height:12px; }
+  .pod-bar-links{ display:flex; flex-wrap:wrap; gap:6px; }
   .dash-card-job{ font-size:12px; color:var(--text); }
   .dash-card-job .dim{ color:var(--text-dim); }
   .dash-card-stats{ display:flex; flex-wrap:wrap; gap:14px; }
@@ -2884,6 +2892,7 @@
     <span class="dash-dot" id="pod-bar-dot"></span>
     <select class="pod-bar-select" id="pod-bar-select" title="다른 파드로 이동"></select>
     <span class="pod-bar-kind" id="pod-bar-kind"></span>
+    <span class="pod-bar-links" id="pod-bar-links"></span>
     <button class="load-btn" id="pod-bar-settings" type="button" title="이 파드 설정" aria-label="이 파드 설정"><svg class="ico"><use href="#i-settings"/></svg></button>
     <div class="pod-bar-subtabs" id="pod-bar-subtabs"></div>
   </div>
@@ -8663,6 +8672,14 @@ function renderRunpodLine(info){
   return `<div class="dash-card-runpod">${parts.map(p => `<span>${p}</span>`).join('')}</div>`;
 }
 
+// 파드 바로가기 — 드라이버의 card()가 만들어 준 card.links(ComfyUI 화면, RunPod면 JupyterLab·
+// 파일 브라우저)를 새 탭 링크로 그린다. http(s)가 아닌 주소는 그리지 않는다.
+function renderPodLinks(links){
+  const safe = (links || []).filter(l => l && /^https?:\/\//i.test(l.url || ''));
+  if(!safe.length) return '';
+  return safe.map(l => `<a class="pod-link" href="${escapeHtml(l.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(l.label)} 새 탭으로 열기"><svg class="ico"><use href="#i-external-link"/></svg>${escapeHtml(l.label)}</a>`).join('');
+}
+
 // 카드의 "사양" 줄은 워커 종류마다 다르다 — ComfyUI는 주소와 VRAM, 셸 파드는 어디서
 // 무슨 폴더에서 도는지와 디스크 여유. 드라이버의 card()가 준 값을 여기서 읽는다.
 const POD_SPEC_LINE = {
@@ -8722,6 +8739,7 @@ function renderPodCard(p){
           </div>
           <div class="dash-card-url">${podSpecLine(p)}</div>
           ${renderRunpodLine(p.card && p.card.runpod)}
+          ${(p.card && p.card.links && p.card.links.length) ? `<div class="pod-links">${renderPodLinks(p.card.links)}</div>` : ''}
         </div>
       </div>
       <div class="dash-card-job">
@@ -9369,6 +9387,10 @@ function updatePodBarStatus(){
   const state = POD_STATE[row ? podState(row) : 'offline'];
   dot.className = `dash-dot ${state.cls}`;
   dot.title = state.label;
+  // 바로가기도 같은 폴링 데이터(card.links)로 그린다 — 바뀌었을 때만 다시 그려서 깜빡이지 않게.
+  const links = document.getElementById('pod-bar-links');
+  const html = renderPodLinks(row && row.card && row.card.links);
+  if(links && links.dataset.html !== html){ links.innerHTML = html; links.dataset.html = html; }
 }
 
 function applyHashRoute(){

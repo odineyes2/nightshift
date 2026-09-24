@@ -219,7 +219,22 @@ def _normalize(raw: dict) -> dict:
         "created_at": _first(raw, "createdAt", "created_at"),
         "last_started_at": _first(raw, "lastStartedAt", "last_started_at", "lastStartAt"),
     }
+    ports = raw.get("ports")
+    if isinstance(ports, list):
+        info["ports"] = [p for p in ports if isinstance(p, str)]
     return {k: v for k, v in info.items() if v is not None}
+
+
+# 파드 카드·스코프 바의 바로가기 — RunPod 공식 ComfyUI 이미지가 여는 웹 서비스들. 파드에 실제로
+# 열린 http 포트만 링크로 만든다(템플릿마다 다를 수 있으므로 추측해서 만들지 않는다).
+PROXY_LINK_PORTS = [("8188", "comfyui", "ComfyUI"), ("8888", "jupyter", "JupyterLab"), ("8080", "files", "파일 브라우저")]
+
+
+def proxy_links(pod_id: str, ports: list[str]) -> list[dict]:
+    """RunPod 파드의 열린 http 포트 중 아는 서비스만 프록시 주소 링크로 돌려준다."""
+    open_http = {p.split("/", 1)[0] for p in ports if p.endswith("/http")}
+    return [{"kind": kind, "label": label, "url": f"https://{pod_id}-{port}.proxy.runpod.net/"}
+            for port, kind, label in PROXY_LINK_PORTS if port in open_http]
 
 
 def debug_probe(url: str) -> dict:
@@ -313,5 +328,5 @@ def get_runpod_info(url: str) -> dict | None:
     return data
 
 
-__all__ = ["get_runpod_info", "debug_probe", "extract_pod_id", "RUNPOD_API_KEY",
+__all__ = ["get_runpod_info", "debug_probe", "extract_pod_id", "proxy_links", "RUNPOD_API_KEY",
            "list_runpod_pods", "list_runpod_pods_verbose", "get_gpu_type_cached"]
