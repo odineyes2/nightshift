@@ -1771,7 +1771,7 @@
   }
   .wizard-step-btn.done .wizard-step-num{ background:var(--queued); color:#fff; }
   .wizard-step-value{ display:block; font-size:12.5px; color:var(--text); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .wizard-bar-actions{ display:flex; align-items:center; gap:var(--gap-md); }
+  .new-job-next-row{ display:flex; justify-content:space-between; align-items:center; margin-top:16px; }
 
   /* 마법사 모달 안의 선택 목록 — "설치된 모델" 모달과 비슷한 어휘를 쓰되 클릭 가능한 줄. */
   .wizard-pick-section-title{
@@ -2986,17 +2986,19 @@
       </div>
       <!-- "새 작업"(마법사/워크플로우 업로드)과 "세부 설정"(템플릿 옵션/CSV/제출)을 탭으로
            나눈다 — .pod-subtab-btn과 같은, 페이지 안에서 쓰는 탭 패턴(POD_TAB_META 참고).
-           세부 설정 탭은 워크플로우가 실제로 붙기 전엔 보여줄 내용이 없어 처음엔 비활성이고,
-           붙는 순간(checkWorkflowCompatibility/onTemplateChange → updateNewJobTabs) 자동으로
-           그쪽으로 전환된다. -->
+           세부 설정 탭은 워크플로우가 실제로 붙기 전엔(또는 마법사 4단계를 다 고르기
+           전엔) 보여줄 내용이 없어 처음엔 비활성이다(newJobReadyToAdvance). 자동으로
+           넘어가지는 않는다 — 아래 "다음" 버튼(#new-job-next-btn)이나 이 탭을 직접
+           눌러야만(goToNewJobDetails) 그 시점의 마법사 상태로 다시 만들고 넘어간다,
+           그래서 넘어간 폼이 항상 최신 상태와 일치한다. -->
       <div class="new-job-tabs" id="new-job-tabs">
-        <button class="pod-subtab-btn active" id="new-job-tab-select" type="button" data-newjob-tab="select">새 작업</button>
-        <button class="pod-subtab-btn" id="new-job-tab-details" type="button" data-newjob-tab="details" disabled>세부 설정</button>
+        <button class="pod-subtab-btn active" id="new-job-tab-select" type="button" data-newjob-tab="select">1. 워크플로우 설정</button>
+        <button class="pod-subtab-btn" id="new-job-tab-details" type="button" data-newjob-tab="details" disabled>2. 세부 설정</button>
       </div>
 
       <div id="new-job-select-panel">
         <div class="wizard-bar" id="wizard-bar">
-          <div class="wizard-bar-title"><svg class="ico"><use href="#i-wand-sparkles"/></svg> 새 작업 마법사</div>
+          <div class="wizard-bar-title"><svg class="ico"><use href="#i-wand-sparkles"/></svg> 워크플로우 마법사</div>
           <div class="wizard-steps">
             <button type="button" class="wizard-step-btn" id="wizard-step-family">
               <span class="wizard-step-num">1</span> 베이스 모델<br><span class="wizard-step-value" id="wizard-step-family-value">선택 안 함</span>
@@ -3010,10 +3012,6 @@
             <button type="button" class="wizard-step-btn" id="wizard-step-batchmode" disabled>
               <span class="wizard-step-num">4</span> 실행 방식<br><span class="wizard-step-value" id="wizard-step-batchmode-value">선택 안 함</span>
             </button>
-          </div>
-          <div class="wizard-bar-actions">
-            <button type="button" class="submit-btn" id="wizard-apply-btn" style="display:none;" disabled><svg class="ico"><use href="#i-refresh-cw"/></svg> 변경사항 다시 적용</button>
-            <button type="button" class="modal-btn-secondary" id="wizard-reset-btn"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 마법사 초기화</button>
           </div>
           <div class="upload-error" id="wizard-error"></div>
         </div>
@@ -3048,6 +3046,18 @@
             <select id="template-select"></select>
           </div>
         </details>
+
+        <!-- 마법사 4단계를 다 고르거나(또는 워크플로우를 직접 올리거나) 준비되면 "다음"으로
+             넘어간다 — 그 시점의 상태 기준으로 다시 만든 뒤(필요할 때만, goToNewJobDetails
+             참고) 세부 설정 탭으로 자동 전환된다. "초기화"는 마법사 스텝과 업로드된
+             워크플로우를 모두 처음 상태로 되돌린다(resetWizardAndWorkflow). -->
+        <div class="new-job-next-row">
+          <button type="button" class="modal-btn-secondary" id="wizard-reset-btn"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 초기화</button>
+          <button type="button" class="submit-btn" id="new-job-next-btn" disabled
+                  title="1~4단계를 모두 고르거나 워크플로우를 직접 올려야 다음으로 갈 수 있어요">
+            다음 <svg class="ico"><use href="#i-arrow-right"/></svg>
+          </button>
+        </div>
       </div>
 
       <div id="new-job-details-panel" style="display:none;">
@@ -5692,7 +5702,7 @@ function templateAllowedOnPod(template, podKind){
 async function renderTemplateOptions(){
   const podKind = formAutoMode() ? 'auto' : ((podsById[formPodId()] || {}).kind
     || (podsCache.find(p => p.enabled) || {}).kind || 'comfyui');
-  // "새 작업 마법사"(베이스 모델/워크플로우 유형/LoRA/실행 방식)와 "결과 이미지
+  // "워크플로우 마법사"(베이스 모델/워크플로우 유형/LoRA/실행 방식)와 "결과 이미지
   // 관리"/"결과 이미지 이메일 전송"(둘 다 OUTPUT_DIR의 이미지 파일을 다룸)은 전부
   // ComfyUI 개념이다 — 다른 종류의 파드(셸 명령, Claude 글쓰기)에서는 아무 의미가
   // 없으니 숨긴다. 그 위 템플릿 select + options-fields(그 템플릿의 옵션만 자동으로
@@ -6958,9 +6968,20 @@ let wizard = {
   refinePrompt: true, refImageCount: 2, refVideoCount: 0, refAudioCount: 0, videoRefMode: 'vhs',
   useFirstFrame: true, useLastFrame: false, t2vWidth: 704, t2vHeight: 1280,
 };
-// 마지막으로 wizardApply()를 실행했을 때의 wizard 상태 스냅샷(JSON) — null이면 아직 한 번도
-// 적용 안 한 상태. 지금 상태와 다르면 "다시 적용" 버튼을 보여준다(wizardUpdateStepButtons 참고).
+// 마지막으로 wizardApply()를 성공적으로 실행했을 때의 wizard 상태 스냅샷(JSON) — null이면
+// 아직 한 번도 적용 안 한 상태. 지금 상태와 다르면(wizardStale()) "다음"을 눌렀을 때 다시
+// 만든다(goToNewJobDetails 참고) — 자동으로는 절대 다시 안 만든다(입력해 둔 프롬프트 등을
+// 조용히 지우지 않기 위해, wizardApply()의 resetForm() 참고).
 let wizardAppliedSignature = null;
+// "새 작업" 패널의 두 하위 탭 중 지금 보이는 쪽 — renderNewJobTabs/goToNewJobDetails 참고.
+let newJobActiveTab = 'select';   // 'select' | 'details'
+
+function wizardComplete(){
+  return !!(wizard.familyId && wizard.checkpoint && wizardTypeChosen() && wizard.batchMode);
+}
+function wizardStale(){
+  return wizardComplete() && (wizardAppliedSignature === null || JSON.stringify(wizard) !== wizardAppliedSignature);
+}
 
 function wizardBaseMeta(baseId){
   return ((workflowTypesCache || {}).base || []).find(t => t.id === baseId);
@@ -7040,22 +7061,15 @@ function wizardUpdateStepButtons(){
     wizard.batchMode === 'seed' ? '시드 반복' : wizard.batchMode === 'csv' ? 'CSV 순회' : '선택 안 함';
   batchBtn.classList.toggle('done', !!wizard.batchMode);
 
-  // 4단계를 처음 다 고른 순간에는 클릭 없이 바로 적용하고, 그 뒤 스텝을 또 바꾸면(적용된 내용과
-  // 지금 상태가 달라지면) "다시 적용" 버튼만 보여준다 — 자동으로 다시 그리면 이미 입력해둔
-  // 프롬프트 등이 지워질 수 있어서(wizardApply 주석 참고), 그건 사용자가 직접 눌러야 일어난다.
-  const complete = !!(wizard.familyId && wizard.checkpoint && wizardTypeChosen() && wizard.batchMode);
-  const sig = complete ? JSON.stringify(wizard) : null;
-  if(complete && wizardAppliedSignature === null){
-    wizardAppliedSignature = sig;
-    wizardApply();
-  }
-  const stale = complete && wizardAppliedSignature !== null && sig !== wizardAppliedSignature;
-  const applyBtn = document.getElementById('wizard-apply-btn');
-  applyBtn.style.display = stale ? '' : 'none';
-  applyBtn.disabled = !complete;
+  // 여기서는 절대 자동으로 다시 만들지 않는다 — "다음"/"세부 설정" 탭을 눌러야만
+  // (goToNewJobDetails) 지금 상태 기준으로 다시 만든다. 다만 "다음" 버튼이 활성화될지는
+  // 마법사가 바뀔 때마다 새로 계산해야 하므로 여기서 renderNewJobTabs()를 불러준다.
+  renderNewJobTabs();
 }
 
-function wizardReset(){
+// "초기화" 버튼 — 마법사 스텝과 업로드된 워크플로우 파일을 둘 다 처음 상태로 되돌린다
+// ("1. 워크플로우 설정" 탭 전체를 비우는 버튼이라, 마법사만 지우면 헷갈린다).
+function resetWizardAndWorkflow(){
   wizard = {
     familyId: null, checkpoint: null,
     base: null, post: freshWizardPost(), preset: null,
@@ -7067,8 +7081,9 @@ function wizardReset(){
   document.getElementById('wizard-error').textContent = '';
   document.getElementById('load-notice').textContent = '';
   wizardUpdateStepButtons();
+  setWorkflowFile(null);
 }
-document.getElementById('wizard-reset-btn').addEventListener('click', wizardReset);
+document.getElementById('wizard-reset-btn').addEventListener('click', resetWizardAndWorkflow);
 
 // ---- 워크플로우를 직접 올리면 마법사를 거꾸로 채운다 ----
 // 워크플로우 슬롯에 사람이 직접(드래그/클릭) 파일을 올렸을 때만 불린다(마법사가 만든 파일을
@@ -7135,11 +7150,11 @@ async function tryPopulateWizardFromWorkflow(workflow){
   wizard.loras = loras;
   // 실행 방식(시드 반복/CSV 순회)은 워크플로우만 봐서는 알 수 없다 — 건드리지 않고 4단계에서 직접 고르게 둔다.
 
-  // wizardUpdateStepButtons()의 "처음 다 갖춰지면 자동 적용" 로직이 방금 올린 이 파일을 마법사가
-  // 새로 만든 걸로 덮어써 버리지 않도록, 지금 상태를 먼저 "이미 반영됨"으로 찍어 둔다.
+  // "다음"을 눌렀을 때(goToNewJobDetails) wizardStale()이 방금 올린 이 파일을 마법사가
+  // 새로 만든 걸로 덮어써 버리지 않도록, 지금 상태를 먼저 "이미 반영됨"으로 찍어 둔다 —
+  // 이후 마법사 스텝을 더 만지면(예: 4단계 실행 방식을 고르면) 그때부터는 다시 stale이 된다.
   wizardAppliedSignature = JSON.stringify(wizard);
   wizardUpdateStepButtons();
-  document.getElementById('wizard-apply-btn').style.display = 'none';
   if(typeof flashNotice === 'function'){
     flashNotice('올린 워크플로우를 마법사 스텝에 반영했어요 — 확인하고 필요하면 조정하세요.');
   }
@@ -7502,28 +7517,31 @@ document.getElementById('wizard-batchmode-modal-body').addEventListener('click',
 document.getElementById('wizard-step-batchmode').addEventListener('click', openWizardBatchModeModal);
 
 // ---- "적용" — 아래 템플릿 선택/옵션 폼/워크플로우 슬롯을 채운다 ----
-// 4단계를 처음 다 고르면 wizardUpdateStepButtons()가 클릭 없이 바로 이 함수를 부른다(자동 적용).
-// 그 뒤 스텝을 또 바꾸면(재적용이 필요하면) #wizard-apply-btn이 다시 나타나고, 그건 사용자가 직접
-// 눌러야만 이 함수를 다시 부른다 — renderOptionFields가 옵션 폼을 통째로 다시 그려서 이미 입력해둔
-// 프롬프트/시드수 등을 지워버리므로, 자동으로 재실행하면 방금 쓴 값이 조용히 날아갈 수 있어서다.
+// goToNewJobDetails()가 "다음"(또는 "세부 설정" 탭)을 눌렀을 때, 마법사가 마지막 적용
+// 이후로 바뀌었으면(wizardStale()) 이 함수를 불러 지금 상태 기준으로 다시 만든다 — 그
+// 말고는 절대 자동으로 안 불린다. renderOptionFields가 옵션 폼을 통째로 다시 그려서 이미
+// 입력해둔 프롬프트/시드수 등을 지워버리므로, 자동으로 재실행하면 방금 쓴 값이 조용히
+// 날아갈 수 있어서다 — 그래서 "다음"을 명시적으로 눌러야만 일어난다.
+// 성공하면 true, 실패하면(#wizard-error에 안내를 남기고) false를 돌려준다 — 호출부가
+// 이 값을 보고 세부 설정 탭으로 넘어갈지 말지, wizardAppliedSignature를 갱신할지 정한다.
 async function wizardApply(){
   const errorEl = document.getElementById('wizard-error');
   errorEl.textContent = '';
   if(!wizard.familyId || !wizard.checkpoint || !wizardTypeChosen() || !wizard.batchMode){
     errorEl.textContent = '1~4단계를 모두 고른 뒤 적용하세요.';
-    return;
+    return false;
   }
   const templateIds = wizardTemplateIds();
   if(!templateIds){
     errorEl.textContent = '이 조합에 쓸 템플릿 정보를 찾지 못했어요.';
-    return;
+    return false;
   }
   if(Object.keys(templatesById).length === 0) await fetchTemplates();
   const templateId = templateIds[wizard.batchMode];
   const template = templatesById[templateId];
   if(!template){
     errorEl.textContent = `템플릿 '${templateId}'이(가) 서버에 등록돼 있지 않아요.`;
-    return;
+    return false;
   }
 
   const isPreset = wizardIsPreset();
@@ -7580,7 +7598,7 @@ async function wizardApply(){
     }
   }catch(e){
     errorEl.textContent = e.message || '워크플로우를 준비하지 못했어요.';
-    return;
+    return false;
   }
 
   resetForm();
@@ -7622,15 +7640,8 @@ async function wizardApply(){
 
   document.getElementById('load-notice').textContent =
     '마법사 설정을 적용했어요 — 아래에서 프롬프트/세부 옵션을 확인하고(CSV 순회라면 CSV 파일도 첨부), 준비되면 "추가"를 눌러 큐에 등록하세요.';
+  return true;
 }
-
-document.getElementById('wizard-apply-btn').addEventListener('click', async () => {
-  await wizardApply();
-  wizardAppliedSignature = JSON.stringify(wizard);
-  const btn = document.getElementById('wizard-apply-btn');
-  btn.style.display = 'none';
-  optionsFields.scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
 
 wizardUpdateStepButtons();
 
@@ -7675,45 +7686,55 @@ function summarizeList(items, limit = 5){
   return shown.join(', ') + (rest > 0 ? ` 외 ${rest}개` : '');
 }
 
-// "세부 설정" 탭은 "워크플로우가 붙어 있다" 또는 "워크플로우가 필요 없는 템플릿을
-// 직접 골랐다"(셸 명령 등) 둘 중 하나일 때만 보여줄 내용이 생긴다 — 그 전엔 눌러도
-// 의미가 없어 비활성으로 둔다(New job 패널 재구성 참고). 워크플로우 첨부
-// (checkWorkflowCompatibility)와 템플릿 변경(onTemplateChange) 양쪽에서 다시 계산한다.
-// ready가 되어도 탭을 자동으로 넘기지는 않는다(활성화만) — 워크플로우를 직접 올리면
-// (populateWizardFromUploadedWorkflow) 마법사 단계가 거꾸로 채워지는데, 그 결과를
-// "새 작업" 탭에 그대로 머물러 확인/조정할 수 있어야 하고, 마법사를 적용한 뒤에도
-// 직접 템플릿 선택(같은 탭 안에 있음) 등을 계속 만질 수 있어야 하기 때문이다.
-// 사용자가 준비되면 "세부 설정" 탭을 직접 눌러 넘어간다.
-let newJobActiveTab = 'select';   // 'select' | 'details'
-let newJobDetailsReady = false;
+// "세부 설정" 탭(또는 하단 "다음" 버튼)은 "워크플로우가 붙어 있다"/"마법사 4단계를
+// 다 골랐다" 또는 "워크플로우가 필요 없는 템플릿을 직접 골랐다"(셸 명령 등) 중 하나일
+// 때만 눌린다(newJobReadyToAdvance) — 그 전엔 넘어가도 보여줄 내용이 없다. 누르면
+// goToNewJobDetails()가 필요할 때만(wizardStale()) 지금 마법사 상태로 다시 만든 다음
+// 넘어간다 — 그래서 "새 작업" 탭에서 뭘 바꿔도 넘어가기 전까지는 그 상태 그대로
+// 머물러 확인/조정할 수 있고, 넘어간 폼이 항상 최신 상태와 일치한다.
 
-function updateNewJobTabs(){
+function newJobReadyToAdvance(){
   const template = templatesById[templateSelect.value];
   const needsWorkflow = !(template && template.requires_workflow === false);
-  const hasWorkflow = !!selectedFiles.workflow;
-  newJobDetailsReady = !needsWorkflow || hasWorkflow;
-  renderNewJobTabs();
+  if(!needsWorkflow) return true;   // 셸 명령/Claude 글쓰기처럼 워크플로우 개념이 없는 템플릿
+  return wizardComplete() || !!selectedFiles.workflow;
 }
+
+function updateNewJobTabs(){ renderNewJobTabs(); }
 
 function renderNewJobTabs(){
   const selectBtn = document.getElementById('new-job-tab-select');
   const detailsBtn = document.getElementById('new-job-tab-details');
+  const nextBtn = document.getElementById('new-job-next-btn');
+  const ready = newJobReadyToAdvance();
   selectBtn.classList.toggle('active', newJobActiveTab === 'select');
   detailsBtn.classList.toggle('active', newJobActiveTab === 'details');
-  detailsBtn.disabled = !newJobDetailsReady;
+  detailsBtn.disabled = !ready;
+  nextBtn.disabled = !ready;
   document.getElementById('new-job-select-panel').style.display = newJobActiveTab === 'select' ? '' : 'none';
   document.getElementById('new-job-details-panel').style.display = newJobActiveTab === 'details' ? '' : 'none';
+}
+
+// "다음" 버튼과 "세부 설정" 탭이 똑같이 이 함수로 넘어간다 — 그래야 탭을 직접 눌러
+// 옛 폼을 보는 우회로가 안 생긴다.
+async function goToNewJobDetails(){
+  if(!newJobReadyToAdvance()) return;
+  if(wizardStale()){
+    const ok = await wizardApply();
+    if(!ok) return;   // #wizard-error에 이미 안내가 떴다 — 탭을 넘기지 않는다
+    wizardAppliedSignature = JSON.stringify(wizard);
+  }
+  newJobActiveTab = 'details';
+  renderNewJobTabs();
+  document.getElementById('new-job-tabs').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 document.getElementById('new-job-tab-select').addEventListener('click', () => {
   newJobActiveTab = 'select';
   renderNewJobTabs();
 });
-document.getElementById('new-job-tab-details').addEventListener('click', () => {
-  if(!newJobDetailsReady) return;
-  newJobActiveTab = 'details';
-  renderNewJobTabs();
-});
+document.getElementById('new-job-tab-details').addEventListener('click', goToNewJobDetails);
+document.getElementById('new-job-next-btn').addEventListener('click', goToNewJobDetails);
 
 async function checkWorkflowCompatibility(file){
   const el = document.getElementById('workflow-check');
