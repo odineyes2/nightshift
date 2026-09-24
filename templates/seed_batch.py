@@ -44,6 +44,12 @@ EmptyLatentImage 노드가 여러 개인 워크플로우:
                     "sequential"을 쓴다.
     MAIN_PROMPT     메인 프롬프트 (nightshift가 템플릿 옵션 "main_prompt"로 주입, 기본
                     빈 값 — 비워두면 워크플로우의 프롬프트를 그대로 씀)
+    NEGATIVE_PROMPT 네거티브 프롬프트 (nightshift가 템플릿 옵션 "negative_prompt"로 주입,
+                    기본값은 manifest.json에 미리 채워둔 문구 — server/workflow_builder.py의
+                    DEFAULT_NEGATIVE와 같다. 마법사로 워크플로우를 새로 만들면 그 문구가
+                    이미 그래프에 들어있으므로, 화면에서 안 고치고 그대로 두면 사실상
+                    같은 값을 다시 써넣는 셈이라 아무것도 안 바뀐다. 이 칸을 비우면
+                    업로드한 워크플로우에 이미 있는 네거티브를 그대로 씀)
     DANBOORU_SEED_PROMPTS  시드별로 다르게 쓸 프롬프트 목록(JSON 문자열 배열, nightshift가
                     템플릿 옵션 "danbooru_seed_prompts"로 주입). 작업 관리 화면의 "시드마다
                     Danbooru로 다른 프롬프트 생성" 체크박스를 켰을 때만 채워지며, 큐에
@@ -226,6 +232,26 @@ def apply_main_prompt(workflow, main_prompt):
         )
         return
     node.setdefault("inputs", {})[field] = main_prompt
+
+
+def apply_negative_prompt(workflow, negative_prompt):
+    negative_prompt = (negative_prompt or "").strip()
+    if not negative_prompt:
+        # 비워두면 업로드된(또는 마법사가 만든) 워크플로우의 네거티브를 그대로 둔다.
+        return
+    # 마법사로 만든 워크플로우는 server/workflow_builder.py의 DEFAULT_NEGATIVE가 이미
+    # 이 제목의 노드에 들어가 있다 — manifest.json의 negative_prompt 기본값과 같은
+    # 문구라, 사용자가 안 고치고 그대로 두면 사실상 아무것도 안 바뀐다(그대로 재적용).
+    node_id, node = find_node(workflow, title_substring="negative_prompt")
+    field = primitive_value_field(node) if node is not None else None
+    if field is None:
+        print(
+            "[seed_batch] 경고: NEGATIVE_PROMPT를 넣을 노드를 찾지 못했습니다 "
+            "(제목에 'negative_prompt'가 포함된 CLIPTextEncode/Primitive 텍스트 노드 없음)",
+            file=sys.stderr,
+        )
+        return
+    node.setdefault("inputs", {})[field] = negative_prompt
 
 
 def find_loader_node(workflow, title_substring, class_types):
@@ -475,12 +501,13 @@ def wait_for_completion(comfy_url, prompt_id):
         time.sleep(interval)
 
 
-def run_once(base_workflow, comfy_url, seed, index, main_prompt, width, height):
+def run_once(base_workflow, comfy_url, seed, index, main_prompt, negative_prompt, width, height):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
     apply_lora(workflow)
     apply_main_prompt(workflow, main_prompt)
+    apply_negative_prompt(workflow, negative_prompt)
     apply_resolution(workflow, width, height)
     apply_filename_prefix(workflow, index, seed)
 
@@ -500,6 +527,7 @@ def main():
     seed_count = int(seed_count_raw)
     seed_mode = env("SEED_MODE", "random")
     main_prompt = env("MAIN_PROMPT", "")
+    negative_prompt = env("NEGATIVE_PROMPT", "")
     # 작업 관리 화면의 "시드마다 Danbooru로 다른 프롬프트 생성" 체크박스가 켜져
     # 있었으면, nightshift가 큐에 추가하는 시점에 이미 시드 개수만큼 뽑아둔
     # 프롬프트 목록(JSON 문자열 배열)을 여기로 넘긴다 — 시드마다 그중 하나씩
@@ -534,7 +562,7 @@ def main():
             if index - 1 < len(danbooru_seed_prompts)
             else main_prompt
         )
-        run_once(base_workflow, comfy_url, seed, index, prompt_for_seed, width, height)
+        run_once(base_workflow, comfy_url, seed, index, prompt_for_seed, negative_prompt, width, height)
         done_images += default_batch_size
         report_progress(job_id, nightshift_url, total_images, done_images)
 
