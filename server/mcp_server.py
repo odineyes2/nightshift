@@ -15,7 +15,12 @@ app.py(FastAPI) 자체는 건드리지 않는다 — 여기서는 그 REST API�
     JOB_QUEUE_BASE_URL  app.py가 떠 있는 주소 (기본 http://127.0.0.1:8000 —
                         같은 머신에서 돈다면 내부 주소를 쓰는 게 RunPod 프록시
                         URL보다 빠르고 안정적이다)
-    JOB_QUEUE_USER      app.py에 로그인할 회원 아이디 (API 키 방식은 없어졌다 — 사람과 같은 로그인이다)
+    NIGHTSHIFT_MCP_KEY  (권장) app.py와 이 서버가 같이 읽는 내부 키(32자 이상 무작위 문자열).
+                        설정하면 로그인하지 않고 요청마다 이 키를 X-Nightshift-MCP-Key 헤더로
+                        실어 보내고, app.py는 같은 머신에서 직접 온 요청일 때만 admin으로 받는다
+                        (app.py의 _mcp_key_user 참고). 사람의 admin 비밀번호를 .env에 적어 둘
+                        필요가 없어진다 — 그 비밀번호는 JupyterLab(셸)의 열쇠이기도 해서다.
+    JOB_QUEUE_USER      (NIGHTSHIFT_MCP_KEY가 없을 때만) app.py에 로그인할 회원 아이디
     JOB_QUEUE_PASSWORD  그 회원의 비밀번호. 이 회원의 권한·소유 범위 안에서만 도구가 동작한다
                         (일반 회원이면 자기 프로젝트/작업/결과물/파드만 보인다)
     MCP_SERVER_PORT     이 MCP 서버가 뜰 포트 (기본 8001, app.py의 8000과 겹치면 안 됨)
@@ -34,6 +39,7 @@ import secrets
 import shutil
 import sys
 import tempfile
+from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -49,6 +55,8 @@ USERNAME = os.environ.get("JOB_QUEUE_USER", "").strip()
 PASSWORD = os.environ.get("JOB_QUEUE_PASSWORD", "")
 SESSION_COOKIE = "ns_session"
 _session_token: str | None = None
+MCP_INTERNAL_KEY = os.environ.get("NIGHTSHIFT_MCP_KEY", "").strip()
+MCP_KEY_HEADER = "X-Nightshift-MCP-Key"
 
 MCP_SERVER_HOST = os.environ.get("MCP_SERVER_HOST", "127.0.0.1").strip() or "127.0.0.1"
 MCP_AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "").strip()
@@ -114,8 +122,25 @@ def _login() -> str | None:
                           headers={"X-Requested-With": "nightshift"}, timeout=STATUS_TIMEOUT)
     except httpx.HTTPError:
         return None
-    _session_token = resp.cookies.get(SESSION_COOKIE) if resp.status_code == 200 else None
+    _session_token = _session_cookie_from(resp) if resp.status_code == 200 else None
     return _session_token
+
+
+def _session_cookie_from(resp: httpx.Response) -> str | None:
+    """Set-Cookie 헤더에서 세션 토큰을 직접 꺼낸다. resp.cookies를 쓰면 안 된다 — app.py가
+    NIGHTSHIFT_COOKIE_DOMAIN(예: lomebrote.com, OpenCut SSO용)으로 쿠키에 Domain을 박으면,
+    127.0.0.1로 요청한 httpx 쿠키 저장소가 도메인 불일치로 그 쿠키를 조용히 버려서 로그인은
+    성공했는데 토큰이 None이 되고 모든 도구가 401로 끝난다. 여기서는 토큰 값만 필요하고
+    보낼 때는 _client()가 쿠키를 직접 실어 보내므로 Domain 속성은 무시해도 된다."""
+    for header in resp.headers.get_list("set-cookie"):
+        jar = SimpleCookie()
+        try:
+            jar.load(header)
+        except CookieError:
+            continue
+        if SESSION_COOKIE in jar:
+            return jar[SESSION_COOKIE].value
+    return None
 
 
 async def _forget_expired_session(resp: httpx.Response) -> None:
@@ -126,9 +151,14 @@ async def _forget_expired_session(resp: httpx.Response) -> None:
 
 
 def _client(timeout: float) -> httpx.AsyncClient:
+    headers = {"X-Requested-With": "nightshift"}
+    if MCP_INTERNAL_KEY:
+        # 내부 키가 있으면 로그인하지 않는다 — 비밀번호도 세션 쿠키도 쓰지 않는다.
+        headers[MCP_KEY_HEADER] = MCP_INTERNAL_KEY
+        return httpx.AsyncClient(base_url=BASE_URL, headers=headers, timeout=timeout)
     token = _session_token or _login()
     cookies = {SESSION_COOKIE: token} if token else None
-    return httpx.AsyncClient(base_url=BASE_URL, headers={"X-Requested-With": "nightshift"}, cookies=cookies,
+    return httpx.AsyncClient(base_url=BASE_URL, headers=headers, cookies=cookies,
                              timeout=timeout, event_hooks={"response": [_forget_expired_session]})
 
 

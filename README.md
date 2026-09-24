@@ -174,7 +174,7 @@ nightshift는 여러 사람이 함께 쓸 수 있는 **회원제**입니다. 예
 - **관리자 화면(Admin 탭, admin에게만 보임)**: 전체/승인 대기/활성/정지 회원 수, 회원마다 가입·최근 로그인 시각과 프로젝트·작업·결과물 개수·용량, 그리고 승인·정지·재개·비밀번호 초기화·삭제 버튼. 승인 대기가 있으면 탭에 빨간 숫자가 뜹니다. 정지하거나 비밀번호를 초기화하면 그 회원의 로그인은 바로 끊깁니다. 회원을 지워도 그 사람의 데이터는 지우지 않고 admin 소유로 남습니다.
 - **소유자 분리 방식**: 프로젝트·작업·결과물(assets)·파드에 `owner_id`가 붙습니다. 남의 것에 접근하면 있다는 사실도 알려주지 않고 404를 돌려줍니다. 결과 파일은 작업 폴더(`<job_id>/`)의 주인 또는 파드 주인으로 정해지고, ComfyUI에서 직접 돌려 작업이 없는 결과는 `u<회원id>/` 폴더로 나눠 담아 회원끼리 섞이거나 덮어쓰지 않습니다.
 - **작업 스크립트의 진행 보고**: 작업 스크립트(서브프로세스)는 로그인이 없으므로, 서버가 뜰 때마다 새로 만드는 내부 토큰을 `X-API-Key`로 실어 `PUT /api/jobs/{id}/progress` 한 경로에만 보고합니다(스크립트는 그대로).
-- **MCP 서버·스크립트**: `JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD`로 같은 방식으로 로그인합니다 — 그 회원의 권한 안에서만 동작합니다.
+- **MCP 서버**: `.env`의 `NIGHTSHIFT_MCP_KEY`(MCP 전용 내부 키)로 admin 권한을 받습니다 — 사람의 비밀번호를 `.env`에 적어 두지 않기 위해서입니다(아래 "MCP 서버" 절). 키가 없으면 예전처럼 `JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD`로 로그인해서 그 회원의 권한 안에서만 동작합니다.
 - **알아둘 점**: Danbooru 프롬프트 기록·태그 풀은 아직 모두가 함께 씁니다. 회원이 등록한 파드 주소로 이 서버가 대신 접속하는 구조라 서버 안쪽 주소는 막아 뒀지만, 그 주소가 다른 곳으로 리다이렉트하는 경우까지는 막지 못합니다.
 
 ## 사용 방법
@@ -1100,7 +1100,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 
 **실행**: `npm start`(pm2)로 `app.py`와 함께 자동으로 뜹니다 (`ecosystem.config.js`의 `nightshift-mcp` 앱). 따로 실행하려면 `cd server && python3 mcp_server.py`.
 
-**환경변수** (`.env.example` 참고): `JOB_QUEUE_BASE_URL`(기본 `http://127.0.0.1:8000` — 같은 머신이면 RunPod 프록시 URL 대신 내부 주소를 쓰는 게 빠르고 안정적), `JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD`(app.py에 로그인할 회원 — 그 회원의 권한·소유 범위 안에서만 동작), `MCP_SERVER_PORT`(기본 8001), `MCP_SERVER_HOST`(기본 `127.0.0.1` — 아래 "인증과 외부 노출" 참고), `MCP_AUTH_TOKEN`(외부에 노출할 때 쓰는 인증 토큰).
+**환경변수** (`.env.example` 참고): `JOB_QUEUE_BASE_URL`(기본 `http://127.0.0.1:8000` — 같은 머신이면 RunPod 프록시 URL 대신 내부 주소를 쓰는 게 빠르고 안정적), `NIGHTSHIFT_MCP_KEY`(MCP 전용 내부 키, 권장 — 아래), `JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD`(키가 없을 때만 쓰는 예전 방식: app.py에 로그인할 회원), `MCP_SERVER_PORT`(기본 8001), `MCP_SERVER_HOST`(기본 `127.0.0.1` — 아래 "인증과 외부 노출" 참고), `MCP_AUTH_TOKEN`(외부에 노출할 때 쓰는 인증 토큰).
 
 | 도구 | 내부 호출 | 설명 |
 |---|---|---|
@@ -1129,7 +1129,19 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 
 ### 인증과 외부 노출
 
-`mcp_server.py`는 기본적으로 `MCP_SERVER_HOST=127.0.0.1`에만 묶입니다(`jupyterlab`을 127.0.0.1에 묶은 것과 같은 이유 — `ecosystem.config.js` 주석 참고). 이 서버는 시작할 때 이미 관리자(또는 `JOB_QUEUE_USER`) 계정으로 로그인해 두므로, 아무 보호 없이 외부에 노출하면 주소를 아는 누구나 그 계정 권한으로 nightshift를 조작할 수 있습니다.
+`mcp_server.py`는 기본적으로 `MCP_SERVER_HOST=127.0.0.1`에만 묶입니다(`jupyterlab`을 127.0.0.1에 묶은 것과 같은 이유 — `ecosystem.config.js` 주석 참고). 이 서버는 admin 권한으로 nightshift를 다루므로, 아무 보호 없이 외부에 노출하면 주소를 아는 누구나 그 권한으로 nightshift를 조작할 수 있습니다.
+
+**MCP 서버 → nightshift 구간은 `NIGHTSHIFT_MCP_KEY`로 인증합니다.** 예전에는 `.env`에 admin 아이디/비밀번호(`JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD`)를 적어 두고 MCP 서버가 로그인했는데, admin 비밀번호는 JupyterLab 게이트(홈서버 셸)의 열쇠이기도 해서 `.env`에 평문으로 두면 위험합니다. 그래서 두 구간의 열쇠를 나눴습니다.
+
+| 구간 | 열쇠 | 보관 위치 |
+|---|---|---|
+| claude.ai → MCP 서버 | `MCP_AUTH_TOKEN` | claude.ai 커넥터 설정 + 홈서버 `.env` |
+| MCP 서버 → nightshift | `NIGHTSHIFT_MCP_KEY` | 홈서버 `.env`에만 (밖으로 나가지 않음) |
+
+- 만들기: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` → `.env`에 `NIGHTSHIFT_MCP_KEY=<값>` 한 줄(32자 이상). `JOB_QUEUE_USER`/`JOB_QUEUE_PASSWORD` 줄은 지운다. 그다음 `npm run restart`(app.py와 MCP 서버 둘 다 새 값을 읽어야 함).
+- app.py는 이 키를 **같은 머신에서 프록시를 거치지 않고 직접 온 요청**에만 인정합니다. Cloudflare 터널로 들어온 요청은 cloudflared가 localhost로 넘겨줘서 127.0.0.1에서 온 것처럼 보이므로, 접속 주소만이 아니라 `CF-Connecting-IP`/`X-Forwarded-For` 헤더가 있으면 키가 맞아도 거절합니다.
+- 이 키로는 `/api/auth/*`, `/api/admin/*`(비밀번호 변경·회원 관리)를 쓸 수 없고, 웹 로그인 쿠키도 발급되지 않아 JupyterLab·OpenCut 게이트도 열리지 않습니다. 작업 서브프로세스(셸 파드 등)에도 물려주지 않습니다.
+- `MCP_AUTH_TOKEN`과 같은 값을 쓰지 마세요 — 그 토큰은 claude.ai에 저장돼 있어 밖에 있는 값이고, 이 키를 겸하게 하면 토큰 하나로 MCP 도구가 아니라 admin API 전체(셸 파드 포함)가 열립니다.
 
 claude.ai 커스텀 커넥터로 붙이려면 인터넷에서 닿는 주소가 필요해 Cloudflare Tunnel 같은 터널을 거쳐야 합니다. 순서:
 
