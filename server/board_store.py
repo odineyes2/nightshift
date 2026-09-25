@@ -117,3 +117,93 @@ def delete_edge(project_id: int, edge_id: int) -> bool:
     with db.connect() as conn:
         cur = conn.execute("DELETE FROM board_edges WHERE id=? AND project_id=?", (edge_id, project_id))
         return cur.rowcount > 0
+
+
+class BoardNotFound(Exception):
+    """넘겨받은 카드/선 id 중 이 프로젝트 것이 아닌 게 섞여 있다 — app.py가 404로 바꾼다."""
+
+
+def _check_nodes_in_project(conn, project_id: int, ids) -> None:
+    ids = set(ids)
+    if not ids:
+        return
+    rows = conn.execute(
+        f"SELECT id FROM board_nodes WHERE project_id=? AND id IN ({','.join('?' * len(ids))})",
+        (project_id, *ids)).fetchall()
+    if len(rows) != len(ids):
+        raise BoardNotFound()
+
+
+def move_nodes(project_id: int, moves: list) -> None:
+    """여러 카드를 한 번에 옮긴다(여러 장 선택해 끌기 · 되돌리기). moves = [(id, x, y), ...].
+    하나라도 이 프로젝트 카드가 아니면 아무것도 안 바꾼다(트랜잭션째 되돌림)."""
+    now = db.now_iso()
+    with db.connect() as conn:
+        _check_nodes_in_project(conn, project_id, (m[0] for m in moves))
+        conn.executemany(
+            "UPDATE board_nodes SET x=?, y=?, updated_at=? WHERE id=? AND project_id=?",
+            [(x, y, now, node_id, project_id) for node_id, x, y in moves])
+
+
+def delete_nodes(project_id: int, ids: list) -> None:
+    """여러 카드를 한 번에 지운다. 붙은 선은 CASCADE로 같이 지워진다."""
+    with db.connect() as conn:
+        _check_nodes_in_project(conn, project_id, ids)
+        conn.executemany("DELETE FROM board_nodes WHERE id=? AND project_id=?", [(i, project_id) for i in ids])
+
+
+def restore(project_id: int, nodes: list, edges: list) -> dict:
+    """지운 카드·선을 되살린다(되돌리기). 원래 id가 비어 있으면 그 id 그대로 넣어서,
+    화면이 들고 있는 되돌리기 기록의 id가 계속 맞게 한다. 그 사이 다른 카드가 그 id를
+    가져갔으면 새 id를 받고, 바뀐 것을 id_map으로 알려 준다(화면이 기록을 고쳐 씀).
+    nodes의 항목은 app.py가 검증을 마친 dict(kind/asset_path/text/x/y/width/height/z_index/
+    created_at/id). 선의 양 끝은 되살린 카드이거나 이미 이 프로젝트에 있는 카드여야 한다."""
+    now = db.now_iso()
+    id_map = {}
+    node_ids, edge_ids = [], []
+    with db.connect() as conn:
+        for n in nodes:
+            old = n.get("id")
+            free = isinstance(old, int) and conn.execute(
+                "SELECT 1 FROM board_nodes WHERE id=?", (old,)).fetchone() is None
+            cols = (project_id, n["kind"], n.get("asset_path"), n.get("text") or "", n["x"], n["y"],
+                    n["width"], n["height"], n.get("z_index") or 0, n.get("created_at") or now, now)
+            if free:
+                conn.execute(
+                    "INSERT INTO board_nodes(id, project_id, kind, asset_path, text, x, y, width, height, "
+                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (old, *cols))
+                new = old
+            else:
+                new = conn.execute(
+                    "INSERT INTO board_nodes(project_id, kind, asset_path, text, x, y, width, height, "
+                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", cols).lastrowid
+            if old is not None:
+                id_map[old] = new
+            node_ids.append(new)
+        for e in edges:
+            a = id_map.get(e["from_node_id"], e["from_node_id"])
+            b = id_map.get(e["to_node_id"], e["to_node_id"])
+            if a == b:
+                raise BoardNotFound()
+            _check_nodes_in_project(conn, project_id, (a, b))
+            dup = conn.execute(
+                "SELECT id FROM board_edges WHERE project_id=? AND "
+                "((from_node_id=? AND to_node_id=?) OR (from_node_id=? AND to_node_id=?))",
+                (project_id, a, b, b, a)).fetchone()
+            if dup:
+                edge_ids.append(dup["id"])
+                continue
+            old = e.get("id")
+            free = isinstance(old, int) and conn.execute(
+                "SELECT 1 FROM board_edges WHERE id=?", (old,)).fetchone() is None
+            if free:
+                conn.execute("INSERT INTO board_edges(id, project_id, from_node_id, to_node_id, created_at) "
+                             "VALUES(?,?,?,?,?)", (old, project_id, a, b, e.get("created_at") or now))
+                edge_ids.append(old)
+            else:
+                edge_ids.append(conn.execute(
+                    "INSERT INTO board_edges(project_id, from_node_id, to_node_id, created_at) VALUES(?,?,?,?)",
+                    (project_id, a, b, e.get("created_at") or now)).lastrowid)
+        out_nodes = [_row(_select_node(conn, i)) for i in node_ids]
+        out_edges = [_row(conn.execute("SELECT * FROM board_edges WHERE id=?", (i,)).fetchone()) for i in edge_ids]
+    return {"nodes": out_nodes, "edges": out_edges, "id_map": {str(k): v for k, v in id_map.items()}}

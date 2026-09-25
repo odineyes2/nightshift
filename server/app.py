@@ -4094,19 +4094,7 @@ async def create_board_node_api(project_id: int, request: Request):
     kind = body.get("kind")
     if kind not in BOARD_NODE_KINDS:
         raise HTTPException(400, f"kind는 {'/'.join(BOARD_NODE_KINDS)} 중 하나여야 해요.")
-    asset_path = None
-    if kind in ("image", "video"):
-        asset_path = (body.get("asset_path") or "").strip()
-        if not asset_path:
-            raise HTTPException(400, "이미지/영상 카드는 asset_path가 필요해요.")
-        # 자기 소유의(관리자는 전부) 결과물만 카드로 놓을 수 있다 — 다른 회원의
-        # 파일 경로를 짐작해 끌어오지 못하게 한다. 꼭 "이" 프로젝트 소속일 필요는
-        # 없다(다른 프로젝트의 이미지를 참고 삼아 가져오는 것도 자연스러운 쓰임).
-        _sync_assets_quietly()
-        try:
-            asset_meta.get_detail(asset_path, owner_id=auth.owner_scope(user))
-        except asset_meta.AssetNotFound:
-            raise HTTPException(404, "결과물을 찾을 수 없어요.")
+    asset_path = _board_asset_path_or_error(user, kind, body.get("asset_path"))
     try:
         x = float(body.get("x", 0))
         y = float(body.get("y", 0))
@@ -4116,6 +4104,25 @@ async def create_board_node_api(project_id: int, request: Request):
         raise HTTPException(400, "x/y/width/height는 숫자여야 해요.")
     text = str(body.get("text") or "")
     return board_store.create_node(project_id, kind, asset_path, text, x, y, width, height)
+
+
+def _board_asset_path_or_error(user, kind: str, raw) -> str | None:
+    """이미지/영상 카드가 가리킬 결과물 경로를 확인한다(텍스트 카드는 None).
+    자기 소유의(관리자는 전부) 결과물만 카드로 놓을 수 있다 — 다른 회원의 파일
+    경로를 짐작해 끌어오지 못하게 한다. 꼭 "이" 프로젝트 소속일 필요는 없다(다른
+    프로젝트의 이미지를 참고 삼아 가져오는 것도 자연스러운 쓰임). 되살리기(restore)도
+    같은 확인을 거친다 — 되살리기 요청에 남의 경로를 끼워 넣지 못하게."""
+    if kind not in ("image", "video"):
+        return None
+    asset_path = (raw or "").strip()
+    if not asset_path:
+        raise HTTPException(400, "이미지/영상 카드는 asset_path가 필요해요.")
+    _sync_assets_quietly()
+    try:
+        asset_meta.get_detail(asset_path, owner_id=auth.owner_scope(user))
+    except asset_meta.AssetNotFound:
+        raise HTTPException(404, "결과물을 찾을 수 없어요.")
+    return asset_path
 
 
 @app.patch("/api/projects/{project_id}/board/nodes/{node_id}")
@@ -4146,6 +4153,87 @@ def delete_board_node_api(project_id: int, node_id: int, request: Request):
         raise HTTPException(404, "없는 카드예요.")
     # 이 카드에 붙은 연결선은 DB가 같이 지운다(board_edges의 ON DELETE CASCADE).
     return {"ok": True}
+
+
+def _board_ids(raw, what: str) -> list:
+    if not isinstance(raw, list) or not raw or len(raw) > 1000:
+        raise HTTPException(400, f"{what}는 1~1000개짜리 목록이어야 해요.")
+    try:
+        return [int(v) for v in raw]
+    except (TypeError, ValueError):
+        raise HTTPException(400, f"{what}는 숫자 목록이어야 해요.")
+
+
+@app.patch("/api/projects/{project_id}/board/nodes")
+async def move_board_nodes_api(project_id: int, request: Request):
+    """여러 카드를 한 번에 옮긴다 — `{"nodes": [{"id", "x", "y"}, ...]}`. 여러 장 선택해 끌었을
+    때와 되돌리기에서 쓴다. 한 장이라도 이 프로젝트 카드가 아니면 아무것도 안 바꾼다."""
+    project_or_404(me(request), project_id)
+    body = await read_json_object(request, allow_empty=False)
+    items = body.get("nodes")
+    if not isinstance(items, list) or not items or len(items) > 1000:
+        raise HTTPException(400, "nodes는 1~1000개짜리 목록이어야 해요.")
+    try:
+        moves = [(int(it["id"]), float(it["x"]), float(it["y"])) for it in items]
+    except (TypeError, ValueError, KeyError):
+        raise HTTPException(400, "nodes의 각 항목에는 숫자 id/x/y가 있어야 해요.")
+    try:
+        board_store.move_nodes(project_id, moves)
+    except board_store.BoardNotFound:
+        raise HTTPException(404, "없는 카드가 섞여 있어요.")
+    return {"ok": True}
+
+
+@app.post("/api/projects/{project_id}/board/nodes/delete")
+async def delete_board_nodes_api(project_id: int, request: Request):
+    """여러 카드를 한 번에 지운다 — `{"ids": [...]}`(DELETE는 본문을 못 믿어서 POST). 붙은 선도 같이."""
+    project_or_404(me(request), project_id)
+    body = await read_json_object(request, allow_empty=False)
+    ids = _board_ids(body.get("ids"), "ids")
+    try:
+        board_store.delete_nodes(project_id, ids)
+    except board_store.BoardNotFound:
+        raise HTTPException(404, "없는 카드가 섞여 있어요.")
+    return {"ok": True}
+
+
+@app.post("/api/projects/{project_id}/board/restore")
+async def restore_board_api(project_id: int, request: Request):
+    """지운 카드·선을 되살린다(되돌리기) — `{"nodes": [...], "edges": [...]}`. 각 카드는 지우기
+    전에 받아 둔 카드 그대로(id 포함), 선은 `{id, from_node_id, to_node_id}`. 원래 id를 되도록
+    그대로 쓰고, 못 쓰면 `id_map`(옛 id → 새 id)으로 알려 준다. 선은 보낸 순서대로 돌려준다."""
+    user = me(request)
+    project_or_404(user, project_id)
+    body = await read_json_object(request, allow_empty=False)
+    raw_nodes = body.get("nodes") or []
+    raw_edges = body.get("edges") or []
+    if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list) or not (raw_nodes or raw_edges)             or len(raw_nodes) > 1000 or len(raw_edges) > 5000:
+        raise HTTPException(400, "nodes/edges 목록이 필요해요.")
+    nodes = []
+    try:
+        for n in raw_nodes:
+            kind = n.get("kind")
+            if kind not in BOARD_NODE_KINDS:
+                raise HTTPException(400, f"kind는 {'/'.join(BOARD_NODE_KINDS)} 중 하나여야 해요.")
+            nodes.append({
+                "id": int(n["id"]) if n.get("id") is not None else None,
+                "kind": kind,
+                "asset_path": _board_asset_path_or_error(user, kind, n.get("asset_path")),
+                "text": str(n.get("text") or ""),
+                "x": float(n["x"]), "y": float(n["y"]),
+                "width": float(n.get("width") or 220), "height": float(n.get("height") or 220),
+                "z_index": int(n.get("z_index") or 0),
+                "created_at": str(n["created_at"]) if n.get("created_at") else None,
+            })
+        edges = [{"id": int(e["id"]) if e.get("id") is not None else None,
+                  "from_node_id": int(e["from_node_id"]), "to_node_id": int(e["to_node_id"]),
+                  "created_at": str(e["created_at"]) if e.get("created_at") else None} for e in raw_edges]
+    except (TypeError, ValueError, KeyError, AttributeError):
+        raise HTTPException(400, "되살릴 카드/선 형식이 맞지 않아요.")
+    try:
+        return board_store.restore(project_id, nodes, edges)
+    except board_store.BoardNotFound:
+        raise HTTPException(404, "선의 양 끝 카드가 이 보드에 없어요.")
 
 
 @app.post("/api/projects/{project_id}/board/edges")
