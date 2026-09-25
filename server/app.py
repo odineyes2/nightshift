@@ -4144,6 +4144,33 @@ def delete_board_node_api(project_id: int, node_id: int, request: Request):
     _board_node_or_404(project_id, node_id)
     if not board_store.delete_node(node_id):
         raise HTTPException(404, "없는 카드예요.")
+    # 이 카드에 붙은 연결선은 DB가 같이 지운다(board_edges의 ON DELETE CASCADE).
+    return {"ok": True}
+
+
+@app.post("/api/projects/{project_id}/board/edges")
+async def create_board_edge_api(project_id: int, request: Request):
+    project_or_404(me(request), project_id)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        from_id = int(body.get("from_node_id"))
+        to_id = int(body.get("to_node_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "from_node_id/to_node_id는 숫자여야 해요.")
+    if from_id == to_id:
+        raise HTTPException(400, "카드를 자기 자신과 이을 수는 없어요.")
+    # 양 끝이 둘 다 이 프로젝트 카드여야 한다 — 다른 프로젝트 카드 id를 짐작해 잇지 못하게.
+    owners = board_store.node_project_ids((from_id, to_id))
+    if owners.get(from_id) != project_id or owners.get(to_id) != project_id:
+        raise HTTPException(404, "없는 카드예요.")
+    return board_store.create_edge(project_id, from_id, to_id)
+
+
+@app.delete("/api/projects/{project_id}/board/edges/{edge_id}")
+def delete_board_edge_api(project_id: int, edge_id: int, request: Request):
+    project_or_404(me(request), project_id)
+    if not board_store.delete_edge(project_id, edge_id):
+        raise HTTPException(404, "없는 연결선이에요.")
     return {"ok": True}
 
 

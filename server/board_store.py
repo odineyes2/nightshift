@@ -71,3 +71,39 @@ def delete_node(node_id: int) -> bool:
     with db.connect() as conn:
         cur = conn.execute("DELETE FROM board_nodes WHERE id=?", (node_id,))
         return cur.rowcount > 0
+
+
+def node_project_ids(node_ids) -> dict:
+    """{node_id: project_id} — 연결선 양 끝이 둘 다 같은 프로젝트 카드인지 한 번에 확인하는 용도."""
+    ids = list(node_ids)
+    if not ids:
+        return {}
+    with db.connect() as conn:
+        rows = conn.execute(
+            f"SELECT id, project_id FROM board_nodes WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
+    return {r["id"]: r["project_id"] for r in rows}
+
+
+def create_edge(project_id: int, from_node_id: int, to_node_id: int) -> dict:
+    """두 카드를 잇는다. 같은 두 카드 사이에 (방향 무관) 이미 선이 있으면 새로 만들지
+    않고 그 선을 그대로 돌려준다 — 같은 곳에 선이 겹쳐 그려지면 하나를 지워도 계속
+    이어져 보여서 헷갈린다."""
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM board_edges WHERE project_id=? AND "
+            "((from_node_id=? AND to_node_id=?) OR (from_node_id=? AND to_node_id=?))",
+            (project_id, from_node_id, to_node_id, to_node_id, from_node_id)).fetchone()
+        if row:
+            return _row(row)
+        cur = conn.execute(
+            "INSERT INTO board_edges(project_id, from_node_id, to_node_id, created_at) VALUES(?,?,?,?)",
+            (project_id, from_node_id, to_node_id, db.now_iso()))
+        row = conn.execute("SELECT * FROM board_edges WHERE id=?", (cur.lastrowid,)).fetchone()
+    return _row(row)
+
+
+def delete_edge(project_id: int, edge_id: int) -> bool:
+    """project_id로 같이 좁혀서 지운다 — 다른 프로젝트의 선 id를 넣어도 안 지워진다."""
+    with db.connect() as conn:
+        cur = conn.execute("DELETE FROM board_edges WHERE id=? AND project_id=?", (edge_id, project_id))
+        return cur.rowcount > 0
