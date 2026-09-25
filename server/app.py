@@ -4070,7 +4070,7 @@ def delete_project_api(project_id: int, request: Request):
     return {"ok": True}
 
 
-BOARD_NODE_KINDS = ("image", "video", "text", "job")
+BOARD_NODE_KINDS = ("image", "video", "text", "job", "frame")   # frame = 묶음 틀(제목은 text)
 BOARD_ACTIVE_JOB_STATUSES = ("pending", "queued", "running")   # 화면이 작업 카드를 계속 새로 받는 상태
 
 
