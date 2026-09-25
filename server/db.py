@@ -237,9 +237,43 @@ CREATE TABLE runpod_sessions (
 CREATE INDEX runpod_sessions_pod ON runpod_sessions(runpod_pod_id, started_at DESC)
 """
 
+# v10: 프로젝트 보드(무한 캔버스) — 이미지/영상/텍스트 카드(board_nodes)를 자유롭게
+# 늘어놓고 선으로 잇는다(board_edges). project_id는 다른 표들과 달리(jobs/assets는
+# 프로젝트를 지워도 "미분류"로 남음, ON DELETE SET NULL) CASCADE로 건다 — 보드는
+# 그 프로젝트 밖에서는 아무 의미가 없어서 프로젝트와 운명을 같이한다. 이미지/영상
+# 노드는 assets.id 같은 새 조인을 만들지 않고, 갤러리 전체가 이미 쓰는 상대경로
+# 문자열(asset_path, assets.path와 같은 값)을 그대로 들고 있는다 — 프론트가 이미
+# 그 값으로 썸네일/라이트박스/다운로드를 전부 처리하고 있어서다.
+SCHEMA_V10 = """
+CREATE TABLE board_nodes (
+  id         INTEGER PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL CHECK (kind IN ('image','video','text')),
+  asset_path TEXT,
+  text       TEXT NOT NULL DEFAULT '',
+  x          REAL NOT NULL DEFAULT 0,
+  y          REAL NOT NULL DEFAULT 0,
+  width      REAL NOT NULL DEFAULT 220,
+  height     REAL NOT NULL DEFAULT 220,
+  z_index    INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX board_nodes_project ON board_nodes(project_id);
+
+CREATE TABLE board_edges (
+  id           INTEGER PRIMARY KEY,
+  project_id   INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  from_node_id INTEGER NOT NULL REFERENCES board_nodes(id) ON DELETE CASCADE,
+  to_node_id   INTEGER NOT NULL REFERENCES board_nodes(id) ON DELETE CASCADE,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX board_edges_project ON board_edges(project_id)
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
-              (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9)]
+              (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10)]
 
 
 def now_iso() -> str:

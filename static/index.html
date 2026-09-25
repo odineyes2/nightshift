@@ -701,6 +701,55 @@
     transform-origin:0 0;
     will-change:transform;
   }
+  .board-toolbar-sep{ width:1px; height:20px; background:var(--border); margin:0 4px; }
+
+  /* 카드(노드) — 좌표는 board-world 기준(월드 좌표), 배율과 무관하게 px로 저장/복원된다. */
+  .board-node{
+    position:absolute;
+    border:1px solid var(--border);
+    border-radius:10px;
+    background:var(--panel);
+    box-shadow:0 1px 3px rgba(16,24,40,0.08);
+    overflow:hidden;
+    cursor:grab;
+    touch-action:none;
+  }
+  .board-node.dragging{ cursor:grabbing; box-shadow:0 8px 20px rgba(16,24,40,0.22); z-index:5; }
+  .board-node-image img, .board-node-video video{
+    width:100%; height:100%; object-fit:cover; display:block; pointer-events:none;
+  }
+  .board-node-textarea{
+    width:100%; height:100%; border:none; resize:none; box-sizing:border-box;
+    padding:10px; font-family:var(--sans); font-size:13px; line-height:1.5;
+    color:var(--text); background:none; cursor:text;
+  }
+  .board-node-textarea:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); outline-offset:-2px; }
+  .board-node-del{
+    position:absolute; top:4px; right:4px;
+    width:22px; height:22px; padding:0;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(17,24,39,0.55); color:#fff; border:none; border-radius:6px;
+    cursor:pointer; opacity:0; transition:opacity .12s ease, background .12s ease;
+  }
+  .board-node:hover .board-node-del, .board-node-del:focus-visible{ opacity:1; }
+  .board-node-del .ico{ width:13px; height:13px; }
+  .board-node-del:hover{ background:rgba(var(--failed-rgb),0.85); }
+
+  /* 보드에 놓을 이미지/영상을 고르는 모달의 그리드 — 필터 없이 이 프로젝트 것만. */
+  .board-asset-picker-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(110px, 1fr));
+    gap:8px;
+    max-height:60vh;
+    overflow-y:auto;
+  }
+  .board-picker-item{
+    aspect-ratio:1; padding:0;
+    border:1px solid var(--border); border-radius:8px;
+    overflow:hidden; cursor:pointer; background:var(--bg);
+  }
+  .board-picker-item img, .board-picker-item video{ width:100%; height:100%; object-fit:cover; display:block; }
+  .board-picker-item:hover{ border-color:var(--queued); }
 
   .panel{
     background:var(--panel);
@@ -3363,18 +3412,39 @@
      브레인스토밍하는 공간(프로젝트 서브탭 전용, PROJECT_TABS 참고). 다른 탭과
      달리 공용 main 레이아웃(가운데 정렬 + 좌우 여백)을 안 쓴다 — main#tab-prboard
      CSS 오버라이드로 헤더·내비·프로젝트 바 아래 남는 공간을 전부 차지한다.
-     1단계(뼈대)는 팬/줌만 되는 빈 캔버스 — 노드/연결은 다음 단계. -->
+     2단계: 이미지/영상/텍스트 카드를 놓고 드래그로 옮기고 지운다(서버 저장/복원,
+     board_nodes 표). 카드 사이 연결선은 다음 단계. -->
 <main id="tab-prboard" style="display:none;">
   <div class="board-toolbar">
     <button class="icon-btn" id="board-zoom-out-btn" type="button" title="축소"><svg class="ico"><use href="#i-zoom-out"/></svg></button>
     <span class="board-zoom-label" id="board-zoom-label">100%</span>
     <button class="icon-btn" id="board-zoom-in-btn" type="button" title="확대"><svg class="ico"><use href="#i-zoom-in"/></svg></button>
     <button class="icon-btn icon-btn-neutral" id="board-fit-btn" type="button" title="배율 되돌리기"><svg class="ico"><use href="#i-maximize"/></svg></button>
+    <span class="board-toolbar-sep"></span>
+    <button class="load-btn" id="board-add-image-btn" type="button" title="이 프로젝트의 이미지를 카드로 놓기"><svg class="ico"><use href="#i-images"/></svg> 이미지</button>
+    <button class="load-btn" id="board-add-video-btn" type="button" title="이 프로젝트의 영상을 카드로 놓기"><svg class="ico"><use href="#i-clapperboard"/></svg> 영상</button>
+    <button class="load-btn" id="board-add-text-btn" type="button" title="빈 텍스트 카드 놓기(메모·프롬프트)"><svg class="ico"><use href="#i-file-text"/></svg> 텍스트</button>
   </div>
   <div class="board-viewport" id="board-viewport">
     <div class="board-world" id="board-world"></div>
   </div>
 </main>
+
+<!-- 보드에 이미지/영상 카드를 놓을 때 "이 프로젝트의 결과물 중 하나 고르기" 그리드.
+     기존 모달 패턴(.modal-overlay/.modal-panel) 재사용 — 별도 필터/검색 없이 이
+     프로젝트 것만 보여주는 단순한 그리드다(전체 갤러리 UI를 그대로 옮기지 않음). -->
+<div class="modal-overlay" id="board-asset-picker-modal" style="display:none;">
+  <div class="modal-panel modal-panel-wide">
+    <div class="modal-header">
+      <div class="modal-title" id="board-asset-picker-title">이미지 고르기</div>
+      <button class="modal-close" id="board-asset-picker-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="board-asset-picker-grid" id="board-asset-picker-grid"></div>
+      <div class="empty" id="board-asset-picker-empty" style="display:none;">이 프로젝트에 결과물이 없어요</div>
+    </div>
+  </div>
+</div>
 
 <main id="tab-gallery" style="display:none;">
   <div class="panel">
@@ -10162,7 +10232,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'results') renderResultsList();
   if(tab === 'admin') fetchAdminUsers();
   if(tab === 'db'){ renderDbPanelTabs(); fetchRunpodSessions(); fetchGitLog(); fetchGenerationLog(); }
-  if(tab === 'prboard'){ initBoardCanvas(); resizeBoardViewport(); }
+  if(tab === 'prboard'){ initBoardCanvas(); resizeBoardViewport(); fetchBoard(); }
 
   const want = scopedPodId ? `#pod/${scopedPodId}/${tab}`
     : (scopedProjectId !== null ? `#project/${scopedProjectId}/${tab}` : `#${tab}`);
@@ -11147,15 +11217,225 @@ function initBoardCanvas(){
     const rect = viewport.getBoundingClientRect();
     boardZoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, 1 / 1.25);
   });
-  // 2단계(노드)부터 "모든 노드가 보이게 맞추기"라는 진짜 의미가 생긴다 — 지금은
-  // 배율 1:1, 원점으로 되돌리는 것으로 충분하다.
-  document.getElementById('board-fit-btn').addEventListener('click', () => {
-    boardState.x = 0; boardState.y = 0; boardState.scale = 1;
-    applyBoardTransform();
+  document.getElementById('board-fit-btn').addEventListener('click', boardFitToNodes);
+
+  // 카드 드래그 — 배경 팬(위)과 같은 viewport에 델리게이트하지만, 팬 쪽
+  // pointerdown이 이미 `.board-node` 위면 그냥 return하므로 서로 안 부딪힌다.
+  let dragNode = null;   // { id, el, startClientX, startClientY, startX, startY }
+  viewport.addEventListener('pointerdown', (e) => {
+    const nodeEl = e.target.closest('.board-node');
+    if(!nodeEl) return;
+    if(e.target.closest('.board-node-del, textarea')) return;   // 삭제 버튼/글 입력은 드래그 시작 안 함
+    if(e.pointerType === 'mouse' && e.button !== 0) return;
+    const id = Number(nodeEl.dataset.nodeId);
+    const node = boardNodes.find(n => n.id === id);
+    if(!node) return;
+    dragNode = { id, el: nodeEl, startClientX: e.clientX, startClientY: e.clientY, startX: node.x, startY: node.y };
+    nodeEl.setPointerCapture(e.pointerId);
+    nodeEl.classList.add('dragging');
   });
+  viewport.addEventListener('pointermove', (e) => {
+    if(!dragNode) return;
+    const node = boardNodes.find(n => n.id === dragNode.id);
+    if(!node) return;
+    // 화면 픽셀 이동량을 지금 배율로 나눠 월드 좌표 이동량으로 바꾼다 — 확대돼
+    // 있을 때 마우스를 조금만 움직여도 카드가 그만큼(화면상) 정확히 따라오게.
+    node.x = dragNode.startX + (e.clientX - dragNode.startClientX) / boardState.scale;
+    node.y = dragNode.startY + (e.clientY - dragNode.startClientY) / boardState.scale;
+    dragNode.el.style.left = node.x + 'px';
+    dragNode.el.style.top = node.y + 'px';
+  });
+  const endBoardNodeDrag = (e) => {
+    if(!dragNode) return;
+    const node = boardNodes.find(n => n.id === dragNode.id);
+    dragNode.el.classList.remove('dragging');
+    const moved = node && (node.x !== dragNode.startX || node.y !== dragNode.startY);
+    const nodeId = dragNode.id;
+    dragNode = null;
+    // 드래그가 끝났을 때 딱 한 번만 저장한다(픽셀마다 안 쏨) — 실제로 옮겼을
+    // 때만(제자리 클릭은 저장할 게 없음).
+    if(moved && node) saveBoardNodePosition(nodeId, node.x, node.y);
+  };
+  for(const type of ['pointerup', 'pointercancel', 'pointerleave']) viewport.addEventListener(type, endBoardNodeDrag);
+
+  // 카드 삭제 · 텍스트 카드 저장(포커스 벗어날 때) — innerHTML로 카드를 통째로
+  // 다시 그리므로 델리게이트로 한 번만 건다.
+  viewport.addEventListener('click', (e) => {
+    const delBtn = e.target.closest('.board-node-del');
+    if(delBtn) deleteBoardNode(Number(delBtn.dataset.boardDel));
+  });
+  viewport.addEventListener('focusout', (e) => {
+    const textarea = e.target.closest('.board-node-textarea');
+    if(textarea) saveBoardNodeText(Number(textarea.dataset.boardText), textarea.value);
+  });
+
+  document.getElementById('board-add-text-btn').addEventListener('click', () => createBoardNode('text', null, ''));
+  document.getElementById('board-add-image-btn').addEventListener('click', () => openBoardAssetPicker('image'));
+  document.getElementById('board-add-video-btn').addEventListener('click', () => openBoardAssetPicker('video'));
 
   applyBoardTransform();
 }
+
+// ---- 프로젝트 보드 — 카드(노드): 서버 저장/복원, 드래그 이동, 삭제 ----
+let boardNodes = [];
+
+// 헤더/내비/프로젝트 바는 그대로 두고 main만 바뀌므로, showTab()이 prboard로 올
+// 때마다(다른 탭 갔다 오거나 프로젝트를 바꿔도) 그 프로젝트의 보드를 다시 받는다.
+async function fetchBoard(){
+  const grid = document.getElementById('board-world');
+  if(typeof currentProjectId !== 'number'){
+    // "미분류"는 진짜 프로젝트 행이 아니라 board_nodes.project_id(FK, NOT NULL)를
+    // 붙일 곳이 없다 — 보드 개념 자체가 성립하지 않는다.
+    boardNodes = [];
+    if(grid) grid.innerHTML = '<div class="empty board-empty-notice">보드는 프로젝트 안에서만 쓸 수 있어요 — "미분류"에는 없어요.</div>';
+    return;
+  }
+  try{
+    const res = await fetch(`/api/projects/${currentProjectId}/board`);
+    if(!res.ok) return;
+    const data = await res.json();
+    boardNodes = data.nodes || [];
+  }catch(e){
+    boardNodes = [];
+  }
+  renderBoardNodes();
+}
+
+function boardNodeHtml(node){
+  const style = `left:${node.x}px; top:${node.y}px; width:${node.width}px; height:${node.height}px;`;
+  const delBtn = `<button type="button" class="board-node-del" data-board-del="${node.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg></button>`;
+  if(node.kind === 'image'){
+    const url = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(node.asset_path)}/thumbnail?size=400&fit=cover`);
+    return `<div class="board-node board-node-image" data-node-id="${node.id}" style="${style}"><img src="${url}" loading="lazy" alt="">${delBtn}</div>`;
+  }
+  if(node.kind === 'video'){
+    const url = window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(node.asset_path)}`);
+    return `<div class="board-node board-node-video" data-node-id="${node.id}" style="${style}"><video muted preload="metadata" src="${url}#t=0.1"></video>${delBtn}</div>`;
+  }
+  return `<div class="board-node board-node-text" data-node-id="${node.id}" style="${style}">`
+    + `<textarea class="board-node-textarea" data-board-text="${node.id}" placeholder="메모나 프롬프트를 적으세요">${escapeHtml(node.text)}</textarea>${delBtn}</div>`;
+}
+
+function renderBoardNodes(){
+  const world = document.getElementById('board-world');
+  if(!world) return;
+  world.innerHTML = boardNodes.map(boardNodeHtml).join('');
+}
+
+// 지금 화면 가운데(뷰포트 중심)가 가리키는 월드 좌표에 새 카드를 놓는다 — 팬/줌해
+// 둔 위치와 무관하게 항상 "지금 보고 있는 자리"에 생기게.
+function boardViewportCenterWorld(){
+  const viewport = document.getElementById('board-viewport');
+  const rect = viewport.getBoundingClientRect();
+  return {
+    x: (rect.width / 2 - boardState.x) / boardState.scale,
+    y: (rect.height / 2 - boardState.y) / boardState.scale,
+  };
+}
+
+async function createBoardNode(kind, assetPath, text){
+  if(typeof currentProjectId !== 'number') return;
+  const width = 220, height = kind === 'text' ? 160 : 220;
+  const center = boardViewportCenterWorld();
+  const body = { kind, x: center.x - width / 2, y: center.y - height / 2, width, height, text: text || '' };
+  if(kind === 'image' || kind === 'video') body.asset_path = assetPath;
+  const res = await fetch(`/api/projects/${currentProjectId}/board/nodes`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if(!res.ok) return;
+  boardNodes.push(await res.json());
+  renderBoardNodes();
+}
+
+async function saveBoardNodePosition(nodeId, x, y){
+  if(typeof currentProjectId !== 'number') return;
+  await fetch(`/api/projects/${currentProjectId}/board/nodes/${nodeId}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ x, y }),
+  }).catch(() => { /* 잠깐의 네트워크 문제로 위치 저장 하나 놓쳐도, 다음에 옮기면 그때 값으로 다시 저장됨 */ });
+}
+
+async function saveBoardNodeText(nodeId, text){
+  if(typeof currentProjectId !== 'number') return;
+  const node = boardNodes.find(n => n.id === nodeId);
+  if(node) node.text = text;
+  await fetch(`/api/projects/${currentProjectId}/board/nodes/${nodeId}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+  }).catch(() => { /* 무시 — 다음 편집 때 다시 저장 시도됨 */ });
+}
+
+async function deleteBoardNode(nodeId){
+  if(typeof currentProjectId !== 'number') return;
+  boardNodes = boardNodes.filter(n => n.id !== nodeId);
+  renderBoardNodes();
+  await fetch(`/api/projects/${currentProjectId}/board/nodes/${nodeId}`, { method: 'DELETE' }).catch(() => {});
+}
+
+// 모든 카드가 화면 안에 들어오도록 배율/이동을 맞춘다. 카드가 하나도 없으면
+// 그냥 배율 1:1·원점으로 되돌린다.
+function boardFitToNodes(){
+  const viewport = document.getElementById('board-viewport');
+  const rect = viewport.getBoundingClientRect();
+  if(boardNodes.length === 0){
+    boardState.x = 0; boardState.y = 0; boardState.scale = 1;
+    applyBoardTransform();
+    return;
+  }
+  const minX = Math.min(...boardNodes.map(n => n.x));
+  const minY = Math.min(...boardNodes.map(n => n.y));
+  const maxX = Math.max(...boardNodes.map(n => n.x + n.width));
+  const maxY = Math.max(...boardNodes.map(n => n.y + n.height));
+  const pad = 60;
+  const scale = Math.min(BOARD_MAX_SCALE, Math.max(BOARD_MIN_SCALE,
+    Math.min(rect.width / (maxX - minX + pad * 2), rect.height / (maxY - minY + pad * 2))));
+  boardState.scale = scale;
+  boardState.x = rect.width / 2 - (minX + maxX) / 2 * scale;
+  boardState.y = rect.height / 2 - (minY + maxY) / 2 * scale;
+  applyBoardTransform();
+}
+
+// ---- 프로젝트 보드 — 이미지/영상 카드를 놓을 때 "이 프로젝트 결과물 중 고르기" ----
+let boardPickerKind = null;   // 'image' | 'video'
+
+async function openBoardAssetPicker(kind){
+  if(typeof currentProjectId !== 'number') return;
+  boardPickerKind = kind;
+  document.getElementById('board-asset-picker-title').textContent = kind === 'image' ? '이미지 고르기' : '영상 고르기';
+  const grid = document.getElementById('board-asset-picker-grid');
+  const empty = document.getElementById('board-asset-picker-empty');
+  grid.innerHTML = '';
+  empty.style.display = 'none';
+  document.getElementById('board-asset-picker-modal').style.display = 'flex';
+  let items = [];
+  try{
+    const res = await fetch(kind === 'image' ? '/api/output-images' : '/api/output-videos');
+    const data = await res.json();
+    items = ((kind === 'image' ? data.images : data.videos) || []).filter(it => it.project_id === currentProjectId);
+  }catch(e){ /* 아래에서 빈 상태로 처리 */ }
+  if(items.length === 0){
+    empty.style.display = 'block';
+    return;
+  }
+  grid.innerHTML = items.map(it => {
+    const name = it.name;
+    if(kind === 'image'){
+      const url = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(name)}/thumbnail?size=200&fit=cover`);
+      return `<button type="button" class="board-picker-item" data-pick="${escapeHtml(name)}"><img src="${url}" loading="lazy" alt=""></button>`;
+    }
+    const url = window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(name)}`);
+    return `<button type="button" class="board-picker-item" data-pick="${escapeHtml(name)}"><video muted preload="metadata" src="${url}#t=0.1"></video></button>`;
+  }).join('');
+}
+function closeBoardAssetPicker(){ document.getElementById('board-asset-picker-modal').style.display = 'none'; }
+document.getElementById('board-asset-picker-close').addEventListener('click', closeBoardAssetPicker);
+document.getElementById('board-asset-picker-modal').addEventListener('click', (e) => {
+  if(e.target === document.getElementById('board-asset-picker-modal')) closeBoardAssetPicker();
+});
+document.getElementById('board-asset-picker-grid').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-pick]');
+  if(!btn) return;
+  closeBoardAssetPicker();
+  createBoardNode(boardPickerKind, btn.dataset.pick, '');
+});
 
 // ---- 새 작업 폼의 대상(프로젝트/파드) ----
 // 파드 스코프 안에서는 파드가 정해져 있으니 프로젝트만, 프로젝트 스코프 안에서는 프로젝트가

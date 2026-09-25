@@ -68,6 +68,7 @@ import asset_meta
 import assets_index
 import share_sessions
 import video_edit
+import board_store
 import db
 import git_log
 import model_download
@@ -4066,6 +4067,83 @@ def delete_project_api(project_id: int, request: Request):
             if job.get("project_id") == project_id:
                 job["project_id"] = None
     save_state()
+    return {"ok": True}
+
+
+BOARD_NODE_KINDS = ("image", "video", "text")
+
+
+def _board_node_or_404(project_id: int, node_id: int) -> None:
+    """그 노드가 이 프로젝트 것인지 확인 — project_or_404가 이미 프로젝트 소유권을
+    확인했으므로, 여기서는 node_id가 그 project_id 밑에 실제로 있는지만 본다."""
+    if board_store.node_project_id(node_id) != project_id:
+        raise HTTPException(404, "없는 카드예요.")
+
+
+@app.get("/api/projects/{project_id}/board")
+def get_board_api(project_id: int, request: Request):
+    project_or_404(me(request), project_id)
+    return board_store.list_board(project_id)
+
+
+@app.post("/api/projects/{project_id}/board/nodes")
+async def create_board_node_api(project_id: int, request: Request):
+    user = me(request)
+    project_or_404(user, project_id)
+    body = await read_json_object(request, allow_empty=False)
+    kind = body.get("kind")
+    if kind not in BOARD_NODE_KINDS:
+        raise HTTPException(400, f"kind는 {'/'.join(BOARD_NODE_KINDS)} 중 하나여야 해요.")
+    asset_path = None
+    if kind in ("image", "video"):
+        asset_path = (body.get("asset_path") or "").strip()
+        if not asset_path:
+            raise HTTPException(400, "이미지/영상 카드는 asset_path가 필요해요.")
+        # 자기 소유의(관리자는 전부) 결과물만 카드로 놓을 수 있다 — 다른 회원의
+        # 파일 경로를 짐작해 끌어오지 못하게 한다. 꼭 "이" 프로젝트 소속일 필요는
+        # 없다(다른 프로젝트의 이미지를 참고 삼아 가져오는 것도 자연스러운 쓰임).
+        _sync_assets_quietly()
+        try:
+            asset_meta.get_detail(asset_path, owner_id=auth.owner_scope(user))
+        except asset_meta.AssetNotFound:
+            raise HTTPException(404, "결과물을 찾을 수 없어요.")
+    try:
+        x = float(body.get("x", 0))
+        y = float(body.get("y", 0))
+        width = float(body["width"]) if body.get("width") is not None else None
+        height = float(body["height"]) if body.get("height") is not None else None
+    except (TypeError, ValueError):
+        raise HTTPException(400, "x/y/width/height는 숫자여야 해요.")
+    text = str(body.get("text") or "")
+    return board_store.create_node(project_id, kind, asset_path, text, x, y, width, height)
+
+
+@app.patch("/api/projects/{project_id}/board/nodes/{node_id}")
+async def update_board_node_api(project_id: int, node_id: int, request: Request):
+    project_or_404(me(request), project_id)
+    _board_node_or_404(project_id, node_id)
+    body = await read_json_object(request, allow_empty=False)
+    fields = {}
+    try:
+        for key in ("x", "y", "width", "height"):
+            if key in body:
+                fields[key] = float(body[key])
+    except (TypeError, ValueError):
+        raise HTTPException(400, "x/y/width/height는 숫자여야 해요.")
+    if "text" in body:
+        fields["text"] = str(body["text"] or "")
+    node = board_store.update_node(node_id, fields)
+    if node is None:
+        raise HTTPException(404, "없는 카드예요.")
+    return node
+
+
+@app.delete("/api/projects/{project_id}/board/nodes/{node_id}")
+def delete_board_node_api(project_id: int, node_id: int, request: Request):
+    project_or_404(me(request), project_id)
+    _board_node_or_404(project_id, node_id)
+    if not board_store.delete_node(node_id):
+        raise HTTPException(404, "없는 카드예요.")
     return {"ok": True}
 
 
