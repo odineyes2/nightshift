@@ -3,9 +3,14 @@
 //   - 터미널을 계속 붙잡고 있지 않아도 서버가 백그라운드에서 계속 돈다
 //   - `npm run status` / `pm2 status`로 살아있는지 한눈에 확인
 //   - `npm run logs` / `pm2 logs nightshift`로 로그만 깔끔하게 tail
-//   - server/ 안의 파이썬 파일이나 templates/, static/ 안의 파일을 고치면
-//     uvicorn --reload가 감지해서 자동으로 다시 로드한다(코드 변경 시 서버를
-//     직접 껐다 켤 필요 없음)
+//   - uvicorn은 --reload 없이 뜬다 — server/ 안의 파이썬 파일을 고치면 직접
+//     재시작해야 반영된다. static/ 파일은 요청마다 디스크에서 읽으므로 재시작
+//     없이 바로 반영된다(그래서 서버 코드와 화면이 어긋난 채로 보일 수 있다).
+//   - 재시작은 필요한 앱만 골라서 한다. `npm run restart`는 아래 앱 전부
+//     (jupyter·opencut 포함)를 재시작한다:
+//       npx pm2 restart ecosystem.config.js --only nightshift --update-env
+//     이름만으로(`pm2 restart nightshift`) 재시작하면 이 파일을 다시 읽지 않아
+//     .env에서 바뀐 값이 전달되지 않는다.
 //
 // 서버 프로세스 자체는 여전히 uvicorn이 띄운다 — pm2는 그 프로세스를 감독만 한다
 // (죽으면 자동 재시작, 상태/로그 조회를 깔끔하게 제공).
@@ -90,16 +95,15 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       restart_delay: 2000,
-      // 파일 변경 감지는 uvicorn --reload가 이미 하므로 pm2 자체의 watch는 끈다
-      // (둘 다 켜두면 재시작이 중복으로 겹칠 수 있음).
+      // 파일 변경 감지(자동 재시작)는 하지 않는다 — uvicorn --reload도, pm2 watch도
+      // 꺼져 있다. 서버 코드를 고치면 맨 위 설명대로 직접 재시작한다.
       watch: false,
     },
     {
       // nightshift(app.py)의 REST API를 MCP 도구로 감싸는 별도 프로세스
       // (mcp_server.py) — app.py를 뜯어고치지 않고 그 위에 얹는 얇은 레이어라
-      // 별도 포트로 따로 띄운다. app.py처럼 uvicorn --reload가 있는 구조가
-      // 아니라서(fastmcp가 내부적으로 서버를 띄움), 코드 변경 감지는 여기서
-      // pm2 자체의 watch로 대신한다.
+      // 별도 포트로 따로 띄운다. fastmcp가 내부적으로 서버를 띄우는 구조라,
+      // 코드 변경 감지는 pm2 자체의 watch로 한다(app.py와 달리 자동 재시작됨).
       name: "nightshift-mcp",
       script: resolvePython3(),
       args: "mcp_server.py",
