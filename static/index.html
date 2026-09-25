@@ -669,6 +669,39 @@
     gap:24px;
   }
 
+  /* 프로젝트 보드 — 헤더/내비/프로젝트 바는 그대로 두고 그 아래 공간을 캔버스가
+     전부 쓴다(진짜 전체화면이 아니라 위 main의 가운데 정렬·좌우 여백만 벗겨냄).
+     세로 크기는 CSS만으로 "화면 나머지 전부"를 고정하기 어려워(body가 flex 셸이
+     아니라 그냥 문서 흐름) resizeBoardViewport()가 실측해서 맞춘다. */
+  main#tab-prboard{ max-width:none; margin:0; padding:0; display:block; gap:0; }
+  .board-toolbar{
+    display:flex; align-items:center; gap:8px;
+    padding:10px 16px;
+    border-bottom:1px solid var(--border);
+    background:var(--panel);
+  }
+  .board-zoom-label{
+    font-family:var(--mono); font-size:11.5px; color:var(--text-dim);
+    min-width:3.5em; text-align:center;
+  }
+  .board-viewport{
+    position:relative;
+    overflow:hidden;
+    background-color:var(--bg);
+    /* 점 격자 배경 — "무한 캔버스" 느낌. board-world와 같은 변환을 받도록(팬/줌에
+       맞춰) applyBoardTransform()이 background-position/-size를 같이 갱신한다. */
+    background-image:radial-gradient(circle, var(--border) 1px, transparent 1px);
+    background-size:24px 24px;
+    cursor:grab;
+    touch-action:none;
+  }
+  .board-viewport.panning{ cursor:grabbing; }
+  .board-world{
+    position:absolute; top:0; left:0;
+    transform-origin:0 0;
+    will-change:transform;
+  }
+
   .panel{
     background:var(--panel);
     border:1px solid var(--border);
@@ -2975,6 +3008,10 @@
   <symbol id="i-house" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
   <symbol id="i-images" viewBox="0 0 24 24"><path d="m22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16"/><path d="M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2"/><circle cx="13" cy="7" r="1" fill="currentColor"/><rect x="8" y="2" width="14" height="14" rx="2"/></symbol>
   <symbol id="i-layout-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+  <!-- 프로젝트 보드(무한 캔버스) 서브탭 아이콘 — 서로 이어진 노드 셋 -->
+  <symbol id="i-network" viewBox="0 0 24 24"><circle cx="5" cy="6" r="3"/><circle cx="19" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><line x1="7.5" y1="7.5" x2="10" y2="15.5"/><line x1="16.5" y1="7.5" x2="14" y2="15.5"/><line x1="8" y1="6" x2="16" y2="6"/></symbol>
+  <symbol id="i-zoom-in" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></symbol>
+  <symbol id="i-zoom-out" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/><line x1="8" y1="11" x2="14" y2="11"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></symbol>
   <symbol id="i-list-checks" viewBox="0 0 24 24"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/></symbol>
   <symbol id="i-loader-circle" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
@@ -3321,6 +3358,23 @@
     </div>
   </div>
   </div>
+
+<!-- 프로젝트 보드 — 무한 캔버스(팬/줌)에 이미지·영상·프롬프트를 늘어놓고 연결하며
+     브레인스토밍하는 공간(프로젝트 서브탭 전용, PROJECT_TABS 참고). 다른 탭과
+     달리 공용 main 레이아웃(가운데 정렬 + 좌우 여백)을 안 쓴다 — main#tab-prboard
+     CSS 오버라이드로 헤더·내비·프로젝트 바 아래 남는 공간을 전부 차지한다.
+     1단계(뼈대)는 팬/줌만 되는 빈 캔버스 — 노드/연결은 다음 단계. -->
+<main id="tab-prboard" style="display:none;">
+  <div class="board-toolbar">
+    <button class="icon-btn" id="board-zoom-out-btn" type="button" title="축소"><svg class="ico"><use href="#i-zoom-out"/></svg></button>
+    <span class="board-zoom-label" id="board-zoom-label">100%</span>
+    <button class="icon-btn" id="board-zoom-in-btn" type="button" title="확대"><svg class="ico"><use href="#i-zoom-in"/></svg></button>
+    <button class="icon-btn icon-btn-neutral" id="board-fit-btn" type="button" title="배율 되돌리기"><svg class="ico"><use href="#i-maximize"/></svg></button>
+  </div>
+  <div class="board-viewport" id="board-viewport">
+    <div class="board-world" id="board-world"></div>
+  </div>
+</main>
 
 <main id="tab-gallery" style="display:none;">
   <div class="panel">
@@ -9902,6 +9956,9 @@ const TAB_MAINS = {
   // "이 프로젝트 것만"을 가른다.
   prgallery: document.getElementById('tab-gallery'),
   prvideo: document.getElementById('tab-video-gallery'),
+  // 보드(무한 캔버스)는 프로젝트 전용 개념이라(전역/파드에는 없음) 공유 DOM이 아닌
+  // 자기만의 <main>을 쓴다.
+  prboard: document.getElementById('tab-prboard'),
   // Claude 글쓰기 파드의 결과는 이미지가 아니라 글이라 갤러리(썸네일 격자)로 못
   // 보여준다 — pgallery와 달리 이건 전용 DOM(#tab-results)과 전용 렌더러
   // (renderResultsList)를 쓰는 완전히 별개의 화면이다.
@@ -10105,6 +10162,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'results') renderResultsList();
   if(tab === 'admin') fetchAdminUsers();
   if(tab === 'db'){ renderDbPanelTabs(); fetchRunpodSessions(); fetchGitLog(); fetchGenerationLog(); }
+  if(tab === 'prboard'){ initBoardCanvas(); resizeBoardViewport(); }
 
   const want = scopedPodId ? `#pod/${scopedPodId}/${tab}`
     : (scopedProjectId !== null ? `#project/${scopedProjectId}/${tab}` : `#${tab}`);
@@ -10748,11 +10806,12 @@ const videoMetaPanel = createAssetMetaPanel(document.getElementById('video-galle
 // project_id가 없는 것은 "미분류"다. 홈이 프로젝트 대시보드이고, 프로젝트 안
 // (#project/{id}/...)에서는 그 프로젝트의 작업·갤러리·영상만 보인다. 파드는 새 작업 폼에서
 // 고르는 값이다(파드가 일시적이라 프로젝트가 파드에 종속되면 안 된다).
-const PROJECT_TABS = ['prgallery', 'prvideo', 'jobs'];
+const PROJECT_TABS = ['prgallery', 'prvideo', 'jobs', 'prboard'];
 const PROJECT_TAB_META = {
   jobs:      { icon: 'list-checks',  label: 'Jobs' },
   prgallery: { icon: 'images',       label: 'Gallery' },
   prvideo:   { icon: 'clapperboard', label: 'Videos' },
+  prboard:   { icon: 'network',      label: 'Board' },
 };
 const UNASSIGNED_LABEL = '미분류';
 let projectsCache = [];
@@ -10990,6 +11049,113 @@ document.getElementById('project-bar-select').addEventListener('change', (e) => 
   const raw = e.target.value;
   showTab(currentTab, { projectId: raw === 'unassigned' ? 'unassigned' : Number(raw) });
 });
+
+// ---- 프로젝트 보드 (무한 캔버스) ----
+// 1단계(뼈대): 팬/줌만 되는 빈 캔버스. 노드(이미지/영상/텍스트)·연결선은 다음
+// 단계에서 board-world 안에 절대 위치로 얹는다 — 그때도 이 팬/줌 변환(translate+
+// scale)은 그대로 쓰고, 노드 좌표는 "world 좌표"(변환 전 좌표)로 다뤄서 배율과
+// 무관하게 저장/복원되게 할 것이다.
+//
+// 마우스 휠/트랙패드로 줌, 빈 캔버스를 드래그하면 팬 — 둘 다 이 앱이 이미 쓰는
+// Pointer Events 관례(setupItemLongPressDelete 등)를 그대로 따른다. 점 배경은
+// board-world와 같은 변환을 받도록 팬/줌 때마다 background-position/-size를
+// 함께 갱신해서 "무한 캔버스"처럼 보이게 한다.
+const boardState = { x: 0, y: 0, scale: 1 };
+const BOARD_MIN_SCALE = 0.2, BOARD_MAX_SCALE = 3;
+const BOARD_GRID_PX = 24;
+let boardCanvasInitialized = false;
+
+function applyBoardTransform(){
+  const world = document.getElementById('board-world');
+  const viewport = document.getElementById('board-viewport');
+  if(!world || !viewport) return;
+  world.style.transform = `translate(${boardState.x}px, ${boardState.y}px) scale(${boardState.scale})`;
+  viewport.style.backgroundPosition = `${boardState.x}px ${boardState.y}px`;
+  const gridSize = BOARD_GRID_PX * boardState.scale;
+  viewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
+  document.getElementById('board-zoom-label').textContent = Math.round(boardState.scale * 100) + '%';
+}
+
+// 헤더/내비/프로젝트 바 높이는 화면 폭·모바일 줄바꿈에 따라 달라질 수 있어 CSS
+// 고정값 대신 실측한다 — 보드 탭에 들어올 때/창 크기가 바뀔 때 다시 잰다.
+function resizeBoardViewport(){
+  if(currentTab !== 'prboard') return;
+  const viewport = document.getElementById('board-viewport');
+  if(!viewport) return;
+  const top = viewport.getBoundingClientRect().top;
+  viewport.style.height = Math.max(200, window.innerHeight - top) + 'px';
+}
+window.addEventListener('resize', resizeBoardViewport);
+
+// (clientX, clientY) 화면 좌표 아래에 있던 월드 지점이 줌 전후로 같은 화면 위치를
+// 계속 가리키도록 translate를 보정 — "커서 아래를 기준으로 확대/축소"의 표준 공식.
+function boardZoomAt(clientX, clientY, factor){
+  const viewport = document.getElementById('board-viewport');
+  const rect = viewport.getBoundingClientRect();
+  const px = clientX - rect.left, py = clientY - rect.top;
+  const newScale = Math.min(BOARD_MAX_SCALE, Math.max(BOARD_MIN_SCALE, boardState.scale * factor));
+  if(newScale === boardState.scale) return;
+  boardState.x = px - (px - boardState.x) * (newScale / boardState.scale);
+  boardState.y = py - (py - boardState.y) * (newScale / boardState.scale);
+  boardState.scale = newScale;
+  applyBoardTransform();
+}
+
+function initBoardCanvas(){
+  if(boardCanvasInitialized) return;
+  boardCanvasInitialized = true;
+  const viewport = document.getElementById('board-viewport');
+
+  viewport.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    boardZoomAt(e.clientX, e.clientY, factor);
+  }, { passive: false });
+
+  // 빈 캔버스(노드가 아닌 배경)를 누르고 끌면 팬 — 다음 단계에서 .board-node
+  // 위의 pointerdown은 노드 드래그가 먼저 가로챌 것이므로 여기서는 배경만 본다.
+  let panPointerId = null;
+  viewport.addEventListener('pointerdown', (e) => {
+    if(e.pointerType === 'mouse' && e.button !== 0) return;
+    if(e.target.closest('.board-node')) return;
+    panPointerId = e.pointerId;
+    viewport.setPointerCapture(panPointerId);
+    viewport.classList.add('panning');
+    boardState.lastX = e.clientX;
+    boardState.lastY = e.clientY;
+  });
+  viewport.addEventListener('pointermove', (e) => {
+    if(e.pointerId !== panPointerId) return;
+    boardState.x += e.clientX - boardState.lastX;
+    boardState.y += e.clientY - boardState.lastY;
+    boardState.lastX = e.clientX;
+    boardState.lastY = e.clientY;
+    applyBoardTransform();
+  });
+  const endBoardPan = (e) => {
+    if(e.pointerId !== panPointerId) return;
+    panPointerId = null;
+    viewport.classList.remove('panning');
+  };
+  for(const type of ['pointerup', 'pointercancel', 'pointerleave']) viewport.addEventListener(type, endBoardPan);
+
+  document.getElementById('board-zoom-in-btn').addEventListener('click', () => {
+    const rect = viewport.getBoundingClientRect();
+    boardZoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, 1.25);
+  });
+  document.getElementById('board-zoom-out-btn').addEventListener('click', () => {
+    const rect = viewport.getBoundingClientRect();
+    boardZoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, 1 / 1.25);
+  });
+  // 2단계(노드)부터 "모든 노드가 보이게 맞추기"라는 진짜 의미가 생긴다 — 지금은
+  // 배율 1:1, 원점으로 되돌리는 것으로 충분하다.
+  document.getElementById('board-fit-btn').addEventListener('click', () => {
+    boardState.x = 0; boardState.y = 0; boardState.scale = 1;
+    applyBoardTransform();
+  });
+
+  applyBoardTransform();
+}
 
 // ---- 새 작업 폼의 대상(프로젝트/파드) ----
 // 파드 스코프 안에서는 파드가 정해져 있으니 프로젝트만, 프로젝트 스코프 안에서는 프로젝트가
