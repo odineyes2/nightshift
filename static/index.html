@@ -648,7 +648,7 @@
      좁아 글자가 한 자씩 세로로 쪼개지던 문제. 서브탭은 한 줄을 똑같은 폭으로 나눠 쓴다. */
   @media (max-width:640px){
     .pod-bar-back .btn-label, .pod-subtab-btn .btn-label, .lightbox-actions .btn-label, .gallery-toolbar .btn-label,
-    #pod-edit-modal .modal-footer .btn-label{ display:none; }
+    #pod-edit-modal .modal-footer .btn-label, .board-toolbar .btn-label{ display:none; }
     .pod-bar-back{ padding:7px 10px; }
     .pod-bar-subtabs{ flex:1 1 100%; margin-left:0; gap:6px; }
     .pod-subtab-btn{ flex:1; padding:9px 0; }
@@ -723,10 +723,15 @@
     padding:10px; font-family:var(--sans); font-size:13px; line-height:1.5;
     color:var(--text); background:none; cursor:text;
   }
-  /* 텍스트 카드는 본문이 전부 글 입력칸이라 잡을 곳이 없다 — 위쪽 띠를 손잡이로 둔다
-     (여기를 끌면 카드가 움직이고, 아래 글칸을 누르면 글을 쓴다). */
+  /* 텍스트 카드는 본문이 전부 글 입력칸이다. 글쓰기 중(.editing)이 아닐 때는 글칸이
+     포인터를 안 받아서 카드 어디를 잡아도 끌리고, 톡 누르면 글쓰기로 들어간다
+     (JS의 endBoardNodeDrag 참고). 글쓰기 중에는 글칸이 평소처럼 글자 선택·스크롤을 받고,
+     그동안 카드를 옮기려면 위쪽 띠(손잡이)를 잡는다. */
   .board-node-text{ display:flex; flex-direction:column; }
   .board-node-text .board-node-textarea{ flex:1; min-height:0; height:auto; }
+  .board-node-text:not(.editing) .board-node-textarea{ pointer-events:none; cursor:inherit; }
+  .board-node-text.editing{ cursor:default; }
+  .board-node-text.editing .board-node-textarea{ touch-action:pan-y; }
   .board-node-grip{
     flex:none; height:22px;
     border-bottom:1px solid var(--border);
@@ -762,6 +767,11 @@
   .board-node:hover .board-node-handle{ opacity:1; }
   .board-node-handle:hover{ transform:scale(1.25); }
   @media (hover:none){ .board-node-handle{ opacity:1; } }
+  /* 손가락으로 누르는 기기는 연결 점·손잡이를 더 크게 — 작은 점은 손끝에 가려 잘 안 잡힌다. */
+  @media (pointer:coarse){
+    .board-node-handle{ width:26px; height:26px; margin-top:-13px; right:2px; }
+    .board-node-grip{ height:30px; }
+  }
   .board-node.connect-target{ outline:2px solid var(--queued); outline-offset:2px; }
   .board-viewport.connecting, .board-viewport.connecting .board-node{ cursor:crosshair; }
 
@@ -3477,11 +3487,11 @@
     <button class="icon-btn" id="board-zoom-out-btn" type="button" title="축소"><svg class="ico"><use href="#i-zoom-out"/></svg></button>
     <span class="board-zoom-label" id="board-zoom-label">100%</span>
     <button class="icon-btn" id="board-zoom-in-btn" type="button" title="확대"><svg class="ico"><use href="#i-zoom-in"/></svg></button>
-    <button class="icon-btn icon-btn-neutral" id="board-fit-btn" type="button" title="배율 되돌리기"><svg class="ico"><use href="#i-maximize"/></svg></button>
+    <button class="icon-btn icon-btn-neutral" id="board-fit-btn" type="button" title="모든 카드가 보이게 맞추기"><svg class="ico"><use href="#i-maximize"/></svg></button>
     <span class="board-toolbar-sep"></span>
-    <button class="load-btn" id="board-add-image-btn" type="button" title="이 프로젝트의 이미지를 카드로 놓기"><svg class="ico"><use href="#i-images"/></svg> 이미지</button>
-    <button class="load-btn" id="board-add-video-btn" type="button" title="이 프로젝트의 영상을 카드로 놓기"><svg class="ico"><use href="#i-clapperboard"/></svg> 영상</button>
-    <button class="load-btn" id="board-add-text-btn" type="button" title="빈 텍스트 카드 놓기(메모·프롬프트)"><svg class="ico"><use href="#i-file-text"/></svg> 텍스트</button>
+    <button class="load-btn" id="board-add-image-btn" type="button" title="이 프로젝트의 이미지를 카드로 놓기" aria-label="이미지"><svg class="ico"><use href="#i-images"/></svg><span class="btn-label"> 이미지</span></button>
+    <button class="load-btn" id="board-add-video-btn" type="button" title="이 프로젝트의 영상을 카드로 놓기" aria-label="영상"><svg class="ico"><use href="#i-clapperboard"/></svg><span class="btn-label"> 영상</span></button>
+    <button class="load-btn" id="board-add-text-btn" type="button" title="빈 텍스트 카드 놓기(메모·프롬프트)" aria-label="텍스트"><svg class="ico"><use href="#i-file-text"/></svg><span class="btn-label"> 텍스트</span></button>
   </div>
   <div class="board-viewport" id="board-viewport">
     <div class="board-world" id="board-world"></div>
@@ -11242,9 +11252,17 @@ function initBoardCanvas(){
     boardZoomAt(e.clientX, e.clientY, factor);
   }, { passive: false });
 
-  // 빈 캔버스(노드가 아닌 배경)를 누르고 끌면 팬 — 다음 단계에서 .board-node
-  // 위의 pointerdown은 노드 드래그가 먼저 가로챌 것이므로 여기서는 배경만 본다.
-  let panPointerId = null;
+  // 빈 캔버스(카드가 아닌 배경)를 한 손가락/마우스로 끌면 팬, 두 손가락이면 핀치
+  // 줌(+두 손가락 가운데를 따라 팬). 카드 위의 pointerdown은 아래 카드 드래그가
+  // 맡으므로 여기서는 배경만 본다. 배경에 닿아 있는 포인터를 전부 기억해 두고,
+  // 두 개가 되면 두 점 사이 거리 변화로 배율을, 가운데 점 이동으로 위치를 바꾼다.
+  const bgPointers = new Map();   // pointerId -> { x, y }
+  let dragNode = null;   // 카드 드래그 상태 — 아래 카드 드래그 코드 참고
+  let pinch = null;               // { dist, midX, midY } — 직전 두 손가락 상태
+  const measurePinch = () => {
+    const [a, b] = [...bgPointers.values()];
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, midX: (a.x + b.x) / 2, midY: (a.y + b.y) / 2 };
+  };
   viewport.addEventListener('pointerdown', (e) => {
     if(e.pointerType === 'mouse' && e.button !== 0) return;
     if(e.target.closest('.board-node, .board-edge-del')) return;
@@ -11254,24 +11272,57 @@ function initBoardCanvas(){
     const hit = e.target.closest('.board-edge-hit');
     if(hit){ selectBoardEdge(Number(hit.dataset.edgeId)); return; }
     if(boardSelectedEdgeId !== null) selectBoardEdge(null);   // 빈 배경을 누르면 선택 해제
-    panPointerId = e.pointerId;
-    viewport.setPointerCapture(panPointerId);
-    viewport.classList.add('panning');
-    boardState.lastX = e.clientX;
-    boardState.lastY = e.clientY;
+    if(dragNode){ pinchFromNodeDrag(e); return; }   // 한 손가락은 카드를 잡고 있었다 → 핀치로
+    addBoardPanPointer(e);
   });
+  const addBoardPanPointer = (e) => {
+    if(bgPointers.size >= 2) return;   // 세 번째 손가락부터는 무시
+    bgPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    viewport.setPointerCapture(e.pointerId);
+    viewport.classList.add('panning');
+    pinch = bgPointers.size === 2 ? measurePinch() : null;
+  };
+  // 확대해 두면 카드가 화면을 거의 덮어서, 핀치하는 손가락이 카드 위에 닿기 쉽다.
+  // 카드를 잡은 손가락이 있는데 두 번째 손가락이 닿으면 카드 끌기를 취소하고(제자리로)
+  // 두 손가락 핀치로 바꾼다 — 사람은 "카드 두 손가락으로 끌기"가 아니라 "확대/축소"를
+  // 하려는 것이다.
+  const pinchFromNodeDrag = (e) => {
+    if(e.pointerType !== 'touch' || dragNode.pointerType !== 'touch') return;
+    const node = boardNodes.find(n => n.id === dragNode.id);
+    if(node){
+      node.x = dragNode.startX; node.y = dragNode.startY;
+      dragNode.el.style.left = node.x + 'px';
+      dragNode.el.style.top = node.y + 'px';
+      updateBoardEdgePaths(node.id);
+    }
+    dragNode.el.classList.remove('dragging');
+    bgPointers.set(dragNode.pointerId, { x: dragNode.lastX, y: dragNode.lastY });
+    dragNode = null;
+    addBoardPanPointer(e);
+  };
   viewport.addEventListener('pointermove', (e) => {
-    if(e.pointerId !== panPointerId) return;
-    boardState.x += e.clientX - boardState.lastX;
-    boardState.y += e.clientY - boardState.lastY;
-    boardState.lastX = e.clientX;
-    boardState.lastY = e.clientY;
+    const prev = bgPointers.get(e.pointerId);
+    if(!prev) return;
+    const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+    prev.x = e.clientX; prev.y = e.clientY;
+    if(bgPointers.size === 2 && pinch){
+      const now = measurePinch();
+      boardState.x += now.midX - pinch.midX;
+      boardState.y += now.midY - pinch.midY;
+      boardZoomAt(now.midX, now.midY, now.dist / pinch.dist);
+      applyBoardTransform();   // 배율이 한계라 boardZoomAt이 그냥 돌아와도 팬은 반영
+      pinch = now;
+      return;
+    }
+    boardState.x += dx;
+    boardState.y += dy;
     applyBoardTransform();
   });
   const endBoardPan = (e) => {
-    if(e.pointerId !== panPointerId) return;
-    panPointerId = null;
-    viewport.classList.remove('panning');
+    if(!bgPointers.delete(e.pointerId)) return;
+    // 두 손가락 중 하나를 떼면 남은 손가락으로 그대로 팬을 이어간다.
+    pinch = bgPointers.size === 2 ? measurePinch() : null;
+    if(bgPointers.size === 0) viewport.classList.remove('panning');
   };
   for(const type of ['pointerup', 'pointercancel', 'pointerleave']) viewport.addEventListener(type, endBoardPan);
 
@@ -11287,23 +11338,37 @@ function initBoardCanvas(){
 
   // 카드 드래그 — 배경 팬(위)과 같은 viewport에 델리게이트하지만, 팬 쪽
   // pointerdown이 이미 `.board-node` 위면 그냥 return하므로 서로 안 부딪힌다.
-  let dragNode = null;   // { id, el, startClientX, startClientY, startX, startY }
+  // 텍스트 카드도 글쓰기 중(.editing)이 아니면 글칸이 포인터를 안 받아서(CSS) 카드
+  // 어디를 잡아도 끌린다 — 모바일에서 위쪽 손잡이 띠만 노리기 어려웠다. 대신 끌지
+  // 않고 톡 누르면(손을 뗄 때) 글쓰기로 들어간다. 손가락이 살짝 떨리는 것까지
+  // 끌기로 치지 않게, 몇 px 이상 움직여야 그때부터 끌기로 본다.
+  const BOARD_DRAG_THRESHOLD_PX = 5;
+  // dragNode = { id, el, pointerId, pointerType, active, startClientX, startClientY, startX, startY, lastX, lastY }
   viewport.addEventListener('pointerdown', (e) => {
     const nodeEl = e.target.closest('.board-node');
     if(!nodeEl) return;
-    if(e.target.closest('.board-node-del, .board-node-handle, textarea')) return;   // 삭제 버튼/연결 점/글 입력은 드래그 시작 안 함
+    if(e.target.closest('.board-node-del, .board-node-handle, textarea')) return;   // 삭제 버튼/연결 점/글쓰기 중인 글칸은 드래그 시작 안 함
     if(e.pointerType === 'mouse' && e.button !== 0) return;
+    if(dragNode){ pinchFromNodeDrag(e); return; }   // 두 번째 손가락 → 핀치로
+    if(bgPointers.size === 1 && e.pointerType === 'touch'){ addBoardPanPointer(e); return; }   // 배경을 잡은 손가락이 있으면 핀치
     const id = Number(nodeEl.dataset.nodeId);
     const node = boardNodes.find(n => n.id === id);
     if(!node) return;
-    dragNode = { id, el: nodeEl, startClientX: e.clientX, startClientY: e.clientY, startX: node.x, startY: node.y };
+    dragNode = { id, el: nodeEl, pointerId: e.pointerId, pointerType: e.pointerType, active: false,
+                 startClientX: e.clientX, startClientY: e.clientY, startX: node.x, startY: node.y,
+                 lastX: e.clientX, lastY: e.clientY };
     nodeEl.setPointerCapture(e.pointerId);
-    nodeEl.classList.add('dragging');
   });
   viewport.addEventListener('pointermove', (e) => {
-    if(!dragNode) return;
+    if(!dragNode || e.pointerId !== dragNode.pointerId) return;
     const node = boardNodes.find(n => n.id === dragNode.id);
     if(!node) return;
+    dragNode.lastX = e.clientX; dragNode.lastY = e.clientY;
+    if(!dragNode.active){
+      if(Math.hypot(e.clientX - dragNode.startClientX, e.clientY - dragNode.startClientY) < BOARD_DRAG_THRESHOLD_PX) return;
+      dragNode.active = true;
+      dragNode.el.classList.add('dragging');
+    }
     // 화면 픽셀 이동량을 지금 배율로 나눠 월드 좌표 이동량으로 바꾼다 — 확대돼
     // 있을 때 마우스를 조금만 움직여도 카드가 그만큼(화면상) 정확히 따라오게.
     node.x = dragNode.startX + (e.clientX - dragNode.startClientX) / boardState.scale;
@@ -11313,12 +11378,22 @@ function initBoardCanvas(){
     updateBoardEdgePaths(node.id);   // 이 카드에 붙은 선만 따라 움직인다(전체를 다시 그리지 않음)
   });
   const endBoardNodeDrag = (e) => {
-    if(!dragNode) return;
+    if(!dragNode || e.pointerId !== dragNode.pointerId) return;
     const node = boardNodes.find(n => n.id === dragNode.id);
     dragNode.el.classList.remove('dragging');
     const moved = node && (node.x !== dragNode.startX || node.y !== dragNode.startY);
     const nodeId = dragNode.id;
+    const tappedEl = (e.type === 'pointerup' && !dragNode.active && node && node.kind === 'text') ? dragNode.el : null;
     dragNode = null;
+    // 끌지 않고 톡 누른 텍스트 카드 → 글쓰기. click이 아니라 여기서 한다 — 터치로
+    // 뭔가를 끈 직후엔 브라우저가 click을 안 만들어 주는 경우가 있어서다. 터치의
+    // pointerup은 사용자 동작으로 쳐 주므로 iOS에서도 여기서 준 포커스로 키보드가 뜬다.
+    if(tappedEl && !tappedEl.classList.contains('editing')){
+      tappedEl.classList.add('editing');
+      const ta = tappedEl.querySelector('.board-node-textarea');
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }
     // 드래그가 끝났을 때 딱 한 번만 저장한다(픽셀마다 안 쏨) — 실제로 옮겼을
     // 때만(제자리 클릭은 저장할 게 없음).
     if(moved && node) saveBoardNodePosition(nodeId, node.x, node.y);
@@ -11384,9 +11459,21 @@ function initBoardCanvas(){
     if(e.key === 'Delete' || e.key === 'Backspace'){ e.preventDefault(); deleteBoardEdge(boardSelectedEdgeId); }
     else if(e.key === 'Escape') selectBoardEdge(null);
   });
+  // 글은 쓰다가 잠깐 멈추면(디바운스) 저장하고, 글칸을 벗어날 때는 바로 저장한다 —
+  // 포커스를 안 뺀 채 새로고침/앱 전환해도 글이 날아가지 않게.
+  viewport.addEventListener('input', (e) => {
+    const textarea = e.target.closest('.board-node-textarea');
+    if(textarea) scheduleBoardTextSave(Number(textarea.dataset.boardText), textarea.value);
+  });
   viewport.addEventListener('focusout', (e) => {
     const textarea = e.target.closest('.board-node-textarea');
-    if(textarea) saveBoardNodeText(Number(textarea.dataset.boardText), textarea.value);
+    if(!textarea) return;
+    textarea.closest('.board-node').classList.remove('editing');
+    flushBoardTextSave(Number(textarea.dataset.boardText), textarea.value);
+  });
+  // 모바일은 앱을 전환하면 탭이 언제든 정리될 수 있다 — 화면이 가려지는 순간 쓰던 글을 보낸다.
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'hidden') flushAllBoardTextSaves(true);
   });
 
   document.getElementById('board-add-text-btn').addEventListener('click', () => createBoardNode('text', null, ''));
@@ -11403,28 +11490,38 @@ let boardSelectedEdgeId = null;    // 클릭해서 고른 선(끊기 대상)
 
 // 헤더/내비/프로젝트 바는 그대로 두고 main만 바뀌므로, showTab()이 prboard로 올
 // 때마다(다른 탭 갔다 오거나 프로젝트를 바꿔도) 그 프로젝트의 보드를 다시 받는다.
+let boardFetchSeq = 0;   // 프로젝트를 빠르게 바꿀 때 늦게 도착한 옛 응답을 버리는 용도
+
 async function fetchBoard(){
+  const seq = ++boardFetchSeq;
   const grid = document.getElementById('board-world');
+  boardSelectedEdgeId = null;
   if(typeof currentProjectId !== 'number'){
     // "미분류"는 진짜 프로젝트 행이 아니라 board_nodes.project_id(FK, NOT NULL)를
     // 붙일 곳이 없다 — 보드 개념 자체가 성립하지 않는다.
     boardNodes = [];
     boardEdges = [];
-    boardSelectedEdgeId = null;
     if(grid) grid.innerHTML = '<div class="empty board-empty-notice">보드는 프로젝트 안에서만 쓸 수 있어요 — "미분류"에는 없어요.</div>';
     return;
   }
+  // 아직 안 보낸 글이 있으면 먼저 보낸다 — 안 그러면 다시 그린 글칸에 옛 글이 뜬다.
+  await flushAllBoardTextSaves(false);
+  let data = null;
   try{
     const res = await fetch(`/api/projects/${currentProjectId}/board`);
-    if(!res.ok) return;
-    const data = await res.json();
-    boardNodes = data.nodes || [];
-    boardEdges = data.edges || [];
-  }catch(e){
+    if(res.ok) data = await res.json();
+  }catch(e){ /* 아래에서 실패로 처리 */ }
+  if(seq !== boardFetchSeq) return;
+  if(!data){
+    // 옛 카드를 그대로 두면 다른 프로젝트의 카드가 이 프로젝트 것처럼 보이고, 그걸
+    // 고치면 엉뚱한 주소로 저장을 시도하게 된다 — 비우고 알린다.
     boardNodes = [];
     boardEdges = [];
+    if(grid) grid.innerHTML = '<div class="empty board-empty-notice">보드를 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.</div>';
+    return;
   }
-  boardSelectedEdgeId = null;
+  boardNodes = data.nodes || [];
+  boardEdges = data.edges || [];
   renderBoard();
 }
 
@@ -11438,7 +11535,7 @@ function boardNodeHtml(node){
   }
   if(node.kind === 'video'){
     const url = window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(node.asset_path)}`);
-    return `<div class="board-node board-node-video" data-node-id="${node.id}" style="${style}"><video muted preload="metadata" src="${url}#t=0.1"></video>${delBtn}</div>`;
+    return `<div class="board-node board-node-video" data-node-id="${node.id}" style="${style}"><video muted preload="metadata" data-src="${url}#t=0.1"></video>${delBtn}</div>`;
   }
   return `<div class="board-node board-node-text" data-node-id="${node.id}" style="${style}">`
     + `<div class="board-node-grip" title="끌어서 옮기기"></div><textarea class="board-node-textarea" data-board-text="${node.id}" placeholder="메모나 프롬프트를 적으세요">${escapeHtml(node.text)}</textarea>${delBtn}</div>`;
@@ -11505,7 +11602,30 @@ function boardEdgeDelHtml(){
 function renderBoard(){
   const world = document.getElementById('board-world');
   if(!world) return;
+  if(boardMediaObserver) boardMediaObserver.disconnect();   // 통째로 갈아 끼우므로 옛 카드 감시는 버린다
   world.innerHTML = boardEdgesSvg() + boardNodes.map(boardNodeHtml).join('') + boardEdgeDelHtml();
+  boardObserveMedia(world);
+}
+
+// 영상 카드는 화면(과 그 둘레 조금) 안에 들어올 때 처음 src를 붙인다 — 보드에 영상이
+// 많아도 여는 순간 전부 내려받지 않게(특히 모바일 데이터). 이미지는 loading="lazy"가
+// 같은 일을 한다.
+let boardMediaObserver = null;
+function boardObserveMedia(root){
+  const videos = root.querySelectorAll('video[data-src]');
+  if(!videos.length) return;
+  const load = (v) => { v.src = v.dataset.src; v.removeAttribute('data-src'); };
+  if(!('IntersectionObserver' in window)){ videos.forEach(load); return; }
+  if(!boardMediaObserver){
+    boardMediaObserver = new IntersectionObserver((entries) => {
+      for(const entry of entries){
+        if(!entry.isIntersecting) continue;
+        boardMediaObserver.unobserve(entry.target);
+        load(entry.target);
+      }
+    }, { root: document.getElementById('board-viewport'), rootMargin: '300px' });
+  }
+  videos.forEach(v => boardMediaObserver.observe(v));
 }
 
 // 선을 잇거나 끊을 때는 선 층과 끊기 버튼만 갈아 끼운다(카드는 그대로).
@@ -11569,25 +11689,51 @@ function selectBoardEdge(edgeId){
   world.insertAdjacentHTML('beforeend', boardEdgeDelHtml());
 }
 
+// 보드 API 호출 — 실패(네트워크 끊김·서버 오류)면 null. 호출한 순간의 프로젝트 id를
+// 받아서 보낸다 — 응답을 기다리는 사이 프로젝트를 바꿔도 엉뚱한 보드에 저장되지 않게.
+async function boardApi(projectId, method, path, body, keepalive){
+  try{
+    const res = await fetch(`/api/projects/${projectId}/board${path}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      keepalive: !!keepalive,
+    });
+    return res.ok ? res : null;
+  }catch(e){
+    return null;
+  }
+}
+
+// 옮기기/지우기처럼 화면을 먼저 바꾸고 저장하는 변경이 실패하면 화면이 서버와
+// 달라진 것이다 — 조용히 넘기면 새로고침 때 되돌아가 "저장된 줄 알았는데" 가
+// 된다. 알리고, 서버에 실제로 저장된 상태로 다시 맞춘다(쓰던 글은 먼저 보낸다).
+async function boardSaveFailed(projectId){
+  flashNotice('보드 변경을 저장하지 못했어요. 저장된 상태로 다시 불러올게요.');
+  if(projectId !== currentProjectId || currentTab !== 'prboard') return;
+  await flushAllBoardTextSaves(false);
+  fetchBoard();
+}
+
 async function createBoardEdge(fromId, toId){
-  if(typeof currentProjectId !== 'number') return;
-  const res = await fetch(`/api/projects/${currentProjectId}/board/edges`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from_node_id: fromId, to_node_id: toId }),
-  }).catch(() => null);
-  if(!res || !res.ok) return;
+  const projectId = currentProjectId;
+  if(typeof projectId !== 'number') return;
+  const res = await boardApi(projectId, 'POST', '/edges', { from_node_id: fromId, to_node_id: toId });
+  if(!res){ flashNotice('카드를 잇지 못했어요. 잠시 뒤 다시 해 주세요.'); return; }
   const edge = await res.json();
+  if(projectId !== currentProjectId) return;
   // 같은 두 카드 사이에 이미 선이 있으면 서버가 그 선을 돌려준다 — 중복으로 넣지 않는다.
   if(!boardEdges.some(e => e.id === edge.id)) boardEdges.push(edge);
   renderBoardEdges();
 }
 
 async function deleteBoardEdge(edgeId){
-  if(typeof currentProjectId !== 'number') return;
+  const projectId = currentProjectId;
+  if(typeof projectId !== 'number') return;
   boardEdges = boardEdges.filter(e => e.id !== edgeId);
   if(boardSelectedEdgeId === edgeId) boardSelectedEdgeId = null;
   renderBoardEdges();
-  await fetch(`/api/projects/${currentProjectId}/board/edges/${edgeId}`, { method: 'DELETE' }).catch(() => {});
+  if(!await boardApi(projectId, 'DELETE', `/edges/${edgeId}`)) boardSaveFailed(projectId);
 }
 
 // 지금 화면 가운데(뷰포트 중심)가 가리키는 월드 좌표에 새 카드를 놓는다 — 팬/줌해
@@ -11602,43 +11748,84 @@ function boardViewportCenterWorld(){
 }
 
 async function createBoardNode(kind, assetPath, text){
-  if(typeof currentProjectId !== 'number') return;
+  const projectId = currentProjectId;
+  if(typeof projectId !== 'number') return;
   const width = 220, height = kind === 'text' ? 160 : 220;
   const center = boardViewportCenterWorld();
   const body = { kind, x: center.x - width / 2, y: center.y - height / 2, width, height, text: text || '' };
   if(kind === 'image' || kind === 'video') body.asset_path = assetPath;
-  const res = await fetch(`/api/projects/${currentProjectId}/board/nodes`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  });
-  if(!res.ok) return;
-  boardNodes.push(await res.json());
-  renderBoard();
+  const res = await boardApi(projectId, 'POST', '/nodes', body);
+  if(!res){ flashNotice('카드를 만들지 못했어요. 잠시 뒤 다시 해 주세요.'); return; }
+  const node = await res.json();
+  if(projectId !== currentProjectId) return;
+  boardNodes.push(node);
+  // 보드 전체를 다시 그리지 않고 새 카드만 붙인다 — 다시 그리면 영상 카드가 전부
+  // 다시 로드되며 깜빡인다.
+  const world = document.getElementById('board-world');
+  if(!document.getElementById('board-edges')){ renderBoard(); return; }
+  world.insertAdjacentHTML('beforeend', boardNodeHtml(node));
+  const edgeDel = document.getElementById('board-edge-del');
+  if(edgeDel) world.appendChild(edgeDel);   // 끊기 버튼은 늘 맨 위
+  boardObserveMedia(world);
 }
 
 async function saveBoardNodePosition(nodeId, x, y){
-  if(typeof currentProjectId !== 'number') return;
-  await fetch(`/api/projects/${currentProjectId}/board/nodes/${nodeId}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ x, y }),
-  }).catch(() => { /* 잠깐의 네트워크 문제로 위치 저장 하나 놓쳐도, 다음에 옮기면 그때 값으로 다시 저장됨 */ });
+  const projectId = currentProjectId;
+  if(typeof projectId !== 'number') return;
+  if(!await boardApi(projectId, 'PATCH', `/nodes/${nodeId}`, { x, y })) boardSaveFailed(projectId);
 }
 
-async function saveBoardNodeText(nodeId, text){
-  if(typeof currentProjectId !== 'number') return;
-  const node = boardNodes.find(n => n.id === nodeId);
-  if(node) node.text = text;
-  await fetch(`/api/projects/${currentProjectId}/board/nodes/${nodeId}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
-  }).catch(() => { /* 무시 — 다음 편집 때 다시 저장 시도됨 */ });
+// 텍스트 카드 저장 — 입력하다 멈추면 BOARD_TEXT_SAVE_DELAY_MS 뒤에, 글칸을 벗어나거나
+// 화면이 가려지면 바로 보낸다. 카드마다 대기 중인 저장을 하나씩만 둔다.
+const BOARD_TEXT_SAVE_DELAY_MS = 800;
+const boardTextPending = new Map();   // nodeId -> { projectId, text, timer }
+
+function scheduleBoardTextSave(nodeId, text){
+  const prev = boardTextPending.get(nodeId);
+  if(prev) clearTimeout(prev.timer);
+  boardTextPending.set(nodeId, {
+    projectId: currentProjectId, text,
+    timer: setTimeout(() => flushBoardTextSave(nodeId, text), BOARD_TEXT_SAVE_DELAY_MS),
+  });
+}
+
+function flushBoardTextSave(nodeId, text, keepalive){
+  const prev = boardTextPending.get(nodeId);
+  if(prev){ clearTimeout(prev.timer); boardTextPending.delete(nodeId); }
+  return saveBoardNodeText(prev ? prev.projectId : currentProjectId, nodeId, text, keepalive);
+}
+
+function flushAllBoardTextSaves(keepalive){
+  return Promise.all([...boardTextPending.entries()].map(([nodeId, p]) => flushBoardTextSave(nodeId, p.text, keepalive)));
+}
+
+async function saveBoardNodeText(projectId, nodeId, text, keepalive){
+  if(typeof projectId !== 'number') return;
+  const node = projectId === currentProjectId ? boardNodes.find(n => n.id === nodeId) : null;
+  if(node && node.text === text) return;   // 서버에 이미 있는 글이면 안 보낸다
+  if(await boardApi(projectId, 'PATCH', `/nodes/${nodeId}`, { text }, keepalive)){
+    if(node) node.text = text;
+    return;
+  }
+  // 글은 글칸에 그대로 남긴다(다시 불러오면 쓴 글이 사라지므로 여기선 안 맞춘다).
+  // node.text를 안 바꿔 뒀으니 다음에 입력하거나 글칸을 벗어나면 다시 보낸다.
+  flashNotice('메모를 저장하지 못했어요. 글은 화면에 남아 있으니 연결을 확인한 뒤 다른 곳을 눌러 다시 저장해 주세요.');
 }
 
 async function deleteBoardNode(nodeId){
-  if(typeof currentProjectId !== 'number') return;
+  const projectId = currentProjectId;
+  if(typeof projectId !== 'number') return;
+  const pending = boardTextPending.get(nodeId);
+  if(pending){ clearTimeout(pending.timer); boardTextPending.delete(nodeId); }
   boardNodes = boardNodes.filter(n => n.id !== nodeId);
+  const el = document.querySelector(`#board-world .board-node[data-node-id="${nodeId}"]`);
+  if(el) el.remove();
   // 서버는 이 카드에 붙은 선을 CASCADE로 같이 지운다 — 화면도 똑같이 맞춘다.
+  const edgeCount = boardEdges.length;
   boardEdges = boardEdges.filter(e => e.from_node_id !== nodeId && e.to_node_id !== nodeId);
   if(boardSelectedEdgeId !== null && !boardEdges.some(e => e.id === boardSelectedEdgeId)) boardSelectedEdgeId = null;
-  renderBoard();
-  await fetch(`/api/projects/${currentProjectId}/board/nodes/${nodeId}`, { method: 'DELETE' }).catch(() => {});
+  if(boardEdges.length !== edgeCount) renderBoardEdges();
+  if(!await boardApi(projectId, 'DELETE', `/nodes/${nodeId}`)) boardSaveFailed(projectId);
 }
 
 // 모든 카드가 화면 안에 들어오도록 배율/이동을 맞춘다. 카드가 하나도 없으면
