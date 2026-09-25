@@ -35,13 +35,13 @@ def list_board(project_id: int) -> dict:
 
 
 def create_node(project_id: int, kind: str, asset_path: str | None, text: str,
-                x: float, y: float, width: float | None, height: float | None) -> dict:
+                x: float, y: float, width: float | None, height: float | None, job_id: str | None = None) -> dict:
     now = db.now_iso()
     with db.connect() as conn:
         cur = conn.execute(
-            "INSERT INTO board_nodes(project_id, kind, asset_path, text, x, y, width, height, z_index, "
-            "created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-            (project_id, kind, asset_path, text, x, y,
+            "INSERT INTO board_nodes(project_id, kind, asset_path, job_id, text, x, y, width, height, z_index, "
+            "created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (project_id, kind, asset_path, job_id, text, x, y,
              width if width is not None else 220, height if height is not None else 220,
              0, now, now),
         )
@@ -166,17 +166,17 @@ def restore(project_id: int, nodes: list, edges: list) -> dict:
             old = n.get("id")
             free = isinstance(old, int) and conn.execute(
                 "SELECT 1 FROM board_nodes WHERE id=?", (old,)).fetchone() is None
-            cols = (project_id, n["kind"], n.get("asset_path"), n.get("text") or "", n["x"], n["y"],
+            cols = (project_id, n["kind"], n.get("asset_path"), n.get("job_id"), n.get("text") or "", n["x"], n["y"],
                     n["width"], n["height"], n.get("z_index") or 0, n.get("created_at") or now, now)
             if free:
                 conn.execute(
-                    "INSERT INTO board_nodes(id, project_id, kind, asset_path, text, x, y, width, height, "
-                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (old, *cols))
+                    "INSERT INTO board_nodes(id, project_id, kind, asset_path, job_id, text, x, y, width, height, "
+                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (old, *cols))
                 new = old
             else:
                 new = conn.execute(
-                    "INSERT INTO board_nodes(project_id, kind, asset_path, text, x, y, width, height, "
-                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", cols).lastrowid
+                    "INSERT INTO board_nodes(project_id, kind, asset_path, job_id, text, x, y, width, height, "
+                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", cols).lastrowid
             if old is not None:
                 id_map[old] = new
             node_ids.append(new)
@@ -207,3 +207,29 @@ def restore(project_id: int, nodes: list, edges: list) -> dict:
         out_nodes = [_row(_select_node(conn, i)) for i in node_ids]
         out_edges = [_row(conn.execute("SELECT * FROM board_edges WHERE id=?", (i,)).fetchone()) for i in edge_ids]
     return {"nodes": out_nodes, "edges": out_edges, "id_map": {str(k): v for k, v in id_map.items()}}
+
+
+def job_nodes(project_id: int) -> list:
+    """이 프로젝트 보드의 작업 카드들 — [(node_id, job_id 또는 None), ...]."""
+    with db.connect() as conn:
+        rows = conn.execute("SELECT id, job_id FROM board_nodes WHERE project_id=? AND kind='job' ORDER BY id",
+                            (project_id,)).fetchall()
+    return [(r["id"], r["job_id"]) for r in rows]
+
+
+def job_results(job_ids, per_job: int = 4) -> dict:
+    """작업마다 가장 최근 결과물 몇 개 — {job_id: [{path, kind, nsfw}, ...]}. 작업 카드의 미리보기용.
+    지운(휴지통) 결과물은 뺀다."""
+    ids = [j for j in set(job_ids) if j]
+    if not ids:
+        return {}
+    out = {j: [] for j in ids}
+    with db.connect() as conn:
+        rows = conn.execute(
+            f"SELECT job_id, path, kind, nsfw FROM assets WHERE deleted_at IS NULL AND job_id IN "
+            f"({','.join('?' * len(ids))}) ORDER BY created_at DESC, id DESC", ids).fetchall()
+    for r in rows:
+        lst = out[r["job_id"]]
+        if len(lst) < per_job:
+            lst.append({"path": r["path"], "kind": r["kind"], "nsfw": r["nsfw"]})
+    return out

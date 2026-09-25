@@ -271,9 +271,41 @@ CREATE TABLE board_edges (
 CREATE INDEX board_edges_project ON board_edges(project_id)
 """
 
+# v11: 보드에 작업(Job) 카드 — kind에 'job'을 더하고, 가리키는 작업을 job_id로 든다.
+# 작업이 지워져도 카드는 남기고 job_id만 비운다(SET NULL — 화면은 "지워진 작업"으로 보여 준다).
+# SQLite는 CHECK를 ALTER로 못 바꾸므로 표를 새로 만들어 옮긴다. board_edges가 board_nodes를
+# ON DELETE CASCADE로 물고 있어서, 외래 키 검사를 켠 채로 옛 표를 DROP하면 선이 전부 같이
+# 지워진다 — 그래서 이 버전은 외래 키 검사를 끄고 돌린다(FK_OFF_MIGRATIONS, init() 참고).
+# 새 표의 이름을 board_nodes로 바꾸면 board_edges의 REFERENCES board_nodes가 그대로 새 표를 가리킨다.
+SCHEMA_V11 = """
+CREATE TABLE board_nodes_v11 (
+  id         INTEGER PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL CHECK (kind IN ('image','video','text','job')),
+  asset_path TEXT,
+  job_id     TEXT REFERENCES jobs(id) ON DELETE SET NULL,
+  text       TEXT NOT NULL DEFAULT '',
+  x          REAL NOT NULL DEFAULT 0,
+  y          REAL NOT NULL DEFAULT 0,
+  width      REAL NOT NULL DEFAULT 220,
+  height     REAL NOT NULL DEFAULT 220,
+  z_index    INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO board_nodes_v11(id, project_id, kind, asset_path, text, x, y, width, height, z_index, created_at, updated_at)
+  SELECT id, project_id, kind, asset_path, text, x, y, width, height, z_index, created_at, updated_at FROM board_nodes;
+DROP TABLE board_nodes;
+ALTER TABLE board_nodes_v11 RENAME TO board_nodes;
+CREATE INDEX board_nodes_project ON board_nodes(project_id)
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
-              (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10)]
+              (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11)]
+# 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
+# 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
+FK_OFF_MIGRATIONS = {11}
 
 
 def now_iso() -> str:
@@ -302,15 +334,27 @@ def init() -> None:
             for target, sql in MIGRATIONS:
                 if version >= target:
                     continue
+                fk_off = target in FK_OFF_MIGRATIONS
+                if fk_off:
+                    conn.execute("PRAGMA foreign_keys=OFF")   # 트랜잭션 밖에서만 바뀐다
                 conn.execute("BEGIN")
                 try:
                     for statement in _split_statements(sql):
                         conn.execute(statement)
+                    if fk_off:
+                        # 옮긴 표만 본다 — DB 전체를 보면 이 버전과 상관없는 옛 흔적 때문에 서버가 못 뜰 수 있다.
+                        broken = (conn.execute("PRAGMA foreign_key_check(board_nodes)").fetchall()
+                                  + conn.execute("PRAGMA foreign_key_check(board_edges)").fetchall())
+                        if broken:
+                            raise RuntimeError(f"v{target} 마이그레이션 뒤 외래 키가 깨졌다: {[tuple(r) for r in broken[:5]]}")
                     conn.execute(f"PRAGMA user_version={target}")
                     conn.execute("COMMIT")
                 except Exception:
                     conn.execute("ROLLBACK")
                     raise
+                finally:
+                    if fk_off:
+                        conn.execute("PRAGMA foreign_keys=ON")
                 version = target
         finally:
             conn.close()

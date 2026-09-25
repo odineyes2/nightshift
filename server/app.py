@@ -4070,7 +4070,8 @@ def delete_project_api(project_id: int, request: Request):
     return {"ok": True}
 
 
-BOARD_NODE_KINDS = ("image", "video", "text")
+BOARD_NODE_KINDS = ("image", "video", "text", "job")
+BOARD_ACTIVE_JOB_STATUSES = ("pending", "queued", "running")   # 화면이 작업 카드를 계속 새로 받는 상태
 
 
 def _board_node_or_404(project_id: int, node_id: int) -> None:
@@ -4095,6 +4096,12 @@ async def create_board_node_api(project_id: int, request: Request):
     if kind not in BOARD_NODE_KINDS:
         raise HTTPException(400, f"kind는 {'/'.join(BOARD_NODE_KINDS)} 중 하나여야 해요.")
     asset_path = _board_asset_path_or_error(user, kind, body.get("asset_path"))
+    job_id = None
+    if kind == "job":
+        job_id = str(body.get("job_id") or "").strip()
+        if not job_id:
+            raise HTTPException(400, "작업 카드는 job_id가 필요해요.")
+        job_or_404(user, job_id)   # 자기(admin은 전부) 작업만 — 남의 작업 id를 짐작해 끌어오지 못하게
     try:
         x = float(body.get("x", 0))
         y = float(body.get("y", 0))
@@ -4103,7 +4110,7 @@ async def create_board_node_api(project_id: int, request: Request):
     except (TypeError, ValueError):
         raise HTTPException(400, "x/y/width/height는 숫자여야 해요.")
     text = str(body.get("text") or "")
-    return board_store.create_node(project_id, kind, asset_path, text, x, y, width, height)
+    return board_store.create_node(project_id, kind, asset_path, text, x, y, width, height, job_id=job_id)
 
 
 def _board_asset_path_or_error(user, kind: str, raw) -> str | None:
@@ -4219,6 +4226,7 @@ async def restore_board_api(project_id: int, request: Request):
                 "id": int(n["id"]) if n.get("id") is not None else None,
                 "kind": kind,
                 "asset_path": _board_asset_path_or_error(user, kind, n.get("asset_path")),
+                "job_id": _board_restore_job_id(user, kind, n.get("job_id")),
                 "text": str(n.get("text") or ""),
                 "x": float(n["x"]), "y": float(n["y"]),
                 "width": float(n.get("width") or 220), "height": float(n.get("height") or 220),
@@ -4234,6 +4242,55 @@ async def restore_board_api(project_id: int, request: Request):
         return board_store.restore(project_id, nodes, edges)
     except board_store.BoardNotFound:
         raise HTTPException(404, "선의 양 끝 카드가 이 보드에 없어요.")
+
+
+def _board_restore_job_id(user, kind: str, raw) -> str | None:
+    """되살릴 작업 카드의 job_id. 그 사이 작업이 아예 사라졌으면 카드는 "지워진 작업"으로
+    살린다(None). 남아 있는데 남의 작업이면 404 — 되살리기 요청에 남의 작업을 끼워 넣지 못하게."""
+    if kind != "job" or not raw:
+        return None
+    job_id = str(raw)
+    with lock:
+        exists = job_id in jobs
+    if not exists:
+        return None
+    job_or_404(user, job_id)
+    return job_id
+
+
+@app.get("/api/projects/{project_id}/board/jobs")
+def board_jobs_api(project_id: int, request: Request):
+    """보드의 작업 카드마다 지금 상태 — `{"cards": {node_id: {...}}}`. 화면이 작업 카드를 그릴 때와,
+    대기·실행 중인 작업이 있는 동안 몇 초마다 부른다. 카드마다 status/template_label/prompt/progress/
+    시각/파드와 최근 결과물 4개(results: [{path, kind, nsfw}])를 준다. 작업이 지워졌거나(휴지통 포함)
+    볼 수 없으면 missing=true."""
+    user = me(request)
+    project_or_404(user, project_id)
+    cards = board_store.job_nodes(project_id)
+    if cards:
+        _sync_assets_quietly()   # 방금 끝난 작업의 결과물이 색인에 올라오게(자체적으로 간격을 둔다)
+    results = board_store.job_results(job_id for _, job_id in cards)
+    out = {}
+    with lock:
+        for node_id, job_id in cards:
+            job = jobs.get(job_id) if job_id else None
+            if job is None or job.get("deleted") or not auth.can_access(user, job.get("owner_id")):
+                out[node_id] = {"job_id": job_id, "missing": True}
+                continue
+            prompt = (job.get("options") or {}).get("main_prompt") or ""
+            out[node_id] = {
+                "job_id": job_id, "missing": False,
+                "status": job.get("status"),
+                "active": job.get("status") in BOARD_ACTIVE_JOB_STATUSES,
+                "template_label": job.get("template_label") or job.get("template_id"),
+                "prompt": str(prompt)[:300],
+                "progress": job.get("progress"),
+                "queued_at": job.get("queued_at"), "started_at": job.get("started_at"),
+                "finished_at": job.get("finished_at"),
+                "pod_name": job.get("pod_name"),
+                "results": results.get(job_id, []),
+            }
+    return {"cards": out}
 
 
 @app.post("/api/projects/{project_id}/board/edges")

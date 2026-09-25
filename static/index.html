@@ -847,6 +847,44 @@
   .board-nsfw-cover .ico{ width:28px; height:28px; }
   .board-picker-item{ position:relative; }
 
+  /* 작업(Job) 카드 — 안쪽은 전부 표시용이라 포인터를 안 받는다(카드 어디를 잡아도 끌리고,
+     톡 누르면 상세 창). 상태 배지는 작업 목록의 .badge를 그대로 쓴다. */
+  .board-job-body{
+    position:absolute; inset:0; padding:10px 12px;
+    display:flex; flex-direction:column; gap:7px;
+    pointer-events:none; overflow:hidden;
+  }
+  .board-job-head{ display:flex; align-items:center; gap:8px; min-width:0; }
+  .board-job-label{ font-size:12.5px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .board-job-prompt{
+    font-size:12px; line-height:1.45; color:var(--text-dim);
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .board-job-dim{ font-style:italic; opacity:.7; }
+  .board-job-progress{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+  .board-job-bar{ flex:1; height:5px; border-radius:3px; background:var(--border); overflow:hidden; }
+  .board-job-bar > div{ height:100%; background:var(--running); }
+  .board-job-thumbs{ display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; margin-top:auto; }
+  .board-job-thumb{
+    aspect-ratio:1; border-radius:5px; overflow:hidden; background:var(--bg);
+    display:flex; align-items:center; justify-content:center; color:var(--text-dim);
+  }
+  .board-job-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .board-job-thumb.nsfw{ background:rgba(20,20,24,0.88); color:rgba(255,255,255,0.75); }
+  .board-job-thumb .ico{ width:16px; height:16px; }
+  .board-job-note{ margin:auto; display:flex; flex-direction:column; align-items:center; gap:6px; font-size:12px; color:var(--text-dim); }
+  .board-job-note .ico{ width:20px; height:20px; }
+  /* 작업 고르기 창 — 격자 대신 한 줄씩 */
+  .board-asset-picker-grid.jobs{ grid-template-columns:1fr; gap:6px; }
+  .board-picker-job{
+    display:flex; align-items:center; gap:10px; width:100%; padding:9px 12px; text-align:left;
+    border:1px solid var(--border); border-radius:8px; background:var(--panel); color:var(--text); cursor:pointer;
+  }
+  .board-picker-job:hover{ border-color:var(--queued); }
+  .board-picker-job-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; font-size:12.5px; }
+  .board-picker-job-text span{ color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+  .board-picker-job-when{ font-family:var(--mono); font-size:11px; color:var(--text-dim); white-space:nowrap; }
+
   /* 보드에 놓을 이미지/영상을 고르는 모달의 그리드 — 필터 없이 이 프로젝트 것만. */
   .board-asset-picker-grid{
     display:grid;
@@ -3539,7 +3577,8 @@
     <span class="board-toolbar-sep"></span>
     <button class="load-btn" id="board-add-image-btn" type="button" title="이 프로젝트의 이미지를 카드로 놓기" aria-label="이미지"><svg class="ico"><use href="#i-images"/></svg><span class="btn-label"> 이미지</span></button>
     <button class="load-btn" id="board-add-video-btn" type="button" title="이 프로젝트의 영상을 카드로 놓기" aria-label="영상"><svg class="ico"><use href="#i-clapperboard"/></svg><span class="btn-label"> 영상</span></button>
-    <button class="load-btn" id="board-add-text-btn" type="button" title="빈 텍스트 카드 놓기(메모·프롬프트)" aria-label="텍스트"><svg class="ico"><use href="#i-file-text"/></svg><span class="btn-label"> 텍스트</span></button>
+        <button class="load-btn" id="board-add-job-btn" type="button" title="이 프로젝트의 작업을 카드로 놓기 — 진행 상황과 결과가 카드에 보여요" aria-label="작업"><svg class="ico"><use href="#i-list-checks"/></svg><span class="btn-label"> 작업</span></button>
+<button class="load-btn" id="board-add-text-btn" type="button" title="빈 텍스트 카드 놓기(메모·프롬프트)" aria-label="텍스트"><svg class="ico"><use href="#i-file-text"/></svg><span class="btn-label"> 텍스트</span></button>
     <span class="board-toolbar-sep"></span>
     <button class="icon-btn icon-btn-neutral" id="board-undo-btn" type="button" title="되돌리기 (Ctrl+Z)" aria-label="되돌리기" disabled><svg class="ico"><use href="#i-undo-2"/></svg></button>
     <button class="icon-btn icon-btn-neutral" id="board-redo-btn" type="button" title="다시 하기 (Ctrl+Shift+Z)" aria-label="다시 하기" disabled><svg class="ico"><use href="#i-redo-2"/></svg></button>
@@ -11542,6 +11581,7 @@ function initBoardCanvas(){
     if(e.type === 'pointerup' && !d.active && !d.additive){
       // 끌지 않고 톡 누름 — 여러 장 골라 둔 상태였으면 이 카드만 남긴다.
       if(boardSelectedIds.size > 1) setBoardSelection(new Set([d.id]));
+      if(d.el.classList.contains('board-node-job')) openBoardJobDetail(d.id);   // 작업 카드 → 상세 창
       // 텍스트 카드 본문이면 글쓰기로(위쪽 손잡이 띠는 고르기만 — 글쓰기로 안 들어가야
       // 텍스트 카드도 골라서 Delete로 지울 수 있다). click이 아니라 여기서 한다 — 터치로
       // 뭔가를 끈 직후엔 브라우저가 click을 안 만들어 주는 경우가 있어서다. 터치의
@@ -11681,6 +11721,7 @@ function initBoardCanvas(){
   document.getElementById('board-add-text-btn').addEventListener('click', () => createBoardNode('text', null, ''));
   document.getElementById('board-add-image-btn').addEventListener('click', () => openBoardAssetPicker('image'));
   document.getElementById('board-add-video-btn').addEventListener('click', () => openBoardAssetPicker('video'));
+  document.getElementById('board-add-job-btn').addEventListener('click', () => openBoardAssetPicker('job'));
 
   applyBoardTransform();
 }
@@ -11747,13 +11788,92 @@ async function fetchBoard(){
   }
   boardNodes = data.nodes || [];
   boardEdges = data.edges || [];
+  boardJobInfo.clear();
   renderBoard();
+  fetchBoardJobs();
+}
+
+// ---- 프로젝트 보드 — 작업(Job) 카드 ----
+// 카드는 작업 id만 들고 있고, 상태·진행률·최근 결과물은 GET .../board/jobs로 따로 받는다
+// (boardJobInfo: 카드 id -> 그 응답). 대기·실행 중인 작업이 하나라도 있으면 그동안만
+// BOARD_JOB_POLL_MS마다 다시 받고, 다 끝나면 멈춘다. 보드 탭을 떠나도 멈춘다.
+const BOARD_JOB_POLL_MS = 4000;
+const boardJobInfo = new Map();
+let boardJobTimer = null;
+let boardJobSeq = 0;
+
+function boardJobBodyHtml(info){
+  if(!info) return '<div class="board-job-note">불러오는 중…</div>';
+  if(info.missing) return `<div class="board-job-note">${ico('trash-2')}<span>지워진 작업이에요</span></div>`;
+  const head = `<div class="board-job-head"><span class="badge ${escapeHtml(info.status || '')}"><span class="bdot"></span>`
+    + `${STATUS_LABEL[info.status] || escapeHtml(info.status || '')}</span>`
+    + `<span class="board-job-label">${escapeHtml(info.template_label || '')}</span></div>`;
+  const promptText = escapeHtml(info.prompt || '') || '<span class="board-job-dim">프롬프트 없음</span>';
+  const prompt = `<div class="board-job-prompt">${promptText}</div>`;
+  const pr = info.progress;
+  const progress = pr && pr.total
+    ? `<div class="board-job-progress"><div class="board-job-bar"><div style="width:${Math.min(100, Math.round(pr.done / pr.total * 100))}%"></div></div>`
+      + `<span>${pr.done}/${pr.total}</span></div>`
+    : '';
+  // 결과 미리보기 — NSFW 설정은 갤러리/카드와 같게: 안 보기는 빼고, 블러는 가림막만.
+  const results = (info.results || []).filter(r => !(r.nsfw && nsfwMode === 'hide'));
+  const thumbs = results.map(r => {
+    if(r.nsfw && nsfwMode === 'blur') return `<div class="board-job-thumb nsfw">${ico('eye-off')}</div>`;
+    if(r.kind === 'video') return `<div class="board-job-thumb video">${ico('clapperboard')}</div>`;
+    const url = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(r.path)}/thumbnail?size=120&fit=cover`);
+    return `<div class="board-job-thumb"><img src="${url}" loading="lazy" alt=""></div>`;
+  }).join('');
+  return head + prompt + progress + (thumbs ? `<div class="board-job-thumbs">${thumbs}</div>` : '');
+}
+
+// 받은 정보로 작업 카드 안쪽만 고친다 — 바뀐 게 없으면 손대지 않아 썸네일이 깜빡이지 않는다.
+function paintBoardJobCards(){
+  for(const el of document.querySelectorAll('#board-world .board-node-job')){
+    const body = el.querySelector('.board-job-body');
+    const html = boardJobBodyHtml(boardJobInfo.get(Number(el.dataset.nodeId)));
+    if(body && body._html !== html){ body.innerHTML = html; body._html = html; }
+  }
+}
+
+async function fetchBoardJobs(){
+  clearTimeout(boardJobTimer);
+  boardJobTimer = null;
+  const projectId = currentProjectId;
+  if(typeof projectId !== 'number' || currentTab !== 'prboard') return;
+  if(!boardNodes.some(n => n.kind === 'job')) return;
+  const seq = ++boardJobSeq;
+  let data = null;
+  try{
+    const res = await fetch(`/api/projects/${projectId}/board/jobs`);
+    if(res.ok) data = await res.json();
+  }catch(e){ /* 잠깐의 네트워크 문제 — 아래에서 다음 차례에 다시 받는다 */ }
+  if(seq !== boardJobSeq || projectId !== currentProjectId || currentTab !== 'prboard') return;
+  if(data){
+    for(const [id, info] of Object.entries(data.cards || {})) boardJobInfo.set(Number(id), info);
+    paintBoardJobCards();
+  }
+  const anyActive = !data || [...boardJobInfo.values()].some(info => info.active);
+  if(anyActive) boardJobTimer = setTimeout(fetchBoardJobs, BOARD_JOB_POLL_MS);
+}
+
+// 작업 카드를 톡 누르면 작업 목록 화면과 같은 상세 창을 연다. 그 창은 화면이 받아 둔 작업
+// 목록(lastJobs)에서 작업을 찾으므로, 보드에서 열 때는 목록을 한 번 새로 받는다.
+async function openBoardJobDetail(nodeId){
+  const info = boardJobInfo.get(nodeId);
+  if(!info || info.missing || !info.job_id){ flashNotice('지워진 작업이라 열 수 없어요.'); return; }
+  await fetchJobs();
+  if(!lastJobs.some(j => j.id === info.job_id)){ flashNotice('작업을 찾을 수 없어요.'); return; }
+  openJobDetailModal(info.job_id);
 }
 
 function boardNodeHtml(node){
   const style = `left:${node.x}px; top:${node.y}px; width:${node.width}px; height:${node.height}px;`;
   const delBtn = `<button type="button" class="board-node-del" data-board-del="${node.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg></button>`
     + `<span class="board-node-handle" title="끌어서 다른 카드와 잇기"></span>`;
+  if(node.kind === 'job'){
+    return `<div class="board-node board-node-job" data-node-id="${node.id}" style="${style}" title="눌러서 작업 자세히 보기">`
+      + `<div class="board-job-body">${boardJobBodyHtml(boardJobInfo.get(node.id))}</div>${delBtn}</div>`;
+  }
   if((node.kind === 'image' || node.kind === 'video') && node.nsfw && nsfwMode !== 'show'){
     const hidden = nsfwMode === 'hide';
     const title = hidden ? 'NSFW 안 보기 중이라 가렸어요' : 'NSFW 블러 중이라 가렸어요';
@@ -12026,10 +12146,11 @@ function boardViewportCenterWorld(){
 async function createBoardNode(kind, assetPath, text){
   const projectId = currentProjectId;
   if(typeof projectId !== 'number') return;
-  const width = 220, height = kind === 'text' ? 160 : 220;
+  const width = kind === 'job' ? 260 : 220, height = kind === 'text' ? 160 : 220;
   const center = boardViewportCenterWorld();
   const body = { kind, x: center.x - width / 2, y: center.y - height / 2, width, height, text: text || '' };
   if(kind === 'image' || kind === 'video') body.asset_path = assetPath;
+  if(kind === 'job') body.job_id = assetPath;   // 고르기 창은 작업 id를 같은 자리로 넘긴다
   const res = await boardApi(projectId, 'POST', '/nodes', body);
   if(!res){ flashNotice('카드를 만들지 못했어요. 잠시 뒤 다시 해 주세요.'); return; }
   const node = await res.json();
@@ -12038,6 +12159,7 @@ async function createBoardNode(kind, assetPath, text){
   appendBoardNodeEls([node]);
   setBoardSelection(new Set([node.id]));
   pushBoardHistory({ type: 'create', node: { ...node } });
+  if(kind === 'job') fetchBoardJobs();
 }
 
 // 끌기를 마친 카드들의 위치를 요청 하나로 저장한다 — positions = [{ id, x, y }, ...].
@@ -12203,6 +12325,7 @@ async function restoreBoardItems(projectId, entry, nodes, edges){
   const restoredNodes = data.nodes.filter(nd => !boardNodes.some(b => b.id === nd.id));
   boardNodes.push(...restoredNodes);
   appendBoardNodeEls(restoredNodes);
+  if(restoredNodes.some(n => n.kind === 'job')) fetchBoardJobs();
   for(const e of data.edges) if(!boardEdges.some(b => b.id === e.id)) boardEdges.push(e);
   if(data.edges.length) renderBoardEdges();
   return true;
@@ -12278,17 +12401,21 @@ function boardFitToNodes(){
 }
 
 // ---- 프로젝트 보드 — 이미지/영상 카드를 놓을 때 "이 프로젝트 결과물 중 고르기" ----
-let boardPickerKind = null;   // 'image' | 'video'
+let boardPickerKind = null;   // 'image' | 'video' | 'job'
 
 async function openBoardAssetPicker(kind){
   if(typeof currentProjectId !== 'number') return;
   boardPickerKind = kind;
-  document.getElementById('board-asset-picker-title').textContent = kind === 'image' ? '이미지 고르기' : '영상 고르기';
+  document.getElementById('board-asset-picker-title').textContent =
+    kind === 'image' ? '이미지 고르기' : kind === 'video' ? '영상 고르기' : '작업 고르기';
   const grid = document.getElementById('board-asset-picker-grid');
   const empty = document.getElementById('board-asset-picker-empty');
   grid.innerHTML = '';
+  grid.classList.toggle('jobs', kind === 'job');
+  empty.textContent = kind === 'job' ? '이 프로젝트에 작업이 없어요' : '이 프로젝트에 결과물이 없어요';
   empty.style.display = 'none';
   document.getElementById('board-asset-picker-modal').style.display = 'flex';
+  if(kind === 'job'){ fillBoardJobPicker(grid, empty); return; }
   let items = [];
   try{
     const res = await fetch(kind === 'image' ? '/api/output-images' : '/api/output-videos');
@@ -12313,6 +12440,26 @@ async function openBoardAssetPicker(kind){
     }
     const url = window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(name)}`);
     return `<button type="button" class="board-picker-item" data-pick="${escapeHtml(name)}"><video muted preload="metadata" src="${url}#t=0.1"></video></button>`;
+  }).join('');
+}
+// 작업 고르기 — 이 프로젝트의 작업을 최근 것부터 한 줄씩(상태·템플릿·프롬프트 앞부분·등록 시각).
+async function fillBoardJobPicker(grid, empty){
+  const projectId = currentProjectId;
+  let items = [];
+  try{
+    const res = await fetch(`/api/jobs?project_id=${projectId}`);
+    if(res.ok) items = (await res.json()).jobs || [];
+  }catch(e){ /* 아래에서 빈 상태로 처리 */ }
+  if(projectId !== currentProjectId || boardPickerKind !== 'job') return;
+  if(items.length === 0){ empty.style.display = 'block'; return; }
+  grid.innerHTML = items.map(j => {
+    const prompt = (j.options && j.options.main_prompt) || '';
+    const when = j.queued_at ? new Date(j.queued_at).toLocaleString() : '';
+    return `<button type="button" class="board-picker-job" data-pick="${escapeHtml(j.id)}">`
+      + `<span class="badge ${escapeHtml(j.status)}"><span class="bdot"></span>${STATUS_LABEL[j.status] || escapeHtml(j.status)}</span>`
+      + `<span class="board-picker-job-text"><b>${escapeHtml(j.template_label || j.template_id || '')}</b>`
+      + `<span>${escapeHtml(prompt.slice(0, 120)) || '&nbsp;'}</span></span>`
+      + `<span class="board-picker-job-when">${escapeHtml(when)}</span></button>`;
   }).join('');
 }
 function closeBoardAssetPicker(){ document.getElementById('board-asset-picker-modal').style.display = 'none'; }
