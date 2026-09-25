@@ -326,9 +326,32 @@ ALTER TABLE board_nodes_v12 RENAME TO board_nodes;
 CREATE INDEX board_nodes_project ON board_nodes(project_id)
 """
 
+# v13: 보드 생성 카드의 프리셋 — "이 템플릿 + 이 워크플로우 + 고정 값 + 카드에 꺼낼 옵션"을 회원별로
+# 저장한다(어느 프로젝트 보드에서나 꺼내 씀). 새 작업 폼의 "보드 프리셋으로 저장"이 만든다.
+# 워크플로우는 사본으로 둔다 — 최근 워크플로우는 보관 개수를 넘으면 지워져서 거기 기대면 프리셋이
+# 깨진다. 회원을 지우면 그 회원의 프리셋도 지운다(개인 설정일 뿐이고, 보드에 이미 놓은 생성
+# 카드는 프리셋 내용을 자기 안에 복사해 두므로 영향이 없다).
+SCHEMA_V13 = """
+CREATE TABLE board_presets (
+  id                  INTEGER PRIMARY KEY,
+  owner_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name                TEXT NOT NULL,
+  template_id         TEXT NOT NULL,
+  workflow_json       TEXT,
+  video_workflow_json TEXT,
+  options_json        TEXT NOT NULL DEFAULT '{}',
+  exposed_json        TEXT NOT NULL DEFAULT '[]',
+  lora_trigger        TEXT NOT NULL DEFAULT '',
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL
+);
+CREATE INDEX board_presets_owner ON board_presets(owner_id, name)
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
-              (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12)]
+              (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
+              (13, SCHEMA_V13)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}

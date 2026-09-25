@@ -68,6 +68,7 @@ import asset_meta
 import assets_index
 import share_sessions
 import video_edit
+import board_presets
 import board_store
 import db
 import git_log
@@ -4079,6 +4080,112 @@ def _board_node_or_404(project_id: int, node_id: int) -> None:
     확인했으므로, 여기서는 node_id가 그 project_id 밑에 실제로 있는지만 본다."""
     if board_store.node_project_id(node_id) != project_id:
         raise HTTPException(404, "없는 카드예요.")
+
+
+# ---- 보드 생성 카드의 프리셋(회원별) ----
+# 새 작업 폼에서 평소처럼 설정한 뒤 "보드 프리셋으로 저장"으로 만든다. 보드의 생성 카드는 이걸 꺼내
+# 입력 이미지 칸(입구)을 선으로 채우고, 꺼내 둔 옵션만 고쳐 실행한다.
+BOARD_PRESET_EXPOSABLE = ("textarea", "number", "number_optional", "select")   # 카드에서 바로 고칠 수 있는 옵션 타입
+BOARD_PRESET_SLOT_TYPES = ("input_image", "input_image_optional")               # 보드에서 선으로 채우는 입구
+BOARD_PRESET_MAX_WORKFLOW_BYTES = 5 * 1024 * 1024
+BOARD_PRESET_MAX_EXPOSED = 12
+
+
+def _board_preset_payload(body: dict) -> dict:
+    """프리셋 저장 요청을 템플릿 기준으로 검증해 저장할 값으로 만든다(새로 만들기·통째로 다시 저장 공용)."""
+    name = str(body.get("name") or "").strip()
+    if not name or len(name) > 60:
+        raise HTTPException(400, "프리셋 이름은 1~60자로 적어 주세요.")
+    template = resolve_template(body.get("template_id"))
+    if template.get("requires_csv"):
+        raise HTTPException(400, "CSV로 여러 줄을 도는 템플릿은 보드 프리셋으로 쓸 수 없어요.")
+    workflow = body.get("workflow")
+    if template.get("requires_workflow", True):
+        if not isinstance(workflow, dict):
+            raise HTTPException(400, "이 템플릿은 워크플로우(JSON 객체)가 필요해요.")
+    elif workflow is not None and not isinstance(workflow, dict):
+        raise HTTPException(400, "workflow는 JSON 객체여야 해요.")
+    video_workflow = body.get("video_workflow") if template.get("optional_video_workflow") else None
+    if video_workflow is not None and not isinstance(video_workflow, dict):
+        raise HTTPException(400, "video_workflow는 JSON 객체여야 해요.")
+    for wf in (workflow, video_workflow):
+        if wf is not None and len(json.dumps(wf)) > BOARD_PRESET_MAX_WORKFLOW_BYTES:
+            raise HTTPException(400, "워크플로우가 너무 커요.")
+    template_opts = {o["name"]: o for o in template.get("options", [])}
+    raw_options = body.get("options") or {}
+    if not isinstance(raw_options, dict):
+        raise HTTPException(400, "options는 JSON 객체여야 해요.")
+    # 템플릿에 있는 옵션만, 입구(입력 이미지 칸)는 빼고 — 입구는 보드에서 선으로 채운다.
+    options = {k: str(v) for k, v in raw_options.items()
+               if k in template_opts and template_opts[k].get("type") not in BOARD_PRESET_SLOT_TYPES and v is not None}
+    raw_exposed = body.get("exposed") or []
+    if not isinstance(raw_exposed, list):
+        raise HTTPException(400, "exposed는 옵션 이름 목록이어야 해요.")
+    exposed = []
+    for name_ in raw_exposed:
+        opt = template_opts.get(name_)
+        if opt is None or opt.get("type") not in BOARD_PRESET_EXPOSABLE:
+            raise HTTPException(400, f"카드에 꺼낼 수 없는 옵션이에요: {name_}")
+        if name_ not in exposed:
+            exposed.append(name_)
+    if len(exposed) > BOARD_PRESET_MAX_EXPOSED:
+        raise HTTPException(400, f"카드에 꺼낼 옵션은 {BOARD_PRESET_MAX_EXPOSED}개까지예요.")
+    lora_trigger = str(body.get("lora_trigger") or "").strip()
+    if len(lora_trigger) > 200:
+        raise HTTPException(400, "LoRA 트리거가 너무 길어요.")
+    return {"name": name, "template_id": template["id"], "workflow": workflow, "video_workflow": video_workflow,
+            "options": options, "exposed": exposed, "lora_trigger": lora_trigger}
+
+
+def _board_preset_with_label(preset: dict) -> dict:
+    template = load_templates_map().get(preset["template_id"]) or {}
+    return {**preset, "template_label": template.get("label") or preset["template_id"],
+            "template_missing": not template}
+
+
+@app.get("/api/board-presets")
+def list_board_presets_api(request: Request):
+    return {"presets": [_board_preset_with_label(p) for p in board_presets.list_presets(me(request)["id"])]}
+
+
+@app.get("/api/board-presets/{preset_id}")
+def get_board_preset_api(preset_id: int, request: Request):
+    preset = board_presets.get_preset(me(request)["id"], preset_id)
+    if preset is None:
+        raise HTTPException(404, "없는 프리셋이에요.")
+    return _board_preset_with_label(preset)
+
+
+@app.post("/api/board-presets")
+async def create_board_preset_api(request: Request):
+    user = me(request)
+    body = await read_json_object(request, allow_empty=False)
+    return _board_preset_with_label(board_presets.create_preset(user["id"], _board_preset_payload(body)))
+
+
+@app.patch("/api/board-presets/{preset_id}")
+async def update_board_preset_api(preset_id: int, request: Request):
+    """이름만 주면 이름 바꾸기, template_id까지 주면 내용 전체를 다시 저장(같은 이름으로 덮어쓰기)."""
+    user = me(request)
+    body = await read_json_object(request, allow_empty=False)
+    if set(body) <= {"name"}:
+        name = str(body.get("name") or "").strip()
+        if not name or len(name) > 60:
+            raise HTTPException(400, "프리셋 이름은 1~60자로 적어 주세요.")
+        fields = {"name": name}
+    else:
+        fields = _board_preset_payload(body)
+    preset = board_presets.update_preset(user["id"], preset_id, fields)
+    if preset is None:
+        raise HTTPException(404, "없는 프리셋이에요.")
+    return _board_preset_with_label(preset)
+
+
+@app.delete("/api/board-presets/{preset_id}")
+def delete_board_preset_api(preset_id: int, request: Request):
+    if not board_presets.delete_preset(me(request)["id"], preset_id):
+        raise HTTPException(404, "없는 프리셋이에요.")
+    return {"ok": True}
 
 
 @app.get("/api/projects/{project_id}/board")
