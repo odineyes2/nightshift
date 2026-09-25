@@ -802,6 +802,18 @@
   .board-edge-del .ico{ width:13px; height:13px; }
   .board-edge-del:hover{ background:rgba(var(--failed-rgb),0.12); }
 
+  /* NSFW 카드 — 갤러리와 같은 설정(nsfwMode)을 따른다. 블러/안 보기일 때는 썸네일·영상을
+     아예 받지 않고 가림막만 그린다(갤러리 블러와 같은 모양). 안 보기라도 카드 자체는 남긴다 —
+     카드를 빼면 거기 붙은 선이 허공으로 이어지고, 그 자리에 다른 카드를 겹쳐 놓게 된다. */
+  .board-nsfw-cover{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+    background:rgba(20,20,24,0.88); color:rgba(255,255,255,0.75);
+    font-size:12px; pointer-events:none;
+  }
+  .board-nsfw-cover .ico{ width:28px; height:28px; }
+  .board-picker-item{ position:relative; }
+
   /* 보드에 놓을 이미지/영상을 고르는 모달의 그리드 — 필터 없이 이 프로젝트 것만. */
   .board-asset-picker-grid{
     display:grid;
@@ -8896,6 +8908,7 @@ function applyNsfwMode(mode, persist){
   if(typeof fetchGalleryImages === 'function') fetchGalleryImages();
   if(typeof fetchGalleryVideos === 'function') fetchGalleryVideos();
   if(typeof renderHome === 'function') renderHome();
+  if(currentTab === 'prboard' && typeof renderBoard === 'function') renderBoard();
 }
 
 nsfwToggleBtn.addEventListener('click', () => {
@@ -11529,6 +11542,12 @@ function boardNodeHtml(node){
   const style = `left:${node.x}px; top:${node.y}px; width:${node.width}px; height:${node.height}px;`;
   const delBtn = `<button type="button" class="board-node-del" data-board-del="${node.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg></button>`
     + `<span class="board-node-handle" title="끌어서 다른 카드와 잇기"></span>`;
+  if((node.kind === 'image' || node.kind === 'video') && node.nsfw && nsfwMode !== 'show'){
+    const hidden = nsfwMode === 'hide';
+    const title = hidden ? 'NSFW 안 보기 중이라 가렸어요' : 'NSFW 블러 중이라 가렸어요';
+    return `<div class="board-node board-node-${node.kind} board-node-nsfw" data-node-id="${node.id}" style="${style}" title="${title} — 헤더의 NSFW 버튼으로 바꿀 수 있어요">`
+      + `<div class="board-nsfw-cover">${ico(hidden ? 'ban' : 'eye-off')}<span>NSFW</span></div>${delBtn}</div>`;
+  }
   if(node.kind === 'image'){
     const url = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(node.asset_path)}/thumbnail?size=400&fit=cover`);
     return `<div class="board-node board-node-image" data-node-id="${node.id}" style="${style}"><img src="${url}" loading="lazy" alt="">${delBtn}</div>`;
@@ -11868,6 +11887,7 @@ async function openBoardAssetPicker(kind){
     const res = await fetch(kind === 'image' ? '/api/output-images' : '/api/output-videos');
     const data = await res.json();
     items = ((kind === 'image' ? data.images : data.videos) || []).filter(it => it.project_id === currentProjectId);
+    if(isNsfwHidden()) items = items.filter(it => !it.nsfw);   // 갤러리 "안 보기"와 같게 목록에서 뺀다
   }catch(e){ /* 아래에서 빈 상태로 처리 */ }
   if(items.length === 0){
     empty.style.display = 'block';
@@ -11875,6 +11895,11 @@ async function openBoardAssetPicker(kind){
   }
   grid.innerHTML = items.map(it => {
     const name = it.name;
+    if(it.nsfw && nsfwMode === 'blur'){
+      // 갤러리 블러처럼 미리보기를 받지 않고 가린 채 고를 수 있게 둔다.
+      return `<button type="button" class="board-picker-item" data-pick="${escapeHtml(name)}" title="NSFW 블러">`
+        + `<div class="board-nsfw-cover">${ico('eye-off')}</div></button>`;
+    }
     if(kind === 'image'){
       const url = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(name)}/thumbnail?size=200&fit=cover`);
       return `<button type="button" class="board-picker-item" data-pick="${escapeHtml(name)}"><img src="${url}" loading="lazy" alt=""></button>`;

@@ -13,11 +13,22 @@ def _row(r) -> dict:
     return dict(r)
 
 
+# 카드를 돌려줄 때 그 결과물의 nsfw 표시를 붙인다 — 프론트가 갤러리와 같은 NSFW
+# 보기/블러/안 보기 설정을 카드에도 적용하려면 필요하다. asset_path는 assets.path와
+# 같은 값이라 그대로 잇는다(텍스트 카드나 파일이 지워진 카드는 0).
+_NODE_SELECT = ("SELECT n.*, COALESCE(a.nsfw, 0) AS nsfw FROM board_nodes n "
+                "LEFT JOIN assets a ON a.path = n.asset_path")
+
+
+def _select_node(conn, node_id: int):
+    return conn.execute(f"{_NODE_SELECT} WHERE n.id=?", (node_id,)).fetchone()
+
+
 def list_board(project_id: int) -> dict:
     """이 프로젝트의 노드+연결선 전체(GET .../board)."""
     with db.connect() as conn:
         nodes = conn.execute(
-            "SELECT * FROM board_nodes WHERE project_id=? ORDER BY id", (project_id,)).fetchall()
+            f"{_NODE_SELECT} WHERE n.project_id=? ORDER BY n.id", (project_id,)).fetchall()
         edges = conn.execute(
             "SELECT * FROM board_edges WHERE project_id=? ORDER BY id", (project_id,)).fetchall()
     return {"nodes": [_row(r) for r in nodes], "edges": [_row(r) for r in edges]}
@@ -34,8 +45,7 @@ def create_node(project_id: int, kind: str, asset_path: str | None, text: str,
              width if width is not None else 220, height if height is not None else 220,
              0, now, now),
         )
-        node_id = cur.lastrowid
-        row = conn.execute("SELECT * FROM board_nodes WHERE id=?", (node_id,)).fetchone()
+        row = _select_node(conn, cur.lastrowid)
     return _row(row)
 
 
@@ -55,7 +65,7 @@ def update_node(node_id: int, fields: dict) -> dict | None:
             params.append(fields[key])
     if not sets:
         with db.connect() as conn:
-            row = conn.execute("SELECT * FROM board_nodes WHERE id=?", (node_id,)).fetchone()
+            row = _select_node(conn, node_id)
         return _row(row) if row else None
     sets.append("updated_at=?")
     params.append(db.now_iso())
@@ -63,7 +73,7 @@ def update_node(node_id: int, fields: dict) -> dict | None:
         cur = conn.execute(f"UPDATE board_nodes SET {', '.join(sets)} WHERE id=?", (*params, node_id))
         if cur.rowcount == 0:
             return None
-        row = conn.execute("SELECT * FROM board_nodes WHERE id=?", (node_id,)).fetchone()
+        row = _select_node(conn, node_id)
     return _row(row)
 
 
