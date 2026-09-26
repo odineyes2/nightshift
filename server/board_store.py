@@ -137,16 +137,24 @@ def slot_edges(project_id: int, node_id: int) -> list:
     return [(r["from_node_id"], r["to_slot"]) for r in rows]
 
 
-def gen_last_runs(project_id: int) -> list:
-    """이 보드의 생성 카드마다 마지막 실행 작업 — [(카드 id, job_id, 실행 횟수), ...]. 실행한 적 없는 카드는 뺀다."""
+def gen_runs(project_id: int) -> list:
+    """이 보드의 생성 카드마다 실행 기록 — [(카드 id, runs), ...]. 실행한 적 없는 카드는 뺀다."""
     with db.connect() as conn:
         rows = conn.execute("SELECT id, data_json FROM board_nodes WHERE project_id=? AND kind='gen'", (project_id,)).fetchall()
     out = []
     for r in rows:
         runs = (json.loads(r["data_json"]) if r["data_json"] else {}).get("runs") or []
         if runs:
-            out.append((r["id"], runs[-1].get("job_id"), len(runs)))
+            out.append((r["id"], runs))
     return out
+
+
+def job_assets(job_id: str, limit: int = 60) -> list:
+    """작업의 결과물 전부(오래된 것부터) — [{path, kind}, ...]. 생성 카드의 결과 펼치기용. 지운 것은 뺀다."""
+    with db.connect() as conn:
+        rows = conn.execute("SELECT path, kind FROM assets WHERE job_id=? AND deleted_at IS NULL "
+                            "ORDER BY created_at, id LIMIT ?", (job_id, limit)).fetchall()
+    return [{"path": r["path"], "kind": r["kind"]} for r in rows]
 
 
 def create_edge(project_id: int, from_node_id: int, to_node_id: int) -> dict:

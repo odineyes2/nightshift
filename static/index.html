@@ -12214,8 +12214,11 @@ async function fetchBoardJobs(){
   if(data){
     for(const [id, info] of Object.entries(data.cards || {})) boardJobInfo.set(Number(id), info);
     paintBoardJobCards();
+    // 생성 카드에 아직 안 펼친 결과가 있으면 보드에 펼친다(자동).
+    for(const [id, info] of Object.entries(data.cards || {})) if(info.pending_spread > 0) spreadBoardGen(Number(id));
   }
-  const anyActive = !data || [...boardJobInfo.values()].some(info => info.active);
+  // 대기·실행 중이거나, 막 끝나 결과가 늦게 넘어올 수 있거나, 펼칠 결과가 남은 동안은 계속 지켜본다.
+  const anyActive = !data || [...boardJobInfo.values()].some(info => info.active || info.settling || info.pending_spread > 0);
   if(anyActive) boardJobTimer = setTimeout(fetchBoardJobs, BOARD_JOB_POLL_MS);
 }
 
@@ -12278,8 +12281,9 @@ function boardGenStatusHtml(info, node){
   // 대기 사유는 길 수 있어 맨 뒤에 두고 말줄임(전체 문구는 마우스를 올리면) — 실행 횟수가 잘리지 않게.
   const waiting = info.status === 'queued' && info.waiting_reason
     ? `<span class="board-gen-reason" title="${escapeHtml(info.waiting_reason)}">${escapeHtml(info.waiting_reason)}</span>` : '';
+  const spread = ((node && node.data && node.data.runs) || []).reduce((n, r) => n + ((r.spread || []).length), 0);
   return `<span class="badge ${escapeHtml(info.status || '')}"><span class="bdot"></span>${STATUS_LABEL[info.status] || escapeHtml(info.status || '')}</span>`
-    + progress + `<span>${info.run_count || runs}회</span>` + waiting;
+    + progress + `<span>${info.run_count || runs}회${spread ? ` · 결과 ${spread}` : ''}</span>` + waiting;
 }
 
 // 입구 줄 — 이어진 이미지가 있으면 작은 미리보기(NSFW 설정 따름)와 "연결됨", 없으면 "비어 있음".
@@ -12340,6 +12344,34 @@ async function runBoardGen(nodeId){
   paintBoardGenSlots();
   flashNotice('실행했어요 — 필요한 모델을 갖춘 파드가 잡히면 시작해요.');
   fetchBoardJobs();
+}
+
+// 결과 펼치기 — 서버가 아직 안 펼친 결과를 이미지/영상 카드로 만들어 생성 카드 오른쪽에 놓고 선으로
+// 잇는다(두 번 펼치지 않게 서버가 기록). 자동으로 하는 일이라 되돌리기 기록에는 남기지 않는다 —
+// 펼친 카드는 평소처럼 지울 수 있고, 지워도 다시 생기지 않는다.
+const boardSpreading = new Set();
+async function spreadBoardGen(nodeId){
+  const projectId = currentProjectId;
+  if(typeof projectId !== 'number' || boardSpreading.has(nodeId)) return;
+  boardSpreading.add(nodeId);
+  try{
+    const res = await boardApi(projectId, 'POST', `/nodes/${nodeId}/spread`);
+    if(!res || projectId !== currentProjectId) return;
+    const data = await res.json();
+    const fresh = (data.nodes || []).filter(n => !boardNodes.some(b => b.id === n.id));
+    boardNodes.push(...fresh);
+    appendBoardNodeEls(fresh);
+    for(const e of data.edges || []) if(!boardEdges.some(b => b.id === e.id)) boardEdges.push(e);
+    const node = boardNodes.find(n => n.id === nodeId);
+    if(node && data.node) node.data = data.node.data;
+    if(fresh.length){
+      renderBoardEdges();
+      paintBoardJobCards();
+      flashNotice(`생성 결과 ${fresh.length}개를 보드에 펼쳤어요.`);
+    }
+  }finally{
+    boardSpreading.delete(nodeId);
+  }
 }
 
 // 자세히 — 이 카드 값(입구 이미지 포함)으로 새 작업 창을 채워 연다. 복잡한 설정은 그 창에서.

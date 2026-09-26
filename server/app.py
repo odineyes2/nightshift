@@ -4461,12 +4461,14 @@ def board_jobs_api(project_id: int, request: Request):
     user = me(request)
     project_or_404(user, project_id)
     cards = board_store.job_nodes(project_id)
-    # 생성 카드는 마지막 실행 작업을 같은 모양으로 보여 준다(run_count는 실행 횟수).
-    gen_runs = board_store.gen_last_runs(project_id)
-    run_counts = {node_id: n for node_id, _, n in gen_runs}
-    cards = cards + [(node_id, job_id) for node_id, job_id, _ in gen_runs]
+    # 생성 카드는 마지막 실행 작업을 같은 모양으로 보여 준다(run_count는 실행 횟수). 아직 보드에 안 펼친
+    # 결과 수(pending_spread)도 같이 줘서, 화면이 있으면 펼치기(POST .../spread)를 부르게 한다.
+    gen_runs = board_store.gen_runs(project_id)
+    run_counts = {node_id: len(runs) for node_id, runs in gen_runs}
+    cards = cards + [(node_id, runs[-1].get("job_id")) for node_id, runs in gen_runs]
     if cards:
         _sync_assets_quietly()   # 방금 끝난 작업의 결과물이 색인에 올라오게(자체적으로 간격을 둔다)
+    pending_spread = {node_id: _board_gen_unspread_count(runs) for node_id, runs in gen_runs}
     results = board_store.job_results(job_id for _, job_id in cards)
     out = {}
     with lock:
@@ -4491,7 +4493,86 @@ def board_jobs_api(project_id: int, request: Request):
             }
             if node_id in run_counts:
                 out[node_id]["run_count"] = run_counts[node_id]
+                # 끝난 직후에는 파드에서 결과가 늦게 넘어올 수 있어 잠깐 더 지켜본다.
+                out[node_id]["settling"] = _finished_within(job.get("finished_at"), BOARD_GEN_SETTLE_SEC)
+        for node_id, n in pending_spread.items():
+            out.setdefault(node_id, {"missing": True})["pending_spread"] = n
     return {"cards": out}
+
+
+BOARD_GEN_SETTLE_SEC = 120      # 작업이 끝난 뒤 결과가 늦게 넘어오는지 더 지켜보는 시간
+BOARD_GEN_SPREAD_RUNS = 10      # 결과를 펼칠 때 볼 최근 실행 수
+BOARD_GEN_SPREAD_COLS = 4       # 펼친 결과 카드의 한 줄 개수
+BOARD_GEN_SPREAD_SIZE = 160     # 펼친 결과 카드 크기
+_board_spread_lock = threading.Lock()   # 같은 카드의 펼치기가 겹쳐 카드가 두 번 생기지 않게
+
+
+def _finished_within(finished_at: str | None, seconds: int) -> bool:
+    if not finished_at:
+        return False
+    try:
+        done = datetime.fromisoformat(finished_at)
+    except ValueError:
+        return False
+    if done.tzinfo is None:
+        done = done.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - done).total_seconds() < seconds
+
+
+def _board_gen_unspread_count(runs: list) -> int:
+    """최근 실행들의 결과 중 아직 보드에 펼치지 않은 수."""
+    n = 0
+    for run in (runs or [])[-BOARD_GEN_SPREAD_RUNS:]:
+        done = set(run.get("spread") or [])
+        n += sum(1 for a in board_store.job_assets(run.get("job_id")) if a["path"] not in done)
+    return n
+
+
+@app.post("/api/projects/{project_id}/board/nodes/{node_id}/spread")
+def spread_board_gen_api(project_id: int, node_id: int, request: Request):
+    """생성 카드의 결과 펼치기 — 최근 실행들의 결과 중 아직 안 펼친 것을 이미지/영상 카드로 만들어 카드
+    오른쪽에 격자로 놓고 생성 카드에서 선으로 잇는다. 펼친 결과는 실행 기록(runs[].spread)에 적어 두어
+    두 번 펼치지 않는다 — 펼친 카드를 지워도 다시 생기지 않고, 작업을 지워도 펼친 카드는 남는다."""
+    user = me(request)
+    project_or_404(user, project_id)
+    _sync_assets_quietly()
+    with _board_spread_lock:
+        node = board_store.get_node(project_id, node_id)
+        if node is None:
+            raise HTTPException(404, "없는 카드예요.")
+        data = node.get("data")
+        if node["kind"] != "gen" or not isinstance(data, dict):
+            raise HTTPException(400, "생성 카드가 아니에요.")
+        runs = data.get("runs") or []
+        placed = sum(len(r.get("spread") or []) for r in runs)   # 지금까지 펼친 수 — 다음 칸 자리
+        size, gap = BOARD_GEN_SPREAD_SIZE, 20
+        new_nodes, new_edges = [], []
+        for run in runs[-BOARD_GEN_SPREAD_RUNS:]:
+            done = run.setdefault("spread", [])
+            for asset in board_store.job_assets(run.get("job_id")):
+                if asset["path"] in done:
+                    continue
+                try:   # 자기(admin은 전부) 결과물만 — 작업이 내 것이면 결과도 내 것이지만 한 번 더 확인
+                    asset_meta.get_detail(asset["path"], owner_id=auth.owner_scope(user))
+                except asset_meta.AssetNotFound:
+                    continue
+                col, row = placed % BOARD_GEN_SPREAD_COLS, placed // BOARD_GEN_SPREAD_COLS
+                x = node["x"] + node["width"] + 80 + col * (size + gap)
+                y = node["y"] + row * (size + gap)
+                card = board_store.create_node(project_id, asset["kind"], asset["path"], "", x, y, size, size)
+                new_nodes.append(card)
+                new_edges.append(board_store.create_edge(project_id, node_id, card["id"]))
+                done.append(asset["path"])
+                placed += 1
+        if new_nodes:
+            # 실행 기록만 고친다 — 펼치는 사이 바뀐 꺼낸 옵션 값 등은 다시 읽은 것을 그대로 둔다.
+            fresh = board_store.get_node(project_id, node_id) or node
+            fresh_data = dict(fresh.get("data") or {})
+            spread_by_job = {r.get("job_id"): r.get("spread") for r in runs}
+            fresh_data["runs"] = [{**r, "spread": spread_by_job.get(r.get("job_id"), r.get("spread") or [])}
+                                  for r in fresh_data.get("runs") or []]
+            node = board_store.update_node(node_id, {"data": fresh_data})
+    return {"nodes": new_nodes, "edges": new_edges, "node": node}
 
 
 BOARD_GEN_MAX_RUNS = 50   # 카드에 남기는 실행 기록 수
