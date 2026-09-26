@@ -357,10 +357,17 @@ ALTER TABLE board_nodes ADD COLUMN data_json TEXT;
 ALTER TABLE board_edges ADD COLUMN to_slot TEXT
 """
 
+# v15: 프리셋에 "카드에 만들 입구" 목록. 마법사가 칸 수를 정하는 템플릿(MiniMax r2v 참조 이미지 0~9,
+# i2v 첫/끝 프레임)은 워크플로우에 실제로 있는 칸만 새 작업 창에 나오는데, 템플릿이 선언한 칸을 전부
+# 입구로 만들면 워크플로우에 없는 입구가 생긴다. NULL이면(예전 프리셋) 선언된 칸 전부.
+SCHEMA_V15 = """
+ALTER TABLE board_presets ADD COLUMN slots_json TEXT
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
-              (13, SCHEMA_V13), (14, SCHEMA_V14)]
+              (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}

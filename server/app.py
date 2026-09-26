@@ -4135,8 +4135,19 @@ def _board_preset_payload(body: dict) -> dict:
     lora_trigger = str(body.get("lora_trigger") or "").strip()
     if len(lora_trigger) > 200:
         raise HTTPException(400, "LoRA 트리거가 너무 길어요.")
+    # 카드에 만들 입구 — 새 작업 창이 워크플로우에 맞춰 보여 주던 입력 이미지 칸들(마법사가 칸 수를
+    # 정하는 템플릿 때문). 안 주면 None = 템플릿이 선언한 칸 전부.
+    slots = body.get("slots")
+    if slots is not None:
+        if not isinstance(slots, list):
+            raise HTTPException(400, "slots는 입구 이름 목록이어야 해요.")
+        slot_names = [o["name"] for o in template.get("options", []) if o.get("type") in BOARD_PRESET_SLOT_TYPES]
+        bad = [x for x in slots if x not in slot_names]
+        if bad:
+            raise HTTPException(400, f"템플릿에 없는 입구예요: {', '.join(map(str, bad))}")
+        slots = [x for x in slot_names if x in slots]   # 템플릿 순서대로
     return {"name": name, "template_id": template["id"], "workflow": workflow, "video_workflow": video_workflow,
-            "options": options, "exposed": exposed, "lora_trigger": lora_trigger}
+            "options": options, "exposed": exposed, "slots": slots, "lora_trigger": lora_trigger}
 
 
 def _board_preset_with_label(preset: dict) -> dict:
@@ -4249,8 +4260,10 @@ def _board_gen_data_from_preset(preset: dict) -> dict:
     if template is None:
         raise HTTPException(400, "프리셋의 템플릿이 이 서버에 없어요.")
     opts = {o["name"]: o for o in template.get("options", [])}
+    keep = preset.get("slots")   # None이면(예전 프리셋) 선언된 입구 전부
     slots = [{"name": o["name"], "label": o.get("label") or o["name"], "required": o.get("type") == "input_image"}
-             for o in template.get("options", []) if o.get("type") in BOARD_PRESET_SLOT_TYPES]
+             for o in template.get("options", [])
+             if o.get("type") in BOARD_PRESET_SLOT_TYPES and (keep is None or o["name"] in keep)]
     fields = []
     for name in preset.get("exposed") or []:
         o = opts.get(name)

@@ -870,6 +870,16 @@
   .board-frame:not(.editing) .board-frame-title{ pointer-events:none; cursor:inherit; }
   .board-frame.editing .board-frame-title{ background:var(--panel); }
   .board-frame .board-node-del{ pointer-events:auto; }
+  /* 이미지·영상·텍스트 카드의 크기 손잡이 — 카드가 overflow:hidden이라 안쪽 모서리에 둔다.
+     마우스는 카드에 올렸을 때만, 터치는 늘 보인다(연결 점과 같은 규칙). */
+  .board-node-resize{
+    position:absolute; right:3px; bottom:3px; width:14px; height:14px; box-sizing:border-box; z-index:2;
+    border-radius:3px; background:var(--panel); border:1.5px solid rgba(var(--queued-rgb),0.7);
+    cursor:nwse-resize; touch-action:none; opacity:0; transition:opacity .12s ease;
+  }
+  .board-node:hover .board-node-resize, .board-node.selected .board-node-resize{ opacity:1; }
+  @media (hover:none){ .board-node-resize{ opacity:1; } }
+  @media (pointer:coarse){ .board-node-resize{ width:22px; height:22px; } }
   .board-frame-resize{
     position:absolute; right:-7px; bottom:-7px; width:16px; height:16px; box-sizing:border-box;
     border-radius:4px; background:var(--panel); border:1.5px solid rgba(var(--queued-rgb),0.6);
@@ -918,6 +928,7 @@
   .board-gen-btn .ico{ width:12px; height:12px; }
   .board-gen-btn.primary{ background:var(--running); border-color:var(--running); color:#fff; }
   .board-gen-btn:disabled{ opacity:.45; cursor:not-allowed; }
+  .board-gen-btn.primary.busy{ opacity:.7; background:var(--text-dim); border-color:var(--text-dim); }
   /* 오른쪽 연결 점은 카드 바깥 가장자리에 — 안쪽에 두면 입력칸을 가린다(카드가 overflow:visible). */
   .board-node-gen .board-node-handle{ right:-8px; }
   @media (pointer:coarse){ .board-node-gen .board-node-handle{ right:-13px; } }
@@ -11458,16 +11469,19 @@ async function openBoardPresetSave(){
   optionsFields.querySelectorAll('.option-input[data-name]').forEach(input => { options[input.dataset.name] = input.value; });
   const loraField = document.getElementById('lora-trigger-field');
   const loraTrigger = loraField && loraField.style.display !== 'none' ? document.getElementById('lora-trigger-input').value.trim() : '';
-  boardPresetDraft = { template_id: template.id, workflow, video_workflow: videoWorkflow, options, lora_trigger: loraTrigger };
-
   const opts = template.options || [];
+  // 마법사가 칸 수를 정하는 템플릿(MiniMax r2v 참조 이미지 0~9, i2v 첫/끝 프레임)은 워크플로우에 실제로
+  // 있는 칸만 새 작업 창에 나온다 — 보드 카드의 입구도 그 칸만 만들도록 여기서 골라 보낸다.
+  const slotNames = opts.filter(o => BOARD_PRESET_SLOT_TYPES.includes(o.type) && !isWizardRefSlotHidden(o.name)).map(o => o.name);
+  boardPresetDraft = { template_id: template.id, workflow, video_workflow: videoWorkflow, options, lora_trigger: loraTrigger, slots: slotNames };
+
   document.getElementById('board-preset-name').value = template.label || template.id;
   const exposable = opts.filter(o => BOARD_PRESET_EXPOSABLE.includes(o.type));
   document.getElementById('board-preset-exposed').innerHTML = exposable.length
     ? exposable.map(o => `<label><input type="checkbox" value="${escapeHtml(o.name)}" ${o.type === 'textarea' ? 'checked' : ''}>`
         + `<span>${escapeHtml(o.label || o.name)}</span><span class="board-preset-opt-name">${escapeHtml(o.name)}</span></label>`).join('')
     : '<div class="board-preset-hint">이 템플릿에는 카드에서 고칠 만한 옵션이 없어요.</div>';
-  const slots = opts.filter(o => BOARD_PRESET_SLOT_TYPES.includes(o.type));
+  const slots = opts.filter(o => slotNames.includes(o.name));
   document.getElementById('board-preset-slots').textContent = (slots.length
     ? `보드에서 선으로 이어 채울 입구: ${slots.map(o => (o.label || o.name) + (o.type === 'input_image_optional' ? '(선택)' : '')).join(', ')}. `
     : '이 템플릿에는 이미지 입구가 없어요. ')
@@ -11781,7 +11795,7 @@ function initBoardCanvas(){
       if(bgPointers.size){ addBoardPanPointer(e); return; }
     }
     if(dragNode || marquee) return;
-    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-textarea, .board-gen-input, .board-gen-btn')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
+    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-resize, .board-node-textarea, .board-gen-input, .board-gen-btn')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
     const id = Number(nodeEl.dataset.nodeId);
     if(!boardNodes.some(n => n.id === id)) return;
     const selBefore = new Set(boardSelectedIds);   // 핀치로 바뀌면 이걸로 되돌린다
@@ -11870,10 +11884,11 @@ function initBoardCanvas(){
   };
   for(const type of ['pointerup', 'pointercancel', 'pointerleave']) viewport.addEventListener(type, endBoardNodeDrag);
 
-  // 묶음 틀 크기 바꾸기 — 오른쪽 아래 손잡이를 끈다. 끝났을 때 한 번만 저장하고 되돌리기 기록을 남긴다.
+  // 크기 바꾸기(묶음 틀 · 이미지 · 영상 · 텍스트 카드) — 오른쪽 아래 손잡이를 끈다. 끄는 동안 붙은 선이
+  // 따라오고, 끝났을 때 한 번만 저장하고 되돌리기 기록을 남긴다. 최소 크기는 종류마다(BOARD_MIN_SIZE).
   let resize = null;   // { id, el, node, pointerId, startClientX, startClientY, startW, startH }
   viewport.addEventListener('pointerdown', (e) => {
-    const handle = e.target.closest('.board-frame-resize');
+    const handle = e.target.closest('.board-frame-resize, .board-node-resize');
     if(!handle) return;
     if(e.pointerType === 'mouse' && e.button !== 0) return;
     if(dragNode || marquee || bgPointers.size || resize) return;
@@ -11887,10 +11902,12 @@ function initBoardCanvas(){
   });
   viewport.addEventListener('pointermove', (e) => {
     if(!resize || e.pointerId !== resize.pointerId) return;
-    resize.node.width = Math.max(BOARD_FRAME_MIN_W, resize.startW + (e.clientX - resize.startClientX) / boardState.scale);
-    resize.node.height = Math.max(BOARD_FRAME_MIN_H, resize.startH + (e.clientY - resize.startClientY) / boardState.scale);
+    const min = BOARD_MIN_SIZE[resize.node.kind] || BOARD_MIN_SIZE.image;
+    resize.node.width = Math.max(min.w, resize.startW + (e.clientX - resize.startClientX) / boardState.scale);
+    resize.node.height = Math.max(min.h, resize.startH + (e.clientY - resize.startClientY) / boardState.scale);
     resize.el.style.width = resize.node.width + 'px';
     resize.el.style.height = resize.node.height + 'px';
+    if(resize.node.kind !== 'frame') updateBoardEdgePaths(resize.node.id);   // 틀은 선이 없다
   });
   const endBoardResize = (e) => {
     if(!resize || e.pointerId !== resize.pointerId) return;
@@ -12195,6 +12212,7 @@ function paintBoardJobCards(){
     const html = boardGenStatusHtml(boardJobInfo.get(id), boardNodes.find(n => n.id === id));
     if(status && status._html !== html){ status.innerHTML = html; status._html = html; }
   }
+  paintBoardGenSlots();   // 실행 버튼(대기·실행 중이면 막힘)도 상태에 맞춘다
 }
 
 async function fetchBoardJobs(){
@@ -12312,8 +12330,15 @@ function paintBoardGenSlots(){
     }
     const runBtn = el.querySelector('[data-gen-run]');
     if(runBtn){
-      runBtn.disabled = empty.length > 0;
-      runBtn.title = empty.length ? `이미지 카드를 이어 주세요: ${empty.join(', ')}` : '이 카드 설정으로 작업을 만들어 바로 대기 큐에 넣어요';
+      // 마지막 실행이 아직 대기·실행 중이면 버튼을 막고 일시정지 아이콘으로 — 같은 작업을 겹쳐 쏘지 않게.
+      const info = boardJobInfo.get(node.id);
+      const busy = !!(info && !info.missing && info.active);
+      runBtn.disabled = busy || empty.length > 0;
+      runBtn.classList.toggle('busy', busy);
+      runBtn.title = busy ? '이전 실행이 끝나면 다시 실행할 수 있어요'
+        : empty.length ? `이미지 카드를 이어 주세요: ${empty.join(', ')}` : '이 카드 설정으로 작업을 만들어 바로 대기 큐에 넣어요';
+      const html = busy ? `${ico('pause')} ${info.status === 'running' ? '실행 중' : '대기 중'}` : `${ico('play')} 실행`;
+      if(runBtn._html !== html){ runBtn.innerHTML = html; runBtn._html = html; }
     }
   }
 }
@@ -12452,18 +12477,18 @@ function boardNodeHtml(node){
     const hidden = nsfwMode === 'hide';
     const title = hidden ? 'NSFW 안 보기 중이라 가렸어요' : 'NSFW 블러 중이라 가렸어요';
     return `<div class="board-node board-node-${node.kind} board-node-nsfw" data-node-id="${node.id}" style="${style}" title="${title} — 헤더의 NSFW 버튼으로 바꿀 수 있어요">`
-      + `<div class="board-nsfw-cover">${ico(hidden ? 'ban' : 'eye-off')}<span>NSFW</span></div>${delBtn}</div>`;
+      + `<div class="board-nsfw-cover">${ico(hidden ? 'ban' : 'eye-off')}<span>NSFW</span></div>${delBtn}<span class="board-node-resize" title="끌어서 크기 바꾸기"></span></div>`;
   }
   if(node.kind === 'image'){
     const url = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(node.asset_path)}/thumbnail?size=400&fit=cover`);
-    return `<div class="board-node board-node-image" data-node-id="${node.id}" style="${style}"><img src="${url}" loading="lazy" alt="">${delBtn}</div>`;
+    return `<div class="board-node board-node-image" data-node-id="${node.id}" style="${style}"><img src="${url}" loading="lazy" alt="">${delBtn}<span class="board-node-resize" title="끌어서 크기 바꾸기"></span></div>`;
   }
   if(node.kind === 'video'){
     const url = window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(node.asset_path)}`);
-    return `<div class="board-node board-node-video" data-node-id="${node.id}" style="${style}"><video muted preload="metadata" data-src="${url}#t=0.1"></video>${delBtn}</div>`;
+    return `<div class="board-node board-node-video" data-node-id="${node.id}" style="${style}"><video muted preload="metadata" data-src="${url}#t=0.1"></video>${delBtn}<span class="board-node-resize" title="끌어서 크기 바꾸기"></span></div>`;
   }
   return `<div class="board-node board-node-text" data-node-id="${node.id}" style="${style}">`
-    + `<div class="board-node-grip" title="끌어서 옮기기"></div><textarea class="board-node-textarea" data-board-text="${node.id}" placeholder="메모나 프롬프트를 적으세요">${escapeHtml(node.text)}</textarea>${delBtn}</div>`;
+    + `<div class="board-node-grip" title="끌어서 옮기기"></div><textarea class="board-node-textarea" data-board-text="${node.id}" placeholder="메모나 프롬프트를 적으세요">${escapeHtml(node.text)}</textarea>${delBtn}<span class="board-node-resize" title="끌어서 크기 바꾸기"></span></div>`;
 }
 
 // 선은 두 카드의 서로 마주 보는 변 가운데를 잇는 3차 베지어 곡선이다. 가로로 더
@@ -12792,6 +12817,10 @@ async function createBoardNode(kind, assetPath, text, geom){
 // 묶음 틀 — 고른 카드가 있으면 그 둘레를 감싸고(제목 띠 자리만큼 위를 더 띄움), 없으면
 // 화면 가운데에 빈 틀을 놓는다. 틀 안에 든 카드는 틀을 옮길 때 같이 움직인다(boardNodeInside).
 const BOARD_FRAME_MIN_W = 160, BOARD_FRAME_MIN_H = 100;
+const BOARD_MIN_SIZE = {   // 크기 바꾸기의 최소 크기(월드 px)
+  frame: { w: BOARD_FRAME_MIN_W, h: BOARD_FRAME_MIN_H },
+  image: { w: 80, h: 80 }, video: { w: 80, h: 80 }, text: { w: 120, h: 80 },
+};
 const BOARD_FRAME_PAD = 30, BOARD_FRAME_BAR = 40;
 
 function boardNodeInside(n, f){

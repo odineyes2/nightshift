@@ -9,13 +9,15 @@ import json
 
 import db
 
-_LIST_COLS = "id, owner_id, name, template_id, options_json, exposed_json, lora_trigger, created_at, updated_at"
+_LIST_COLS = "id, owner_id, name, template_id, options_json, exposed_json, slots_json, lora_trigger, created_at, updated_at"
 
 
 def _public(row, with_workflow: bool) -> dict:
     d = dict(row)
     d["options"] = json.loads(d.pop("options_json") or "{}")
     d["exposed"] = json.loads(d.pop("exposed_json") or "[]")
+    raw_slots = d.pop("slots_json", None)
+    d["slots"] = json.loads(raw_slots) if raw_slots else None   # None = 템플릿이 선언한 입구 전부
     if with_workflow:
         wf, vwf = d.pop("workflow_json", None), d.pop("video_workflow_json", None)
         d["workflow"] = json.loads(wf) if wf else None
@@ -41,11 +43,12 @@ def create_preset(owner_id: int, fields: dict) -> dict:
     with db.connect() as conn:
         cur = conn.execute(
             "INSERT INTO board_presets(owner_id, name, template_id, workflow_json, video_workflow_json, options_json, "
-            "exposed_json, lora_trigger, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "exposed_json, slots_json, lora_trigger, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (owner_id, fields["name"], fields["template_id"],
              json.dumps(fields["workflow"]) if fields.get("workflow") is not None else None,
              json.dumps(fields["video_workflow"]) if fields.get("video_workflow") is not None else None,
              json.dumps(fields.get("options") or {}), json.dumps(fields.get("exposed") or []),
+             json.dumps(fields["slots"]) if fields.get("slots") is not None else None,
              fields.get("lora_trigger") or "", now, now))
         preset_id = cur.lastrowid
     return get_preset(owner_id, preset_id)
@@ -69,6 +72,9 @@ def update_preset(owner_id: int, preset_id: int, fields: dict) -> dict | None:
         if key in fields:
             sets.append(f"{col}=?")
             params.append(json.dumps(fields[key]))
+    if "slots" in fields:
+        sets.append("slots_json=?")
+        params.append(json.dumps(fields["slots"]) if fields["slots"] is not None else None)
     if sets:
         sets.append("updated_at=?")
         params.append(db.now_iso())
