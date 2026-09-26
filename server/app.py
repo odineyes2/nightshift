@@ -2702,30 +2702,32 @@ async def import_output_images_to_input_pool(request: Request):
     skipped = []
     for name in names:
         try:
-            path = resolve_output_image(name)
+            added.append(await _import_output_image_to_input_pool(name))
         except HTTPException as e:
             skipped.append({"name": name, "reason": e.detail})
-            continue
-        # job_id별 하위 폴더에서 온 이름이라, 평평한 입력 이미지 풀에 맞게
-        # "<job_id>_<원본파일명>"으로 합친다(참조 세트 가져오기와 같은 규칙).
-        parts = name.split("/")
-        dest_filename = f"{parts[0]}_{parts[-1]}" if len(parts) > 1 else parts[0]
-        try:
-            content = await asyncio.to_thread(path.read_bytes)
-            # 같은 이미지로 영상을 여러 번 만들 때마다 _2, _3 사본이 쌓이지 않게, 이미 같은 이름·같은
-            # 내용의 파일이 풀에 있으면 그걸 그대로 쓴다.
-            try:
-                existing = resolve_input_image(dest_filename)
-                same = await asyncio.to_thread(existing.read_bytes) == content
-            except InputAssetError:
-                same = False
-            stored_name = dest_filename if same else await asyncio.to_thread(save_input_image, dest_filename, content)
         except (OSError, InputAssetError) as e:
             skipped.append({"name": name, "reason": f"저장 실패: {e}"})
-            continue
-        added.append(stored_name)
-
     return {"added": added, "skipped": skipped}
+
+
+async def _import_output_image_to_input_pool(name: str) -> str:
+    """결과 이미지 하나를 입력 이미지 풀로 복사하고 풀 안의 이름을 돌려준다(갤러리의 "갤러리에서
+    선택"·"영상 만들기"와 보드 생성 카드의 입구가 같이 쓴다). 없는 이미지면 HTTPException.
+    주인 확인은 부르는 쪽 몫이다."""
+    path = resolve_output_image(name)
+    # job_id별 하위 폴더에서 온 이름이라, 평평한 입력 이미지 풀에 맞게
+    # "<job_id>_<원본파일명>"으로 합친다(참조 세트 가져오기와 같은 규칙).
+    parts = name.split("/")
+    dest_filename = f"{parts[0]}_{parts[-1]}" if len(parts) > 1 else parts[0]
+    content = await asyncio.to_thread(path.read_bytes)
+    # 같은 이미지로 여러 번 만들 때마다 _2, _3 사본이 쌓이지 않게, 이미 같은 이름·같은
+    # 내용의 파일이 풀에 있으면 그걸 그대로 쓴다.
+    try:
+        existing = resolve_input_image(dest_filename)
+        same = await asyncio.to_thread(existing.read_bytes) == content
+    except InputAssetError:
+        same = False
+    return dest_filename if same else await asyncio.to_thread(save_input_image, dest_filename, content)
 
 
 @app.get("/api/base-model-families")
@@ -4235,9 +4237,9 @@ async def create_board_node_api(project_id: int, request: Request):
 
 
 def _board_gen_height(data: dict) -> float:
-    """생성 카드 기본 높이 — 머리 + 입구 줄 + 꺼낸 옵션 칸(글칸은 더 크게). index.html의 .board-gen-* 크기와 맞춘다."""
+    """생성 카드 기본 높이 — 머리 + 입구 줄 + 꺼낸 옵션 칸(글칸은 더 크게) + 아래 실행 줄. index.html의 .board-gen-* 크기와 맞춘다."""
     fields = sum(96 if f.get("type") == "textarea" else 60 for f in data.get("fields", []))
-    return max(120, 52 + 30 * len(data.get("slots", [])) + fields + 14)
+    return max(140, 52 + 30 * len(data.get("slots", [])) + fields + 14 + 46)   # 46 = 아래 실행 줄
 
 
 def _board_gen_data_from_preset(preset: dict) -> dict:
@@ -4426,6 +4428,7 @@ async def restore_board_api(project_id: int, request: Request):
             })
         edges = [{"id": int(e["id"]) if e.get("id") is not None else None,
                   "from_node_id": int(e["from_node_id"]), "to_node_id": int(e["to_node_id"]),
+                  "to_slot": str(e["to_slot"]) if e.get("to_slot") else None,
                   "created_at": str(e["created_at"]) if e.get("created_at") else None} for e in raw_edges]
     except (TypeError, ValueError, KeyError, AttributeError):
         raise HTTPException(400, "되살릴 카드/선 형식이 맞지 않아요.")
@@ -4458,6 +4461,10 @@ def board_jobs_api(project_id: int, request: Request):
     user = me(request)
     project_or_404(user, project_id)
     cards = board_store.job_nodes(project_id)
+    # 생성 카드는 마지막 실행 작업을 같은 모양으로 보여 준다(run_count는 실행 횟수).
+    gen_runs = board_store.gen_last_runs(project_id)
+    run_counts = {node_id: n for node_id, _, n in gen_runs}
+    cards = cards + [(node_id, job_id) for node_id, job_id, _ in gen_runs]
     if cards:
         _sync_assets_quietly()   # 방금 끝난 작업의 결과물이 색인에 올라오게(자체적으로 간격을 둔다)
     results = board_store.job_results(job_id for _, job_id in cards)
@@ -4479,9 +4486,97 @@ def board_jobs_api(project_id: int, request: Request):
                 "queued_at": job.get("queued_at"), "started_at": job.get("started_at"),
                 "finished_at": job.get("finished_at"),
                 "pod_name": job.get("pod_name"),
+                "waiting_reason": job.get("waiting_reason"),
                 "results": results.get(job_id, []),
             }
+            if node_id in run_counts:
+                out[node_id]["run_count"] = run_counts[node_id]
     return {"cards": out}
+
+
+BOARD_GEN_MAX_RUNS = 50   # 카드에 남기는 실행 기록 수
+
+
+def _prepend_lora_trigger(text: str, trigger: str) -> str:
+    """index.html의 prependLoraTrigger와 같은 규칙 — 이미 들어 있으면 그대로, 비었으면 트리거만."""
+    t = (trigger or "").strip()
+    v = text or ""
+    if not t:
+        return v
+    if not v.strip():
+        return t
+    if t.lower() in v.lower():
+        return v
+    return f"{t}, {v}"
+
+
+async def _board_gen_prepare(user: dict, project_id: int, node_id: int) -> dict:
+    """생성 카드를 실행할 재료를 모은다 — 입구에 이어진 이미지 카드를 입력 이미지 풀로 가져와 그 칸의
+    값으로 넣고, 고정 값 + 꺼낸 옵션 값 + LoRA 트리거를 합친다. 필수 입구가 비었으면 400.
+    실행(run)과 "자세히"(prepare, 새 작업 폼 채우기)가 같이 쓴다."""
+    node = board_store.get_node(project_id, node_id)
+    if node is None:
+        raise HTTPException(404, "없는 카드예요.")
+    data = node.get("data")
+    if node["kind"] != "gen" or not isinstance(data, dict):
+        raise HTTPException(400, "생성 카드가 아니에요.")
+    template = load_templates_map().get(data.get("template_id"))
+    if template is None:
+        raise HTTPException(400, "이 카드의 템플릿이 이 서버에 없어요.")
+    slots = {sl["name"]: sl for sl in data.get("slots", [])}
+    filled = {}
+    for from_id, slot in board_store.slot_edges(project_id, node_id):
+        src = board_store.get_node(project_id, from_id)
+        if slot in slots and src and src["kind"] == "image" and src.get("asset_path"):
+            filled[slot] = src["asset_path"]
+    missing = [sl["label"] for sl in data.get("slots", []) if sl.get("required") and sl["name"] not in filled]
+    if missing:
+        raise HTTPException(400, f"비어 있는 필수 입구가 있어요: {', '.join(missing)}")
+    options = {**(data.get("options") or {}), **(data.get("values") or {})}
+    for slot, path in filled.items():
+        _board_asset_path_or_error(user, "image", path)   # 자기(admin은 전부) 결과물만
+        try:
+            options[slot] = await _import_output_image_to_input_pool(path)
+        except (OSError, InputAssetError) as e:
+            raise HTTPException(400, f"입구 이미지를 가져오지 못했어요: {e}")
+    trigger = data.get("lora_trigger") or ""
+    if trigger and any(o["name"] == "main_prompt" for o in template.get("options", [])):
+        options["main_prompt"] = _prepend_lora_trigger(options.get("main_prompt", ""), trigger)
+    return {"node": node, "template": template, "options": {k: "" if v is None else str(v) for k, v in options.items()},
+            "workflow": data.get("workflow"), "video_workflow": data.get("video_workflow"),
+            "label": data.get("preset_name") or template.get("label") or template["id"]}
+
+
+@app.post("/api/projects/{project_id}/board/nodes/{node_id}/prepare")
+async def prepare_board_gen_api(project_id: int, node_id: int, request: Request):
+    """생성 카드의 "자세히" — 새 작업 폼을 이 카드 값으로 채울 재료(입구 이미지는 입력 이미지 풀로 가져온 이름)."""
+    user = me(request)
+    project_or_404(user, project_id)
+    prep = await _board_gen_prepare(user, project_id, node_id)
+    return {"template_id": prep["template"]["id"], "options": prep["options"], "workflow": prep["workflow"],
+            "video_workflow": prep["video_workflow"], "label": prep["label"]}
+
+
+@app.post("/api/projects/{project_id}/board/nodes/{node_id}/run")
+async def run_board_gen_api(project_id: int, node_id: int, request: Request):
+    """생성 카드 실행 — 재료를 모아 이 보드의 프로젝트로 작업을 만든다. 파드는 정하지 않아 바로 대기 큐로
+    가고, 스케줄러가 필요한 모델을 갖춘 파드를 찾아 시작한다(새 작업 폼의 "추가"와 달리 일시정지하지 않음).
+    실행 기록(작업 id)은 카드에 쌓인다."""
+    user = me(request)
+    project_or_404(user, project_id)
+    prep = await _board_gen_prepare(user, project_id, node_id)
+    wf, vwf = prep["workflow"], prep["video_workflow"]
+    job = await create_job(prep["template"], json.dumps(wf).encode("utf-8") if wf is not None else None,
+                           "board_gen_workflow.json" if wf is not None else None, None, None, prep["options"], None,
+                           json.dumps(vwf).encode("utf-8") if vwf is not None else None,
+                           "board_gen_video_workflow.json" if vwf is not None else None,
+                           project_id, user=user)
+    # 실행하는 사이 카드가 바뀌었을 수 있으니(값 저장 등) 다시 읽어서 실행 기록만 더한다.
+    node = board_store.get_node(project_id, node_id) or prep["node"]
+    data = dict(node.get("data") or {})
+    data["runs"] = ((data.get("runs") or []) + [{"job_id": job["id"], "at": now_iso(), "spread": []}])[-BOARD_GEN_MAX_RUNS:]
+    node = board_store.update_node(node_id, {"data": data})
+    return {"job": {"id": job["id"], "status": job.get("status")}, "node": node}
 
 
 @app.post("/api/projects/{project_id}/board/edges")
@@ -4499,7 +4594,19 @@ async def create_board_edge_api(project_id: int, request: Request):
     owners = board_store.node_project_ids((from_id, to_id))
     if owners.get(from_id) != project_id or owners.get(to_id) != project_id:
         raise HTTPException(404, "없는 카드예요.")
-    return board_store.create_edge(project_id, from_id, to_id)
+    to_slot = body.get("to_slot")
+    if to_slot:
+        # 생성 카드의 입구로 — 받는 쪽은 그 입구가 있는 생성 카드, 보내는 쪽은 이미지 카드여야 한다.
+        target = board_store.get_node(project_id, to_id)
+        source = board_store.get_node(project_id, from_id)
+        slots = {sl["name"] for sl in ((target or {}).get("data") or {}).get("slots", [])} if target and target["kind"] == "gen" else set()
+        if str(to_slot) not in slots:
+            raise HTTPException(400, "그 생성 카드에 없는 입구예요.")
+        if not source or source["kind"] != "image":
+            raise HTTPException(400, "입구에는 이미지 카드만 이을 수 있어요.")
+        edge, removed = board_store.create_slot_edge(project_id, from_id, to_id, str(to_slot))
+        return {**edge, "replaced": removed}
+    return {**board_store.create_edge(project_id, from_id, to_id), "replaced": []}
 
 
 @app.delete("/api/projects/{project_id}/board/edges/{edge_id}")

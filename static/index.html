@@ -901,6 +901,23 @@
     border-radius:50%; background:var(--panel); border:2px solid var(--running);
   }
   .board-gen-fields{ flex:1; min-height:0; overflow:hidden; padding:4px 12px 10px; display:flex; flex-direction:column; gap:6px; }
+  .board-gen-slot.filled .board-gen-port{ background:var(--running); }
+  .board-gen-slot.connect-slot{ background:rgba(var(--running-rgb),0.14); }
+  .board-gen-slot-state img{ width:22px; height:22px; object-fit:cover; border-radius:4px; vertical-align:middle; margin-right:3px; }
+  .board-gen-foot{
+    flex:none; height:46px; box-sizing:border-box; padding:0 10px 0 12px;
+    display:flex; align-items:center; gap:6px; border-top:1px solid var(--border);
+  }
+  .board-gen-status{ flex:1; min-width:0; display:flex; align-items:center; gap:6px; overflow:hidden; white-space:nowrap; font-size:11px; color:var(--text-dim); }
+  .board-gen-status .badge{ flex:none; }
+  .board-gen-reason{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .board-gen-btn{
+    flex:none; display:inline-flex; align-items:center; gap:4px; padding:5px 10px; border-radius:6px;
+    border:1px solid var(--border); background:var(--panel); color:var(--text); font-size:12px; cursor:pointer;
+  }
+  .board-gen-btn .ico{ width:12px; height:12px; }
+  .board-gen-btn.primary{ background:var(--running); border-color:var(--running); color:#fff; }
+  .board-gen-btn:disabled{ opacity:.45; cursor:not-allowed; }
   /* 오른쪽 연결 점은 카드 바깥 가장자리에 — 안쪽에 두면 입력칸을 가린다(카드가 overflow:visible). */
   .board-node-gen .board-node-handle{ right:-8px; }
   @media (pointer:coarse){ .board-node-gen .board-node-handle{ right:-13px; } }
@@ -6758,7 +6775,8 @@ function selectHasOptionValue(select, value){
 // "큐에 추가" 버튼 → POST /api/upload 경로로만 이뤄짐). 매니페스트나 포즈 폴더가
 // 그 작업을 돌린 뒤 바뀌었을 수 있으므로, 저장된 값이 더 이상 유효하지 않은 경우는
 // 조용히 무시하지 않고 사용자에게 안내한다.
-async function loadJobSettings(job){
+// prepared를 주면(보드 생성 카드의 "자세히") 워크플로우를 등록된 작업에서 받지 않고 그 안의 것을 쓴다.
+async function loadJobSettings(job, prepared){
   const loadError = document.getElementById('load-error');
   const loadNotice = document.getElementById('load-notice');
   loadError.textContent = '';
@@ -6824,8 +6842,13 @@ async function loadJobSettings(job){
     el.value = savedValue;
   }
 
-  const wfRes = await fetch(`/api/jobs/${job.id}/workflow`).catch(() => null);
-  if(wfRes && wfRes.ok){
+  const wfRes = prepared ? null : await fetch(`/api/jobs/${job.id}/workflow`).catch(() => null);
+  if(prepared){
+    if(prepared.workflow) setWorkflowFile(new File([JSON.stringify(prepared.workflow)], 'board_gen_workflow.json', { type: 'application/json' }));
+    if(template.optional_video_workflow && prepared.video_workflow){
+      setVideoWorkflowFile(new File([JSON.stringify(prepared.video_workflow)], 'board_gen_video_workflow.json', { type: 'application/json' }));
+    }
+  }else if(wfRes && wfRes.ok){
     const text = await wfRes.text();
     const filename = job.workflow_original_name || 'workflow.json';
     setWorkflowFile(new File([text], filename, { type: 'application/json' }));
@@ -6836,7 +6859,7 @@ async function loadJobSettings(job){
   // 영상 생성 워크플로우는 애초에 선택이라(안 올렸으면 내장 기본값을 씀) 그
   // 작업이 실제로 올렸을 때만 불러온다 — video_workflow_filename이 없으면
   // "내장 기본값을 썼다"는 뜻이라 그냥 건너뛴다(경고 아님).
-  if(template.optional_video_workflow && job.video_workflow_filename){
+  if(!prepared && template.optional_video_workflow && job.video_workflow_filename){
     const videoWfRes = await fetch(`/api/jobs/${job.id}/video-workflow`).catch(() => null);
     if(videoWfRes && videoWfRes.ok){
       const text = await videoWfRes.text();
@@ -6847,7 +6870,7 @@ async function loadJobSettings(job){
     }
   }
 
-  if(template.requires_csv){
+  if(!prepared && template.requires_csv){
     const csvRes = await fetch(`/api/jobs/${job.id}/csv`).catch(() => null);
     if(csvRes && csvRes.ok){
       const text = await csvRes.text();
@@ -6860,7 +6883,7 @@ async function loadJobSettings(job){
 
   openNewJobModal();
 
-  let msg = `'${job.id}' 작업의 설정을 불러왔어요.`;
+  let msg = prepared ? `보드 생성 카드 '${prepared.label}'의 설정을 불러왔어요.` : `'${job.id}' 작업의 설정을 불러왔어요.`;
   if(warnings.length) msg += '\n' + warnings.join('\n');
   loadNotice.textContent = msg;
   loadNotice.style.color = warnings.length ? 'var(--running)' : 'var(--done)';
@@ -11758,7 +11781,7 @@ function initBoardCanvas(){
       if(bgPointers.size){ addBoardPanPointer(e); return; }
     }
     if(dragNode || marquee) return;
-    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-textarea, .board-gen-input')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
+    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-textarea, .board-gen-input, .board-gen-btn')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
     const id = Number(nodeEl.dataset.nodeId);
     if(!boardNodes.some(n => n.id === id)) return;
     const selBefore = new Set(boardSelectedIds);   // 핀치로 바뀌면 이걸로 되돌린다
@@ -11902,6 +11925,19 @@ function initBoardCanvas(){
     if(nodeEl && nodeEl.classList.contains('board-frame')) return null;   // 묶음 틀은 선으로 잇지 않는다
     return nodeEl && viewport.contains(nodeEl) && Number(nodeEl.dataset.nodeId) !== connect.fromId ? nodeEl : null;
   };
+  // 생성 카드 위에서 놓을 때 어느 입구로 갈지 — 손가락/커서 아래 입구 줄, 없으면 첫 빈 입구(다 차 있으면 첫 입구).
+  // 출발이 이미지 카드가 아니거나 입구가 없는 카드면 보통 선(null).
+  const boardSlotFor = (targetEl, clientX, clientY) => {
+    const target = targetEl && boardNodes.find(n => n.id === Number(targetEl.dataset.nodeId));
+    const source = boardNodes.find(n => n.id === connect.fromId);
+    const slots = (target && target.kind === 'gen' && target.data && target.data.slots) || [];
+    if(!slots.length || !source || source.kind !== 'image') return null;
+    const under = document.elementFromPoint(clientX, clientY);
+    const row = under && under.closest('.board-gen-slot');
+    if(row && targetEl.contains(row)) return row.dataset.genSlot;
+    const filled = new Set(boardEdges.filter(e => e.to_node_id === target.id && e.to_slot).map(e => e.to_slot));
+    return (slots.find(sl => !filled.has(sl.name)) || slots[0]).name;
+  };
   viewport.addEventListener('pointermove', (e) => {
     if(!connect || e.pointerId !== connect.pointerId) return;
     updateBoardTempEdge(connect.fromId, e.clientX, e.clientY);
@@ -11911,17 +11947,27 @@ function initBoardCanvas(){
       if(targetEl) targetEl.classList.add('connect-target');
       connect.targetEl = targetEl;
     }
+    const slot = boardSlotFor(targetEl, e.clientX, e.clientY);
+    document.querySelectorAll('#board-world .board-gen-slot.connect-slot').forEach(r => {
+      if(!(targetEl && r.closest('.board-node') === targetEl && r.dataset.genSlot === slot)) r.classList.remove('connect-slot');
+    });
+    if(targetEl && slot){
+      const row = targetEl.querySelector(`.board-gen-slot[data-gen-slot="${CSS.escape(slot)}"]`);
+      if(row) row.classList.add('connect-slot');
+    }
   });
   const endBoardConnect = (e) => {
     if(!connect || e.pointerId !== connect.pointerId) return;
     const targetEl = e.type === 'pointerup' ? boardNodeUnder(e.clientX, e.clientY) : null;
+    const slot = targetEl ? boardSlotFor(targetEl, e.clientX, e.clientY) : null;
     if(connect.targetEl) connect.targetEl.classList.remove('connect-target');
+    document.querySelectorAll('#board-world .board-gen-slot.connect-slot').forEach(r => r.classList.remove('connect-slot'));
     const fromId = connect.fromId;
     connect = null;
     viewport.classList.remove('connecting');
     const temp = document.getElementById('board-edge-temp');
     if(temp) temp.setAttribute('d', '');
-    if(targetEl) createBoardEdge(fromId, Number(targetEl.dataset.nodeId));
+    if(targetEl) createBoardEdge(fromId, Number(targetEl.dataset.nodeId), slot);
   };
   for(const type of ['pointerup', 'pointercancel']) viewport.addEventListener(type, endBoardConnect);
 
@@ -11932,6 +11978,10 @@ function initBoardCanvas(){
     if(delBtn) deleteBoardNodes([Number(delBtn.dataset.boardDel)]);
     const edgeDelBtn = e.target.closest('.board-edge-del');
     if(edgeDelBtn) deleteBoardEdge(Number(edgeDelBtn.dataset.edgeDel));
+    const runBtn = e.target.closest('[data-gen-run]');
+    if(runBtn && !runBtn.disabled) runBoardGen(Number(runBtn.dataset.genRun));
+    const detailBtn = e.target.closest('[data-gen-detail]');
+    if(detailBtn) openBoardGenDetail(Number(detailBtn.dataset.genDetail));
   });
   // 보드 단축키 — 글을 쓰는 중이면(글칸·입력칸) 전부 그 칸의 기본 동작(글자 지우기,
   // 글자 되돌리기, 전체 선택)에 양보한다. 모달이 떠 있을 때도 건드리지 않는다.
@@ -12139,6 +12189,12 @@ function paintBoardJobCards(){
     const html = boardJobBodyHtml(boardJobInfo.get(Number(el.dataset.nodeId)));
     if(body && body._html !== html){ body.innerHTML = html; body._html = html; }
   }
+  for(const el of document.querySelectorAll('#board-world .board-node-gen')){
+    const id = Number(el.dataset.nodeId);
+    const status = el.querySelector('.board-gen-status');
+    const html = boardGenStatusHtml(boardJobInfo.get(id), boardNodes.find(n => n.id === id));
+    if(status && status._html !== html){ status.innerHTML = html; status._html = html; }
+  }
 }
 
 async function fetchBoardJobs(){
@@ -12146,7 +12202,8 @@ async function fetchBoardJobs(){
   boardJobTimer = null;
   const projectId = currentProjectId;
   if(typeof projectId !== 'number' || currentTab !== 'prboard') return;
-  if(!boardNodes.some(n => n.kind === 'job')) return;
+  // 작업 카드, 또는 한 번이라도 실행한 생성 카드가 있을 때만
+  if(!boardNodes.some(n => n.kind === 'job' || (n.kind === 'gen' && n.data && (n.data.runs || []).length))) return;
   const seq = ++boardJobSeq;
   let data = null;
   try{
@@ -12203,8 +12260,110 @@ function boardGenCardHtml(node, style, delBtn){
     + `<div class="board-gen-head">${ico('wand-sparkles')}<span class="board-gen-name">${escapeHtml(d.preset_name || '생성')}</span>`
     + `<span class="board-gen-tpl">${escapeHtml(d.template_label || d.template_id || '')}</span></div>`
     + (slots ? `<div class="board-gen-slots">${slots}</div>` : '')
-    + (fields ? `<div class="board-gen-fields">${fields}</div>` : '')
+    + `<div class="board-gen-fields">${fields}</div>`
+    + `<div class="board-gen-foot"><div class="board-gen-status">${boardGenStatusHtml(boardJobInfo.get(node.id), node)}</div>`
+    + `<button type="button" class="board-gen-btn" data-gen-detail="${node.id}" title="새 작업 창을 이 카드 값으로 채워 열기(복잡한 설정은 거기서)">자세히</button>`
+    + `<button type="button" class="board-gen-btn primary" data-gen-run="${node.id}">${ico('play')} 실행</button></div>`
     + `${delBtn}</div>`;
+}
+
+// 카드 아래 줄의 마지막 실행 상태 — 작업 카드와 같은 정보(GET .../board/jobs)를 짧게.
+function boardGenStatusHtml(info, node){
+  const runs = ((node && node.data && node.data.runs) || []).length;
+  if(!runs) return '<span>아직 실행하지 않았어요</span>';
+  if(!info) return '<span>불러오는 중…</span>';
+  if(info.missing) return `<span>마지막 작업이 지워졌어요 · ${runs}회 실행</span>`;
+  const pr = info.progress;
+  const progress = pr && pr.total ? `<span>${pr.done}/${pr.total}</span>` : '';
+  // 대기 사유는 길 수 있어 맨 뒤에 두고 말줄임(전체 문구는 마우스를 올리면) — 실행 횟수가 잘리지 않게.
+  const waiting = info.status === 'queued' && info.waiting_reason
+    ? `<span class="board-gen-reason" title="${escapeHtml(info.waiting_reason)}">${escapeHtml(info.waiting_reason)}</span>` : '';
+  return `<span class="badge ${escapeHtml(info.status || '')}"><span class="bdot"></span>${STATUS_LABEL[info.status] || escapeHtml(info.status || '')}</span>`
+    + progress + `<span>${info.run_count || runs}회</span>` + waiting;
+}
+
+// 입구 줄 — 이어진 이미지가 있으면 작은 미리보기(NSFW 설정 따름)와 "연결됨", 없으면 "비어 있음".
+// 필수 입구가 비면 실행 버튼을 막고 이유를 버튼 설명에 적는다. 선을 다시 그릴 때마다 부른다.
+function paintBoardGenSlots(){
+  for(const el of document.querySelectorAll('#board-world .board-node-gen')){
+    const node = boardNodes.find(n => n.id === Number(el.dataset.nodeId));
+    if(!node || !node.data) continue;
+    const empty = [];
+    for(const sl of node.data.slots || []){
+      const row = el.querySelector(`.board-gen-slot[data-gen-slot="${CSS.escape(sl.name)}"]`);
+      if(!row) continue;
+      const edge = boardEdges.find(e => e.to_node_id === node.id && e.to_slot === sl.name);
+      const src = edge && boardNodes.find(n => n.id === edge.from_node_id);
+      let html = '비어 있음';
+      if(src){
+        const hidden = src.nsfw && nsfwMode !== 'show';
+        html = hidden || src.kind !== 'image' ? '연결됨'
+          : `<img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(src.asset_path)}/thumbnail?size=60&fit=cover`)}" alt=""> 연결됨`;
+      }else if(sl.required){
+        empty.push(sl.label);
+      }
+      row.classList.toggle('filled', !!src);
+      const state = row.querySelector('.board-gen-slot-state');
+      if(state && state._html !== html){ state.innerHTML = html; state._html = html; }
+    }
+    const runBtn = el.querySelector('[data-gen-run]');
+    if(runBtn){
+      runBtn.disabled = empty.length > 0;
+      runBtn.title = empty.length ? `이미지 카드를 이어 주세요: ${empty.join(', ')}` : '이 카드 설정으로 작업을 만들어 바로 대기 큐에 넣어요';
+    }
+  }
+}
+
+// 실행 — 쓰던 값을 먼저 저장하고 서버가 입구 이미지를 가져와 작업을 만든다(파드는 자동).
+async function runBoardGen(nodeId){
+  const projectId = currentProjectId;
+  if(typeof projectId !== 'number') return;
+  const btn = document.querySelector(`#board-world [data-gen-run="${nodeId}"]`);
+  if(btn) btn.disabled = true;
+  await flushAllBoardGenSaves(false);
+  let res = null, data = {};
+  try{
+    res = await fetch(`/api/projects/${projectId}/board/nodes/${nodeId}/run`, { method: 'POST' });
+    data = await res.json().catch(() => ({}));
+  }catch(e){ /* 아래에서 실패로 처리 */ }
+  if(projectId !== currentProjectId) return;
+  if(!res || !res.ok){
+    flashNotice(data.detail || '실행하지 못했어요. 잠시 뒤 다시 해 주세요.');
+    paintBoardGenSlots();
+    return;
+  }
+  const node = boardNodes.find(n => n.id === nodeId);
+  if(node && data.node) node.data = data.node.data;
+  boardJobInfo.set(nodeId, { job_id: data.job.id, status: data.job.status, active: true,
+                             run_count: (node && node.data && node.data.runs || []).length });
+  paintBoardJobCards();
+  paintBoardGenSlots();
+  flashNotice('실행했어요 — 필요한 모델을 갖춘 파드가 잡히면 시작해요.');
+  fetchBoardJobs();
+}
+
+// 자세히 — 이 카드 값(입구 이미지 포함)으로 새 작업 창을 채워 연다. 복잡한 설정은 그 창에서.
+async function openBoardGenDetail(nodeId){
+  const projectId = currentProjectId;
+  if(typeof projectId !== 'number') return;
+  await flushAllBoardGenSaves(false);
+  let res = null, data = {};
+  try{
+    res = await fetch(`/api/projects/${projectId}/board/nodes/${nodeId}/prepare`, { method: 'POST' });
+    data = await res.json().catch(() => ({}));
+  }catch(e){ /* 아래에서 실패로 처리 */ }
+  if(!res || !res.ok){ flashNotice(data.detail || '카드 설정을 불러오지 못했어요.'); return; }
+  // 입구 이미지는 방금 입력 이미지 풀로 들어왔을 수 있다 — 폼의 선택 목록에 있어야 값이 들어가므로 먼저 새로 받는다
+  // (갤러리 "영상 만들기"와 같은 순서).
+  await fetchInputImages(true);
+  showTab('jobs', { projectId });
+  await loadJobSettings({ id: null, template_id: data.template_id, options: data.options }, data);
+  // 템플릿·워크플로우·값이 다 채워졌으니 바로 "2. 세부 설정"을 보여 준다. goToNewJobDetails는 마법사
+  // 설정을 다시 적용할 수 있어(카드 워크플로우를 덮을 수 있음) 쓰지 않고 탭만 바꾼다.
+  if(newJobReadyToAdvance()){
+    newJobActiveTab = 'details';
+    renderNewJobTabs();
+  }
 }
 
 // 꺼낸 옵션 값 저장 — 입력하다 멈추면 잠깐 뒤에, 칸을 벗어나면(change) 바로. 칸 하나를 고친 게
@@ -12307,7 +12466,32 @@ function boardEdgeCurve(a, b){
 function boardEdgeCurveById(edge){
   const a = boardNodes.find(n => n.id === edge.from_node_id);
   const b = boardNodes.find(n => n.id === edge.to_node_id);
-  return a && b ? boardEdgeCurve(a, b) : null;
+  if(!a || !b) return null;
+  if(edge.to_slot && b.kind === 'gen'){
+    const i = ((b.data && b.data.slots) || []).findIndex(sl => sl.name === edge.to_slot);
+    if(i >= 0) return boardEdgeCurveToPort(a, { x: b.x - 1, y: b.y + BOARD_GEN_PORT_Y0 + BOARD_GEN_SLOT_H * i });
+  }
+  return boardEdgeCurve(a, b);
+}
+
+// 생성 카드의 입구 점 위치(카드 기준) — CSS .board-gen-head(40) + .board-gen-slots 위 여백(6) + 줄 가운데(15).
+const BOARD_GEN_PORT_Y0 = 61, BOARD_GEN_SLOT_H = 30;
+
+// 입구로 들어가는 선 — 입구 점에는 늘 왼쪽에서 가로로 들어오게 하고, 출발 쪽은 입구를 향한 변에서 나간다.
+function boardEdgeCurveToPort(a, p3){
+  const ax = a.x + a.width / 2, ay = a.y + a.height / 2;
+  let p0, n0;
+  if(a.x + a.width <= p3.x){ p0 = { x: a.x + a.width, y: ay }; n0 = { x: 1, y: 0 }; }
+  else if(p3.y > a.y + a.height){ p0 = { x: ax, y: a.y + a.height }; n0 = { x: 0, y: 1 }; }
+  else if(p3.y < a.y){ p0 = { x: ax, y: a.y }; n0 = { x: 0, y: -1 }; }
+  else{ p0 = { x: a.x, y: ay }; n0 = { x: -1, y: 0 }; }
+  const k = Math.max(40, Math.min(160, Math.hypot(p3.x - p0.x, p3.y - p0.y) / 2));
+  const p1 = { x: p0.x + n0.x * k, y: p0.y + n0.y * k };
+  const p2 = { x: p3.x - k, y: p3.y };
+  return {
+    d: `M${p0.x},${p0.y} C${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`,
+    mid: { x: (p0.x + 3 * p1.x + 3 * p2.x + p3.x) / 8, y: (p0.y + 3 * p1.y + 3 * p2.y + p3.y) / 8 },
+  };
 }
 
 function boardEdgesSvg(){
@@ -12343,6 +12527,7 @@ function renderBoard(){
     + boardNodes.filter(n => n.kind !== 'frame').map(boardNodeHtml).join('') + boardEdgeDelHtml();
   boardObserveMedia(world);
   paintBoardSelection();
+  paintBoardGenSlots();
 }
 
 // 보드 전체를 다시 그리지 않고 카드 몇 장만 붙인다 — 다시 그리면 영상 카드가 전부
@@ -12356,6 +12541,7 @@ function appendBoardNodeEls(nodes){
   if(edgeDel) world.appendChild(edgeDel);   // 끊기 버튼은 늘 맨 위
   boardObserveMedia(world);
   paintBoardSelection();
+  paintBoardGenSlots();
 }
 
 // 카드 몇 장을 화면에서만 뺀다(서버 요청은 부르는 쪽이) — 붙은 선·선택·대기 중인 글 저장도 같이 정리.
@@ -12413,6 +12599,7 @@ function renderBoardEdges(){
   const oldBtn = document.getElementById('board-edge-del');
   if(oldBtn) oldBtn.remove();
   document.getElementById('board-world').insertAdjacentHTML('beforeend', boardEdgeDelHtml());
+  paintBoardGenSlots();
 }
 
 // 카드를 끄는 동안 픽셀마다 불린다 — 그 카드들(id 하나 또는 Set)에 붙은 선의 d만
@@ -12494,18 +12681,30 @@ async function boardSaveFailed(projectId){
   fetchBoard();
 }
 
-async function createBoardEdge(fromId, toId){
+// toSlot을 주면 생성 카드의 그 입구로 잇는다 — 입구 하나에는 선 하나라, 서버가 그 입구로 오던 선(과
+// 같은 두 카드 사이의 선)을 지우고 replaced로 알려 준다. 되돌리기는 그 선들을 되살린다.
+async function createBoardEdge(fromId, toId, toSlot){
   const projectId = currentProjectId;
   if(typeof projectId !== 'number') return;
-  const res = await boardApi(projectId, 'POST', '/edges', { from_node_id: fromId, to_node_id: toId });
+  const body = { from_node_id: fromId, to_node_id: toId };
+  if(toSlot) body.to_slot = toSlot;
+  const res = await boardApi(projectId, 'POST', '/edges', body);
   if(!res){ flashNotice('카드를 잇지 못했어요. 잠시 뒤 다시 해 주세요.'); return; }
-  const edge = await res.json();
+  const data = await res.json();
   if(projectId !== currentProjectId) return;
+  const replaced = data.replaced || [];
+  const edge = { ...data };
+  delete edge.replaced;
+  if(replaced.length){
+    const gone = new Set(replaced.map(e => e.id));
+    boardEdges = boardEdges.filter(e => !gone.has(e.id));
+    if(gone.has(boardSelectedEdgeId)) boardSelectedEdgeId = null;
+  }
   // 같은 두 카드 사이에 이미 선이 있으면 서버가 그 선을 돌려준다 — 중복으로 넣지 않는다.
-  if(boardEdges.some(e => e.id === edge.id)) return;
+  if(boardEdges.some(e => e.id === edge.id)){ if(replaced.length) renderBoardEdges(); return; }
   boardEdges.push(edge);
   renderBoardEdges();
-  pushBoardHistory({ type: 'edge-add', edge: { ...edge } });
+  pushBoardHistory({ type: 'edge-add', edge: { ...edge }, replaced });
 }
 
 async function deleteBoardEdge(edgeId){
@@ -12734,6 +12933,7 @@ function remapBoardHistory(extraEntry, nodeMap, edgeMap){
     if(entry.nodes) entry.nodes.forEach(nd => { nd.id = n(nd.id); });
     if(entry.edges) entry.edges.forEach(fixEdge);
     if(entry.edge) fixEdge(entry.edge);
+    if(entry.replaced) entry.replaced.forEach(fixEdge);
   }
 }
 
@@ -12791,11 +12991,19 @@ async function applyBoardHistoryEntry(projectId, entry, dir){
   }
   if(entry.type === 'edge-add' || entry.type === 'edge-del'){
     const removing = (entry.type === 'edge-add') === undo;
+    // 입구로 이을 때 밀려난 선(replaced) — 잇기를 되돌리면 되살리고, 다시 하면 다시 지운다.
+    const replaced = entry.type === 'edge-add' ? (entry.replaced || []) : [];
     if(removing){
       boardEdges = boardEdges.filter(e => e.id !== entry.edge.id);
       if(boardSelectedEdgeId === entry.edge.id) boardSelectedEdgeId = null;
       renderBoardEdges();
-      return !!await boardApi(projectId, 'DELETE', `/edges/${entry.edge.id}`);
+      if(!await boardApi(projectId, 'DELETE', `/edges/${entry.edge.id}`)) return false;
+      return replaced.length ? restoreBoardItems(projectId, entry, [], replaced) : true;
+    }
+    for(const r of replaced){
+      boardEdges = boardEdges.filter(e => e.id !== r.id);
+      renderBoardEdges();
+      if(!await boardApi(projectId, 'DELETE', `/edges/${r.id}`)) return false;
     }
     return restoreBoardItems(projectId, entry, [], [entry.edge]);
   }

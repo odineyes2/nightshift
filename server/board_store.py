@@ -111,6 +111,44 @@ def node_project_ids(node_ids) -> dict:
     return {r["id"]: r["project_id"] for r in rows}
 
 
+def create_slot_edge(project_id: int, from_node_id: int, to_node_id: int, to_slot: str) -> tuple:
+    """이미지 카드를 생성 카드의 입구(to_slot)에 잇는다. 입구 하나에는 선 하나만 — 그 입구로 이미
+    들어오던 선과, 같은 두 카드 사이의 다른 선은 지우고 새로 넣는다. (새 선, 지운 선들)을 돌려준다
+    (화면이 지운 선을 치우고, 되돌리기 때 되살린다)."""
+    with db.connect() as conn:
+        removed = [_row(r) for r in conn.execute(
+            "SELECT * FROM board_edges WHERE project_id=? AND ((to_node_id=? AND to_slot=?) OR "
+            "(from_node_id=? AND to_node_id=?) OR (from_node_id=? AND to_node_id=?))",
+            (project_id, to_node_id, to_slot, from_node_id, to_node_id, to_node_id, from_node_id)).fetchall()]
+        if removed:
+            conn.executemany("DELETE FROM board_edges WHERE id=?", [(e["id"],) for e in removed])
+        cur = conn.execute(
+            "INSERT INTO board_edges(project_id, from_node_id, to_node_id, to_slot, created_at) VALUES(?,?,?,?,?)",
+            (project_id, from_node_id, to_node_id, to_slot, db.now_iso()))
+        row = conn.execute("SELECT * FROM board_edges WHERE id=?", (cur.lastrowid,)).fetchone()
+    return _row(row), removed
+
+
+def slot_edges(project_id: int, node_id: int) -> list:
+    """생성 카드의 입구로 들어오는 선들 — [(출발 카드 id, 입구 이름), ...]."""
+    with db.connect() as conn:
+        rows = conn.execute("SELECT from_node_id, to_slot FROM board_edges WHERE project_id=? AND to_node_id=? "
+                            "AND to_slot IS NOT NULL", (project_id, node_id)).fetchall()
+    return [(r["from_node_id"], r["to_slot"]) for r in rows]
+
+
+def gen_last_runs(project_id: int) -> list:
+    """이 보드의 생성 카드마다 마지막 실행 작업 — [(카드 id, job_id, 실행 횟수), ...]. 실행한 적 없는 카드는 뺀다."""
+    with db.connect() as conn:
+        rows = conn.execute("SELECT id, data_json FROM board_nodes WHERE project_id=? AND kind='gen'", (project_id,)).fetchall()
+    out = []
+    for r in rows:
+        runs = (json.loads(r["data_json"]) if r["data_json"] else {}).get("runs") or []
+        if runs:
+            out.append((r["id"], runs[-1].get("job_id"), len(runs)))
+    return out
+
+
 def create_edge(project_id: int, from_node_id: int, to_node_id: int) -> dict:
     """두 카드를 잇는다. 같은 두 카드 사이에 (방향 무관) 이미 선이 있으면 새로 만들지
     않고 그 선을 그대로 돌려준다 — 같은 곳에 선이 겹쳐 그려지면 하나를 지워도 계속
@@ -215,14 +253,15 @@ def restore(project_id: int, nodes: list, edges: list) -> dict:
             old = e.get("id")
             free = isinstance(old, int) and conn.execute(
                 "SELECT 1 FROM board_edges WHERE id=?", (old,)).fetchone() is None
+            slot = e.get("to_slot")
             if free:
-                conn.execute("INSERT INTO board_edges(id, project_id, from_node_id, to_node_id, created_at) "
-                             "VALUES(?,?,?,?,?)", (old, project_id, a, b, e.get("created_at") or now))
+                conn.execute("INSERT INTO board_edges(id, project_id, from_node_id, to_node_id, to_slot, created_at) "
+                             "VALUES(?,?,?,?,?,?)", (old, project_id, a, b, slot, e.get("created_at") or now))
                 edge_ids.append(old)
             else:
                 edge_ids.append(conn.execute(
-                    "INSERT INTO board_edges(project_id, from_node_id, to_node_id, created_at) VALUES(?,?,?,?)",
-                    (project_id, a, b, e.get("created_at") or now)).lastrowid)
+                    "INSERT INTO board_edges(project_id, from_node_id, to_node_id, to_slot, created_at) VALUES(?,?,?,?,?)",
+                    (project_id, a, b, slot, e.get("created_at") or now)).lastrowid)
         out_nodes = [_row(_select_node(conn, i)) for i in node_ids]
         out_edges = [_row(conn.execute("SELECT * FROM board_edges WHERE id=?", (i,)).fetchone()) for i in edge_ids]
     return {"nodes": out_nodes, "edges": out_edges, "id_map": {str(k): v for k, v in id_map.items()}}
