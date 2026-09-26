@@ -348,10 +348,19 @@ CREATE TABLE board_presets (
 CREATE INDEX board_presets_owner ON board_presets(owner_id, name)
 """
 
+# v14: 보드 생성 카드(kind 'gen'). 카드가 프리셋 내용(템플릿·워크플로우·고정 값·입구·꺼낸 옵션 정의)과
+# 꺼낸 옵션의 현재 값·실행 기록을 자기 안에 들고 있어야 해서(프리셋이나 작업이 지워져도 카드가 동작하게)
+# 카드 종류별 부가 정보 칸 data_json을 둔다. 선에는 생성 카드의 "어느 입구"로 들어가는지(옵션 이름)를
+# 적는 to_slot을 둔다(보통 선은 NULL). 칸 추가뿐이라 표를 다시 만들지 않는다.
+SCHEMA_V14 = """
+ALTER TABLE board_nodes ADD COLUMN data_json TEXT;
+ALTER TABLE board_edges ADD COLUMN to_slot TEXT
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
-              (13, SCHEMA_V13)]
+              (13, SCHEMA_V13), (14, SCHEMA_V14)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}

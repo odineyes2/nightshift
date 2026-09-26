@@ -4071,7 +4071,7 @@ def delete_project_api(project_id: int, request: Request):
     return {"ok": True}
 
 
-BOARD_NODE_KINDS = ("image", "video", "text", "job", "frame")   # frame = 묶음 틀(제목은 text)
+BOARD_NODE_KINDS = ("image", "video", "text", "job", "frame", "gen")   # frame = 묶음 틀(제목은 text), gen = 생성 카드
 BOARD_ACTIVE_JOB_STATUSES = ("pending", "queued", "running")   # 화면이 작업 카드를 계속 새로 받는 상태
 
 
@@ -4209,6 +4209,16 @@ async def create_board_node_api(project_id: int, request: Request):
         if not job_id:
             raise HTTPException(400, "작업 카드는 job_id가 필요해요.")
         job_or_404(user, job_id)   # 자기(admin은 전부) 작업만 — 남의 작업 id를 짐작해 끌어오지 못하게
+    data = None
+    if kind == "gen":
+        try:
+            preset_id = int(body.get("preset_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "생성 카드는 preset_id가 필요해요.")
+        preset = board_presets.get_preset(user["id"], preset_id)
+        if preset is None:
+            raise HTTPException(404, "없는 프리셋이에요.")
+        data = _board_gen_data_from_preset(preset)
     try:
         x = float(body.get("x", 0))
         y = float(body.get("y", 0))
@@ -4217,7 +4227,66 @@ async def create_board_node_api(project_id: int, request: Request):
     except (TypeError, ValueError):
         raise HTTPException(400, "x/y/width/height는 숫자여야 해요.")
     text = str(body.get("text") or "")
-    return board_store.create_node(project_id, kind, asset_path, text, x, y, width, height, job_id=job_id)
+    if kind == "gen":
+        # 카드 크기는 입구·꺼낸 옵션 수에 따라 정한다 — 화면은 만들기 전에는 그 수를 모른다.
+        width = width or 300
+        height = height or _board_gen_height(data)
+    return board_store.create_node(project_id, kind, asset_path, text, x, y, width, height, job_id=job_id, data=data)
+
+
+def _board_gen_height(data: dict) -> float:
+    """생성 카드 기본 높이 — 머리 + 입구 줄 + 꺼낸 옵션 칸(글칸은 더 크게). index.html의 .board-gen-* 크기와 맞춘다."""
+    fields = sum(96 if f.get("type") == "textarea" else 60 for f in data.get("fields", []))
+    return max(120, 52 + 30 * len(data.get("slots", [])) + fields + 14)
+
+
+def _board_gen_data_from_preset(preset: dict) -> dict:
+    """프리셋을 생성 카드 안에 복사할 내용으로 만든다. 입구(slots)와 꺼낸 옵션(fields)의 정의도
+    템플릿에서 떠 둔다 — 카드가 템플릿 파일이나 프리셋 없이도 스스로 그려지고 실행되게."""
+    template = load_templates_map().get(preset["template_id"])
+    if template is None:
+        raise HTTPException(400, "프리셋의 템플릿이 이 서버에 없어요.")
+    opts = {o["name"]: o for o in template.get("options", [])}
+    slots = [{"name": o["name"], "label": o.get("label") or o["name"], "required": o.get("type") == "input_image"}
+             for o in template.get("options", []) if o.get("type") in BOARD_PRESET_SLOT_TYPES]
+    fields = []
+    for name in preset.get("exposed") or []:
+        o = opts.get(name)
+        if o is None or o.get("type") not in BOARD_PRESET_EXPOSABLE:
+            continue
+        f = {"name": name, "label": o.get("label") or name, "type": o["type"]}
+        for key in ("choices", "placeholder", "min", "max", "step"):
+            if key in o:
+                f[key] = o[key]
+        fields.append(f)
+    values = {f["name"]: str(preset["options"].get(f["name"], opts[f["name"]].get("default", "")) or "")
+              for f in fields}
+    return {
+        "preset_id": preset["id"], "preset_name": preset["name"],
+        "template_id": template["id"], "template_label": template.get("label") or template["id"],
+        "workflow": preset.get("workflow"), "video_workflow": preset.get("video_workflow"),
+        "options": preset.get("options") or {}, "lora_trigger": preset.get("lora_trigger") or "",
+        "slots": slots, "fields": fields, "values": values, "runs": [],
+    }
+
+
+def _board_gen_data_or_error(data) -> dict:
+    """되살리기로 들어온 생성 카드 내용 확인 — 카드를 지우기 전에 받아 둔 그대로여야 한다. 모양만
+    확인하고(실행할 때 create_job이 다시 템플릿 기준으로 검증한다), 모르는 템플릿·CSV 템플릿은 거부."""
+    if not isinstance(data, dict):
+        raise HTTPException(400, "생성 카드 내용이 없어요.")
+    template = load_templates_map().get(data.get("template_id"))
+    if template is None or template.get("requires_csv"):
+        raise HTTPException(400, "생성 카드의 템플릿을 쓸 수 없어요.")
+    for key, typ in (("slots", list), ("fields", list), ("values", dict), ("options", dict), ("runs", list)):
+        if not isinstance(data.get(key), typ):
+            raise HTTPException(400, f"생성 카드 내용 형식이 맞지 않아요({key}).")
+    for key in ("workflow", "video_workflow"):
+        if data.get(key) is not None and not isinstance(data[key], dict):
+            raise HTTPException(400, f"생성 카드 내용 형식이 맞지 않아요({key}).")
+    if len(json.dumps(data)) > BOARD_PRESET_MAX_WORKFLOW_BYTES * 2:
+        raise HTTPException(400, "생성 카드 내용이 너무 커요.")
+    return data
 
 
 def _board_asset_path_or_error(user, kind: str, raw) -> str | None:
@@ -4253,6 +4322,20 @@ async def update_board_node_api(project_id: int, node_id: int, request: Request)
         raise HTTPException(400, "x/y/width/height는 숫자여야 해요.")
     if "text" in body:
         fields["text"] = str(body["text"] or "")
+    if "values" in body:
+        # 생성 카드의 꺼낸 옵션 값 — 카드에 꺼내 둔 옵션만, 문자열로. 나머지 내용(프리셋 사본·실행 기록)은 그대로.
+        node = board_store.get_node(project_id, node_id)
+        if node is None or node["kind"] != "gen" or not isinstance(node.get("data"), dict):
+            raise HTTPException(400, "생성 카드가 아니에요.")
+        if not isinstance(body["values"], dict):
+            raise HTTPException(400, "values는 JSON 객체여야 해요.")
+        allowed = {f["name"] for f in node["data"].get("fields", [])}
+        unknown = [k for k in body["values"] if k not in allowed]
+        if unknown:
+            raise HTTPException(400, f"카드에 꺼내지 않은 옵션이에요: {', '.join(unknown)}")
+        data = dict(node["data"])
+        data["values"] = {**data.get("values", {}), **{k: "" if v is None else str(v) for k, v in body["values"].items()}}
+        fields["data"] = data
     node = board_store.update_node(node_id, fields)
     if node is None:
         raise HTTPException(404, "없는 카드예요.")
@@ -4334,6 +4417,7 @@ async def restore_board_api(project_id: int, request: Request):
                 "kind": kind,
                 "asset_path": _board_asset_path_or_error(user, kind, n.get("asset_path")),
                 "job_id": _board_restore_job_id(user, kind, n.get("job_id")),
+                "data": _board_gen_data_or_error(n.get("data")) if kind == "gen" else None,
                 "text": str(n.get("text") or ""),
                 "x": float(n["x"]), "y": float(n["y"]),
                 "width": float(n.get("width") or 220), "height": float(n.get("height") or 220),

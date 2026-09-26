@@ -6,11 +6,18 @@
 project_or_404()로 이미 하므로, 여기서는 project_id로 좁히는 조회/수정만 한다.
 """
 
+import json
+
 import db
 
 
 def _row(r) -> dict:
-    return dict(r)
+    d = dict(r)
+    # 카드 종류별 부가 정보(생성 카드의 프리셋 사본 등)는 JSON으로 풀어 data로 준다.
+    if "data_json" in d:
+        raw = d.pop("data_json")
+        d["data"] = json.loads(raw) if raw else None
+    return d
 
 
 # 카드를 돌려줄 때 그 결과물의 nsfw 표시를 붙인다 — 프론트가 갤러리와 같은 NSFW
@@ -35,18 +42,25 @@ def list_board(project_id: int) -> dict:
 
 
 def create_node(project_id: int, kind: str, asset_path: str | None, text: str,
-                x: float, y: float, width: float | None, height: float | None, job_id: str | None = None) -> dict:
+                x: float, y: float, width: float | None, height: float | None, job_id: str | None = None,
+                data: dict | None = None) -> dict:
     now = db.now_iso()
     with db.connect() as conn:
         cur = conn.execute(
-            "INSERT INTO board_nodes(project_id, kind, asset_path, job_id, text, x, y, width, height, z_index, "
-            "created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-            (project_id, kind, asset_path, job_id, text, x, y,
+            "INSERT INTO board_nodes(project_id, kind, asset_path, job_id, data_json, text, x, y, width, height, z_index, "
+            "created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (project_id, kind, asset_path, job_id, json.dumps(data) if data is not None else None, text, x, y,
              width if width is not None else 220, height if height is not None else 220,
              0, now, now),
         )
         row = _select_node(conn, cur.lastrowid)
     return _row(row)
+
+
+def get_node(project_id: int, node_id: int) -> dict | None:
+    with db.connect() as conn:
+        row = conn.execute(f"{_NODE_SELECT} WHERE n.id=? AND n.project_id=?", (node_id, project_id)).fetchone()
+    return _row(row) if row else None
 
 
 def node_project_id(node_id: int) -> int | None:
@@ -63,6 +77,9 @@ def update_node(node_id: int, fields: dict) -> dict | None:
         if key in fields:
             sets.append(f"{key}=?")
             params.append(fields[key])
+    if "data" in fields:   # 부가 정보는 통째로 바꾼다(합치기는 app.py가 해서 넘긴다)
+        sets.append("data_json=?")
+        params.append(json.dumps(fields["data"]) if fields["data"] is not None else None)
     if not sets:
         with db.connect() as conn:
             row = _select_node(conn, node_id)
@@ -166,17 +183,19 @@ def restore(project_id: int, nodes: list, edges: list) -> dict:
             old = n.get("id")
             free = isinstance(old, int) and conn.execute(
                 "SELECT 1 FROM board_nodes WHERE id=?", (old,)).fetchone() is None
-            cols = (project_id, n["kind"], n.get("asset_path"), n.get("job_id"), n.get("text") or "", n["x"], n["y"],
+            data = n.get("data")
+            cols = (project_id, n["kind"], n.get("asset_path"), n.get("job_id"),
+                    json.dumps(data) if data is not None else None, n.get("text") or "", n["x"], n["y"],
                     n["width"], n["height"], n.get("z_index") or 0, n.get("created_at") or now, now)
             if free:
                 conn.execute(
-                    "INSERT INTO board_nodes(id, project_id, kind, asset_path, job_id, text, x, y, width, height, "
-                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (old, *cols))
+                    "INSERT INTO board_nodes(id, project_id, kind, asset_path, job_id, data_json, text, x, y, width, height, "
+                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (old, *cols))
                 new = old
             else:
                 new = conn.execute(
-                    "INSERT INTO board_nodes(project_id, kind, asset_path, job_id, text, x, y, width, height, "
-                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", cols).lastrowid
+                    "INSERT INTO board_nodes(project_id, kind, asset_path, job_id, data_json, text, x, y, width, height, "
+                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", cols).lastrowid
             if old is not None:
                 id_map[old] = new
             node_ids.append(new)

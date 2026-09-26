@@ -880,6 +880,41 @@
     .board-frame-resize{ width:26px; height:26px; right:-12px; bottom:-12px; }
   }
 
+  /* 생성 카드(gen) — 머리(프리셋 이름·템플릿), 입구 줄(왼쪽 가장자리의 점에 이미지 카드 선을
+     잇는다), 꺼낸 옵션 칸. 높이는 서버 _board_gen_height와 맞춘다(머리 52, 입구 30, 글칸 96, 그 밖 60). */
+  .board-node-gen{ display:flex; flex-direction:column; overflow:visible; border-color:rgba(var(--running-rgb),0.45); }
+  .board-gen-head{
+    flex:none; height:40px; box-sizing:border-box; padding:0 34px 0 12px;
+    display:flex; align-items:center; gap:7px;
+    background:rgba(var(--running-rgb),0.08); border-bottom:1px solid var(--border); border-radius:10px 10px 0 0;
+  }
+  .board-gen-head .ico{ width:15px; height:15px; color:var(--running); flex:none; }
+  .board-gen-name{ font-size:13px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .board-gen-tpl{ font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-left:auto; }
+  .board-gen-slots{ flex:none; padding:6px 0 2px; }
+  .board-gen-slot{ position:relative; height:30px; display:flex; align-items:center; gap:6px; padding:0 12px 0 16px; font-size:12px; }
+  .board-gen-slot-label{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+  .board-gen-slot-label em{ font-style:normal; color:var(--text-dim); }
+  .board-gen-slot-state{ font-size:11px; color:var(--text-dim); white-space:nowrap; }
+  .board-gen-port{
+    position:absolute; left:-7px; top:50%; margin-top:-6px; width:12px; height:12px; box-sizing:border-box;
+    border-radius:50%; background:var(--panel); border:2px solid var(--running);
+  }
+  .board-gen-fields{ flex:1; min-height:0; overflow:hidden; padding:4px 12px 10px; display:flex; flex-direction:column; gap:6px; }
+  /* 오른쪽 연결 점은 카드 바깥 가장자리에 — 안쪽에 두면 입력칸을 가린다(카드가 overflow:visible). */
+  .board-node-gen .board-node-handle{ right:-8px; }
+  @media (pointer:coarse){ .board-node-gen .board-node-handle{ right:-13px; } }
+  .board-gen-field{ display:flex; flex-direction:column; gap:3px; }
+  .board-gen-field-label{ font-size:11px; color:var(--text-dim); }
+  .board-gen-input{
+    width:100%; box-sizing:border-box; font:inherit; font-size:12.5px; color:var(--text);
+    background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:6px 8px;
+    -webkit-user-select:text; user-select:text; cursor:text;
+  }
+  textarea.board-gen-input{ resize:none; height:66px; line-height:1.4; }
+  select.board-gen-input{ cursor:pointer; }
+  .board-gen-input:focus{ outline:2px solid rgba(var(--running-rgb),0.35); outline-offset:-1px; }
+
   /* 작업(Job) 카드 — 안쪽은 전부 표시용이라 포인터를 안 받는다(카드 어디를 잡아도 끌리고,
      톡 누르면 상세 창). 상태 배지는 작업 목록의 .badge를 그대로 쓴다. */
   .board-job-body{
@@ -3631,6 +3666,7 @@
     <button class="load-btn" id="board-add-image-btn" type="button" title="이 프로젝트의 이미지를 카드로 놓기" aria-label="이미지"><svg class="ico"><use href="#i-images"/></svg><span class="btn-label"> 이미지</span></button>
     <button class="load-btn" id="board-add-video-btn" type="button" title="이 프로젝트의 영상을 카드로 놓기" aria-label="영상"><svg class="ico"><use href="#i-clapperboard"/></svg><span class="btn-label"> 영상</span></button>
         <button class="load-btn" id="board-add-job-btn" type="button" title="이 프로젝트의 작업을 카드로 놓기 — 진행 상황과 결과가 카드에 보여요" aria-label="작업"><svg class="ico"><use href="#i-list-checks"/></svg><span class="btn-label"> 작업</span></button>
+    <button class="load-btn" id="board-add-gen-btn" type="button" title="생성 카드 — 보드 프리셋을 꺼내 놓는다. 이미지 카드를 입구에 이어 참조 생성에 쓴다" aria-label="생성"><svg class="ico"><use href="#i-wand-sparkles"/></svg><span class="btn-label"> 생성</span></button>
 <button class="load-btn" id="board-add-text-btn" type="button" title="빈 텍스트 카드 놓기(메모·프롬프트)" aria-label="텍스트"><svg class="ico"><use href="#i-file-text"/></svg><span class="btn-label"> 텍스트</span></button>
     <button class="load-btn" id="board-add-frame-btn" type="button" title="묶음 — 고른 카드를 틀로 감싼다(고른 게 없으면 빈 틀). 틀을 옮기면 안에 든 카드가 같이 움직여요" aria-label="묶음"><svg class="ico"><use href="#i-group"/></svg><span class="btn-label"> 묶음</span></button>
     <span class="board-toolbar-sep"></span>
@@ -11722,7 +11758,7 @@ function initBoardCanvas(){
       if(bgPointers.size){ addBoardPanPointer(e); return; }
     }
     if(dragNode || marquee) return;
-    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-textarea')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸은 드래그 시작 안 함
+    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-textarea, .board-gen-input')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
     const id = Number(nodeEl.dataset.nodeId);
     if(!boardNodes.some(n => n.id === id)) return;
     const selBefore = new Set(boardSelectedIds);   // 핀치로 바뀌면 이걸로 되돌린다
@@ -11956,15 +11992,41 @@ function initBoardCanvas(){
     if(e.key === 'Escape' && e.target.closest('.board-node-textarea')){ e.preventDefault(); e.target.blur(); }
     if(e.key === 'Enter' && e.target.closest('.board-frame-title')){ e.preventDefault(); e.target.blur(); }
   });
+  // 생성 카드의 꺼낸 옵션 — input은 저장 예약, change(칸을 벗어나거나 고르기를 마침)는 바로 저장 +
+  // 되돌리기 기록. focusin에서 고치기 전 값을 기억해 둔다.
+  const genStart = new Map();   // "노드id:옵션이름" -> 고치기 전 값
+  viewport.addEventListener('focusin', (e) => {
+    const el = e.target.closest('.board-gen-input');
+    if(el) genStart.set(`${el.dataset.genNode}:${el.dataset.genField}`, el.value);
+  });
+  viewport.addEventListener('input', (e) => {
+    const el = e.target.closest('.board-gen-input');
+    if(!el) return;
+    const nodeId = Number(el.dataset.genNode);
+    setBoardGenValueLocal(nodeId, el.dataset.genField, el.value);
+    scheduleBoardGenSave(nodeId, el.dataset.genField, el.value);
+  });
+  viewport.addEventListener('change', (e) => {
+    const el = e.target.closest('.board-gen-input');
+    if(!el) return;
+    const nodeId = Number(el.dataset.genNode), name = el.dataset.genField, key = `${nodeId}:${name}`;
+    setBoardGenValueLocal(nodeId, name, el.value);
+    scheduleBoardGenSave(nodeId, name, el.value);
+    flushBoardGenSave(key);
+    const from = genStart.has(key) ? genStart.get(key) : el.value;
+    if(from !== el.value) pushBoardHistory({ type: 'gen-value', id: nodeId, name, from, to: el.value });
+    genStart.set(key, el.value);
+  });
   // 모바일은 앱을 전환하면 탭이 언제든 정리될 수 있다 — 화면이 가려지는 순간 쓰던 글을 보낸다.
   document.addEventListener('visibilitychange', () => {
-    if(document.visibilityState === 'hidden') flushAllBoardTextSaves(true);
+    if(document.visibilityState === 'hidden'){ flushAllBoardTextSaves(true); flushAllBoardGenSaves(true); }
   });
 
   document.getElementById('board-add-text-btn').addEventListener('click', () => createBoardNode('text', null, ''));
   document.getElementById('board-add-image-btn').addEventListener('click', () => openBoardAssetPicker('image'));
   document.getElementById('board-add-video-btn').addEventListener('click', () => openBoardAssetPicker('video'));
   document.getElementById('board-add-job-btn').addEventListener('click', () => openBoardAssetPicker('job'));
+  document.getElementById('board-add-gen-btn').addEventListener('click', () => openBoardAssetPicker('gen'));
   document.getElementById('board-add-frame-btn').addEventListener('click', createBoardFrame);
 
   applyBoardTransform();
@@ -12110,10 +12172,80 @@ async function openBoardJobDetail(nodeId){
   openJobDetailModal(info.job_id);
 }
 
+// ---- 프로젝트 보드 — 생성 카드(kind 'gen') ----
+// 보드 프리셋을 꺼낸 카드. 카드가 프리셋 내용(템플릿·워크플로우·고정 값)과 입구(slots)·꺼낸
+// 옵션(fields) 정의, 꺼낸 옵션의 지금 값(values)을 전부 자기 data에 들고 있어서, 프리셋을 지우거나
+// 고쳐도 이미 놓은 카드는 그대로다(서버 _board_gen_data_from_preset). 입구는 템플릿의 입력 이미지
+// 칸마다 하나 — 이미지 카드에서 선을 이어 채운다. 꺼낸 옵션은 카드 안에서 바로 고친다.
+function boardGenFieldHtml(nodeId, f, value){
+  const attrs = `class="board-gen-input" data-gen-node="${nodeId}" data-gen-field="${escapeHtml(f.name)}"`;
+  const ph = f.placeholder ? ` placeholder="${escapeHtml(f.placeholder)}"` : '';
+  let control;
+  if(f.type === 'textarea'){
+    control = `<textarea ${attrs} rows="3"${ph}>${escapeHtml(value)}</textarea>`;
+  }else if(f.type === 'select'){
+    const choices = (f.choices || []).map(c => typeof c === 'object' && c !== null ? c : { value: c, label: c });
+    control = `<select ${attrs}>` + choices.map(c => `<option value="${escapeHtml(c.value)}"${String(c.value) === String(value) ? ' selected' : ''}>${escapeHtml(c.label ?? c.value)}</option>`).join('') + '</select>';
+  }else{
+    control = `<input type="number" step="any" ${attrs} value="${escapeHtml(value)}"${ph}>`;
+  }
+  return `<label class="board-gen-field"><span class="board-gen-field-label">${escapeHtml(f.label)}</span>${control}</label>`;
+}
+
+function boardGenCardHtml(node, style, delBtn){
+  const d = node.data || {};
+  const slots = (d.slots || []).map(sl => `<div class="board-gen-slot" data-gen-slot="${escapeHtml(sl.name)}">`
+    + `<span class="board-gen-port" title="이미지 카드를 이어 채우는 입구"></span>`
+    + `<span class="board-gen-slot-label">${escapeHtml(sl.label)}${sl.required ? '' : ' <em>(선택)</em>'}</span>`
+    + `<span class="board-gen-slot-state">비어 있음</span></div>`).join('');
+  const fields = (d.fields || []).map(f => boardGenFieldHtml(node.id, f, (d.values || {})[f.name] ?? '')).join('');
+  return `<div class="board-node board-node-gen" data-node-id="${node.id}" style="${style}">`
+    + `<div class="board-gen-head">${ico('wand-sparkles')}<span class="board-gen-name">${escapeHtml(d.preset_name || '생성')}</span>`
+    + `<span class="board-gen-tpl">${escapeHtml(d.template_label || d.template_id || '')}</span></div>`
+    + (slots ? `<div class="board-gen-slots">${slots}</div>` : '')
+    + (fields ? `<div class="board-gen-fields">${fields}</div>` : '')
+    + `${delBtn}</div>`;
+}
+
+// 꺼낸 옵션 값 저장 — 입력하다 멈추면 잠깐 뒤에, 칸을 벗어나면(change) 바로. 칸 하나를 고친 게
+// 되돌리기 한 칸이 된다(글자마다가 아니라). 대기 중인 저장은 카드·옵션마다 하나씩.
+const boardGenPending = new Map();   // "노드id:옵션이름" -> { projectId, nodeId, name, value, timer }
+
+function scheduleBoardGenSave(nodeId, name, value){
+  const key = `${nodeId}:${name}`;
+  const prev = boardGenPending.get(key);
+  if(prev) clearTimeout(prev.timer);
+  boardGenPending.set(key, { projectId: currentProjectId, nodeId, name, value,
+    timer: setTimeout(() => flushBoardGenSave(key), BOARD_TEXT_SAVE_DELAY_MS) });
+}
+
+async function flushBoardGenSave(key, keepalive){
+  const p = boardGenPending.get(key);
+  if(!p) return;
+  clearTimeout(p.timer);
+  boardGenPending.delete(key);
+  if(typeof p.projectId !== 'number') return;
+  if(!await boardApi(p.projectId, 'PATCH', `/nodes/${p.nodeId}`, { values: { [p.name]: p.value } }, keepalive)){
+    flashNotice('카드 옵션을 저장하지 못했어요. 연결을 확인한 뒤 다시 고쳐 주세요.');
+  }
+}
+
+function flushAllBoardGenSaves(keepalive){
+  return Promise.all([...boardGenPending.keys()].map(key => flushBoardGenSave(key, keepalive)));
+}
+
+function setBoardGenValueLocal(nodeId, name, value){
+  const node = boardNodes.find(n => n.id === nodeId);
+  if(node && node.data){ node.data.values = { ...(node.data.values || {}), [name]: value }; }
+  const el = document.querySelector(`#board-world .board-gen-input[data-gen-node="${nodeId}"][data-gen-field="${CSS.escape(name)}"]`);
+  if(el && el.value !== value) el.value = value;
+}
+
 function boardNodeHtml(node){
   const style = `left:${node.x}px; top:${node.y}px; width:${node.width}px; height:${node.height}px;`;
   const delBtn = `<button type="button" class="board-node-del" data-board-del="${node.id}" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg></button>`
     + `<span class="board-node-handle" title="끌어서 다른 카드와 잇기"></span>`;
+  if(node.kind === 'gen') return boardGenCardHtml(node, style, delBtn);
   if(node.kind === 'frame'){
     return `<div class="board-node board-frame" data-node-id="${node.id}" style="${style}">`
       + `<div class="board-frame-bar" title="끌어서 묶음째 옮기기 · 고른 상태에서 한 번 더 누르면 제목 고치기">`
@@ -12248,7 +12380,8 @@ function removeBoardNodesLocal(ids){
 // 되돌리기용으로 카드를 그대로 떠 둔다 — 글칸에 아직 저장 안 된 글이 있으면 그 글로.
 function boardNodeSnapshot(node){
   const ta = document.querySelector(`#board-world .board-node-textarea[data-board-text="${node.id}"]`);
-  return { ...node, text: ta ? ta.value : node.text };
+  // data(생성 카드 내용)는 깊게 복사한다 — 그 뒤에 카드 값을 고쳐도 되돌리기 기록이 같이 바뀌지 않게.
+  return { ...node, text: ta ? ta.value : node.text, data: node.data ? JSON.parse(JSON.stringify(node.data)) : node.data };
 }
 
 // 영상 카드는 화면(과 그 둘레 조금) 안에 들어올 때 처음 src를 붙인다 — 보드에 영상이
@@ -12408,6 +12541,12 @@ async function createBoardNode(kind, assetPath, text, geom){
   const body = { kind, x: center.x - width / 2, y: center.y - height / 2, width, height, text: text || '', ...(geom || {}) };
   if(kind === 'image' || kind === 'video') body.asset_path = assetPath;
   if(kind === 'job') body.job_id = assetPath;   // 고르기 창은 작업 id를 같은 자리로 넘긴다
+  if(kind === 'gen'){
+    // 프리셋 id. 크기는 서버가 입구·꺼낸 옵션 수로 정한다(여기서는 아직 모른다).
+    body.preset_id = Number(assetPath);
+    delete body.width;
+    delete body.height;
+  }
   const res = await boardApi(projectId, 'POST', '/nodes', body);
   if(!res){ flashNotice('카드를 만들지 못했어요. 잠시 뒤 다시 해 주세요.'); return; }
   const node = await res.json();
@@ -12472,7 +12611,9 @@ function flushBoardTextSave(nodeId, text, keepalive){
 }
 
 function flushAllBoardTextSaves(keepalive){
-  return Promise.all([...boardTextPending.entries()].map(([nodeId, p]) => flushBoardTextSave(nodeId, p.text, keepalive)));
+  // 생성 카드의 꺼낸 옵션도 같이 — 보드를 다시 받거나 되돌리기 전에 쓰던 값이 먼저 서버에 가 있게.
+  return Promise.all([...boardTextPending.entries()].map(([nodeId, p]) => flushBoardTextSave(nodeId, p.text, keepalive))
+    .concat([flushAllBoardGenSaves(keepalive)]));
 }
 
 async function saveBoardNodeText(projectId, nodeId, text, keepalive){
@@ -12513,6 +12654,7 @@ async function deleteBoardNodes(nodeIds){
 //   { type: 'text', id, from, to }
 //   { type: 'edge-add', edge } / { type: 'edge-del', edge }
 //   { type: 'resize', id, from: {width, height}, to: {width, height} }   — 묶음 틀 크기
+//   { type: 'gen-value', id, name, from, to }                           — 생성 카드의 꺼낸 옵션 하나
 const BOARD_HISTORY_LIMIT = 100;
 let boardUndoStack = [];
 let boardRedoStack = [];
@@ -12587,7 +12729,7 @@ function remapBoardHistory(extraEntry, nodeMap, edgeMap){
   };
   for(const entry of [...boardUndoStack, ...boardRedoStack, extraEntry]){
     if(entry.items) entry.items.forEach(it => { it.id = n(it.id); });
-    if(entry.type === 'text' || entry.type === 'resize') entry.id = n(entry.id);
+    if(entry.type === 'text' || entry.type === 'resize' || entry.type === 'gen-value') entry.id = n(entry.id);
     if(entry.node) entry.node.id = n(entry.node.id);
     if(entry.nodes) entry.nodes.forEach(nd => { nd.id = n(nd.id); });
     if(entry.edges) entry.edges.forEach(fixEdge);
@@ -12657,6 +12799,11 @@ async function applyBoardHistoryEntry(projectId, entry, dir){
     }
     return restoreBoardItems(projectId, entry, [], [entry.edge]);
   }
+  if(entry.type === 'gen-value'){
+    const value = undo ? entry.from : entry.to;
+    setBoardGenValueLocal(entry.id, entry.name, value);
+    return !!await boardApi(projectId, 'PATCH', `/nodes/${entry.id}`, { values: { [entry.name]: value } });
+  }
   if(entry.type === 'resize'){
     const size = undo ? entry.from : entry.to;
     const node = boardNodes.find(n => n.id === entry.id);
@@ -12698,15 +12845,18 @@ async function openBoardAssetPicker(kind){
   if(typeof currentProjectId !== 'number') return;
   boardPickerKind = kind;
   document.getElementById('board-asset-picker-title').textContent =
-    kind === 'image' ? '이미지 고르기' : kind === 'video' ? '영상 고르기' : '작업 고르기';
+    kind === 'image' ? '이미지 고르기' : kind === 'video' ? '영상 고르기' : kind === 'job' ? '작업 고르기' : '보드 프리셋 고르기';
   const grid = document.getElementById('board-asset-picker-grid');
   const empty = document.getElementById('board-asset-picker-empty');
   grid.innerHTML = '';
-  grid.classList.toggle('jobs', kind === 'job');
-  empty.textContent = kind === 'job' ? '이 프로젝트에 작업이 없어요' : '이 프로젝트에 결과물이 없어요';
+  grid.classList.toggle('jobs', kind === 'job' || kind === 'gen');
+  empty.textContent = kind === 'job' ? '이 프로젝트에 작업이 없어요'
+    : kind === 'gen' ? '저장한 보드 프리셋이 없어요 — 새 작업 창의 "보드 프리셋으로 저장"으로 만들어 주세요.'
+    : '이 프로젝트에 결과물이 없어요';
   empty.style.display = 'none';
   document.getElementById('board-asset-picker-modal').style.display = 'flex';
   if(kind === 'job'){ fillBoardJobPicker(grid, empty); return; }
+  if(kind === 'gen'){ fillBoardGenPicker(grid, empty); return; }
   let items = [];
   try{
     const res = await fetch(kind === 'image' ? '/api/output-images' : '/api/output-videos');
@@ -12753,6 +12903,21 @@ async function fillBoardJobPicker(grid, empty){
       + `<span class="board-picker-job-when">${escapeHtml(when)}</span></button>`;
   }).join('');
 }
+// 보드 프리셋 고르기 — 이름·템플릿·꺼낸 옵션 수를 한 줄씩. 고르면 생성 카드를 놓는다.
+async function fillBoardGenPicker(grid, empty){
+  let items = [];
+  try{
+    const res = await fetch('/api/board-presets');
+    if(res.ok) items = (await res.json()).presets || [];
+  }catch(e){ /* 아래에서 빈 상태로 처리 */ }
+  if(boardPickerKind !== 'gen') return;
+  if(items.length === 0){ empty.style.display = 'block'; return; }
+  grid.innerHTML = items.map(p => `<button type="button" class="board-picker-job" data-pick="${p.id}">`
+    + `<span class="board-picker-job-text"><b>${escapeHtml(p.name)}</b><span>${escapeHtml(p.template_label || p.template_id)}</span></span>`
+    + (p.template_missing ? '<span class="board-picker-job-when">템플릿 없음</span>' : '')
+    + `</button>`).join('');
+}
+
 function closeBoardAssetPicker(){ document.getElementById('board-asset-picker-modal').style.display = 'none'; }
 document.getElementById('board-asset-picker-close').addEventListener('click', closeBoardAssetPicker);
 document.getElementById('board-asset-picker-modal').addEventListener('click', (e) => {
