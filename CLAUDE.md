@@ -6,7 +6,7 @@
 
 - **큰 파일은 통째로 읽지 않는다.** `grep -n`으로 위치를 찾고 필요한 줄만 `Read`(offset/limit)로 읽는다.
   - 화면은 `static/index.html`(마크업) + `static/css/*` + `static/js/*`로 나뉘어 있다. 아래 "화면 파일 지도"로 바로 해당 파일을 연다.
-  - `server/app.py` 약 6,400줄 — FastAPI 라우트·미들웨어·스케줄러.
+  - 서버 본체는 `server/app_parts/*.py`로 나뉘어 있다. 아래 "서버 파일 지도"로 바로 해당 파일을 연다.
   - `README.md` 약 1,300줄 — 사용자 문서. 고칠 때도 해당 절만 찾아서 고친다.
 - **파일을 통째로 다시 쓰지 않는다.** 항상 부분 수정(Edit)만 한다.
 - 같은 파일을 반복해서 다시 읽지 않는다. 이미 읽은 범위는 기억해서 쓴다.
@@ -37,11 +37,30 @@
 - `css/`: `01-base`(`:root` 색 토큰, 다크 모드 `html[data-theme="dark"]`, 공통 레이아웃) · `02-meta` · `03-projects-components`(프로젝트·공용 컴포넌트) · `04-pods` · `05-jobs` · `06-models-db` · `07-video` · `08-danbooru` · `09-csv-editor`
 - 함수가 어느 파일인지 모르면 `grep -n "function 이름" static/js/*.js` 한 번으로 찾는다.
 
-## 서버 구조 (server/)
+## 서버 파일 지도 (server/)
 
-- `app.py` 본체 · `auth.py` 회원/세션 · `pod_registry.py` 파드 목록(`data/pods.json`) · `drivers/` 파드 종류별 드라이버(comfyui/shell/claude_writer)
-- `runpod_api.py` RunPod REST 호출 · `runpod_sync.py` RunPod 파드 자동 등록
-- `mcp_server.py` app.py API를 감싼 MCP 서버(claude.ai 커넥터용). app.py에는 `NIGHTSHIFT_MCP_KEY`로 인증
+- `app.py`는 로더뿐이다: `app_parts/NN-이름.py`를 번호 순서대로 **한 네임스페이스에서 exec**한다. 한 파일이던 때와 동작이 같다(라우트 등록 순서, `jobs`·`lock` 같은 전역을 모두 공유).
+  - 그래서 파트 파일에는 import가 없어도 앞 파일의 이름을 그대로 쓴다. 새 import는 `01-config`에 추가한다.
+  - 파트 파일을 따로 `import`하거나 실행하지 않는다. 새 파일은 번호로 순서를 정한다(라우트는 먼저 등록된 것이 이긴다 — 정적 파일 마운트는 반드시 마지막).
+- `app_parts/` (~100~730줄씩)
+  - `01-config` import·경로·환경변수 상수·최근 파일 저장소·Danbooru/LoRA 트리거 저장·`jobs`/`lock`
+  - `02-pod-runtime-comfy` 상태 저장/복원 `save_state`·템플릿 목록·ComfyUI 연결 확인·`PodRuntime`·object_info/모델 목록 조회
+  - `03-enhance` 프롬프트 개선(Text Enhance)·작업 정지·ComfyUI 대기
+  - `04-scheduler-app` 대기 큐 스케줄러 `schedule_once`/`job_missing_on_pod`·`dispatch_job`·워커·RunPod 동기화·`lifespan`·`app = FastAPI(...)`
+  - `05-auth` 인증 미들웨어 `authenticate_request`·MCP 키·`me`/`admin_only`·파드 접근 범위·`/api/auth/*`
+  - `06-admin-comfy-status` 회원 관리 `/api/admin/*`·ComfyUI 상태/주소
+  - `07-pods` 파드 API `/api/pods*`·파드 카드·RunPod 켜기/끄기·모델 사용 현황
+  - `08-models-inputs` 모델 받기 `/api/models*`·입력 이미지/영상/오디오
+  - `09-workflows` 모델 계열·워크플로우 유형/프리셋·`build-workflow`/`validate-workflow`·`enhance-prompt`·에셋
+  - `10-job-submit` 참조 노드 검사·최근 워크플로우/CSV·작업 생성 `create_job`(`/api/upload`, `POST /api/jobs`)
+  - `11-projects-board` 프로젝트·보드 프리셋·보드(카드·선·생성 카드 실행)
+  - `12-output-assets` 작업의 프로젝트 이동·결과물 메타(`/api/output-assets*`)·태그
+  - `13-jobs-api` 큐 시작/정지·작업 목록/로그/진행 보고·start/pause/fetch-missing/stop/move/삭제
+  - `14-output-images` 메일 보내기·결과 이미지 목록/썸네일/회전/다운로드/삭제·ComfyUI 결과 동기화
+  - `15-videos-share` 결과 영상·영상 편집·OpenCut 공유
+  - `16-danbooru-static` Danbooru 태그/기록·`/js/bundle.js`·`/css/bundle.css`·정적 파일 마운트
+- 함수가 어느 파일인지 모르면 `grep -n "def 이름\|\"/api/경로" server/app_parts/*.py` 한 번으로 찾는다.
+- 그 밖의 모듈: `auth.py` 회원/세션 · `pod_registry.py` 파드 목록(`data/pods.json`) · `drivers/` 파드 종류별 드라이버(comfyui/shell/claude_writer) · `runpod_api.py` RunPod REST 호출 · `runpod_sync.py` RunPod 파드 자동 등록 · `mcp_server.py` app.py API를 감싼 MCP 서버(claude.ai 커넥터용, app.py에는 `NIGHTSHIFT_MCP_KEY`로 인증)
 - `templates/` 작업 실행 스크립트 + `manifest.json`
 
 ## git 규칙
