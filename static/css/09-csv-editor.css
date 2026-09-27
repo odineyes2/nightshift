@@ -1,0 +1,148 @@
+  /* ---- CSV 편집 모달 (표 편집기) ---- */
+  .csv-editor-toolbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .csv-editor-hint{ font-size:11.5px; color:var(--text-dim); }
+  .csv-editor-table-wrap{
+    overflow-x:auto;
+    max-height:50vh;
+    overflow-y:auto;
+    border:1px solid var(--border);
+    border-radius:8px;
+  }
+  .csv-editor-table{
+    border-collapse:collapse;
+    width:100%;
+  }
+  .csv-editor-table th,
+  .csv-editor-table td{
+    border-bottom:1px solid var(--border);
+    border-right:1px solid var(--border);
+  }
+  .csv-editor-table th:last-child,
+  .csv-editor-table td:last-child{ border-right:none; }
+  .csv-editor-table th{
+    position:sticky;
+    top:0;
+    z-index:1;
+    background:rgba(var(--queued-rgb),0.07);
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    color:var(--text);
+    padding:8px 10px;
+    text-align:left;
+    white-space:nowrap;
+  }
+  .csv-col-required{ color:var(--failed); margin-left:3px; }
+  .csv-editor-table td{ padding:0; }
+  .csv-editor-table td input{
+    display:block;
+    width:100%;
+    min-width:150px;
+    box-sizing:border-box;
+    border:none;
+    background:transparent;
+    padding:7px 10px;
+    font-family:var(--sans);
+    font-size:12.5px;
+    color:var(--text);
+  }
+  .csv-editor-table td input:focus{
+    outline:2px solid rgba(var(--queued-rgb),0.35);
+    outline-offset:-2px;
+    background:rgba(var(--queued-rgb),0.04);
+  }
+  .csv-editor-row-actions{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0 6px !important;
+  }
+  .csv-editor-del-btn{
+    border:none;
+    background:none;
+    color:var(--text-dim);
+    cursor:pointer;
+    font-size:16px;
+    line-height:1;
+    padding:6px;
+  }
+  .csv-editor-del-btn:hover{ color:var(--failed); }
+  .modal-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:16px 20px;
+    border-bottom:1px solid var(--border);
+  }
+  .modal-title{
+    font-family:var(--mono);
+    font-size:12px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:var(--track-label);
+    color:var(--text);
+  }
+  .modal-close{
+    background:none;
+    border:none;
+    cursor:pointer;
+    color:var(--text-dim);
+    font-size:20px;
+    line-height:1;
+    padding:4px;
+  }
+  .modal-close:hover{ color:var(--text); }
+  .modal-body{
+    padding:16px 20px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    overflow:auto;
+  }
+  .workflow-textarea{
+    width:100%;
+    min-height:380px;
+    resize:vertical;
+    font-family:var(--mono);
+    font-size:12.5px;
+    line-height:1.5;
+    color:var(--text);
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:12px;
+    tab-size:2;
+  }
+  .workflow-textarea:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
+  .workflow-textarea.invalid{ border-color:var(--failed); }
+  .workflow-error{
+    color:var(--failed);
+    font-family:var(--mono);
+    font-size:12px;
+    min-height:1.2em;
+  }
+  .modal-footer{
+    display:flex;
+    justify-content:flex-end;
+    gap:var(--gap-md);
+    padding:14px 20px;
+    border-top:1px solid var(--border);
+  }
+  .modal-btn-secondary{
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text-dim);
+    border-radius:var(--radius-sm);
+    padding:8px 16px;
+    font-family:var(--mono);
+    font-weight:600;
+    font-size:12.5px;
+    cursor:pointer;
+    transition: border-color .15s ease, color .15s ease;
+  }
+  .modal-btn-secondary:hover{ border-color:var(--text-dim); color:var(--text); }

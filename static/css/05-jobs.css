@@ -1,0 +1,310 @@
+  /* ---- JOBS 탭 — Job Queue 카드 보드. 대기/실행/완료/실패 4섹션으로 나눠서 보여준다
+     (render()가 채움). 섹션은 갤러리 작업별/날짜별 보기(.gallery-group)와 같은
+     "소제목 + 전용 grid" 패턴을 따른다. 카드가 비동기(폴링)로 채워지므로 .card-canvas와
+     같은 이유로 모바일에서는 grid 대신 flex-column으로 전환한다.
+     카드는 정사각형 — 최소 정보(종류 아이콘+배치 방식, 베이스 모델, 진행률, 시작/정지/
+     삭제 아이콘 버튼)만 보이고 나머지(소유자/파드/프로젝트/워크플로우 파일명/시간·옵션
+     상세/로그)는 전부 상세 모달(job-detail-*)에서만 보여준다. ---- */
+  /* 4단계(대기/실행/완료/실패)를 칸반처럼 좌→우로 나란히 둔다 — 칸이 좁아지면
+     .job-board-grid의 auto-fill이 자연히 칸 하나짜리 세로 목록으로 줄어든다. */
+  .job-board{ display:flex; flex-direction:row; align-items:flex-start; gap:16px; overflow-x:auto; }
+  .job-section{ flex:1 1 0; min-width:220px; display:flex; flex-direction:column; }
+  .job-section-header{
+    display:flex; align-items:center; gap:8px;
+    font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--text-dim);
+    padding:6px 2px; margin-bottom:8px; border-bottom:1px solid var(--border);
+  }
+  .job-section-count{ color:var(--text); }
+  .job-section-empty{
+    font-size:12px; color:var(--text-dim); text-align:center;
+    padding:18px 4px; border:1px dashed var(--border); border-radius:10px;
+  }
+  .job-board-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));
+    gap:10px;
+  }
+  @media (max-width:900px){
+    .job-board{ flex-direction:column; overflow-x:visible; }
+    .job-section{ min-width:0; }
+  }
+  @media (max-width:640px){
+    .job-board-grid{ grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); }
+  }
+  .job-card{
+    position:relative;
+    aspect-ratio:2;
+    display:flex; flex-direction:column; justify-content:space-between; gap:4px;
+    padding:8px;
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    border-left-width:3px; border-left-style:solid;
+    cursor:pointer;
+    transition:border-color .12s ease, background .12s ease;
+    -webkit-touch-callout:none;
+  }
+  /* 대기 칸 맨 끝 "+" 카드 — 잡 카드와 같은 크기·모서리를 쓰되 점선 테두리로
+     "아직 잡이 아니다"를 드러낸다. 눌러서 openNewJobModal(). */
+  .job-card-add{
+    aspect-ratio:2;
+    display:flex; align-items:center; justify-content:center;
+    background:none; border:1.5px dashed var(--border); border-radius:10px;
+    color:var(--text-dim); cursor:pointer;
+    transition:border-color .12s ease, color .12s ease, background .12s ease;
+  }
+  .job-card-add:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.04); }
+  .job-card-add .ico{ width:20px; height:20px; }
+  @media (hover:none){ .job-card{ -webkit-user-select:none; user-select:none; } }
+  .job-card:hover{ border-color:var(--queued); background:rgba(var(--queued-rgb),0.04); }
+  .job-card[data-status="pending"], .job-card[data-status="queued"]{ border-left-color:var(--queued); }
+  .job-card[data-status="running"]{ border-left-color:var(--running); }
+  .job-card[data-status="done"]{ border-left-color:var(--done); }
+  .job-card[data-status="failed"]{ border-left-color:var(--failed); }
+  .job-card[data-status="interrupted"]{ border-left-color:var(--interrupted); }
+  /* 일시정지(pending) — 대기열에 있지만 빈 파드가 있어도 시작하지 않는다. 회색 카드로 가라앉히고
+     ▶ 버튼만 또렷하게 둔다. 실행 대기(queued)는 보통 카드에 ⏸. */
+  .job-card[data-status="pending"]{ background:var(--bg); border-left-color:var(--text-dim); border-style:dashed; border-left-style:solid; }
+  .job-card[data-status="pending"] > :not(.job-card-actions){ opacity:.5; filter:grayscale(1); }
+  .job-card[data-status="pending"] .start-btn{ color:var(--done); }
+  .job-card .pause-btn{ color:var(--queued); }
+  .job-card-actions .start-btn .ico, .job-card-actions .pause-btn .ico{ width:16px; height:16px; }
+  /* 카드 안에서만 쓰는 위치 지정 — 배지 자체 모양(.pod-badge/.preflight-badge)은
+     기존 걸 그대로 재사용해서 모델탭 등과 스타일이 갈라지지 않게 한다. */
+  .job-card .preflight-badge{ position:absolute; top:8px; right:8px; }
+  .job-card-title{
+    display:flex; align-items:center; gap:6px;
+    font-family:var(--mono); font-size:12px; color:var(--text);
+    padding-right:22px; overflow:hidden;
+  }
+  .job-card-title .ico{ width:14px; height:14px; flex:none; color:var(--text-dim); }
+  .job-card-title span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* 실행 대기(queued)인데 파드를 못 찾은 이유 — 스케줄러가 적어 둔 waiting_reason. 한 줄로 줄이고 전체는 툴팁·상세 창에. */
+  .model-pods-badge{ display:inline-flex; align-items:center; gap:3px; margin-left:8px; font-size:10.5px; font-family:var(--sans); vertical-align:middle; }
+  .model-pods-badge .ico{ width:12px; height:12px; }
+  .model-pods-badge.ok{ color:var(--done); }
+  .model-pods-badge.warn{ color:#EA580C; }
+  .job-card[data-blocked]{ border-left-color:#EA580C; background:rgba(234,88,12,0.05); }
+  .job-card[data-blocked] .job-card-wait{ color:#EA580C; }
+  .job-card .fetch-models-btn{ color:#EA580C; }
+  .job-card-wait.fetching{ color:var(--queued); }
+  .job-card-wait{ display:flex; align-items:center; gap:4px; margin-top:2px; font-size:10.5px; color:var(--running); min-width:0; }
+  .job-card-wait .ico{ width:12px; height:12px; flex:none; }
+  .job-card-wait span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .job-card-base{ font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .job-card-actions{ display:flex; gap:2px; justify-content:flex-end; }
+  /* 경과 시간은 버튼 줄 왼쪽 끝 — 버튼들은 그대로 오른쪽에 붙는다. */
+  .job-card-elapsed{ margin-right:auto; align-self:center; display:inline-flex; align-items:center; gap:3px;
+                     font-family:var(--mono); font-size:11px; color:var(--text-dim); font-variant-numeric:tabular-nums; }
+  .job-card-elapsed .ico{ width:12px; height:12px; }
+  .job-card-elapsed.running{ color:var(--running); }
+  /* 카드 안에서는 아이콘 자체가 버튼 — .del-btn/.start-btn/.stop-btn을 감싸던 사각
+     테두리·배경을 없애고, hover 시 색만(기존 색 규칙 그대로) 살짝 배경으로 드러낸다. */
+  .job-card-actions button{
+    flex:none; display:flex; align-items:center; justify-content:center;
+    width:22px; height:22px; padding:0;
+    background:none; border:none; border-radius:var(--radius-sm);
+  }
+  .job-detail-actions{ display:flex; flex-wrap:wrap; gap:8px; }
+  .job-detail-grid{ display:flex; flex-direction:column; gap:10px; }
+  .job-detail-preflight{ font-size:12px; color:var(--text-dim); line-height:1.6; white-space:pre-line; }
+  .job-detail-prompt{ font-size:13px; color:var(--text); line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+  /* 상세 모달의 생성물 섹션 — 작게 썸네일+파일명, 누르면 그 갤러리 항목으로 이동
+     (openGalleryForJobOutput). */
+  .job-detail-outputs{ display:flex; flex-wrap:wrap; gap:8px; }
+  .job-detail-output{
+    display:flex; flex-direction:column; gap:3px; align-items:center;
+    width:64px; background:none; border:none; padding:0; cursor:pointer;
+  }
+  .job-detail-output-thumb{
+    width:64px; height:64px; border-radius:6px; border:1px solid var(--border);
+    object-fit:cover; background:#000;
+  }
+  .job-detail-output-name{
+    width:100%; font-size:9.5px; color:var(--text-dim); text-align:center;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  /* 로그는 기본 접힘 — <details>는 요소를 다시 안 만들고 display만 바꾸므로, 안의
+     <pre id="job-detail-log">가 절대 재생성되지 않아야 한다는 규칙(위 HTML 주석)과
+     충돌하지 않는다. */
+  .job-detail-log-details summary{ cursor:pointer; font-size:11px; color:var(--text-dim); font-family:var(--mono); }
+
+  /* Claude 글쓰기 파드의 "📝 결과" 탭 — 이미지가 아니라 글이라 갤러리(썸네일 격자)
+     대신 이 목록을 쓴다. 행을 누르면 그 자리에서 펼쳐지고(별도 라이트박스 없음),
+     펼친 순간에만 서버에서 전문을 받아온다(resultTextCache로 재요청 방지). */
+  .results-list{ display:flex; flex-direction:column; gap:6px; }
+  .result-row{
+    border:1px solid var(--border); border-radius:8px; padding:8px 12px;
+    cursor:pointer; background:var(--panel);
+  }
+  .result-row:hover{ border-color:var(--queued); }
+  .result-row.open{ cursor:default; }
+  .result-row-head{ display:flex; align-items:center; gap:10px; }
+  .result-prompt{
+    flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    font-size:13px; color:var(--text);
+  }
+  .result-time{ flex:none; font-size:11px; color:var(--text-dim); font-family:var(--mono); }
+  .result-full{
+    margin-top:8px; padding-top:8px; border-top:1px solid var(--border);
+    font-size:13px; line-height:1.6; color:var(--text); white-space:pre-wrap;
+    cursor:text;
+  }
+
+  /* 작업이 어느 파드(워커)에서 도는지 — 파드가 둘 이상일 때만 나타난다. */
+  .pod-badge{
+    display:inline-flex; align-items:center;
+    padding:1px 6px; margin-right:4px;
+    border:1px solid var(--border); border-radius:4px;
+    font-family:var(--mono); font-size:10.5px; color:var(--text-dim);
+    white-space:nowrap;
+  }
+  .badge.waiting{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.12); }
+  .video-edit-panel{ max-width:560px; width:calc(100vw - 24px); }
+  .ve-list{ display:flex; flex-direction:column; gap:6px; max-height:46vh; overflow:auto; }
+  .ve-row{ display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--border); border-radius:var(--radius-sm); }
+  .ve-idx{ flex:0 0 18px; font-family:var(--mono); font-size:11px; color:var(--text-dim); text-align:center; }
+  .ve-thumb{ flex:0 0 52px; width:52px; height:36px; object-fit:cover; border-radius:4px; background:#000; }
+  .ve-name{ flex:1 1 auto; min-width:0; font-family:var(--mono); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ve-video{ width:100%; max-height:42vh; background:#000; border-radius:var(--radius-sm); }
+  .ve-trim-row{ display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .ve-trim-row .field-label{ display:flex; flex-direction:column; gap:4px; flex:1 1 120px; }
+  .job-wait-reason{ font-size:11px; color:var(--text-dim); margin-top:4px; max-width:420px; white-space:normal; line-height:1.4; }
+  .badge.waiting .bdot{ animation: pulse-run 1.6s infinite; }
+  .badge .bdot{ width:5px; height:5px; border-radius:50%; background:currentColor; }
+  .badge.running .bdot{ animation: pulse-run 1.2s infinite; }
+  @keyframes pulse-run{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+
+  .progress-wrap{ display:flex; align-items:center; gap:6px; margin-top:5px; }
+  .progress-track{ width:64px; height:4px; border-radius:2px; background:var(--border); overflow:hidden; flex-shrink:0; }
+  .progress-fill{ height:100%; border-radius:2px; transition:width .3s ease; }
+  .progress-fill.pending{ background:var(--queued); }
+  .progress-fill.queued{ background:var(--queued); }
+  .progress-fill.running{ background:var(--running); }
+  .progress-fill.done{ background:var(--done); }
+  .progress-fill.failed{ background:var(--failed); }
+  .progress-fill.interrupted{ background:var(--interrupted); }
+  .progress-text{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim); white-space:nowrap; }
+
+  .time-cell{ color:var(--text-dim); font-family:var(--mono); font-size:12px; white-space:nowrap; }
+  .time-cell.dim{ color:var(--border); }
+
+  @container (max-width:760px){
+    .time-s{ display:none; }
+  }
+
+  .empty{
+    text-align:center;
+    padding:40px 0;
+    color:var(--text-dim);
+    font-size:13px;
+  }
+
+  .log-toolbar{ display:flex; justify-content:flex-end; padding:8px 16px 0; }
+  pre.log{
+    margin:0;
+    padding:16px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    line-height:1.5;
+    color:var(--log-text);
+    white-space:pre-wrap;
+    word-break:break-all;
+    max-height:320px;
+    overflow-y:auto;
+  }
+  /* "고스트" 버튼 계열 — 흰 배경 + 테두리로 있는 듯 없는 듯 있다가, hover 시에만
+     자기 역할에 맞는 색(삭제=빨강, 수정/불러오기=파랑, 취소=중립)을 드러낸다.
+     작업 카드(.job-card-actions)나 상세 모달(.job-detail-actions)처럼 여러 개가
+     한 줄에 붙어도 크기·간격이 흔들리지 않도록 같은 padding/font-size/radius를
+     공유한다. */
+  .del-btn,
+  .edit-btn,
+  .load-btn,
+  .start-btn,
+  .pause-btn,
+  .stop-btn{
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text-dim);
+    border-radius:var(--radius-sm);
+    font-family:var(--mono);
+    font-weight:600;
+    font-size:11px;
+    padding:4px 10px;
+    cursor:pointer;
+    white-space:nowrap;
+    transition: border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .del-btn:hover{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
+  .del-btn:disabled{ opacity:0.45; cursor:not-allowed; }
+  .del-btn:disabled:hover{ border-color:var(--border); color:var(--text-dim); background:var(--panel); }
+  .edit-btn:hover,
+  .load-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
+  /* 대기/정지/실패 작업을 (다시) 큐에 올리는 "시작" 버튼 — done(초록) 계열로,
+     삭제(빨강)/수정·불러오기(파랑)와 구분되게 한다. */
+  .start-btn:hover{ border-color:var(--done); color:var(--done); background:rgba(var(--done-rgb),0.06); }
+  /* 진행 중인 작업 하나만 멈추는 "정지" 버튼 — running(주황/노랑) 계열로 구분. */
+  .pause-btn:hover{ border-color:var(--text-dim); color:var(--text); }
+  .stop-btn:hover{ border-color:var(--running); color:var(--running); background:rgba(var(--running-rgb),0.06); }
+  .load-notice{ font-size:12.5px; font-family:var(--mono); min-height:1em; white-space:pre-line; color:var(--text-dim); }
+  /* 업로드한 워크플로우가 지금 연결된 ComfyUI에서 돌아갈 수 있는지 검사한 결과 —
+     통과(초록)/문제 있음(주황)/확인 못 함(회색) 세 가지 톤을 쓴다. */
+  .workflow-check{
+    margin-top:8px;
+    padding:8px 10px;
+    border:1px solid var(--border);
+    border-left-width:3px;
+    border-radius:var(--radius-sm);
+    font-family:var(--mono);
+    font-size:11.5px;
+    line-height:1.6;
+    color:var(--text-dim);
+    white-space:pre-line;
+  }
+  .workflow-check.ok{ border-left-color:var(--done); color:var(--done); }
+  .workflow-check.warn{ border-left-color:var(--failed); color:var(--failed); }
+  .workflow-check.unknown{ border-left-color:var(--border); }
+  .comfy-model-empty{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
+  .model-list-loading{
+    display:flex; align-items:center; gap:8px;
+    padding:20px 4px;
+    font-family:var(--mono); font-size:11.5px; color:var(--text-dim);
+  }
+  .model-list-loading .btn-spinner{ width:14px; height:14px; }
+
+  /* "LoRA" 탭 — 설치된 LoRA마다 트리거 워드를 입력하는 줄. 목록 칸이 좁으면
+     이름도 입력칸도 제대로 안 보이는 문제가 있어서, 탭 하나를 통째로 써서
+     넉넉하게 보여준다. */
+  .lora-tab-list{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  /* LoRA 행의 호환 family 체크박스들 — 트리거 입력칸 오른쪽에 칩 형태로 늘어놓는다. */
+
+  .model-badge{
+    font-family:var(--mono); font-size:11px; color:var(--text-dim); border:1px solid var(--border);
+    border-radius:999px; padding:1px 8px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .preflight-badge{ color:var(--failed); border-color:var(--failed); }
+  .inv-off{ opacity:.55; font-size:11px; }
+  .inv-cell.yes{ color:var(--done); }
+  .inv-cell.no{ color:var(--failed); }
+  .inv-cell.off{ color:var(--text-dim); }
+  .model-usage{ display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+  .model-usage-stats{ font-family:var(--mono); font-size:12px; color:var(--text-dim); }
+  .model-samples{ display:flex; flex-wrap:wrap; gap:6px; }
+  .model-sample{ width:72px; height:72px; object-fit:cover; border-radius:6px; border:1px solid var(--border); background:var(--bg); }
+  .model-usage-actions{ display:flex; flex-wrap:wrap; gap:6px; }
+  .gf-model-chip{ font-family:var(--mono); font-size:11px; border:1px solid var(--queued); border-radius:999px; padding:3px 10px;
+    max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dl-row{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
+  .dl-row .option-input{ flex:1 1 260px; max-width:none; }
+  .dl-meta{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); word-break:break-word; }
+  /* 복사(.model-link)/열기(.model-link-open) 둘 다 .icon-btn.icon-btn-neutral로 그려진다 —
+     여기서는 라벨과의 간격만 맞춘다. */
+  .model-link, .model-link-open{ margin-left:6px; }
+  .model-pod-row{ display:flex; align-items:center; gap:10px; padding:4px 0; font-size:12.5px; }
+  .model-pod-row{ flex-wrap:wrap; }
+  .model-pod-row .inv-cell, .model-pod-row .inv-off{ white-space:nowrap; }
+  .model-pod-name{ min-width:120px; font-family:var(--mono); }
+  .model-editor{ display:grid; gap:10px 16px; padding:8px 12px 14px 62px; border-top:1px solid var(--border); }

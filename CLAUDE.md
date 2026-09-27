@@ -5,21 +5,37 @@
 ## 토큰 절약 (가장 중요)
 
 - **큰 파일은 통째로 읽지 않는다.** `grep -n`으로 위치를 찾고 필요한 줄만 `Read`(offset/limit)로 읽는다.
-  - `static/index.html` 약 13,000줄 / 670KB — 화면 전체(CSS·마크업·JS)가 한 파일이다.
-  - `server/app.py` 약 5,600줄 — FastAPI 라우트·미들웨어·스케줄러.
+  - 화면은 `static/index.html`(마크업) + `static/css/*` + `static/js/*`로 나뉘어 있다. 아래 "화면 파일 지도"로 바로 해당 파일을 연다.
+  - `server/app.py` 약 6,400줄 — FastAPI 라우트·미들웨어·스케줄러.
   - `README.md` 약 1,300줄 — 사용자 문서. 고칠 때도 해당 절만 찾아서 고친다.
-- **파일을 통째로 다시 쓰지 않는다.** 항상 부분 수정(Edit)만 한다. 특히 `index.html`.
+- **파일을 통째로 다시 쓰지 않는다.** 항상 부분 수정(Edit)만 한다.
 - 같은 파일을 반복해서 다시 읽지 않는다. 이미 읽은 범위는 기억해서 쓴다.
 - 탐색은 좁게 시작한다. "어디서 X를 하나"는 `grep -n "키워드"` 한 번으로 먼저 찾는다.
 
-## index.html 길찾기
+## 화면 파일 지도 (static/)
 
-- 1~2670행: `<style>` CSS (`:root` 색 토큰, 다크 모드는 `html[data-theme="dark"]`)
-- 2700행대: SVG 아이콘 스프라이트(`<symbol id="i-이름">`, 사용은 `<svg class="ico"><use href="#i-이름"/></svg>`)
-- 2735~3940행: `<body>` 마크업(탭 패널, 모달)
-- 3940행~끝: 메인 `<script>`
-- 자주 찾는 곳: 파드 카드 `renderPodCard`, 파드 스코프 바 `renderPodBar`/`updatePodBarStatus`, 탭 전환 `showTab`, 작업 목록 `fetchJobs`
-- 줄 번호는 바뀌니 위 이름으로 `grep -n` 해서 찾는다.
+- `index.html` (~1,400줄): 마크업만. `<head>`의 작은 인라인 스크립트 2개, SVG 아이콘 스프라이트(`<symbol id="i-이름">`, 사용은 `<svg class="ico"><use href="#i-이름"/></svg>`), 탭 패널·모달.
+- JS/CSS는 기능별 파일로 나뉘어 있고, **서버가 번호 순서대로 이어 붙여 `/js/bundle.js`, `/css/bundle.css` 한 덩어리로 보낸다**(`app.py`의 `_bundle`). 그래서 파일끼리 전역 변수·함수를 자유롭게 공유한다. 빌드 과정 없음.
+  - 새 파일을 추가하면 번호로 순서를 정한다. 파일 이름을 바꿔도 index.html은 고칠 필요 없다.
+- `js/` (~500~1,100줄씩)
+  - `01-core-jobs` 공용 유틸(`escapeHtml`, `fmt*`)·파드 목록 `fetchPods`·작업 목록 `fetchJobs`·작업 카드·작업 상세 `openJobDetailModal`
+  - `02-job-move-newjob-form` 작업 파드 이동·로그, 새 작업 폼(템플릿 옵션 `populateSelectOptions`, 에셋 `fetchAssets`)
+  - `03-newjob-refs-inputs` 참조 슬롯·입력 이미지/영상/오디오 컨트롤
+  - `04-newjob-tools` 최근 워크플로우 선택·CSV 편집기·ComfyUI 상태
+  - `05-models` 모델 탭(등록부·설치 현황·LoRA 트리거 `rebuildLoraTriggersFromRegistry`)
+  - `06-wizard` 마법사(계열·유형·LoRA·배치 모달, 워크플로우 검사)
+  - `07-account-db` 테마·NSFW·로그인·회원 관리·DB 탭
+  - `08-pods` 파드 카드 `renderPodCard`·RunPod 켜기/끄기 `runpodPower`·파드 편집 `openPodEditModal`
+  - `09-routing-results` 탭 전환 `showTab`·해시 라우팅 `applyHashRoute`·파드 스코프 바 `renderPodBar`/`updatePodBarStatus`·결과 목록
+  - `10-gallery-meta` 갤러리 필터·즐겨찾기/NSFW/별점/태그 일괄 변경
+  - `11-projects` 프로젝트·홈 대시보드 `renderHome`·프로젝트 바
+  - `12-board` 프로젝트 보드(캔버스·선택·작업 카드) / `13-board-gen` 보드 생성 카드
+  - `14-projects-form` 프로젝트 생성/이동 모달
+  - `15-gallery` 갤러리 툴바·삭제/다운로드/회전·라이트박스 `openLightbox`
+  - `16-video` 영상 갤러리·영상 편집(`ve*`)·공유/OpenCut
+  - `17-danbooru` Danbooru 탭 / `18-init` Danbooru 모달 나머지 + 페이지 초기화·폴링 시작(반드시 마지막)
+- `css/`: `01-base`(`:root` 색 토큰, 다크 모드 `html[data-theme="dark"]`, 공통 레이아웃) · `02-meta` · `03-projects-components`(프로젝트·공용 컴포넌트) · `04-pods` · `05-jobs` · `06-models-db` · `07-video` · `08-danbooru` · `09-csv-editor`
+- 함수가 어느 파일인지 모르면 `grep -n "function 이름" static/js/*.js` 한 번으로 찾는다.
 
 ## 서버 구조 (server/)
 

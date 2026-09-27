@@ -1,0 +1,127 @@
+  /* ---- 대시보드 (파드 카드 캔버스) ---------------------------------------- */
+  .dash-totals{
+    display:flex; flex-wrap:wrap; gap:18px;
+    padding:14px 18px; margin-bottom:12px;
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+  }
+  .dash-total{ display:flex; flex-direction:column; gap:2px; }
+  .dash-total-label{ font-size:11px; color:var(--text-dim); }
+  .dash-total-value{ font-family:var(--mono); font-size:19px; color:var(--text); }
+  .dash-total-value.dim{ color:var(--text-dim); }
+  .dash-actions{ display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+
+  /* 카드마다 원하는 폭을 정할 수 있게 열 개수 기반 그리드를 쓴다(카드가 span으로 차지). */
+  .card-canvas{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));
+    gap:12px;
+  }
+  /* 폰 화면에서는 grid의 auto-fill 열 계산을 아예 안 쓴다 — 카드가 비동기로
+     나중에 채워지는데(fetchDashboard), 실제 기기 일부에서 grid-template-columns가
+     그 시점의 열 개수를 다시 안 맞추고 예전 값을 들고 있는 문제가 있었다. flex
+     column은 그런 재계산 여지 자체가 없어 카드가 항상 한 장씩 세로로 쌓인다. */
+  @media (max-width:640px){
+    .card-canvas{ display:flex; flex-direction:column; }
+  }
+  .dash-card{
+    display:flex; flex-direction:column; gap:10px;
+    padding:14px 16px;
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+  }
+  .dash-card[data-span="2"]{ grid-column:span 2; }
+  /* 카드 전체가 클릭 영역이다 — 눌러도 되는 곳이라는 걸 커서와 미묘한 hover로
+     알려준다. 안쪽 버튼(⚙/▶ 시작/⏸ 정지)은 자기 cursor:pointer가 그대로 이기므로
+     구분엔 문제없다. */
+  .dash-card-clickable{ cursor:pointer; transition:border-color .12s ease, background .12s ease; }
+  .dash-card-clickable:hover{ border-color:var(--queued); background:rgba(var(--queued-rgb),0.04); }
+  /* 길게 눌러 삭제 — 누르는 동안 카드가 붉게 물들며 살짝 눌린다. 터치에서는 길게 눌러도 글자 선택·확대 메뉴가 뜨지 않게 한다. */
+  .dash-card[data-card-type="pod"]{ -webkit-touch-callout:none; }
+  @media (hover:none){ .dash-card[data-card-type="pod"]{ -webkit-user-select:none; user-select:none; } }
+  .dash-card.pod-pressing{
+    border-color:var(--failed); background:rgba(var(--failed-rgb),0.07); transform:scale(0.985);
+    transition:transform .38s ease, border-color .2s ease, background .2s ease;
+  }
+  .dash-longpress-hint{ display:none; font-size:11.5px; color:var(--text-dim); margin:-6px 0 12px; }
+  @media (hover:none){ .dash-longpress-hint{ display:block; } }
+  /* 상태별 시각 구분 — 점 색깔 하나로는 카드가 많아지면 눈에 잘 안 들어온다.
+     왼쪽 띠 색 + 옅은 배경 톤을 더해서, 굳이 점을 찾아보지 않아도 "지금 뭐가
+     돌고 있고 뭐가 안 붙는지"가 카드를 훑기만 해도 보이게 한다. hover 시
+     border-color를 덮어쓰는 규칙보다 아래 있어야 하고(우선순위), 왼쪽 테두리는
+     hover와 무관하게 그 파드의 상태를 계속 보여줘야 하므로 border-left만 별도로
+     둔다. */
+  .dash-card[data-pod-state]{ border-left-width:3px; border-left-style:solid; }
+  .dash-card[data-pod-state="online"]{ border-left-color:var(--done); }
+  .dash-card[data-pod-state="offline"]{
+    border-left-color:var(--failed);
+    background:rgba(var(--failed-rgb),0.045);
+  }
+  .dash-card[data-pod-state="busy"]{
+    border-left-color:var(--running);
+    background:rgba(var(--running-rgb),0.05);
+  }
+  .dash-card[data-pod-state="disabled"]{ border-left-color:var(--border); }
+  .dash-card-top{ display:flex; gap:10px; align-items:flex-start; }
+  .dash-card-top-info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:6px; }
+  /* 카드마다 하나씩 있는 "일꾼 로봇" — 몸통 색은 파드별로 고정(hashToIndex),
+     표정/애니메이션은 상태를 따라간다. transform-box를 fill-box로 줘야 SVG
+     자체의 bounding box 기준으로 회전/이동해서, 뷰포트 원점 기준으로 어색하게
+     튀지 않는다. */
+  .dash-robot{ flex:none; width:36px; height:36px; }
+  .dash-robot-svg{ display:block; transform-box:fill-box; transform-origin:50% 50%; }
+  .dash-robot-online{ animation:robot-bob 2.6s ease-in-out infinite; }
+  .dash-robot-busy{ animation:robot-shake 0.5s ease-in-out infinite; }
+  .dash-robot-offline{ opacity:0.55; }
+  .dash-robot-disabled{ filter:grayscale(1); opacity:0.5; }
+  .dash-robot-busy .dash-robot-light{ animation:pulse-run 0.6s infinite; }
+  @keyframes robot-bob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-2px); } }
+  @keyframes robot-shake{ 0%,100%{ transform:rotate(0deg); } 25%{ transform:rotate(-3deg); } 75%{ transform:rotate(3deg); } }
+  /* 카드 머리줄 — 이름이 길면 줄임표(...)로 줄이고, 종류·소유자 배지는 자리가 모자라면 다음 줄로 넘어간다. 설정(⚙) 버튼은
+     오른쪽 위에 붙박이로 두어(자리를 padding-right로 비워 둔다) 줄이 바뀌어도 카드 밖으로 밀려나지 않는다. */
+  .dash-card-head{ position:relative; display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; padding-right:44px; min-height:34px; }
+  .dash-card-name{ flex:1 1 0; min-width:min(16ch, 100%); font-family:var(--mono); font-size:14px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dash-card-kind{ flex:0 1 auto; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10.5px; color:var(--text-dim); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
+  .dash-card-head-right{ position:absolute; top:0; right:0; display:flex; gap:6px; align-items:center; }
+  /* 카드의 설정 버튼 — 테두리·바탕 없이 톱니바퀴만. 아이콘은 키우고, 누를 자리(34px)는 손가락에 맞게 둔다. */
+  .dash-gear-btn{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; padding:0;
+                  border:none; background:none; border-radius:50%; color:var(--text-dim); cursor:pointer;
+                  transition:color .15s ease, transform .3s ease; }
+  .dash-gear-btn .ico{ width:22px; height:22px; vertical-align:0; }
+  .dash-gear-btn:hover{ color:var(--queued); transform:rotate(45deg); }
+  .dash-gear-btn:focus-visible{ outline:2px solid var(--queued); outline-offset:1px; }
+  .dash-dot{ width:8px; height:8px; border-radius:50%; flex:none; background:var(--text-dim); }
+  .dash-dot.online{ background:var(--done); }
+  .dash-dot.offline{ background:var(--failed); }
+  .dash-dot.busy{ background:var(--running); animation:pulse-run 1.2s infinite; }
+  .dash-dot.disabled{ background:var(--text-dim); opacity:0.5; }
+  .dash-card-url{ font-family:var(--mono); font-size:11px; color:var(--text-dim); word-break:break-all; }
+  .dash-card-runpod{ display:flex; flex-wrap:wrap; gap:4px 10px; font-size:10.5px; color:var(--text-dim); }
+  .dash-card-runpod b{ color:var(--text); font-weight:500; }
+  /* 파드 바로가기(ComfyUI·JupyterLab·파일 브라우저) — 새 탭으로 연다. 카드 클릭(파드 열기)은
+     <a>를 누른 경우 무시하므로 링크만 눌러도 카드 이동이 일어나지 않는다. */
+  .pod-links{ display:flex; flex-wrap:wrap; gap:6px; }
+  .pod-link{ display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--queued); text-decoration:none;
+             border:1px solid var(--border); border-radius:5px; padding:2px 7px; background:var(--bg); }
+  .pod-link:hover{ border-color:var(--queued); }
+  .pod-link .ico{ width:12px; height:12px; }
+  .pod-bar-links{ display:flex; flex-wrap:wrap; gap:6px; }
+  .dash-card-job{ font-size:12px; color:var(--text); }
+  .dash-card-job .dim{ color:var(--text-dim); }
+  .dash-card-stats{ display:flex; flex-wrap:wrap; gap:14px; }
+  .dash-stat{ display:flex; flex-direction:column; }
+  .dash-stat-label{ font-size:10.5px; color:var(--text-dim); }
+  .dash-stat-value{ font-family:var(--mono); font-size:14px; color:var(--text); }
+  .dash-thumbs{ display:flex; gap:6px; }
+  /* 최근 작업 카드 — 작업 목록이 파드 안으로 들어가면서 "전체 작업을 한 화면에서"가
+     사라지는데, 그 자리를 대신한다. 행을 누르면 그 작업이 있는 파드로 들어간다. */
+  .dash-jobs{ display:flex; flex-direction:column; gap:1px; }
+  .dash-job-row{
+    display:flex; align-items:center; gap:8px;
+    padding:4px 6px; border-radius:6px; cursor:pointer; font-size:12px; color:var(--text);
+  }
+  .dash-job-row:hover{ background:rgba(var(--queued-rgb),0.06); }
+  .dash-job-name{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dash-job-pod{ flex:none; font-size:10.5px; color:var(--text-dim); }
+  .dash-thumb{ width:54px; height:54px; object-fit:cover; border-radius:6px; border:1px solid var(--border); }
+  .dash-card-actions{ display:flex; flex-wrap:wrap; gap:6px; margin-top:auto; padding-top:4px; }
+  .dash-card.disabled{ opacity:0.62; }
+

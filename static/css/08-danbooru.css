@@ -1,0 +1,326 @@
+  /* ---- Danbooru 프롬프트 조립 탭 ---- */
+  /* New Job 세부 설정에서 openDanbooruModal()로 띄웠을 때만 붙는 클래스 — main의
+     기존 폭 제한/세로 스택(657행)은 그대로 두고 위치·크기·카드 모양만 덧씌운다.
+     #danbooru-modal-backdrop(.modal-overlay 재사용)이 뒤에서 어둡게 깔린다. */
+  main.as-modal-panel{
+    position:fixed;
+    top:24px; bottom:24px; left:0; right:0;
+    margin:0 auto;
+    width:calc(100% - 48px);
+    max-width:1100px;
+    max-height:calc(100vh - 48px);
+    z-index:70;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    box-shadow:0 8px 24px rgba(16,24,40,0.18);
+    overflow-y:auto;
+  }
+  .danbooru-modal-close{ display:none; }
+  main.as-modal-panel .danbooru-modal-close{ display:inline-flex; align-items:center; justify-content:center; }
+  .danbooru-prompt-box{
+    background:rgba(var(--queued-rgb),0.04);
+    border:1px solid rgba(var(--queued-rgb),0.25);
+    border-radius:var(--radius-md);
+    padding:12px;
+    margin-bottom:14px;
+  }
+  .danbooru-prompt-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:6px;
+  }
+  .danbooru-prompt-row-actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .danbooru-prompt-label{
+    font-family:var(--mono);
+    font-size:10.5px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    color:var(--text-dim);
+  }
+  .danbooru-prompt-text{
+    font-family:var(--mono);
+    font-size:13px;
+    line-height:1.6;
+    color:var(--text);
+    white-space:pre-wrap;
+    word-break:break-word;
+    min-height:1.6em;
+  }
+  .danbooru-conflicts{ display:flex; flex-direction:column; gap:6px; }
+  .danbooru-conflict{
+    display:flex;
+    flex-wrap:wrap;
+    gap:4px 10px;
+    align-items:baseline;
+    background:rgba(var(--failed-rgb),0.06);
+    border:1px solid rgba(var(--failed-rgb),0.25);
+    border-radius:8px;
+    padding:8px 10px;
+    font-family:var(--mono);
+    font-size:11.5px;
+  }
+  .danbooru-conflict-msg{ color:var(--failed); font-weight:600; }
+  .danbooru-conflict-tags{ color:var(--text-dim); }
+
+  .danbooru-cat{ padding:14px 0; border-bottom:1px solid var(--border); }
+  .danbooru-cat:last-child{ border-bottom:none; }
+  .danbooru-cat-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:10px;
+  }
+  .danbooru-cat-label{ font-family:var(--mono); font-size:12.5px; font-weight:600; color:var(--text); }
+  .danbooru-cat-actions{ display:flex; gap:6px; flex-shrink:0; }
+  .danbooru-icon-btn{
+    background:none;
+    border:1px solid var(--border);
+    border-radius:6px;
+    width:28px; height:28px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    font-size:13px;
+    color:var(--text-dim);
+    transition: border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .danbooru-icon-btn:hover{ border-color:var(--queued); color:var(--queued); }
+  .danbooru-icon-btn.active{ background:rgba(var(--queued-rgb),0.12); border-color:var(--queued); color:var(--queued); }
+
+  .danbooru-chips{ display:flex; flex-wrap:wrap; gap:6px; }
+  .dtag{
+    display:inline-flex;
+    align-items:center;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:5px 12px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--text);
+    cursor:pointer;
+    white-space:nowrap;
+    transition: background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+  .dtag:hover{ border-color:var(--queued); color:var(--queued); }
+  .dtag.selected{ background:var(--grad-primary); color:#fff; border-color:transparent; }
+  .dtag.selected.conflict{ background:var(--failed); box-shadow:0 0 0 2px rgba(var(--failed-rgb),0.3); }
+  .danbooru-empty-pool{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
+
+  .danbooru-text-input{ width:100%; max-width:none; min-height:64px; }
+
+  .danbooru-pool-editor{
+    margin-top:10px;
+    padding:10px;
+    background:var(--bg);
+    border:1px dashed var(--border);
+    border-radius:8px;
+  }
+  .danbooru-pool-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+  .dtag-pool-item{
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:3px 4px 3px 10px;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--text-dim);
+  }
+  .dtag-pool-remove{
+    background:none;
+    border:none;
+    color:var(--text-dim);
+    cursor:pointer;
+    width:16px; height:16px;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:12px;
+    line-height:1;
+  }
+  .dtag-pool-remove:hover{ background:rgba(var(--failed-rgb),0.15); color:var(--failed); }
+  .danbooru-pool-add-row{ display:flex; gap:8px; }
+  .danbooru-pool-add-row input{ flex:1; max-width:none; }
+  .danbooru-pool-hint{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim); margin-bottom:8px; }
+
+  .danbooru-history-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:8px 10px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    margin-bottom:6px;
+  }
+  .danbooru-history-name{ font-family:var(--mono); font-size:12.5px; color:var(--text); word-break:break-word; }
+  .danbooru-history-time{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim); margin-top:2px; }
+  .danbooru-history-actions{ display:flex; gap:6px; flex-shrink:0; }
+  .danbooru-history-save-row{ display:flex; gap:8px; align-items:center; }
+  .danbooru-history-name-input{ max-width:220px; }
+  @media (max-width:640px){
+    .danbooru-history-save-row{ flex-wrap:wrap; }
+    .danbooru-history-name-input{ max-width:none; width:100%; }
+  }
+
+  .lightbox-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(10,12,16,0.92);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:60;
+    padding:40px;
+  }
+  .lightbox-img-wrap{
+    position:relative;
+    max-width:100%;
+    max-height:100%;
+    min-height:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:12px;
+  }
+  .lightbox-img{
+    max-width:100%;
+    max-height:calc(100vh - 140px);
+    border-radius:8px;
+    box-shadow:0 10px 40px rgba(0,0,0,0.5);
+    /* 스와이프 중엔 손가락을 그대로 따라가야(dragging) 해서 트랜지션을 끄고,
+       손을 떼면(놓친 스와이프든 넘어가는 스와이프든) 다시 트랜지션을 켜서
+       원위치로 스르륵 돌아온다. */
+    transition: transform .22s cubic-bezier(.22,.61,.36,1), filter .15s ease, opacity .15s ease;
+  }
+  .lightbox-img.dragging{ transition:none; }
+  .lightbox-img.lightbox-loading{ filter:blur(6px); opacity:.55; }
+  .lightbox-spinner{
+    position:absolute;
+    top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    width:30px; height:30px;
+    border:3px solid rgba(255,255,255,0.3);
+    border-top-color:#fff;
+    border-radius:50%;
+    animation: enhance-spin .7s linear infinite;
+    pointer-events:none;
+    z-index:2;
+  }
+  .lightbox-info{
+    font-family:var(--mono);
+    font-size:12px;
+    color:#D1D5DB;
+    text-align:center;
+    max-width:100%;
+    overflow-wrap:anywhere;
+  }
+  .lightbox-actions{ display:flex; gap:var(--gap-md); }
+  .lightbox-error{ color:#FCA5A5; font-family:var(--mono); font-size:12px; min-height:1em; }
+  .lightbox-close{
+    position:absolute;
+    top:20px; right:24px;
+    background:none;
+    border:none;
+    color:#fff;
+    font-size:28px;
+    line-height:1;
+    cursor:pointer;
+    opacity:.8;
+    transition: opacity .15s ease, transform .15s ease;
+  }
+  .lightbox-close:hover{ opacity:1; transform:scale(1.08); }
+  .lightbox-fs-btn{
+    position:absolute;
+    top:22px; right:66px;
+    background:none; border:none; color:#fff; cursor:pointer;
+    padding:2px; line-height:0; opacity:.8; z-index:3;
+    transition: opacity .15s ease, transform .15s ease;
+  }
+  .lightbox-fs-btn:hover{ opacity:1; transform:scale(1.08); }
+  /* 전체 화면에서는 이미지가 화면을 덮으므로 닫기·이동 버튼이 그 위에 떠야 하고, 밝은 이미지 위에서도 보이게 그림자를 준다. */
+  .lightbox-overlay.lightbox-fullscreen .lightbox-close, .lightbox-overlay.lightbox-fullscreen .lightbox-nav,
+  .lightbox-overlay.lightbox-fullscreen .lightbox-fs-btn{ z-index:3; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
+  .lightbox-fs-btn .ico{ width:24px; height:24px; }
+  /* 전체 화면 — 여백·정보·버튼 줄을 걷어내고 이미지/영상이 화면을 꽉 채운다(닫기 ×와 전체 화면 해제 버튼만 남는다).
+     Fullscreen API가 안 되는 브라우저(아이폰 등)에서도 이 클래스만으로 화면을 채운다. */
+  .lightbox-overlay.lightbox-fullscreen{ padding:0; background:#000; }
+  .lightbox-overlay.lightbox-fullscreen .lightbox-img-wrap{ width:100%; height:100%; max-width:none; max-height:none; gap:0; }
+  .lightbox-overlay.lightbox-fullscreen .lightbox-img-wrap .lightbox-img{
+    width:100%; height:100%; max-width:none; max-height:none; object-fit:contain; border-radius:0; box-shadow:none;
+  }
+  .lightbox-overlay.lightbox-fullscreen .lightbox-actions,
+  .lightbox-overlay.lightbox-fullscreen .asset-meta,
+  .lightbox-overlay.lightbox-fullscreen .lightbox-info,
+  .lightbox-overlay.lightbox-fullscreen .lightbox-error{ display:none; }
+  @media (hover:none){ .lightbox-overlay.lightbox-fullscreen .lightbox-nav{ display:none; } }
+  .lightbox-nav{
+    position:absolute;
+    top:50%;
+    transform:translateY(-50%);
+    background:rgba(255,255,255,0.08);
+    border:1px solid rgba(255,255,255,0.2);
+    color:#fff;
+    font-size:26px;
+    width:44px; height:44px;
+    border-radius:50%;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    transition: background .15s ease, border-color .15s ease, transform .15s ease;
+  }
+  .lightbox-nav:hover:not(:disabled){ background:rgba(255,255,255,0.18); border-color:rgba(255,255,255,0.35); transform:translateY(-50%) scale(1.06); }
+  .lightbox-nav:disabled{ opacity:.25; cursor:not-allowed; }
+  .lightbox-prev{ left:20px; }
+  .lightbox-next{ right:20px; }
+  /* 폰: 위쪽은 닫기·전체 화면 버튼 자리만 남기고 좌우·아래 여백을 줄여 이미지와 조작 줄에 화면을 더 준다. */
+  @media (max-width:640px){ .lightbox-overlay{ padding:44px 12px 12px; } }
+
+  #flash-notice{
+    position:fixed; left:50%; bottom:28px; transform:translate(-50%, 12px);
+    max-width:calc(100vw - 32px); padding:10px 16px; border-radius:10px;
+    background:#111827; color:#fff; font-size:13px; line-height:1.4;
+    box-shadow:0 6px 20px rgba(0,0,0,0.3); z-index:200;
+    opacity:0; pointer-events:none; transition:opacity .2s, transform .2s;
+  }
+  #flash-notice.show{ opacity:1; transform:translate(-50%, 0); }
+  .modal-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(17,24,39,0.45);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+    /* .lightbox-overlay(z-index:60)보다 위여야 한다 — "참조 세트로 보내기"를
+       라이트박스 안에서 열 수 있어서, 이 모달이 라이트박스에 가려지면 안 된다. */
+    z-index:70;
+  }
+  .modal-panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    box-shadow: 0 8px 24px rgba(16,24,40,0.18);
+    width:100%;
+    max-width:720px;
+    max-height:85vh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  /* CSV 편집 모달처럼 표(열이 많을 수 있음)를 담는 모달용 — 기본 720px보다 넓힌다. */
+  .modal-panel.modal-panel-wide{ max-width:min(1100px, 100%); }
+
