@@ -1,0 +1,120 @@
+  /* ---- 결과물 메타(즐겨찾기·평점·태그·메모): 갤러리 필터/별/라이트박스 정보 패널 ---- */
+  .gallery-filter-row{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px; }
+  .gallery-filter-row .gf-search{ flex:1 1 200px; min-width:150px; max-width:340px; padding:7px 10px; font-size:13px; cursor:text; }
+  .gallery-filter-row select{ font-size:12.5px; }
+  /* 날짜 범위 입력(DB 탭의 생성 정보/업데이트 내역 등) — 기본 .option-input은 모달 폼에
+     맞춘 굵은 패딩/큰 글자라 옆의 종류 탭(.enhance-mode)·필터 지우기 버튼과 높이·글꼴이
+     안 맞았다. 같은 줄의 고스트 버튼 계열(.load-btn 등, 4px 10px / 11px mono)에 맞춘다. */
+  .gallery-filter-row input[type="date"]{
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    padding:4px 8px;
+    border-radius:var(--radius-sm);
+    max-width:128px;
+  }
+  .db-filter-dash{ color:var(--text-dim); font-size:11px; font-family:var(--mono); }
+  /* "필터 지우기"는 모달 취소 버튼(.modal-btn-secondary)을 그대로 쓰고 있어 크기가
+     한 단계 컸다 — .gallery-toolbar에서 이미 쓰던 것과 같은 축소 규칙을 적용한다. */
+  .gallery-filter-row .modal-btn-secondary{ padding:4px 10px; font-size:11px; }
+  .gf-toggle{ display:inline-flex; align-items:center; gap:6px; }
+  .gf-toggle.on{ color:var(--queued); border-color:var(--queued); background:rgba(var(--queued-rgb),0.08); }
+  .gf-toggle.on .ico{ fill:currentColor; }
+  .gallery-item-fav, .vgallery-item-fav{
+    position:absolute; top:34px; right:6px; z-index:2;
+    width:22px; height:22px; padding:0; border:none; border-radius:50%;
+    background:rgba(0,0,0,0.45); color:#fff; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    opacity:0; transition:opacity .12s ease, transform .12s ease;
+  }
+  .gallery-item-fav .ico, .vgallery-item-fav .ico{ width:13px; height:13px; vertical-align:0; }
+  .gallery-item:hover .gallery-item-fav, .vgallery-item:hover .vgallery-item-fav,
+  .gallery-item-fav.on, .vgallery-item-fav.on, .gallery-item-fav:focus-visible, .vgallery-item-fav:focus-visible{ opacity:1; }
+  .gallery-item-fav.on, .vgallery-item-fav.on{ color:#FBBF24; }
+  .gallery-item-fav.on .ico, .vgallery-item-fav.on .ico{ fill:currentColor; }
+  .gallery-item-fav:hover, .vgallery-item-fav:hover{ transform:scale(1.1); }
+  @media (hover:none){ .gallery-item-fav, .vgallery-item-fav{ opacity:0.85; } }
+  .gallery-details-col.name .ico.fav{ color:#F59E0B; fill:currentColor; width:12px; height:12px; }
+  .gallery-item-nsfw, .vgallery-item-nsfw{
+    position:absolute; top:34px; left:6px; z-index:2;
+    width:22px; height:22px; border-radius:50%;
+    background:rgba(0,0,0,0.45); color:#F87171;
+    display:flex; align-items:center; justify-content:center;
+    pointer-events:none;
+  }
+  .gallery-item-nsfw .ico, .vgallery-item-nsfw .ico{ width:13px; height:13px; fill:currentColor; }
+  .gallery-details-col.name .ico.nsfw, .vgallery-details-col.name .ico.nsfw{ color:#F87171; fill:currentColor; width:12px; height:12px; }
+  .gallery-item-blur-overlay, .vgallery-item-blur-overlay{
+    position:absolute; inset:0; z-index:1;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(20,20,24,0.82); color:rgba(255,255,255,0.75);
+    pointer-events:none;
+  }
+  .gallery-item-blur-overlay .ico, .vgallery-item-blur-overlay .ico{ width:28px; height:28px; }
+  .gallery-item.details .gallery-item-thumb, .vgallery-item.details .vgallery-item-thumb{ position:relative; }
+  .gallery-item.details .gallery-item-blur-overlay .ico, .vgallery-item.details .vgallery-item-blur-overlay .ico{ width:18px; height:18px; }
+
+  /* 이미지/영상은 고정 높이(100vh - 얼마)로 줄이지 않고, 정보 줄·버튼·별점 줄이 차지하는 만큼을 뺀 나머지 칸을
+     채우게 한다(flex로 줄어듦, 비율은 object-fit). 세로로 긴 이미지나 폰 주소창 때문에 화면이 낮을 때도 별점·
+     정보 아코디언 줄이 화면 밖으로 밀려나지 않는다. */
+  .lightbox-img-wrap .lightbox-img{ max-height:none; min-height:96px; flex:0 1 auto; object-fit:contain; }
+  .asset-meta{ width:100%; max-width:640px; color:#E5E7EB; font-size:12.5px; }
+  .am-bar{ display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; }
+  .am-fav, .am-star{ background:none; border:none; padding:2px; cursor:pointer; color:rgba(255,255,255,0.4); display:inline-flex; }
+  .am-fav .ico{ width:20px; height:20px; }
+  .am-star .ico{ width:17px; height:17px; }
+  .am-fav:hover, .am-star:hover{ color:#FCD34D; }
+  .am-fav.on, .am-star.on{ color:#FBBF24; }
+  .am-fav.on .ico, .am-star.on .ico{ fill:currentColor; }
+  .am-nsfw{ background:none; border:none; padding:2px; cursor:pointer; color:rgba(255,255,255,0.4); display:inline-flex; }
+  .am-nsfw .ico{ width:20px; height:20px; }
+  .am-nsfw:hover{ color:#F87171; }
+  .am-nsfw.on{ color:#F87171; }
+  .am-nsfw.on .ico{ fill:currentColor; }
+  .am-stars{ display:inline-flex; gap:2px; }
+  .am-status{ min-width:5.5em; font-family:var(--mono); font-size:11px; color:#9CA3AF; }
+  .am-toggle{
+    display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px;
+    background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); color:#E5E7EB;
+    font-family:var(--mono); font-size:11.5px; cursor:pointer;
+  }
+  .am-toggle .ico{ transition:transform .15s ease; }
+  .am-toggle.open .ico{ transform:rotate(180deg); }
+  .am-toggle:hover{ background:rgba(255,255,255,0.14); }
+  .am-body{
+    margin-top:8px; padding:10px 12px; display:flex; flex-direction:column; gap:8px;
+    background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px;
+    max-height:36vh; overflow-y:auto; text-align:left;
+  }
+  .am-body[hidden]{ display:none; }
+  /* .option-input(input.option-input / textarea.option-input)보다 특이도가 높아야 이긴다 */
+  .am-body input.am-tag-input, .am-body textarea.am-note{
+    width:100%; max-width:none; background:rgba(0,0,0,0.35); color:#fff;
+    border-color:rgba(255,255,255,0.2); cursor:text; font-size:12.5px; padding:7px 10px;
+  }
+  .am-body input.am-tag-input::placeholder, .am-body textarea.am-note::placeholder{ color:#9CA3AF; }
+  .am-body textarea.am-note{ resize:vertical; min-height:2.6em; }
+  .am-tags{ display:flex; flex-wrap:wrap; gap:6px; }
+  .am-chip{
+    display:inline-flex; align-items:center; gap:3px; padding:2px 4px 2px 9px; border-radius:999px;
+    background:rgba(var(--queued-rgb),0.28); color:#DBEAFE; font-family:var(--mono); font-size:11.5px;
+  }
+  .am-chip button{ background:none; border:none; color:inherit; cursor:pointer; padding:2px; display:inline-flex; opacity:0.8; }
+  .am-chip button:hover{ opacity:1; }
+  .am-chip .ico{ width:12px; height:12px; }
+  .am-empty{ color:#9CA3AF; font-size:12px; }
+  .am-facts{ display:grid; grid-template-columns:auto 1fr; gap:3px 12px; margin:0; }
+  .am-kv{ display:contents; }
+  .am-facts dt{ color:#9CA3AF; }
+  .am-facts dd{ margin:0; word-break:break-all; font-family:var(--mono); font-size:11.5px; }
+  .am-prompt-head{ display:flex; align-items:center; justify-content:space-between; color:#9CA3AF; margin-top:2px; }
+  .am-prompt{
+    font-family:var(--mono); font-size:11.5px; line-height:1.55; white-space:pre-wrap; word-break:break-word;
+    background:rgba(0,0,0,0.35); padding:8px 10px; border-radius:6px; max-height:130px; overflow:auto; margin-top:4px;
+  }
+  .am-neg summary{ cursor:pointer; color:#9CA3AF; }
+  @media (max-width:640px){
+    .am-status{ min-width:0; }
+    .gallery-filter-row .gf-search{ flex:1 1 100%; max-width:none; }
+  }
+

@@ -1,0 +1,151 @@
+  /* ---- 영상 갤러리 ----
+     이미지 갤러리(.gallery-*)와 시각적으로 똑같지만 클래스명을 vgallery-*로 따로 둔다.
+     둘 다 같은 페이지의 숨겨진 DOM으로 동시에 존재하는데(탭 전환은 display:none일 뿐
+     제거가 아님), 이미지 갤러리의 "전체선택"/"선택 해제"/그룹 체크박스 동기화 로직이
+     document.querySelectorAll('.gallery-item') 처럼 컨테이너로 좁히지 않고 문서
+     전체에서 클래스로 찾는다 — 같은 클래스명을 쓰면 영상 갤러리 카드까지 (숨겨진
+     채로) 함께 선택 표시가 돼버린다. "자세히 보기"(.vgallery-item.details)는 이미지
+     갤러리의 것과 같은 모양이고, 길이/해상도는 ffprobe 없이 브라우저가 <video>의
+     메타데이터에서 읽는다(아래 JS). */
+  .vgallery-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
+    gap:8px;
+  }
+  .vgallery-group{ grid-column:1 / -1; margin-bottom:20px; }
+  .vgallery-group:last-child{ margin-bottom:0; }
+  .vgallery-group-header{
+    font-family:var(--mono);
+    font-size:11.5px;
+    font-weight:600;
+    color:var(--text-dim);
+    padding:6px 2px;
+    margin-bottom:8px;
+    border-bottom:1px solid var(--border);
+  }
+  .vgallery-group-select-label{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    cursor:pointer;
+  }
+  .vgallery-group-select-label input{
+    width:14px; height:14px;
+    cursor:pointer;
+    accent-color:var(--queued);
+  }
+  .vgallery-group-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
+    gap:8px;
+  }
+  /* 갤러리 격자는 폰에서(네 격자 정의보다 뒤에 있어야 이긴다) 3열로 촘촘하게(details 보기는 자체 규칙이 더 구체적이라 그대로다). */
+  @media (max-width:640px){
+    .gallery-grid, .gallery-group-grid, .vgallery-grid, .vgallery-group-grid{
+      grid-template-columns:repeat(3, 1fr); gap:6px;
+    }
+  }
+  .vgallery-item{
+    position:relative;
+    aspect-ratio:1;
+    border-radius:8px;
+    overflow:hidden;
+    border:1px solid var(--border);
+    cursor:pointer;
+    background:var(--bg);
+  }
+  .vgallery-item video{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    display:block;
+  }
+  /* "자세히" 보기 — 이미지 갤러리의 .gallery-item.details와 같은 모양(위 설명 참고). */
+  .vgallery-grid.details-mode,
+  .vgallery-group-grid.details-mode{ display:flex; flex-direction:column; gap:2px; }
+  .vgallery-details-columns{
+    display:grid;
+    grid-template-columns: 22px 44px minmax(140px,2.2fr) minmax(110px,1.4fr) 60px 84px 64px 108px 22px;
+    align-items:center;
+    gap:10px;
+  }
+  .vgallery-details-header{
+    padding:6px 8px;
+    font-family:var(--mono);
+    font-size:10px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    color:var(--text-dim);
+    border-bottom:1px solid var(--border);
+    margin-bottom:2px;
+  }
+  .vgallery-item.details{ position:static; aspect-ratio:auto; border-radius:6px; padding:4px 8px; background:transparent; border:1px solid transparent; }
+  .vgallery-item.details:hover{ background:rgba(var(--queued-rgb),0.05); }
+  .vgallery-item.details.selected{ outline:none; background:rgba(var(--queued-rgb),0.1); border-color:rgba(var(--queued-rgb),0.3); }
+  .vgallery-item.details .vgallery-item-select{ position:static; width:18px; height:18px; background:none; }
+  .vgallery-item.details .vgallery-item-thumb{ width:44px; height:44px; border-radius:5px; overflow:hidden; background:var(--bg); flex-shrink:0; }
+  .vgallery-item.details video{ width:100%; height:100%; object-fit:cover; display:block; pointer-events:none; }
+  .vgallery-details-col{
+    font-family:var(--mono); font-size:11.5px; color:var(--text);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .vgallery-details-col.dur, .vgallery-details-col.dim, .vgallery-details-col.size, .vgallery-details-col.mtime{ color:var(--text-dim); }
+  .vgallery-details-col.name .ico.fav{ color:#F59E0B; fill:currentColor; width:12px; height:12px; }
+  @media (max-width:760px){
+    .vgallery-details-columns{ grid-template-columns: 22px 40px minmax(100px,2fr) 22px; }
+    .vgallery-details-col.job, .vgallery-details-col.dur, .vgallery-details-col.dim,
+    .vgallery-details-col.size, .vgallery-details-col.mtime{ display:none; }
+  }
+  .vgallery-item-name{
+    position:absolute;
+    left:0; right:0; bottom:0;
+    padding:4px 6px;
+    font-family:var(--mono);
+    font-size:10px;
+    color:#fff;
+    background:linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0));
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    pointer-events:none;
+  }
+  .vgallery-item-select{
+    position:absolute;
+    top:6px; left:6px;
+    z-index:2;
+    width:20px; height:20px;
+    border-radius:5px;
+    background:rgba(0,0,0,0.45);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+  }
+  .vgallery-item-select input{
+    width:14px; height:14px;
+    cursor:pointer;
+    accent-color:var(--queued);
+  }
+  .vgallery-item.selected{ outline:2px solid var(--queued); outline-offset:-2px; }
+  .vgallery-item{ -webkit-touch-callout:none; }
+  @media (hover:none){ .vgallery-item{ -webkit-user-select:none; user-select:none; } }
+  .vgallery-item.item-pressing{
+    outline:2px solid var(--failed); outline-offset:-2px;
+    transform:scale(0.98);
+    transition:transform .38s ease, outline-color .2s ease;
+  }
+  .vgallery-item.details.item-pressing{ transform:none; background:rgba(var(--failed-rgb),0.06); }
+  .vgallery-item-play{
+    position:absolute;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:28px;
+    color:rgba(255,255,255,0.85);
+    text-shadow:0 1px 4px rgba(0,0,0,0.5);
+    pointer-events:none;
+  }
+  .vgallery-item-play .ico{ fill:currentColor; filter:drop-shadow(0 1px 4px rgba(0,0,0,0.5)); }
+

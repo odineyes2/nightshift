@@ -1,0 +1,1098 @@
+  /* ---- 프로젝트 (홈 대시보드 / 새 작업 폼의 대상 선택) ---- */
+  .home-archived-toggle{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:12.5px; color:var(--text-dim); cursor:pointer; margin-left:auto;
+  }
+  .home-strip-pods{ align-self:center; margin-left:auto; }
+  .project-card{
+    position:relative; display:flex; flex-direction:column; overflow:hidden;
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    cursor:pointer; transition:border-color .12s ease, box-shadow .12s ease;
+  }
+  .project-card:hover, .project-card:focus-visible{
+    border-color:var(--queued); box-shadow:0 2px 10px rgba(var(--queued-rgb),0.12); outline:none;
+  }
+  .project-card.inbox{ border-style:dashed; }
+  .project-card.archived{ opacity:0.6; }
+  .project-cover{
+    position:relative;
+    height:150px; background:var(--bg); display:flex; align-items:center; justify-content:center;
+    border-bottom:1px solid var(--border);
+  }
+  /* 대표 이미지 고르기 — 카드 커버 오른쪽 위. 마우스에서는 카드에 올렸을 때, 터치에서는 항상 보인다. */
+  .project-cover-btn{
+    position:absolute; top:8px; right:8px; z-index:2; width:30px; height:30px; padding:0;
+    display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
+    border:none; border-radius:50%; background:rgba(0,0,0,0.55); color:#fff; opacity:0;
+    transition:opacity .12s ease, transform .12s ease;
+  }
+  .project-card:hover .project-cover-btn, .project-cover-btn:focus-visible{ opacity:1; }
+  .project-cover-btn:hover{ transform:scale(1.1); background:rgba(0,0,0,0.75); }
+  .project-cover-btn .ico{ width:16px; height:16px; }
+  @media (hover:none){ .project-cover-btn{ opacity:0.85; } }
+  .cover-picker-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(96px, 1fr)); gap:8px; max-height:52vh; overflow-y:auto; padding:2px; }
+  .cover-picker-item{
+    position:relative; aspect-ratio:1; padding:0; border:2px solid transparent; border-radius:8px; overflow:hidden;
+    cursor:pointer; background:var(--bg);
+  }
+  .cover-picker-item img{ width:100%; height:100%; object-fit:cover; display:block; }
+  #cover-picker-auto.active{ border-color:var(--queued); color:var(--queued); }
+  .cover-picker-item:hover{ border-color:var(--text-dim); }
+  .cover-picker-item.current{ border-color:var(--queued); }
+  .cover-picker-item.current::after{
+    content:''; position:absolute; top:6px; right:6px; width:18px; height:18px; border-radius:50%;
+    background:var(--queued) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/12px no-repeat;
+  }
+  .project-cover-img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .project-cover-empty{ color:var(--text-dim); opacity:0.45; }
+  .project-cover-empty .ico{ width:36px; height:36px; }
+  .project-card-body{ padding:12px 14px; display:flex; flex-direction:column; gap:6px; }
+  .project-card-head{ display:flex; align-items:center; gap:8px; }
+  .project-card-name{
+    flex:1; min-width:0; font-weight:600; font-size:14px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .project-card-edit{ flex:none; padding:4px 7px; }
+  .project-card-desc{
+    font-size:12px; color:var(--text-dim); line-height:1.5;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .project-card-stats{
+    display:flex; flex-wrap:wrap; gap:2px 12px;
+    font-family:var(--mono); font-size:11.5px; color:var(--text-dim);
+  }
+  .project-card-stats b{ color:var(--text); font-weight:600; }
+  .project-badge{ display:inline-flex; align-items:center; gap:4px; }
+  .job-target-row{ display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px; }
+  .job-target-field{ display:flex; flex-direction:column; gap:6px; flex:1 1 220px; max-width:360px; }
+  .job-target-field .pod-bar-select{ max-width:none; width:100%; }
+
+  /* 폰에서는 파드 바/서브탭/라이트박스 버튼의 글자를 숨기고 아이콘만 남긴다 — 폭이
+     좁아 글자가 한 자씩 세로로 쪼개지던 문제. 서브탭은 한 줄을 똑같은 폭으로 나눠 쓴다. */
+  @media (max-width:640px){
+    .pod-bar-back .btn-label, .pod-subtab-btn .btn-label, .lightbox-actions .btn-label, .gallery-toolbar .btn-label,
+    #pod-edit-modal .modal-footer .btn-label, .board-toolbar .btn-label, .new-job-next-right .btn-label{ display:none; }
+    .pod-bar-back{ padding:7px 10px; }
+    .pod-bar-subtabs{ flex:1 1 100%; margin-left:0; gap:6px; }
+    .pod-subtab-btn{ flex:1; padding:9px 0; }
+    .pod-subtab-btn .ico{ width:20px; height:20px; }
+    .lightbox-actions{ flex-wrap:wrap; justify-content:center; gap:8px; }
+    .lightbox-actions button{ width:40px; height:40px; padding:0; }
+    .lightbox-actions .ico{ width:20px; height:20px; }
+    #pod-edit-modal .modal-footer{ flex-wrap:wrap; }
+    #pod-edit-modal .modal-footer button{ padding:8px; }
+  }
+
+  main{
+    max-width:1180px;
+    margin:0 auto;
+    padding:32px 28px 80px;
+    display:flex;
+    flex-direction:column;
+    gap:24px;
+  }
+
+  /* 프로젝트 보드 — 헤더/내비/프로젝트 바는 그대로 두고 그 아래 공간을 캔버스가
+     전부 쓴다(진짜 전체화면이 아니라 위 main의 가운데 정렬·좌우 여백만 벗겨냄).
+     세로 크기는 CSS만으로 "화면 나머지 전부"를 고정하기 어려워(body가 flex 셸이
+     아니라 그냥 문서 흐름) resizeBoardViewport()가 실측해서 맞춘다. */
+  main#tab-prboard{ max-width:none; margin:0; padding:0; display:block; gap:0; }
+  .board-toolbar{
+    display:flex; align-items:center; gap:8px;
+    padding:10px 16px;
+    border-bottom:1px solid var(--border);
+    background:var(--panel);
+  }
+  .board-zoom-label{
+    font-family:var(--mono); font-size:11.5px; color:var(--text-dim);
+    min-width:3.5em; text-align:center;
+  }
+  .board-viewport{
+    position:relative;
+    overflow:hidden;
+    background-color:var(--bg);
+    /* 점 격자 배경 — "무한 캔버스" 느낌. board-world와 같은 변환을 받도록(팬/줌에
+       맞춰) applyBoardTransform()이 background-position/-size를 같이 갱신한다. */
+    background-image:radial-gradient(circle, var(--border) 1px, transparent 1px);
+    background-size:24px 24px;
+    cursor:grab;
+    touch-action:none;
+  }
+  .board-viewport.panning{ cursor:grabbing; }
+  .board-world{
+    position:absolute; top:0; left:0;
+    transform-origin:0 0;
+    will-change:transform;
+  }
+  .board-toolbar-sep{ width:1px; height:20px; background:var(--border); margin:0 4px; }
+  /* 폰에서는 버튼이 한 줄에 다 안 들어가 두 줄로 접는다 — 캔버스 높이는 resizeBoardViewport가
+     툴바 아래부터 실측하므로 줄 수가 바뀌어도 맞는다. */
+  .board-toolbar{ flex-wrap:wrap; row-gap:6px; }
+  #board-select-mode-btn[aria-pressed="true"]{ background:rgba(var(--queued-rgb),0.14); color:var(--queued); border-color:var(--queued); }
+
+  /* 고른 카드 · 사각형으로 고르는 중의 틀 · 캔버스 아래쪽 선택 막대 */
+  .board-node.selected{ outline:2px solid var(--queued); outline-offset:2px; }
+  .board-marquee{
+    position:absolute; z-index:7; pointer-events:none;
+    border:1px solid var(--queued); background:rgba(var(--queued-rgb),0.08);
+  }
+  .board-selection-bar{
+    position:absolute; z-index:8; left:50%; bottom:16px; transform:translateX(-50%);
+    display:flex; align-items:center; gap:6px;
+    padding:6px 6px 6px 14px;
+    background:var(--panel); border:1px solid var(--border); border-radius:999px;
+    box-shadow:0 4px 14px rgba(16,24,40,0.16);
+    font-size:13px; white-space:nowrap; cursor:default;
+  }
+  .board-selection-count{ color:var(--text); font-weight:600; margin-right:4px; }
+  .board-selection-btn{
+    display:inline-flex; align-items:center; gap:4px;
+    padding:6px 12px; border-radius:999px; border:1px solid var(--border);
+    background:var(--bg); color:var(--text); font-size:12.5px; cursor:pointer;
+  }
+  .board-selection-btn .ico{ width:13px; height:13px; }
+  .board-selection-btn.danger{ color:var(--failed); }
+  .board-selection-btn.danger:hover{ background:rgba(var(--failed-rgb),0.1); }
+
+  /* 카드(노드) — 좌표는 board-world 기준(월드 좌표), 배율과 무관하게 px로 저장/복원된다. */
+  .board-node{
+    position:absolute;
+    border:1px solid var(--border);
+    border-radius:10px;
+    background:var(--panel);
+    box-shadow:0 1px 3px rgba(16,24,40,0.08);
+    overflow:hidden;
+    cursor:grab;
+    touch-action:none;
+  }
+  /* 캔버스 위에서는 글자 선택을 막는다 — Shift+클릭으로 카드를 여러 장 고를 때 브라우저가
+     그 사이 글자를 선택해 두면, 이어서 끌 때 "선택한 글자 끌어다 놓기"가 시작되며 카드 끌기가
+     취소(pointercancel)된다. 글쓰기 중인 글칸만 예외. */
+  .board-viewport{ -webkit-user-select:none; user-select:none; }
+  .board-node-textarea{ -webkit-user-select:text; user-select:text; }
+  .board-node.dragging{ cursor:grabbing; box-shadow:0 8px 20px rgba(16,24,40,0.22); z-index:5; }
+  .board-node-image img, .board-node-video video{
+    width:100%; height:100%; object-fit:cover; display:block; pointer-events:none;
+  }
+  .board-node-textarea{
+    width:100%; height:100%; border:none; resize:none; box-sizing:border-box;
+    padding:10px; font-family:var(--sans); font-size:13px; line-height:1.5;
+    color:var(--text); background:none; cursor:text;
+  }
+  /* 텍스트 카드는 본문이 전부 글 입력칸이다. 글쓰기 중(.editing)이 아닐 때는 글칸이
+     포인터를 안 받아서 카드 어디를 잡아도 끌리고, 톡 누르면 글쓰기로 들어간다
+     (JS의 endBoardNodeDrag 참고). 위쪽 띠(손잡이)를 톡 누르면 글쓰기 없이 고르기만 한다.
+     글쓰기 중에는 글칸이 평소처럼 글자 선택·스크롤을 받고, 그동안 카드를 옮기려면 띠를 잡는다. */
+  .board-node-text{ display:flex; flex-direction:column; }
+  .board-node-text .board-node-textarea{ flex:1; min-height:0; height:auto; }
+  .board-node-text:not(.editing) .board-node-textarea{ pointer-events:none; cursor:inherit; }
+  .board-node-text.editing{ cursor:default; }
+  .board-node-text.editing .board-node-textarea{ touch-action:pan-y; }
+  .board-node-grip{
+    flex:none; height:22px;
+    border-bottom:1px solid var(--border);
+    background-color:var(--bg);
+    background-image:radial-gradient(circle, var(--text-dim) 1px, transparent 1.2px);
+    background-size:6px 6px; background-position:center; background-repeat:repeat-x;
+    opacity:.9;
+  }
+  .board-node-textarea:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); outline-offset:-2px; }
+  .board-node-del{
+    position:absolute; top:4px; right:4px;
+    width:22px; height:22px; padding:0;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(17,24,39,0.55); color:#fff; border:none; border-radius:6px;
+    cursor:pointer; opacity:0; transition:opacity .12s ease, background .12s ease;
+  }
+  .board-node:hover .board-node-del, .board-node-del:focus-visible{ opacity:1; }
+  .board-node-del .ico{ width:13px; height:13px; }
+  .board-node-del:hover{ background:rgba(var(--failed-rgb),0.85); }
+
+  /* 연결 점 — 끌어서 다른 카드에 놓으면 선이 이어진다. 카드가 overflow:hidden이라
+     바깥으로 삐져나오게 못 하고 오른쪽 가장자리 안쪽에 둔다. 마우스가 없는
+     기기(터치)는 호버가 없으니 항상 보이게 한다. */
+  .board-node-handle{
+    position:absolute; right:4px; top:50%;
+    width:16px; height:16px; margin-top:-8px;
+    border-radius:50%;
+    background:var(--panel); border:2px solid var(--queued);
+    box-sizing:border-box;
+    cursor:crosshair; touch-action:none;
+    opacity:0; transition:opacity .12s ease, transform .12s ease;
+  }
+  .board-node:hover .board-node-handle{ opacity:1; }
+  .board-node-handle:hover{ transform:scale(1.25); }
+  @media (hover:none){ .board-node-handle{ opacity:1; } }
+  /* 손가락으로 누르는 기기는 연결 점·손잡이를 더 크게 — 작은 점은 손끝에 가려 잘 안 잡힌다. */
+  @media (pointer:coarse){
+    .board-node-handle{ width:26px; height:26px; margin-top:-13px; right:2px; }
+    .board-node-grip{ height:30px; }
+  }
+  .board-node.connect-target{ outline:2px solid var(--queued); outline-offset:2px; }
+  .board-viewport.connecting, .board-viewport.connecting .board-node{ cursor:crosshair; }
+
+  /* 연결선 층 — board-world와 같은 팬/줌 변환을 받는다. 크기 1px에 overflow:visible로
+     두고 선은 월드 좌표 그대로 그린다(음수 좌표도 잘리지 않게). 카드보다 먼저 그려
+     카드 아래에 깔린다. 선마다 눈에 보이는 가는 선 + 클릭하기 쉬운 투명한 굵은 선 한 쌍. */
+  .board-edges{
+    position:absolute; left:0; top:0; width:1px; height:1px;
+    overflow:visible; pointer-events:none;
+  }
+  .board-edge-line{ fill:none; stroke:var(--text-dim); stroke-width:2; pointer-events:none; }
+  .board-edge-hit{ fill:none; stroke:transparent; stroke-width:16; pointer-events:stroke; cursor:pointer; }
+  .board-edge-hit:hover + .board-edge-line{ stroke:var(--text); }
+  .board-edge-line.selected{ stroke:var(--queued); stroke-width:3; }
+  .board-edge-temp{ fill:none; stroke:var(--queued); stroke-width:2; stroke-dasharray:6 5; pointer-events:none; }
+  #board-arrow path{ fill:var(--text-dim); }
+  #board-arrow-sel path{ fill:var(--queued); }
+  /* 고른 선 가운데 뜨는 "끊기" 버튼 — 터치 기기에는 Delete 키가 없어서 필요하다. */
+  .board-edge-del{
+    position:absolute; z-index:6;
+    width:24px; height:24px; margin:-12px 0 0 -12px; padding:0;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--panel); color:var(--failed);
+    border:1px solid var(--border); border-radius:50%;
+    box-shadow:0 1px 4px rgba(16,24,40,0.18);
+    cursor:pointer;
+  }
+  .board-edge-del .ico{ width:13px; height:13px; }
+  .board-edge-del:hover{ background:rgba(var(--failed-rgb),0.12); }
+
+  /* NSFW 카드 — 갤러리와 같은 설정(nsfwMode)을 따른다. 블러/안 보기일 때는 썸네일·영상을
+     아예 받지 않고 가림막만 그린다(갤러리 블러와 같은 모양). 안 보기라도 카드 자체는 남긴다 —
+     카드를 빼면 거기 붙은 선이 허공으로 이어지고, 그 자리에 다른 카드를 겹쳐 놓게 된다. */
+  .board-nsfw-cover{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+    background:rgba(20,20,24,0.88); color:rgba(255,255,255,0.75);
+    font-size:12px; pointer-events:none;
+  }
+  .board-nsfw-cover .ico{ width:28px; height:28px; }
+  .board-picker-item{ position:relative; }
+
+  /* 묶음 틀(frame) — 카드들 뒤에 깔리는 제목 달린 틀. 틀 안쪽은 포인터를 안 받아서 빈 곳을
+     끌면 캔버스처럼 화면이 움직이고(큰 틀 안에서도 팬·사각형 고르기가 된다), 위쪽 제목 띠를
+     잡아야 틀이 움직인다. 오른쪽 아래 모서리를 끌면 크기가 바뀐다. */
+  .board-node.board-frame{
+    background:rgba(var(--queued-rgb),0.04);
+    border:1.5px solid rgba(var(--queued-rgb),0.35);
+    border-radius:12px; box-shadow:none;
+    overflow:visible; pointer-events:none; cursor:default;
+  }
+  .board-node.board-frame.dragging{ z-index:auto; box-shadow:none; }
+  .board-frame-bar{
+    position:absolute; left:0; right:0; top:0; height:34px; box-sizing:border-box;
+    padding:0 36px 0 10px; display:flex; align-items:center;
+    background:rgba(var(--queued-rgb),0.08); border-radius:10px 10px 0 0;
+    pointer-events:auto; cursor:grab;
+  }
+  .board-node-textarea.board-frame-title{
+    flex:1; min-width:0; width:auto; height:auto; padding:3px 6px; border-radius:5px;
+    font-size:13px; font-weight:600; color:var(--queued); line-height:1.3;
+  }
+  .board-frame:not(.editing) .board-frame-title{ pointer-events:none; cursor:inherit; }
+  .board-frame.editing .board-frame-title{ background:var(--panel); }
+  .board-frame .board-node-del{ pointer-events:auto; }
+  /* 이미지·영상·텍스트 카드의 크기 손잡이 — 카드가 overflow:hidden이라 안쪽 모서리에 둔다.
+     마우스는 카드에 올렸을 때만, 터치는 늘 보인다(연결 점과 같은 규칙). */
+  .board-node-resize{
+    position:absolute; right:3px; bottom:3px; width:14px; height:14px; box-sizing:border-box; z-index:2;
+    border-radius:3px; background:var(--panel); border:1.5px solid rgba(var(--queued-rgb),0.7);
+    cursor:nwse-resize; touch-action:none; opacity:0; transition:opacity .12s ease;
+  }
+  .board-node:hover .board-node-resize, .board-node.selected .board-node-resize{ opacity:1; }
+  @media (hover:none){ .board-node-resize{ opacity:1; } }
+  @media (pointer:coarse){ .board-node-resize{ width:22px; height:22px; } }
+  .board-frame-resize{
+    position:absolute; right:-7px; bottom:-7px; width:16px; height:16px; box-sizing:border-box;
+    border-radius:4px; background:var(--panel); border:1.5px solid rgba(var(--queued-rgb),0.6);
+    pointer-events:auto; cursor:nwse-resize; touch-action:none;
+  }
+  @media (pointer:coarse){
+    .board-frame-bar{ height:40px; }
+    .board-frame-resize{ width:26px; height:26px; right:-12px; bottom:-12px; }
+  }
+
+  /* 생성 카드(gen) — 머리(프리셋 이름·템플릿), 입구 줄(왼쪽 가장자리의 점에 이미지 카드 선을
+     잇는다), 꺼낸 옵션 칸. 높이는 서버 _board_gen_height와 맞춘다(머리 52, 입구 30, 글칸 96, 그 밖 60). */
+  .board-node-gen{ display:flex; flex-direction:column; overflow:visible; border-color:rgba(var(--running-rgb),0.45); }
+  .board-gen-head{
+    flex:none; height:40px; box-sizing:border-box; padding:0 34px 0 12px;
+    display:flex; align-items:center; gap:7px;
+    background:rgba(var(--running-rgb),0.08); border-bottom:1px solid var(--border); border-radius:10px 10px 0 0;
+  }
+  .board-gen-head .ico{ width:15px; height:15px; color:var(--running); flex:none; }
+  .board-gen-name{ font-size:13px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .board-gen-tpl{ font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-left:auto; }
+  .board-gen-slots{ flex:none; padding:6px 0 2px; }
+  .board-gen-slot{ position:relative; height:30px; display:flex; align-items:center; gap:6px; padding:0 12px 0 16px; font-size:12px; }
+  .board-gen-slot-label{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+  .board-gen-slot-label em{ font-style:normal; color:var(--text-dim); }
+  .board-gen-slot-state{ font-size:11px; color:var(--text-dim); white-space:nowrap; }
+  .board-gen-port{
+    position:absolute; left:-7px; top:50%; margin-top:-6px; width:12px; height:12px; box-sizing:border-box;
+    border-radius:50%; background:var(--panel); border:2px solid var(--running);
+  }
+  .board-gen-fields{ flex:1; min-height:0; overflow:hidden; padding:4px 12px 10px; display:flex; flex-direction:column; gap:6px; }
+  .board-gen-slot.filled .board-gen-port{ background:var(--running); }
+  .board-gen-slot.connect-slot{ background:rgba(var(--running-rgb),0.14); }
+  .board-gen-slot-state img{ width:22px; height:22px; object-fit:cover; border-radius:4px; vertical-align:middle; margin-right:3px; }
+  .board-gen-foot{
+    flex:none; height:46px; box-sizing:border-box; padding:0 10px 0 12px;
+    display:flex; align-items:center; gap:6px; border-top:1px solid var(--border);
+  }
+  .board-gen-status{ flex:1; min-width:0; display:flex; align-items:center; gap:6px; overflow:hidden; white-space:nowrap; font-size:11px; color:var(--text-dim); }
+  .board-gen-status .badge{ flex:none; }
+  .board-gen-reason{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .board-gen-btn{
+    flex:none; display:inline-flex; align-items:center; gap:4px; padding:5px 10px; border-radius:6px;
+    border:1px solid var(--border); background:var(--panel); color:var(--text); font-size:12px; cursor:pointer;
+  }
+  .board-gen-btn .ico{ width:12px; height:12px; }
+  .board-gen-btn.primary{ background:var(--running); border-color:var(--running); color:#fff; }
+  .board-gen-btn:disabled{ opacity:.45; cursor:not-allowed; }
+  .board-gen-btn.primary.busy{ opacity:.7; background:var(--text-dim); border-color:var(--text-dim); }
+  /* 오른쪽 연결 점은 카드 바깥 가장자리에 — 안쪽에 두면 입력칸을 가린다(카드가 overflow:visible). */
+  .board-node-gen .board-node-handle{ right:-8px; }
+  @media (pointer:coarse){ .board-node-gen .board-node-handle{ right:-13px; } }
+  .board-gen-field{ display:flex; flex-direction:column; gap:3px; }
+  .board-gen-field-label{ font-size:11px; color:var(--text-dim); }
+  .board-gen-input{
+    width:100%; box-sizing:border-box; font:inherit; font-size:12.5px; color:var(--text);
+    background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:6px 8px;
+    -webkit-user-select:text; user-select:text; cursor:text;
+  }
+  textarea.board-gen-input{ resize:none; height:66px; line-height:1.4; }
+  select.board-gen-input{ cursor:pointer; }
+  .board-gen-input:focus{ outline:2px solid rgba(var(--running-rgb),0.35); outline-offset:-1px; }
+
+  /* 작업(Job) 카드 — 안쪽은 전부 표시용이라 포인터를 안 받는다(카드 어디를 잡아도 끌리고,
+     톡 누르면 상세 창). 상태 배지는 작업 목록의 .badge를 그대로 쓴다. */
+  .board-job-body{
+    position:absolute; inset:0; padding:10px 12px;
+    display:flex; flex-direction:column; gap:7px;
+    pointer-events:none; overflow:hidden;
+  }
+  .board-job-head{ display:flex; align-items:center; gap:8px; min-width:0; }
+  .board-job-label{ font-size:12.5px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .board-job-prompt{
+    font-size:12px; line-height:1.45; color:var(--text-dim);
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .board-job-dim{ font-style:italic; opacity:.7; }
+  .board-job-progress{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+  .board-job-bar{ flex:1; height:5px; border-radius:3px; background:var(--border); overflow:hidden; }
+  .board-job-bar > div{ height:100%; background:var(--running); }
+  .board-job-thumbs{ display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; margin-top:auto; }
+  .board-job-thumb{
+    aspect-ratio:1; border-radius:5px; overflow:hidden; background:var(--bg);
+    display:flex; align-items:center; justify-content:center; color:var(--text-dim);
+  }
+  .board-job-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .board-job-thumb.nsfw{ background:rgba(20,20,24,0.88); color:rgba(255,255,255,0.75); }
+  .board-job-thumb .ico{ width:16px; height:16px; }
+  .board-job-note{ margin:auto; display:flex; flex-direction:column; align-items:center; gap:6px; font-size:12px; color:var(--text-dim); }
+  .board-job-note .ico{ width:20px; height:20px; }
+  /* 작업 고르기 창 — 격자 대신 한 줄씩 */
+  .board-asset-picker-grid.jobs{ grid-template-columns:1fr; gap:6px; }
+  .board-picker-job{
+    display:flex; align-items:center; gap:10px; width:100%; padding:9px 12px; text-align:left;
+    border:1px solid var(--border); border-radius:8px; background:var(--panel); color:var(--text); cursor:pointer;
+  }
+  .board-picker-job:hover{ border-color:var(--queued); }
+  .board-picker-job-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; font-size:12.5px; }
+  .board-picker-job-text span{ color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+  .board-picker-job-when{ font-family:var(--mono); font-size:11px; color:var(--text-dim); white-space:nowrap; }
+
+  /* 보드에 놓을 이미지/영상을 고르는 모달의 그리드 — 필터 없이 이 프로젝트 것만. */
+  .board-asset-picker-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(110px, 1fr));
+    gap:8px;
+    max-height:60vh;
+    overflow-y:auto;
+  }
+  .board-picker-item{
+    aspect-ratio:1; padding:0;
+    border:1px solid var(--border); border-radius:8px;
+    overflow:hidden; cursor:pointer; background:var(--bg);
+  }
+  .board-picker-item img, .board-picker-item video{ width:100%; height:100%; object-fit:cover; display:block; }
+  .board-picker-item:hover{ border-color:var(--queued); }
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:24px;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.03);
+  }
+
+  /* New job 패널 안에서 "무엇을 만들지 고르는 부분"(마법사/워크플로우 업로드)과
+     "그 선택에 따라 달라지는 세부 옵션"을 시각적으로 나누는 카드 — .panel을 중첩해서
+     쓰면 무거워 보여 테두리만 있는 가벼운 변형을 쓴다. */
+  .subpanel{
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:16px;
+  }
+  .subpanel + .subpanel{ margin-top:16px; }
+
+  .upload-form{
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+  .field{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .manual-template-toggle{ font-size:12.5px; margin-top:18px; }
+  .manual-template-toggle summary{
+    cursor:pointer; color:var(--text-dim); font-family:var(--mono); font-size:11.5px;
+    list-style:none; display:flex; align-items:center; gap:6px;
+  }
+  .manual-template-toggle summary::-webkit-details-marker{ display:none; }
+  .manual-template-toggle summary::before{ content:'▸'; font-size:10px; }
+  .manual-template-toggle[open] summary::before{ content:'▾'; }
+  .manual-template-toggle summary:hover{ color:var(--text); }
+  .manual-template-toggle .field{ margin-top:10px; }
+  .field-label{
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    color:var(--text-dim);
+  }
+  .field-label .opt{ text-transform:none; letter-spacing:0; font-weight:400; color:var(--text-dim); }
+  /* 필드 라벨 오른쪽에 보조 버튼(예: "최근 워크플로우")을 붙일 때 쓴다. */
+  .field-label-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:var(--gap-md);
+  }
+  .field-label-row .field-label{ flex-shrink:0; }
+  /* "최근 사용한 워크플로우"/"최근 사용한 CSV" 모달 목록 — 둘이 클래스를 공유한다.
+     파일명은 길면 말줄임, 시각/선택 버튼은 고정 폭으로 오른쪽에 붙는다. */
+  .recent-workflows-list{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    max-height:360px;
+    overflow-y:auto;
+  }
+  .recent-workflow-item{
+    display:flex;
+    align-items:center;
+    gap:var(--gap-md);
+    padding:8px 10px;
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+  }
+  .recent-workflow-name{
+    flex:1 1 auto;
+    min-width:0;
+    font-family:var(--mono);
+    font-size:12.5px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    cursor:pointer;
+  }
+  .recent-workflow-name:hover{ color:var(--queued); text-decoration:underline; }
+  .recent-workflow-time{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--text-dim);
+    white-space:nowrap;
+    flex-shrink:0;
+  }
+  /* 문구 없이 아이콘 하나만 담는 작은 버튼(휴지통 등) — .del-btn과 같은 색
+     규칙(hover 시 빨강)을 쓰되 정사각형 아이콘 크기로 맞춘다. */
+  .icon-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:26px;
+    height:26px;
+    padding:0;
+    flex-shrink:0;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    color:var(--text-dim);
+    cursor:pointer;
+    transition: border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .icon-btn:hover{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
+  .icon-btn svg{ width:14px; height:14px; }
+  /* 삭제처럼 되돌릴 수 없는 동작이 아닌 icon-btn(예: 다운로드)은 빨강 대신 파랑 계열로 hover */
+  .icon-btn-neutral:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
+  /* "선택"(.load-btn)과 휴지통(.icon-btn) 버튼의 너비를 맞춰서 나란히 놓았을 때
+     들쭉날쭉해 보이지 않게 한다. */
+  .recent-workflow-item .load-btn,
+  .recent-workflow-item .icon-btn{
+    width:56px;
+    justify-content:center;
+  }
+  .options-fields{
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+  select#template-select,
+  input.option-input,
+  select.option-input,
+  textarea.option-input{
+    background:var(--panel);
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:10px 12px;
+    font-family:var(--sans);
+    font-size:14px;
+    cursor:pointer;
+  }
+  input.option-input{ cursor:text; max-width:220px; }
+  select.option-input{ max-width:280px; }
+  textarea.option-input{
+    cursor:text;
+    width:100%;
+    max-width:520px;
+    min-height:80px;
+    resize:vertical;
+    line-height:1.5;
+  }
+  select#template-select:focus,
+  input.option-input:focus,
+  select.option-input:focus,
+  textarea.option-input:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
+
+  /* New Job 모달의 "세부 설정" 탭은 모달 자체가 넓어서(modal-panel-wide), 짧은
+     고정폭(220~520px)으로 잘라두면 오른쪽에 애매하게 빈 공간이 남는다 — 가로로
+     나란히 둘 값(.field-pair, 예: 시드 개수·시드 방식)만 반씩 나누고, 나머지는
+     칸을 끝까지 채운다. */
+  #options-fields input.option-input,
+  #options-fields select.option-input,
+  #options-fields textarea.option-input,
+  #lora-trigger-field input.option-input{
+    max-width:none;
+    width:100%;
+  }
+  .field-pair{ display:flex; gap:16px; flex-wrap:wrap; }
+  .field-pair > .field{ flex:1 1 200px; }
+
+  /* "입력 이미지" 옵션 — 드롭다운 + 업로드/갤러리 버튼을 한 줄에 (buildInputImageControl) */
+  .input-image-control{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:8px;
+  }
+  .input-image-control select.option-input{ flex:1 1 200px; }
+
+  /* 참조 이미지/비디오/오디오 슬롯의 카드 갤러리(buildAssetGalleryControl) — 드롭다운
+     대신 썸네일이 보이는 작은 카드를 나란히 늘어놓는다. */
+  .ref-gallery{ display:flex; flex-wrap:wrap; gap:6px; }
+  .ref-gallery-single{ display:inline-block; }
+  .ref-card{
+    width:92px; height:92px;
+    border:2px solid var(--border);
+    border-radius:var(--radius-sm);
+    cursor:pointer;
+    overflow:hidden;
+    position:relative;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--surface-2, rgba(255,255,255,0.03));
+    flex-shrink:0;
+  }
+  .ref-card:hover{ border-color:var(--queued); }
+  .ref-card.selected{ border-color:var(--queued); box-shadow:0 0 0 2px rgba(var(--queued-rgb),0.25); }
+  .ref-card img, .ref-card video{ width:100%; height:100%; object-fit:cover; pointer-events:none; }
+  .ref-card-none{ font-size:11px; color:var(--text-dim); text-align:center; padding:2px; line-height:1.2; }
+  .ref-card-audio{ flex-direction:column; gap:4px; padding:4px; }
+  .ref-card-audio .ico{ width:28px; height:28px; color:var(--text-dim); }
+  .ref-card-audio-label{ font-size:9.5px; color:var(--text-dim); max-width:82px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ref-card-badge{ position:absolute; bottom:2px; right:2px; background:rgba(0,0,0,0.55); border-radius:999px; padding:2px; display:flex; }
+  .ref-card-badge .ico{ width:10px; height:10px; color:#fff; }
+  .ref-card-upload{ border-style:dashed; color:var(--text-dim); }
+  .ref-card-upload:hover{ color:var(--text); }
+  .ref-card-add{ border-style:dashed; color:var(--text-dim); }
+  .ref-card-add:hover{ color:var(--text); border-color:var(--queued); }
+  .ref-card-add .ico{ width:28px; height:28px; }
+  .ref-card-remove{
+    position:absolute; top:-6px; right:-6px;
+    width:18px; height:18px; border-radius:999px;
+    background:var(--failed); color:#fff; border:none;
+    font-size:13px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  /* 메인 프롬프트의 "직접 입력"(항상 보임) 아래로 랜덤생성 버튼(자주 씀 — 항상 보임)과
+     "Prompt Enhance"(AI로 다시 써주는 것 — 실제로는 잘 안 쓴다는 피드백으로 접어둠,
+     .prompt-enhance-details)를 세로로 쌓는다. 실제로 큐에 보내는 값은 hidden
+     input(.option-input)에 모이므로, 여기 두 텍스트 에어리어(.enhance-textarea)는
+     일부러 .option-input 셀렉터 밖에 둬서 제출 시 중복으로 잡히지 않게 한다. */
+  .prompt-enhance{ display:flex; flex-direction:column; gap:10px; }
+  .prompt-enhance-col{ display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .prompt-enhance-quick{ display:flex; gap:8px; flex-wrap:wrap; }
+  .prompt-enhance-details summary{
+    cursor:pointer; font-family:var(--mono); font-size:11px; color:var(--text-dim);
+    list-style:none; display:flex; align-items:center; gap:6px;
+  }
+  .prompt-enhance-details summary::-webkit-details-marker{ display:none; }
+  .prompt-enhance-details summary::before{ content:'▸'; font-size:10px; }
+  .prompt-enhance-details[open] summary::before{ content:'▾'; }
+  .prompt-enhance-details summary:hover{ color:var(--text); }
+  .prompt-enhance-details[open] summary{ margin-bottom:10px; }
+  .prompt-enhance-details > .prompt-enhance-col{ margin-top:10px; }
+  .prompt-enhance-subtitle-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+  }
+  /* 복사/Danbooru로 보내기 버튼을 하나로 묶어서 라벨 오른쪽에 붙인다 — 부모가
+     justify-content:space-between이라, 버튼을 낱개로 넣으면 서로 멀리 떨어져
+     보이는 문제(자식이 3개 이상일 때 균등 배분됨)를 이 래퍼로 자식을 2개(라벨/
+     버튼 묶음)로 줄여서 피한다. */
+  .prompt-enhance-actions{ display:flex; align-items:center; gap:6px; flex-shrink:0; }
+  .prompt-enhance-subtitle{
+    font-family:var(--mono);
+    font-size:10.5px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    color:var(--text-dim);
+  }
+  /* 텍스트를 클립보드로 복사하는 작은 버튼 — 프롬프트 입력/결과 칸 소제목 옆에 쓴다. */
+  .copy-btn{
+    background:none;
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:2px 8px;
+    font-family:var(--mono);
+    font-size:10px;
+    font-weight:600;
+    color:var(--text-dim);
+    cursor:pointer;
+    white-space:nowrap;
+    transition: border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .copy-btn:hover{ border-color:var(--queued); color:var(--queued); background:rgba(var(--queued-rgb),0.06); }
+  .copy-btn.copied{ border-color:var(--done); color:var(--done); background:rgba(var(--done-rgb),0.08); }
+  .copy-btn.copy-error{ border-color:var(--failed); color:var(--failed); background:rgba(var(--failed-rgb),0.06); }
+  textarea.enhance-textarea{
+    background:var(--panel);
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:10px 12px;
+    font-family:var(--sans);
+    font-size:14px;
+    width:100%;
+    min-height:110px;
+    resize:vertical;
+    line-height:1.5;
+    cursor:text;
+    transition: border-color .15s ease, outline-color .15s ease;
+  }
+  textarea.enhance-textarea:focus{ outline:2px solid rgba(var(--queued-rgb),0.35); border-color:var(--queued); }
+  textarea.enhance-result{ background:rgba(var(--queued-rgb),0.03); }
+  /* 접었다 펼 수 있는 <details> 안이라 더 이상 두 텍스트 에어리어 사이 좁은 세로
+     칸이 아니다 — 자연어/Danbooru 토글 + Enhance 버튼 + 상태 문구를 가로로 늘어놓는다. */
+  .prompt-enhance-middle{
+    display:flex;
+    flex-direction:row;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  /* 자연어/Danbooru 모드 토글 — 탭처럼 둘 중 하나만 활성 상태를 띤다. */
+  .enhance-mode{
+    display:inline-flex;
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:2px;
+    gap:2px;
+  }
+  .enhance-mode-btn{
+    background:none;
+    border:none;
+    border-radius:999px;
+    padding:5px 12px;
+    font-family:var(--mono);
+    font-size:10.5px;
+    font-weight:600;
+    color:var(--text-dim);
+    cursor:pointer;
+    white-space:nowrap;
+    transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+  }
+  .enhance-mode-btn:hover:not(.active){ color:var(--text); }
+  .enhance-mode-btn.active{
+    background:var(--grad-primary);
+    color:#fff;
+    box-shadow:0 1px 2px rgba(var(--queued-rgb),0.3);
+  }
+  .enhance-btn{
+    position:relative;
+    background:var(--grad-primary);
+    color:#fff;
+    border:none;
+    border-radius:var(--radius-md);
+    padding:8px 14px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    font-weight:600;
+    letter-spacing:0.01em;
+    white-space:nowrap;
+    cursor:pointer;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
+    box-shadow:0 1px 2px rgba(var(--queued-rgb),0.25);
+    transition: background .18s ease, box-shadow .18s ease, transform .1s ease;
+  }
+  .enhance-btn:hover:not(:disabled){ background:var(--grad-primary-hover); box-shadow:0 4px 10px rgba(var(--queued-rgb),0.3); }
+  .enhance-btn:active:not(:disabled){ transform:translateY(1px); }
+  .enhance-btn:disabled{ background:var(--border); color:var(--text-dim); box-shadow:none; cursor:not-allowed; }
+  /* 프롬프트 개선은 LLM 호출 한 번짜리라 ComfyUI 진행률(%) 정보를 받아올 마땅한
+     지표가 없다 — 그런 자원 소모(웹소켓 유지 등) 없이도 "지금 뭔가 하고 있다"는
+     신호를 주는 게 목적이라 회전 스피너 하나로 충분하다. */
+  .enhance-spinner{
+    width:11px; height:11px;
+    border:2px solid rgba(255,255,255,0.4);
+    border-top-color:#fff;
+    border-radius:50%;
+    animation: enhance-spin .7s linear infinite;
+    flex-shrink:0;
+  }
+  @keyframes enhance-spin{ to{ transform:rotate(360deg); } }
+  /* .enhance-spinner는 어두운 배경(.enhance-btn) 전용으로 흰색 고정이라, .load-btn
+     같은 밝은 배경 버튼에 쓰면 안 보인다 — currentColor를 써서 버튼 글자색을
+     그대로 따라가는 범용 스피너. 회전+다운로드처럼 여러 장을 처리하느라 시간이
+     걸리는 버튼에 "지금 처리 중"임을 보여주는 용도로 쓴다. */
+  .btn-spinner{
+    display:inline-block;
+    width:11px; height:11px;
+    border:2px solid currentColor;
+    border-top-color:transparent;
+    border-radius:50%;
+    opacity:0.7;
+    animation: enhance-spin .7s linear infinite;
+    flex-shrink:0;
+    vertical-align:-2px;
+  }
+  .enhance-status{
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--text-dim);
+    text-align:center;
+    max-width:150px;
+    min-height:1.2em;
+  }
+  .enhance-status.error{ color:var(--failed); }
+  .enhance-status.success{ color:var(--done); }
+  .danbooru-per-seed-row{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--text-dim);
+    cursor:pointer;
+    margin-top:6px;
+  }
+  .danbooru-per-seed-row input[type="checkbox"]{
+    accent-color:var(--queued);
+    cursor:pointer;
+  }
+  /* width/height "이미지 크기" 필드 — 모드 토글(.enhance-mode 재사용) 아래로
+     "직접 입력"/"화면비·해상도" 두 패널 중 하나만 보인다. */
+  .resolution-control{ display:flex; flex-direction:column; gap:12px; }
+  .resolution-manual,
+  .resolution-preset{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:flex-end;
+    gap:var(--gap-md);
+  }
+  .resolution-manual[hidden],
+  .resolution-preset[hidden]{ display:none; }
+  .resolution-preview{
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:var(--text-dim);
+    align-self:center;
+    white-space:nowrap;
+  }
+
+  .slot{
+    border:1px dashed var(--border);
+    background:var(--bg);
+    border-radius:8px;
+    padding:16px 14px;
+    text-align:center;
+    color:var(--text-dim);
+    font-size:13px;
+    cursor:pointer;
+    transition: border-color .15s, background .15s, color .15s;
+  }
+  .slot.drag{
+    border-color:var(--queued);
+    background:rgba(var(--queued-rgb),0.06);
+    color:var(--text);
+  }
+  .slot.filled{
+    border-style:solid;
+    border-color:var(--done);
+    background:rgba(var(--done-rgb),0.05);
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:12.5px;
+  }
+  .slot-input{ display:none; }
+
+  /* 색이 있는 "동작" 버튼(주요/시작/위험) 공통 베이스 — 그라데이션, 그림자, hover 시
+     살짝 떠오르는 느낌, disabled 시 그라데이션이 꺼지고 평평해지는 상태를 통일한다. */
+  .submit-btn,
+  .danger-btn,
+  .start-queue-btn{
+    align-self:flex-start;
+    color:#fff;
+    border:none;
+    border-radius:var(--radius-md);
+    padding:10px 22px;
+    font-family:var(--mono);
+    font-size:13px;
+    font-weight:600;
+    letter-spacing:0.01em;
+    cursor:pointer;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:var(--gap-xs);
+    transition: background .18s ease, box-shadow .18s ease, transform .1s ease;
+  }
+  .submit-btn:active,
+  .danger-btn:active,
+  .start-queue-btn:active{ transform:translateY(1px); }
+  .submit-btn:disabled,
+  .danger-btn:disabled,
+  .start-queue-btn:disabled{
+    background:var(--border) !important;
+    color:var(--text-dim);
+    box-shadow:none;
+    cursor:not-allowed;
+    transform:none;
+  }
+
+  .submit-btn{
+    background:var(--grad-primary);
+    box-shadow:0 1px 2px rgba(var(--queued-rgb),0.25), 0 1px 1px rgba(16,24,40,0.06);
+  }
+  .submit-btn:hover:not(:disabled){ background:var(--grad-primary-hover); box-shadow:0 4px 10px rgba(var(--queued-rgb),0.3); }
+
+  .danger-btn{
+    background:var(--grad-danger);
+    box-shadow:0 1px 2px rgba(var(--failed-rgb),0.25), 0 1px 1px rgba(16,24,40,0.06);
+  }
+  .danger-btn:hover:not(:disabled){ background:var(--grad-danger-hover); box-shadow:0 4px 10px rgba(var(--failed-rgb),0.3); }
+
+  .upload-error{
+    color:var(--failed);
+    font-size:12.5px;
+    font-family:var(--mono);
+    min-height:1em;
+  }
+  .email-hint{ font-size:12.5px; color:var(--text-dim); margin:-4px 0 12px; }
+  /* 항상 떠 있으면 거슬리는 긴 안내문을 "?" 아이콘 뒤에 숨겨 두는 도움말 —
+     데스크탑은 호버로, 터치 기기는 탭(버튼 클릭으로 open 클래스 토글)으로 연다. */
+  .help-tip{ position:relative; display:inline-flex; vertical-align:middle; margin-left:2px; }
+  .help-tip-btn{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:18px; height:18px; padding:0; flex-shrink:0;
+    border:1px solid var(--border); border-radius:50%; background:var(--panel);
+    color:var(--text-dim); cursor:pointer;
+  }
+  .help-tip-btn:hover, .help-tip-btn:focus-visible{ color:var(--queued); border-color:var(--queued); }
+  .help-tip-btn .ico{ width:12px; height:12px; }
+  .help-tip-pop{
+    position:absolute; top:calc(100% + 8px); left:0; z-index:20;
+    width:280px; max-width:min(280px, 70vw); padding:10px 12px;
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius-md);
+    box-shadow:0 6px 20px rgba(0,0,0,0.16);
+    font-size:12.5px; line-height:1.5; color:var(--text-dim); font-weight:400;
+    text-transform:none; letter-spacing:normal;
+    opacity:0; visibility:hidden; transform:translateY(-4px); pointer-events:none;
+    transition:opacity .12s ease, transform .12s ease, visibility .12s;
+  }
+  .help-tip:hover .help-tip-pop,
+  .help-tip.open .help-tip-pop{ opacity:1; visibility:visible; transform:translateY(0); pointer-events:auto; }
+  @media (max-width:760px){ .help-tip-pop{ left:auto; right:0; } }
+  /* RunPod에서 가져온 이름을 nightshift 이름 입력칸에 한 번에 채워주는 제안 줄
+     — 자동으로 덮어쓰지는 않는다(사용자가 일부러 지은 이름을 조용히 바꾸면
+     안 되므로), 눌러야만 채워지는 링크 버튼으로만 둔다. */
+  .pod-name-suggest{ font-size:12px; color:var(--text-dim); }
+  .pod-name-suggest button{
+    background:none; border:none; padding:0; margin-left:4px;
+    color:var(--queued); font-size:12px; cursor:pointer; text-decoration:underline;
+  }
+  .runpod-info-box{ background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .runpod-info-grid{ display:grid; grid-template-columns:auto 1fr; gap:5px 12px; font-size:12.5px; }
+  .runpod-info-grid .ri-k{ color:var(--text-dim); }
+  .runpod-info-grid .ri-v{ color:var(--text); font-family:var(--mono); }
+  input.email-input{ max-width:320px; }
+  .email-result{ color:var(--done); font-size:12.5px; font-family:var(--mono); min-height:1em; }
+  .output-actions{ display:flex; gap:var(--gap-lg); flex-wrap:wrap; }
+  /* 좁은 화면에서는 버튼 3개가 서로 다른 텍스트 길이 때문에 들쭉날쭉하게 왼쪽
+     정렬되던 걸, 세로로 쌓고 폭을 전부 맞춰서 길이/정렬을 통일한다. */
+  @media (max-width:640px){
+    .output-actions{ flex-direction:column; align-items:stretch; }
+    .output-actions > div{ width:100%; }
+    .output-actions .submit-btn,
+    .output-actions .danger-btn{ width:100%; }
+  }
+
+  .section-label{
+    font-family:var(--mono);
+    font-size:12px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:var(--track-label);
+    color:var(--text-dim);
+    margin-bottom:16px;
+  }
+
+  .panel-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:16px;
+  }
+  .panel-header .section-label{ margin-bottom:0; transition:color .15s ease; }
+  /* 접기/펼치기 버튼을 제목 오른쪽 끝이 아니라 제목 왼쪽에 불릿처럼 붙여서,
+     "이 줄 전체가 접기 트리거"라는 게 한눈에 보이게 한다. 버튼 하나에만
+     클릭 리스너를 달지 않고 이 그룹 전체(.panel-header-title)에 다는 이유도
+     같은 맥락 — 텍스트를 눌러도 접히고 펼쳐져야 자연스럽다. */
+  .panel-header-title{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    cursor:pointer;
+    min-width:0;
+  }
+  .panel-header-title:hover .collapse-btn{ color:var(--queued); }
+  .panel-header-title:hover .section-label{ color:var(--text); }
+  .panel-header-actions{ display:flex; align-items:center; gap:var(--gap-md); flex-shrink:0; }
+  /* 갤러리/영상/Danbooru 탭 제목 줄 — actions가 flex-shrink:0이라 좁은 화면에서
+     줄어들 곳이 제목(section-label)뿐이라 글자가 한 자씩 세로로 쪼개지고
+     actions는 화면 밖으로 넘어갔다. 좁은 화면에서는 아래 줄로 넘기고, actions
+     자신도 필요하면 여러 줄로 접히게 한다. */
+  @media (max-width:640px){
+    .panel-header{ flex-wrap:wrap; }
+    /* flex-shrink:0을 그대로 두면 넓어진 채로 화면 밖까지 넘어가버려서, 줄 하나를
+       통째로 차지하게(width:100%) 만들어야 그 안에서 다시 flex-wrap이 걸린다. */
+    .panel-header-actions{ flex-wrap:wrap; flex-shrink:1; width:100%; }
+  }
+  .collapse-btn{
+    background:none;
+    border:none;
+    color:var(--text-dim);
+    width:14px;
+    height:14px;
+    flex-shrink:0;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    font-size:11px;
+    line-height:1;
+    cursor:pointer;
+    padding:0;
+    transition: transform .15s ease, color .15s ease;
+  }
+  .panel.collapsed .panel-header{ margin-bottom:0; }
+  .panel.collapsed .panel-body{ display:none; }
+  .panel.collapsed .collapse-btn{ transform:rotate(-90deg); }
+  .start-queue-btn{
+    background:var(--grad-success);
+    padding:8px 18px;
+    font-size:12.5px;
+    box-shadow:0 1px 2px rgba(var(--done-rgb),0.25), 0 1px 1px rgba(16,24,40,0.06);
+  }
+  .start-queue-btn:hover:not(:disabled){ background:var(--grad-success-hover); box-shadow:0 4px 10px rgba(var(--done-rgb),0.3); }
+  /* 자동 실행 모드가 켜져 있는 동안(⏸ 정지로 바뀐 상태) — 시작(초록)과 뚜렷이
+     구분되는 색(주황, running 배지와 같은 계열)으로 "지금 계속 돌고 있다"는
+     상태를 알린다. */
+  .start-queue-btn.running{
+    background:var(--grad-running);
+    box-shadow:0 1px 2px rgba(var(--running-rgb),0.25), 0 1px 1px rgba(16,24,40,0.06);
+  }
+  .start-queue-btn.running:hover:not(:disabled){ background:var(--grad-running-hover); box-shadow:0 4px 10px rgba(var(--running-rgb),0.3); }
+
+  .table-scroll{ overflow-x:auto; container-type:inline-size; }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13px;
+  }
+  thead th{
+    text-align:left;
+    font-family:var(--mono);
+    font-weight:600;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    color:var(--text-dim);
+    padding:0 12px 10px;
+    border-bottom:1px solid var(--border);
+    white-space:nowrap;
+  }
+  tbody tr{
+    cursor:pointer;
+    border-bottom:1px solid var(--border);
+  }
+  tbody tr:last-child{ border-bottom:none; }
+  tbody tr:hover{ background:var(--bg); }
+  tbody td{
+    padding:10px 8px;
+    vertical-align:middle;
+  }
+  .fname{
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:var(--text);
+    max-width:190px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .fname.dim{ color:var(--text-dim); }
+  .badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    padding:3px 9px;
+    border-radius:20px;
+    border:1px solid currentColor;
+    white-space:nowrap;
+  }
+  .badge.pending{ color:var(--queued); background:rgba(var(--queued-rgb),0.10); }
+  .badge.queued{ color:var(--queued); background:rgba(var(--queued-rgb),0.10); }
+  .badge.running{ color:var(--running); background:rgba(var(--running-rgb),0.10); }
+  .badge.done{ color:var(--done); background:rgba(var(--done-rgb),0.10); }
+  .badge.failed{ color:var(--failed); background:rgba(var(--failed-rgb),0.10); }
+  .badge.mature{ color:var(--failed); background:rgba(var(--failed-rgb),0.10); }
+  .badge.interrupted{ color:var(--interrupted); background:rgba(var(--interrupted-rgb),0.10); }
+  /* ComfyUI(GPU)에 연결될 때까지 큐에서 붙잡혀 있는 작업 — 실패가 아니라 대기다.
+     "대기중"(queued)과 눈에 띄게 구분돼야 사용자가 "왜 안 도나"를 바로 안다. */

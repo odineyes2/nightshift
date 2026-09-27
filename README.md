@@ -49,7 +49,7 @@ GPU 인스턴스(RunPod 등)에서 반복되는 실행 로직(ComfyUI 배치 등
 ## 기술 스택
 
 - Python 3 / [FastAPI](https://fastapi.tiangolo.com/) + [Uvicorn](https://www.uvicorn.org/)
-- 순수 HTML/CSS/JS로 작성된 프론트엔드 (`static/index.html`, 별도 빌드 과정 없음), 라이트 테마의 모니터링 대시보드 스타일.
+- 순수 HTML/CSS/JS로 작성된 프론트엔드 (`static/index.html` + 기능별 `static/js/`·`static/css/`, 별도 빌드 과정 없음 — 서버가 번호 순으로 이어 붙여 보냄), 라이트 테마의 모니터링 대시보드 스타일.
   워크플로우 편집기도 외부 라이브러리 없이 모노스페이스 `<textarea>` + `JSON.parse` 기반 검증으로 구현 (오프라인/폐쇄망 파드에서도 항상 동작)
 - 백그라운드 스레드 + `queue.Queue` 기반의 단일 워커 실행 모델
 
@@ -1223,7 +1223,9 @@ nightshift/
 │   ├── mcp_server.py           # app.py의 REST API를 MCP 도구로 감싸는 별도 프로세스
 │   └── mcp_smoke_test.py       # mcp_server.py 스모크 테스트 (docs/mcp_test_plan.md 참고)
 ├── static/
-│   └── index.html            # 프론트엔드 (단일 HTML 파일)
+│   ├── index.html            # 프론트엔드 마크업
+│   ├── js/                   # 화면 동작, 기능별 파일 (서버가 /js/bundle.js로 이어 붙여 보냄)
+│   └── css/                  # 스타일, 기능별 파일 (/css/bundle.css)
 ├── templates/                 # 작업 스크립트 — server/가 import하는 모듈이 아니라
 │   │                          # 서브프로세스로 실행되는 독립 프로그램(원격 pod에서도 돈다)
 │   ├── manifest.json         # 등록된 스크립트 템플릿 목록 (옵션 스키마 포함)

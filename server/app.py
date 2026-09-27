@@ -1491,7 +1491,11 @@ async def authenticate_request(request: Request, call_next):
     request.state.user = None
     request.state.internal = False
     if not path.startswith("/api/"):
-        return await call_next(request)
+        response = await call_next(request)
+        # 화면 파일은 매번 재검증한다(업데이트 뒤 옛 index.html과 새 JS가 섞이지 않게)
+        if path == "/" or path.endswith((".html", ".js", ".css")):
+            response.headers.setdefault("Cache-Control", "no-cache")
+        return response
     if SHARED_API_RE.match(path):
         origin = request.headers.get("origin", "").rstrip("/")
         cors = {"Cross-Origin-Resource-Policy": "cross-site", "Vary": "Origin"}
@@ -6423,6 +6427,29 @@ def delete_danbooru_history(entry_id: str):
         danbooru_history.remove(entry)
     save_danbooru_history()
     return {"ok": True}
+
+
+# 화면 JS/CSS는 static/js·static/css에 기능별로 나눠 두고(수정할 때 필요한 파일만 읽게),
+# 브라우저에는 번호 순서대로 이어 붙인 한 덩어리로 보낸다. 한 스크립트로 실행되므로
+# 파일 사이의 함수 끌어올림·실행 순서가 분할 전과 똑같다. 빌드 과정은 없다.
+def _bundle(request: Request, folder: str, ext: str, media_type: str):
+    files = sorted((REPO_ROOT / "static" / folder).glob(f"*.{ext}"))
+    body = "".join(f.read_text("utf-8") for f in files).encode("utf-8")
+    etag = '"' + hashlib.sha1(body).hexdigest()[:16] + '"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type=media_type, headers=headers)
+
+
+@app.get("/js/bundle.js", include_in_schema=False)
+def js_bundle(request: Request):
+    return _bundle(request, "js", "js", "application/javascript; charset=utf-8")
+
+
+@app.get("/css/bundle.css", include_in_schema=False)
+def css_bundle(request: Request):
+    return _bundle(request, "css", "css", "text/css; charset=utf-8")
 
 
 app.mount("/", StaticFiles(directory=str(REPO_ROOT / "static"), html=True), name="static")
