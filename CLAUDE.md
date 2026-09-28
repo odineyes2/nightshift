@@ -25,7 +25,8 @@
   - `05-models` 모델 탭(등록부·설치 현황·LoRA 트리거 `rebuildLoraTriggersFromRegistry`)
   - `06-wizard` 마법사(계열·유형·LoRA·배치 모달, 워크플로우 검사)
   - `07-account-db` 테마·NSFW·로그인·회원 관리·DB 탭
-  - `08-pods` 파드 카드 `renderPodCard`·RunPod 켜기/끄기 `runpodPower`·파드 편집 `openPodEditModal`
+  - `08-pods` 파드 카드 `renderPodCard`·RunPod 켜기/끄기 `runpodPower`·파드 편집 `openPodEditModal`(켜기/끄기 스위치 `renderPodControls`)
+  - `08b-worker-models` 워커 안의 모델 탭(`#pod/{id}/pmodels`) — 설치된 모델·대기 작업에 필요한데 없는 모델·모두 받기
   - `09-routing-results` 탭 전환 `showTab`·해시 라우팅 `applyHashRoute`·파드 스코프 바 `renderPodBar`/`updatePodBarStatus`·결과 목록
   - `10-gallery-meta` 갤러리 필터·즐겨찾기/NSFW/별점/태그 일괄 변경
   - `11-projects` 프로젝트·홈 대시보드 `renderHome`·프로젝트 바
@@ -55,7 +56,7 @@
   - `10-job-submit` 참조 노드 검사·최근 워크플로우/CSV·작업 생성 `create_job`(`/api/upload`, `POST /api/jobs`)
   - `11-projects-board` 프로젝트·보드 프리셋·보드(카드·선·생성 카드 실행)
   - `12-output-assets` 작업의 프로젝트 이동·결과물 메타(`/api/output-assets*`)·태그
-  - `13-jobs-api` 큐 시작/정지·작업 목록/로그/진행 보고·start/pause/fetch-missing/stop/move/삭제
+  - `13-jobs-api` 큐 시작/정지·작업 목록/로그/진행 보고·start/pause/fetch-missing/stop/move/삭제·워커 모델 탭 API(`/api/pods/{id}/models`, `…/models/fetch-needed`)
   - `14-output-images` 메일 보내기·결과 이미지 목록/썸네일/회전/다운로드/삭제·ComfyUI 결과 동기화
   - `15-videos-share` 결과 영상·영상 편집·OpenCut 공유
   - `16-danbooru-static` Danbooru 태그/기록·`/js/bundle.js`·`/css/bundle.css`·정적 파일 마운트

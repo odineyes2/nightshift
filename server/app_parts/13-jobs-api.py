@@ -398,9 +398,10 @@ def _registry_entry_for(name: str) -> dict | None:
     return (exact + loose or [None])[0]
 
 
-def _watch_model_downloads(pod: dict, job_id: str, names: list[str]) -> None:
+def _watch_model_downloads(pod: dict, job_id: str | None, names: list[str]) -> None:
     """"없는 모델 받기"로 시작한 다운로드가 끝날 때까지 지켜보다가, 끝날 때마다 파드의 설치 목록 캐시를
-    비우고 스케줄러를 깨운다 — 그래야 사람이 모델 탭을 안 열어도 다 받는 즉시 작업이 시작된다."""
+    비우고 스케줄러를 깨운다 — 그래야 사람이 모델 탭을 안 열어도 다 받는 즉시 작업이 시작된다.
+    job_id가 없으면(워커 모델 탭의 "모두 받기") 작업 카드 표시는 건드리지 않는다."""
     pending = set(names)
     errors: list[str] = []
     deadline = time.monotonic() + 6 * 3600
@@ -423,7 +424,7 @@ def _watch_model_downloads(pod: dict, job_id: str, names: list[str]) -> None:
             ComfyUIDriver.invalidate_capabilities(pod["id"])
             poke_scheduler()
     with lock:
-        job = jobs.get(job_id)
+        job = jobs.get(job_id) if job_id else None
         if job is not None:
             job["fetching_models"] = None
             # 실패한 받기는 이유를 남겨 카드에 보인다(없으면 받는 중 표시만 사라지고 원래 대기 이유로
@@ -441,21 +442,12 @@ def _watch_model_downloads(pod: dict, job_id: str, names: list[str]) -> None:
     poke_scheduler()
 
 
-@app.post("/api/jobs/{job_id}/fetch-missing")
-async def fetch_missing_models(job_id: str, request: Request):
-    """카드의 "없는 모델 받기" — 스케줄러가 적어 둔 missing_models(그 파드에 없는 모델)를 등록부의 다운로드
-    주소로 그 파드에 받는다. 주소가 없는 모델은 받지 않고 알려 준다. 다 받으면 작업은 저절로 시작된다."""
-    user = me(request)
-    job_or_404(user, job_id)
-    with lock:
-        job = jobs.get(job_id)
-        info = dict(job.get("missing_models") or {}) if job else {}
-    if not info.get("names"):
-        raise HTTPException(400, "받을 모델이 없어요(이미 갖춰졌거나 아직 확인 전이에요).")
-    pod = _download_pod(user, info["pod_id"])
+async def _start_model_downloads(user: dict, pod: dict, names: list[str]) -> tuple[list, list, list]:
+    """등록부의 받을 주소로 그 워커에 모델 받기를 시작한다 — (시작한 것, 주소가 없는 것, 실패한 것).
+    작업 카드의 "없는 모델 받기"와 워커 모델 탭의 "모두 받기"가 함께 쓴다."""
     token = (auth.get_secrets(user["id"]) or {}).get("civitai_token") or None
     started, no_url, failed = [], [], []
-    for name in info["names"]:
+    for name in names:
         if name.startswith("노드 "):
             failed.append({"name": name, "detail": "커스텀 노드는 여기서 받을 수 없어요 — 워커에 직접 설치하세요."})
             continue
@@ -470,6 +462,80 @@ async def fetch_missing_models(job_id: str, request: Request):
             started.append(name)
         except model_download.DownloadError as e:
             failed.append({"name": name, "detail": str(e)})
+    return started, no_url, failed
+
+
+def _needed_models_on_pod(user: dict, pod: dict) -> list[dict] | None:
+    """내(관리자는 전체) 대기 작업 — 아직 워커가 안 정해진 queued·pending — 이 이 워커에서 돌려면 없는 것들.
+    [{name, kind, download_url, node, jobs: [{id, label}]}] 이름순. 워커가 설치 목록을 안 주면 None."""
+    scope = auth.owner_scope(user)
+    with lock:
+        waiting = [dict(j) for j in jobs.values()
+                   if j["status"] in ("queued", "pending") and not j.get("pod_id") and not j.get("deleted")
+                   and (scope is None or j.get("owner_id") == scope)]
+    needed: dict[str, dict] = {}
+    for job in sorted(waiting, key=lambda j: j.get("queued_at") or ""):
+        missing = job_missing_on_pod(job, pod)
+        if missing is None:
+            return None
+        for name in missing:
+            if name not in needed:
+                node = name.startswith("노드 ")
+                entry = None if node else _registry_entry_for(name)
+                needed[name] = {"name": name, "node": node, "kind": (entry or {}).get("kind"),
+                                "download_url": (entry or {}).get("download_url") or None, "jobs": []}
+            needed[name]["jobs"].append({"id": job["id"], "label": job.get("template_label") or job.get("template_id")})
+    return sorted(needed.values(), key=lambda x: x["name"].lower())
+
+
+@app.get("/api/pods/{pod_id}/models")
+async def pod_models_api(pod_id: str, request: Request, refresh: bool = False):
+    """워커 모델 탭 — 그 워커에 설치된 모델(종류별)과, 대기 작업에 필요한데 그 워커에 없는 것.
+    사용이 꺼진 워커도 연결되면 보여 준다(설치 확인은 작업 배정과 무관하므로)."""
+    user = me(request)
+    pod = _download_pod(user, pod_id)
+    try:
+        _, info = await asyncio.to_thread(fetch_comfy_object_info, refresh, pod)
+    except Exception:
+        info = None
+    if info is None:
+        return {"connected": False, "models": {}, "needed": []}
+    models = {k: combo_choices(info, *src) for k, src in MODEL_LIST_SOURCES.items()}
+    needed = await asyncio.to_thread(_needed_models_on_pod, user, pod)
+    return {"connected": True, "models": models, "needed": needed or []}
+
+
+@app.post("/api/pods/{pod_id}/models/fetch-needed")
+async def fetch_needed_models(pod_id: str, request: Request):
+    """워커 모델 탭의 "모두 받기" — 대기 작업에 필요한데 없는 모델 중 받을 주소가 있는 것을 전부 받는다.
+    다 받으면 작업 카드의 "없는 모델 받기"처럼 캐시를 비우고 스케줄러를 깨워 저절로 시작되게 한다."""
+    user = me(request)
+    pod = _download_pod(user, pod_id)
+    needed = await asyncio.to_thread(_needed_models_on_pod, user, pod)
+    if needed is None:
+        raise HTTPException(409, "워커에 연결하지 못해 무엇이 없는지 알 수 없어요.")
+    names = [n["name"] for n in needed if not n["node"]]
+    if not names:
+        raise HTTPException(400, "받을 모델이 없어요 — 대기 작업에 필요한 모델이 이미 다 있어요.")
+    started, no_url, failed = await _start_model_downloads(user, pod, names)
+    if started:
+        threading.Thread(target=_watch_model_downloads, args=(pod, None, started), daemon=True).start()
+    return {"pod_id": pod["id"], "started": started, "no_url": no_url, "failed": failed}
+
+
+@app.post("/api/jobs/{job_id}/fetch-missing")
+async def fetch_missing_models(job_id: str, request: Request):
+    """카드의 "없는 모델 받기" — 스케줄러가 적어 둔 missing_models(그 파드에 없는 모델)를 등록부의 다운로드
+    주소로 그 파드에 받는다. 주소가 없는 모델은 받지 않고 알려 준다. 다 받으면 작업은 저절로 시작된다."""
+    user = me(request)
+    job_or_404(user, job_id)
+    with lock:
+        job = jobs.get(job_id)
+        info = dict(job.get("missing_models") or {}) if job else {}
+    if not info.get("names"):
+        raise HTTPException(400, "받을 모델이 없어요(이미 갖춰졌거나 아직 확인 전이에요).")
+    pod = _download_pod(user, info["pod_id"])
+    started, no_url, failed = await _start_model_downloads(user, pod, info["names"])
     if started:
         with lock:
             job = jobs.get(job_id)

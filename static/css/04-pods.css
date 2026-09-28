@@ -184,3 +184,27 @@
   .pod-switch:disabled{ opacity:0.45; cursor:not-allowed; }
   .pod-switch:focus-visible{ outline:2px solid rgba(var(--queued-rgb),0.6); outline-offset:2px; }
 
+
+  /* 워커 안의 "모델" 탭(08b-worker-models.js) */
+  .wm-section{ margin-bottom:22px; }
+  .wm-section-head{ display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+  .wm-section-head h3{ margin:0; font-size:13.5px; font-weight:600; color:var(--text); flex:1; min-width:0; }
+  .wm-count{ font-size:11.5px; font-weight:400; color:var(--text-dim); }
+  .wm-search{ max-width:220px; }
+  .wm-row{
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:7px 10px; font-size:12.5px;
+    border-bottom:1px solid var(--border);
+  }
+  .wm-name{ flex:1 1 240px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-family:var(--mono); font-size:12px; }
+  .wm-kind{ flex:none; font-size:11px; color:var(--text-dim); }
+  .wm-jobs{ flex:1 1 100%; font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wm-tag{ flex:none; font-size:11px; padding:1px 7px; border-radius:999px; border:1px solid var(--border); color:var(--text-dim); }
+  .wm-tag.ok{ color:var(--done); border-color:rgba(var(--done-rgb),0.45); }
+  .wm-tag.warn{ color:#EA580C; border-color:rgba(234,88,12,0.45); }   /* 작업 카드의 "조치 필요"와 같은 주황 */
+  .wm-dl-state{ flex:none; font-size:11.5px; color:var(--text-dim); }
+  .wm-dl-state.error{ color:var(--failed); }
+  .wm-dl-bar{ flex:1 1 100%; }
+  .wm-group{ border:1px solid var(--border); border-radius:8px; margin-bottom:8px; background:var(--bg); }
+  .wm-group > summary{ cursor:pointer; padding:9px 12px; font-size:13px; color:var(--text); }
+  .wm-group[open] > summary{ border-bottom:1px solid var(--border); }
+  .wm-group .wm-row:last-child{ border-bottom:none; }

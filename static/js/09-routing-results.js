@@ -40,16 +40,18 @@ const TAB_MAINS = {
   // 보여준다 — pgallery와 달리 이건 전용 DOM(#tab-results)과 전용 렌더러
   // (renderResultsList)를 쓰는 완전히 별개의 화면이다.
   results: document.getElementById('tab-results'),
+  pmodels: document.getElementById('tab-pmodels'),   // 워커에 설치된 모델(08b-worker-models.js)
 };
 
 // 작업(Jobs)은 전역 Jobs 탭에서만 관리한다 — 파드 안에는 결과물(갤러리/영상/글)과 설정만 둔다.
-const POD_TABS = ['pgallery', 'pvideo', 'results'];
+const POD_TABS = ['pgallery', 'pvideo', 'pmodels', 'results'];
 // 폰에서는 글자를 숨기고 아이콘만 보이므로(CSS .btn-label), 라벨은 title/aria-label에도 넣는다.
 const POD_TAB_META = {
   jobs:     { icon: 'list-checks', label: 'Jobs' },
   pgallery: { icon: 'images',      label: 'Gallery' },
   pvideo:   { icon: 'clapperboard', label: 'Videos' },
   results:  { icon: 'file-text',   label: 'Results' },
+  pmodels:  { icon: 'boxes',       label: 'Models' },
   // 화면이 아니라 "이 파드 설정" 모달을 여는 서브탭 버튼이다(POD_TABS에 없음 — 탭 전환이 일어나지 않는다).
   psettings: { icon: 'settings',   label: 'Settings' },
 };
@@ -60,7 +62,7 @@ const POD_TAB_META = {
 // 자리에 결과가 이미지/영상이 아니라 글이라는 걸 정직하게 반영해 results 탭을
 // 대신 쓴다.
 const POD_SUBTABS = {
-  comfyui: ['pgallery', 'pvideo', 'psettings'],
+  comfyui: ['pgallery', 'pvideo', 'pmodels', 'psettings'],
   shell: ['pgallery', 'pvideo', 'psettings'],
   claude_writer: ['results', 'psettings'],
 };
@@ -237,6 +239,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'models') initModelsTab();
   if(tab === 'jobs') fetchJobs();
   if(tab === 'results') renderResultsList();
+  if(tab === 'pmodels') openWorkerModels(scopedPodId); else closeWorkerModels();
   if(tab === 'admin') fetchAdminUsers();
   if(tab === 'db'){ renderDbPanelTabs(); fetchRunpodSessions(); fetchGitLog(); fetchGenerationLog(); }
   if(tab === 'prboard'){ initBoardCanvas(); resizeBoardViewport(); fetchBoard(); }
