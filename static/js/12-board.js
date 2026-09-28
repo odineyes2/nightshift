@@ -334,7 +334,7 @@ function initBoardCanvas(){
   };
   for(const type of ['pointerup', 'pointercancel', 'pointerleave']) viewport.addEventListener(type, endBoardNodeDrag);
 
-  // 크기 바꾸기(묶음 틀 · 이미지 · 영상 · 텍스트 카드) — 오른쪽 아래 손잡이를 끈다. 끄는 동안 붙은 선이
+  // 크기 바꾸기(묶음 틀 · 이미지 · 영상 · 텍스트 · 생성 카드) — 오른쪽 아래 손잡이를 끈다. 끄는 동안 붙은 선이
   // 따라오고, 끝났을 때 한 번만 저장하고 되돌리기 기록을 남긴다. 최소 크기는 종류마다(BOARD_MIN_SIZE).
   let resize = null;   // { id, el, node, pointerId, startClientX, startClientY, startW, startH }
   viewport.addEventListener('pointerdown', (e) => {
@@ -352,7 +352,7 @@ function initBoardCanvas(){
   });
   viewport.addEventListener('pointermove', (e) => {
     if(!resize || e.pointerId !== resize.pointerId) return;
-    const min = BOARD_MIN_SIZE[resize.node.kind] || BOARD_MIN_SIZE.image;
+    const min = resize.node.kind === 'gen' ? boardGenMinSize(resize.node) : (BOARD_MIN_SIZE[resize.node.kind] || BOARD_MIN_SIZE.image);
     resize.node.width = Math.max(min.w, resize.startW + (e.clientX - resize.startClientX) / boardState.scale);
     resize.node.height = Math.max(min.h, resize.startH + (e.clientY - resize.startClientY) / boardState.scale);
     resize.el.style.width = resize.node.width + 'px';

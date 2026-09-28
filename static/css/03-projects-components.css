@@ -361,6 +361,9 @@
   /* 오른쪽 연결 점은 카드 바깥 가장자리에 — 안쪽에 두면 입력칸을 가린다(카드가 overflow:visible). */
   .board-node-gen .board-node-handle{ right:-8px; }
   @media (pointer:coarse){ .board-node-gen .board-node-handle{ right:-13px; } }
+  /* 생성 카드의 크기 손잡이는 안쪽 모서리면 "실행" 버튼과 겹쳐서 틀처럼 모서리 바깥에 걸친다(카드가 overflow:visible) */
+  .board-node-gen .board-node-resize{ right:-7px; bottom:-7px; }
+  @media (pointer:coarse){ .board-node-gen .board-node-resize{ right:-11px; bottom:-11px; } }
   .board-gen-field{ display:flex; flex-direction:column; gap:3px; }
   .board-gen-field-label{ font-size:11px; color:var(--text-dim); }
   .board-gen-input{

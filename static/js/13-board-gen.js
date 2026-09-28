@@ -33,7 +33,7 @@ function boardGenCardHtml(node, style, delBtn){
     + `<div class="board-gen-foot"><div class="board-gen-status">${boardGenStatusHtml(boardJobInfo.get(node.id), node)}</div>`
     + `<button type="button" class="board-gen-btn" data-gen-detail="${node.id}" title="새 작업 창을 이 카드 값으로 채워 열기(복잡한 설정은 거기서)">자세히</button>`
     + `<button type="button" class="board-gen-btn primary" data-gen-run="${node.id}">${ico('play')} 실행</button></div>`
-    + `${delBtn}</div>`;
+    + `${delBtn}<span class="board-node-resize" title="끌어서 크기 바꾸기"></span></div>`;
 }
 
 // 카드 아래 줄의 마지막 실행 상태 — 작업 카드와 같은 정보(GET .../board/jobs)를 짧게.
@@ -569,6 +569,12 @@ const BOARD_MIN_SIZE = {   // 크기 바꾸기의 최소 크기(월드 px)
   frame: { w: BOARD_FRAME_MIN_W, h: BOARD_FRAME_MIN_H },
   image: { w: 80, h: 80 }, video: { w: 80, h: 80 }, text: { w: 120, h: 80 },
 };
+// 생성 카드는 서버가 정한 기본 높이(_board_gen_height와 같은 셈)보다 작게 줄이지 않는다 — 칸이 잘리지 않게.
+function boardGenMinSize(node){
+  const d = node.data || {};
+  const fields = (d.fields || []).reduce((s, f) => s + (f.type === 'textarea' ? 96 : 60), 0);
+  return { w: 240, h: Math.max(140, 52 + 30 * (d.slots || []).length + fields + 14 + 46) };
+}
 const BOARD_FRAME_PAD = 30, BOARD_FRAME_BAR = 40;
 
 function boardNodeInside(n, f){
