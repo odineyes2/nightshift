@@ -579,6 +579,7 @@ function renderGenerationLog(){
       <div class="genlog-entry">
         <div class="genlog-head">
           <span class="genlog-kind genlog-kind-${a.kind}"><svg class="ico"><use href="#i-${kindIcon}"/></svg></span>
+          <span title="결과물 번호 — 색인에 들어온 순서라 지우거나 걸러도 바뀌지 않아요">#${a.id}</span>
           <span>${fmtGalleryDateTime(a.created_at)}</span>
           <span title="${escapeHtml(a.path)}">${escapeHtml(filename)}</span>
           ${a.checkpoint ? `<span class="changelog-version">${escapeHtml(a.checkpoint)}</span>` : ''}
