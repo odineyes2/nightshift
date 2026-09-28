@@ -93,8 +93,41 @@ async def update_pod_api(pod_id: str, request: Request):
     return pod_payload(pod)
 
 
+@app.get("/api/runpod/tiers")
+def runpod_tiers_api(request: Request):
+    """워커 추가 창의 등급 카드(이미지용·영상용) — 이름·VRAM·예상 가격·GPU 후보."""
+    admin_only(request)
+    return {"tiers": [{"id": k, **{f: v[f] for f in ("label", "vram", "price_hint", "gpus")}} for k, v in runpod_api.RUNPOD_TIERS.items()],
+            "api_key": bool(runpod_api.RUNPOD_API_KEY)}
+
+
+@app.post("/api/pods/runpod-create")
+async def runpod_create_worker_api(request: Request):
+    """워커 추가 = RunPod 파드 만들기(#12). 워커 기록을 먼저(꺼진 채, 주소 없이) 만들고, 그 이름으로 RunPod에 파드를
+    만든 뒤 주소를 이어 켠다. 모델 자동 설치·결과 가져오기는 켠 채로. RunPod가 거절하면 워커 기록도 지운다."""
+    user = admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    tier = str(body.get("tier") or "")
+    if tier not in runpod_api.RUNPOD_TIERS:
+        raise HTTPException(400, "등급을 골라 주세요(image/video).")
+    worker = pod_registry.create_pod({"kind": pod_registry.DEFAULT_KIND, "url": "", "name": "", "enabled": False,
+                                      "pull_outputs": True, "auto_install_models": True, "tags": ["runpod", "auto"],
+                                      "note": "runpod:creating", "owner_id": user["id"]})
+    created, err = await asyncio.to_thread(runpod_api.create_pod, f"nightshift-{worker['id']}", tier)
+    if err:
+        pod_registry.delete_pod(worker["id"])
+        raise HTTPException(502, err)
+    pod = pod_registry.update_pod(worker["id"], {"url": f"https://{created['id']}-8188.proxy.runpod.net",
+                                                  "note": f"runpod:{created['id']}", "enabled": True})
+    ensure_runtime(pod)
+    poke_scheduler()
+    return {**pod_payload(pod), "runpod": created}
+
+
 @app.delete("/api/pods/{pod_id}")
-def delete_pod_api(pod_id: str, request: Request):
+def delete_pod_api(pod_id: str, request: Request, terminate_runpod: bool = False):
+    """워커 지우기. terminate_runpod면 그 워커가 가리키는 RunPod 파드도 지운다(디스크 요금까지 멈춤) — 먼저 파드를 지우고,
+    실패하면 워커는 그대로 둬서 다시 시도할 수 있게 한다."""
     user = me(request)
     target = pod_or_404(user, pod_id)
     # 돌고 있는 작업이 있으면 막는다 — 지우는 순간 그 작업이 어디에도 속하지 않게 되고,
@@ -113,6 +146,14 @@ def delete_pod_api(pod_id: str, request: Request):
                            for j in jobs.values())
     if waiting_jobs and fallback is None:
         raise HTTPException(400, "이 워커에 대기 중인 작업이 있어요. 다른 워커를 먼저 추가하거나 작업을 지워주세요.")
+    if terminate_runpod:
+        rpid = runpod_api.extract_pod_id(target.get("url") or "")
+        if rpid:
+            if not auth.is_admin(user):
+                raise HTTPException(403, "RunPod 파드는 관리자만 지울 수 있어요.")
+            err = runpod_api.terminate_pod(rpid)
+            if err and "HTTP 404" not in err:   # 이미 없는 파드면 워커만 지운다
+                raise HTTPException(502, f"RunPod 파드를 지우지 못해 워커도 그대로 뒀어요 — {err}")
     try:
         removed = pod_registry.delete_pod(pod_id)
     except pod_registry.PodError as e:

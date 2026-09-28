@@ -154,12 +154,16 @@ def list_runpod_pods_verbose() -> tuple[list[dict] | None, str | None]:
 NETWORK_VOLUME_USD_PER_GB_MONTH = 0.07
 
 
-def _rest(method: str, path: str, timeout: float = REQUEST_TIMEOUT_SEC):
+def _rest(method: str, path: str, timeout: float = REQUEST_TIMEOUT_SEC, body: dict | None = None):
     """(응답 JSON 또는 None, None) 또는 (None, 에러 문구). 에러 문구에 원 응답은 넣지 않는다(비밀값이 섞일 수 있어서)."""
     if not RUNPOD_API_KEY:
         return None, "RUNPOD_API_KEY가 설정되지 않았어요."
-    req = urllib.request.Request(f"{RUNPOD_API_BASE}{path}", method=method, headers={
-        "Authorization": f"Bearer {RUNPOD_API_KEY}", "User-Agent": RUNPOD_USER_AGENT, "Accept": "application/json"})
+    headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}", "User-Agent": RUNPOD_USER_AGENT, "Accept": "application/json"}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(f"{RUNPOD_API_BASE}{path}", data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode("utf-8")
@@ -194,6 +198,64 @@ def list_network_volumes() -> tuple[list[dict] | None, str | None]:
 def delete_network_volume(volume_id: str) -> str | None:
     """지우고 None, 실패하면 에러 문구. 되돌릴 수 없다 — 확인은 부르는 쪽(API)이 한다."""
     _body, err = _rest("DELETE", f"/networkvolumes/{urllib.parse.quote(volume_id, safe='')}", timeout=30)
+    return err
+
+
+# ---- 파드 만들기·지우기(워커 추가 #12) ----
+# 계획서 ~/.claude/plans/worker-runpod-create.md. 등급마다 GPU 후보를 싼·안정적인 순으로 두고, 지역은 서울에서 가까운
+# AP-JP-1을 먼저 — RunPod 재고가 수시로 바뀌므로 후보를 한꺼번에 넘겨 되는 곳에 만들게 하고, 안 되면
+# Secure(일본) → Secure(아무 곳) → Community(일본) → Community(아무 곳) 순으로 다시 시도한다.
+RUNPOD_COMFY_IMAGE = "runpod/comfyui:1.4.7-cuda13.0"   # 지금까지 손으로 만들어 쓰던 이미지
+RUNPOD_PORTS = ["8188/http", "8888/http", "8080/http", "22/tcp"]   # ComfyUI · Jupyter · 파일 브라우저 · SSH
+RUNPOD_PREFERRED_DATA_CENTERS = ["AP-JP-1"]
+RUNPOD_TIERS = {
+    "image": {"label": "이미지용", "vram": "16GB급", "disk_gb": 80, "price_hint": "시간당 약 $0.2~0.6",
+              "gpus": ["NVIDIA RTX A4000", "NVIDIA RTX 4000 Ada Generation", "NVIDIA RTX A4500",
+                       "NVIDIA RTX 2000 Ada Generation", "NVIDIA GeForce RTX 5080"]},
+    "video": {"label": "영상용", "vram": "32GB급", "disk_gb": 150, "price_hint": "시간당 약 $0.35~1.0",
+              "gpus": ["NVIDIA RTX PRO 4500 Blackwell", "NVIDIA GeForce RTX 5090"]},
+}
+
+
+def create_pod(name: str, tier: str, env: dict | None = None, start_cmd: list[str] | None = None) -> tuple[dict | None, str | None]:
+    """등급(tier)대로 RunPod 파드를 만든다. ({id, name, gpu, cost_per_hr, data_center, cloud}, None) 또는 (None, 이유).
+    응답의 env(비밀값)는 버린다."""
+    spec = RUNPOD_TIERS.get(tier)
+    if spec is None:
+        return None, "알 수 없는 등급이에요."
+    errors = []
+    for cloud, dcs in (("SECURE", RUNPOD_PREFERRED_DATA_CENTERS), ("SECURE", None),
+                       ("COMMUNITY", RUNPOD_PREFERRED_DATA_CENTERS), ("COMMUNITY", None)):
+        body = {"name": name, "imageName": RUNPOD_COMFY_IMAGE, "cloudType": cloud, "gpuCount": 1,
+                "gpuTypeIds": spec["gpus"], "gpuTypePriority": "custom",
+                "containerDiskInGb": spec["disk_gb"], "volumeInGb": 0, "ports": RUNPOD_PORTS}
+        if dcs:
+            body["dataCenterIds"] = dcs
+            body["dataCenterPriority"] = "custom"
+        if env:
+            body["env"] = env
+        if start_cmd:
+            body["dockerStartCmd"] = start_cmd
+        raw, err = _rest("POST", "/pods", timeout=60, body=body)
+        if err:
+            errors.append(f"{cloud}{'·' + dcs[0] if dcs else ''}: {err}")
+            if "HTTP 401" in err or "HTTP 403" in err:
+                break   # 키 문제는 다른 곳에 만들어도 똑같이 실패한다
+            continue
+        if not isinstance(raw, dict) or not raw.get("id"):
+            errors.append(f"{cloud}: 응답 형식이 예상과 달라요")
+            continue
+        machine = raw.get("machine") if isinstance(raw.get("machine"), dict) else {}
+        return {"id": raw["id"], "name": raw.get("name") or name, "cloud": cloud, "cost_per_hr": raw.get("costPerHr"),
+                "gpu": machine.get("gpuDisplayName") or machine.get("gpuTypeId") or raw.get("gpuTypeId") or "",
+                "data_center": machine.get("dataCenterId") or raw.get("dataCenterId") or ""}, None
+    return None, "파드를 만들지 못했어요 — " + " / ".join(errors)
+
+
+def terminate_pod(pod_id: str) -> str | None:
+    """RunPod 파드를 지운다(terminate — 디스크까지). 되돌릴 수 없다. 실패하면 이유, 성공하면 None."""
+    _cache.pop(pod_id, None)
+    _body, err = _rest("DELETE", f"/pods/{urllib.parse.quote(pod_id, safe='')}", timeout=30)
     return err
 
 
