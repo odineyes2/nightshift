@@ -534,6 +534,9 @@ let genlogAssets = [];
 let genlogKindFilter = '';
 let genlogDateFrom = '';
 let genlogDateTo = '';
+// 생성 정보(프롬프트·시드·체크포인트)가 하나도 없는 줄 숨기기 — 기본 켜짐, 브라우저에 기억한다(필터 지우기와 무관한 보기 설정).
+let genlogHideEmpty = localStorage.getItem('genlogHideEmpty') !== '0';
+const genlogHasInfo = (a) => !!(a.prompt || a.negative_prompt || a.checkpoint || a.seed != null);
 let genlogLimit = LIST_PAGE;   // 앞에서부터 몇 개 그릴지 — 종류·날짜를 바꾸면 처음부터
 
 async function fetchGenerationLog(){
@@ -556,6 +559,7 @@ function renderGenerationLog(){
     (genlogKindFilter || genlogDateFrom || genlogDateTo) ? '' : 'none';
   const filtered = genlogAssets.filter(a => {
     if(genlogKindFilter && a.kind !== genlogKindFilter) return false;
+    if(genlogHideEmpty && !genlogHasInfo(a)) return false;
     const day = (a.created_at || '').slice(0, 10);
     if(genlogDateFrom && day < genlogDateFrom) return false;
     if(genlogDateTo && day > genlogDateTo) return false;
@@ -612,6 +616,13 @@ document.getElementById('db-genlog-kind-tabs').addEventListener('click', (e) => 
 document.getElementById('db-genlog-date-from').addEventListener('change', (e) => { genlogDateFrom = e.target.value; genlogLimit = LIST_PAGE; renderGenerationLog(); });
 document.getElementById('db-genlog-date-to').addEventListener('change', (e) => { genlogDateTo = e.target.value; genlogLimit = LIST_PAGE; renderGenerationLog(); });
 setupLoadMore('db-genlog-more-btn', () => { genlogLimit += LIST_PAGE; renderGenerationLog(); });
+document.getElementById('db-genlog-hide-empty').checked = genlogHideEmpty;
+document.getElementById('db-genlog-hide-empty').addEventListener('change', (e) => {
+  genlogHideEmpty = e.target.checked;
+  localStorage.setItem('genlogHideEmpty', genlogHideEmpty ? '1' : '0');
+  genlogLimit = LIST_PAGE;
+  renderGenerationLog();
+});
 document.getElementById('db-genlog-filter-clear').addEventListener('click', () => {
   genlogKindFilter = ''; genlogDateFrom = ''; genlogDateTo = ''; genlogLimit = LIST_PAGE;
   document.querySelectorAll('.db-genlog-kind-tab').forEach(b => b.classList.toggle('active', b.dataset.kind === ''));
