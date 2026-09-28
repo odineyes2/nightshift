@@ -120,3 +120,4 @@
 
   /* 갤러리·영상 탭에 파일을 끌어 올렸을 때 — 놓으면 업로드 창이 열린다 */
   .upload-drop > .panel{ outline:2px dashed var(--running); outline-offset:-4px; }
+  .board-viewport.upload-drop{ outline:2px dashed var(--running); outline-offset:-4px; }

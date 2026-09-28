@@ -554,6 +554,45 @@ function initBoardCanvas(){
   document.getElementById('board-add-gen-btn').addEventListener('click', () => openBoardAssetPicker('gen'));
   document.getElementById('board-add-frame-btn').addEventListener('click', createBoardFrame);
 
+  // 내 컴퓨터의 이미지·영상을 캔버스에 끌어다 놓기 — 이 프로젝트로 올리고(갤러리 업로드와 같은 API)
+  // 놓은 자리부터 카드를 한 줄에 4장씩 늘어놓는다. 창 없이 바로 올린다(프로젝트는 정해져 있고 태그는 갤러리에서).
+  const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
+  viewport.addEventListener('dragover', (e) => {
+    if(!hasFiles(e)) return;
+    e.preventDefault();
+    viewport.classList.add('upload-drop');
+  });
+  viewport.addEventListener('dragleave', (e) => { if(!viewport.contains(e.relatedTarget)) viewport.classList.remove('upload-drop'); });
+  viewport.addEventListener('drop', async (e) => {
+    if(!hasFiles(e)) return;
+    e.preventDefault();
+    viewport.classList.remove('upload-drop');
+    const projectId = currentProjectId;
+    const files = Array.from(e.dataTransfer.files).filter(f => !f.type || /^(image|video)\//.test(f.type));
+    if(typeof projectId !== 'number' || !files.length){ flashNotice('이미지나 영상 파일만 올릴 수 있어요'); return; }
+    if(assetUploadXhr){ flashNotice('다른 파일을 올리는 중이에요. 끝나면 다시 놓아 주세요.'); return; }
+    const rect = viewport.getBoundingClientRect();
+    const x0 = (e.clientX - rect.left - boardState.x) / boardState.scale;
+    const y0 = (e.clientY - rect.top - boardState.y) / boardState.scale;
+    let data;
+    try{
+      data = await uploadAssetFiles(files, projectId, '', (r) => flashNotice(r < 1 ? `올리는 중… ${Math.floor(r * 100)}%` : '저장하는 중…'));
+    }catch(err){
+      flashNotice(err.message);
+      return;
+    }finally{
+      assetUploadXhr = null;
+    }
+    const SIZE = 220, GAP = 20;
+    for(const [i, path] of data.paths.entries()){
+      const kind = /\.(mp4|webm|mov|m4v)$/i.test(path) ? 'video' : 'image';
+      await createBoardNode(kind, path, '', { x: x0 + (i % 4) * (SIZE + GAP), y: y0 + Math.floor(i / 4) * (SIZE + GAP), width: SIZE, height: SIZE });
+    }
+    flashNotice(data.errors && data.errors.length
+      ? `${data.paths.length}개를 올렸어요. 올리지 못한 파일: ${data.errors.join(' / ')}`
+      : `${data.paths.length}개를 올려 보드에 놓았어요`);
+  });
+
   applyBoardTransform();
 }
 
