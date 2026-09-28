@@ -12,7 +12,6 @@ let wmActive = 0;          // 지난번에 본 "받는 중" 개수 — 0이 되�
 function openWorkerModels(podId){
   if(wmPodId !== podId){ wmData = { connected: false, models: {}, needed: [] }; wmDownloader = null; }
   wmPodId = podId;
-  if(!Object.keys(modelRegistry.items).length) fetchModelRegistry().then(renderWorkerModels);
   fetchWorkerModels(false);
   if(!wmTimer) wmTimer = setInterval(pollWorkerDownloads, 3000);
 }
@@ -27,8 +26,10 @@ async function fetchWorkerModels(refresh){
   if(!podId) return;
   document.getElementById('wm-error').textContent = '';
   try{
-    const [res, dl] = await Promise.all([
+    // 등록부도 매번 새로 받는다 — 다른 화면·기기에서 방금 등록한 모델이 "없는 것" 목록에 바로 보여야 한다.
+    const [res, , dl] = await Promise.all([
       fetch(`/api/pods/${encodeURIComponent(podId)}/models${refresh ? '?refresh=true' : ''}`),
+      fetchModelRegistry(),
       fetch(`/api/models/downloader/status?pod_id=${encodeURIComponent(podId)}`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
     const data = await res.json().catch(() => ({}));
@@ -78,7 +79,7 @@ function wmKindLabel(kind){
 function renderWorkerModels(){
   const connected = !!wmData.connected;
   document.getElementById('wm-offline').style.display = connected ? 'none' : '';
-  for(const id of ['wm-needed-section', 'wm-installed-section']) document.getElementById(id).style.display = connected ? '' : 'none';
+  for(const id of ['wm-needed-section', 'wm-missing-section', 'wm-installed-section']) document.getElementById(id).style.display = connected ? '' : 'none';
   if(!connected) return;
 
   // 대기 작업에 필요한데 없는 것
@@ -112,9 +113,23 @@ function renderWorkerModels(){
       + `파드의 터미널에서 실행하고 ComfyUI를 재시작하면 받을 수 있어요.`;
   }
 
-  // 설치된 모델 — 종류별, 이름 검색
+  // 등록부(모델 탭)에 있는데 이 워커에 없는 것 — 하나씩 받는다(받을 주소가 있고 다운로더가 있을 때)
   const q = document.getElementById('wm-search').value.trim().toLowerCase();
   const models = wmData.models || {};
+  const missing = Object.values(modelRegistry.items)
+    .filter(e => models[e.kind] && !models[e.kind].includes(e.filename))
+    .sort((a, b) => a.filename.localeCompare(b.filename, undefined, { sensitivity: 'base' }));
+  const missingShown = missing.filter(e => !q || e.filename.toLowerCase().includes(q));
+  document.getElementById('wm-missing-count').textContent = missing.length ? `${missing.length}개` : '';
+  document.getElementById('wm-missing-list').innerHTML = missingShown.length ? missingShown.map(e => {
+    const action = !e.download_url ? '<span class="wm-tag warn" title="모델 탭에서 다운로드 주소를 적어 주면 받을 수 있어요">받을 주소 없음</span>'
+      : !hasDl ? '<span class="wm-tag" title="이 워커의 파드에 다운로더가 없어요 — 위 안내의 설치 스크립트를 실행하세요">다운로더 없음</span>'
+      : `<button type="button" class="load-btn wm-get-btn" data-get-kind="${escapeHtml(e.kind)}" data-get-name="${escapeHtml(e.filename)}" title="이 워커에 받기">${ico('download')} 받기</button>`;
+    return `<div class="wm-row"><span class="wm-name" title="${escapeHtml(e.filename)}">${escapeHtml(e.filename)}</span>
+      <span class="wm-kind">${escapeHtml(wmKindLabel(e.kind))}</span>${e.base_model ? `<span class="wm-tag">${escapeHtml(e.base_model)}</span>` : ''}${action}</div>`;
+  }).join('') : `<div class="comfy-model-empty">${q && missing.length ? '찾는 이름이 없어요.' : '모델 탭에 등록된 모델이 이 워커에 다 있어요.'}</div>`;
+
+  // 설치된 모델 — 종류별, 이름 검색. 등록부에 없는 것은 "등록"으로 모델 탭에 들여온다(관리자만).
   const total = Object.values(models).reduce((s, list) => s + list.length, 0);
   document.getElementById('wm-installed-count').textContent = `${total}개`;
   const kinds = (modelRegistry.kinds && modelRegistry.kinds.length ? modelRegistry.kinds.map(k => k.id) : Object.keys(models));
@@ -122,9 +137,11 @@ function renderWorkerModels(){
     const names = models[kind].filter(n => !q || n.toLowerCase().includes(q));
     if(!names.length) return '';
     const rows = names.map(name => {
-      const reg = modelRegistry.items[modelKey(kind, name)] || {};
-      return `<div class="wm-row"><span class="wm-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
-        ${reg.base_model ? `<span class="wm-tag">${escapeHtml(reg.base_model)}</span>` : ''}</div>`;
+      const reg = modelRegistry.items[modelKey(kind, name)];
+      const regHtml = reg ? (reg.base_model ? `<span class="wm-tag">${escapeHtml(reg.base_model)}</span>` : '')
+        : (isAdminUser() ? `<button type="button" class="load-btn wm-register-btn" data-reg-kind="${escapeHtml(kind)}" data-reg-name="${escapeHtml(name)}" title="모델 탭 등록부에 이 모델의 정보(베이스 모델·주소 등)를 적으러 가요">등록</button>`
+          : '<span class="wm-tag" title="모델 탭 등록부에 없는 모델이에요">미등록</span>');
+      return `<div class="wm-row"><span class="wm-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>${regHtml}</div>`;
     }).join('');
     return `<details class="wm-group"${q ? ' open' : ''}><summary>${escapeHtml(wmKindLabel(kind))} <span class="wm-count">${names.length}${q ? '' : '개'}</span></summary>${rows}</details>`;
   }).join('');
@@ -133,6 +150,28 @@ function renderWorkerModels(){
 }
 
 document.getElementById('wm-refresh-btn').addEventListener('click', () => fetchWorkerModels(true));
+document.getElementById('tab-pmodels').addEventListener('click', async (e) => {
+  const reg = e.target.closest('.wm-register-btn');
+  if(reg){ openModelAddFor(reg.dataset.regKind, reg.dataset.regName); return; }
+  const get = e.target.closest('.wm-get-btn');
+  if(!get) return;
+  const entry = modelRegistry.items[modelKey(get.dataset.getKind, get.dataset.getName)];
+  if(!entry) return;
+  get.disabled = true;
+  try{
+    const res = await fetch('/api/models/download', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pod_id: wmPodId, url: entry.download_url, kind: entry.kind, filename: entry.filename }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '받기를 시작하지 못했어요.');
+    flashNotice(`${entry.filename} 받기를 시작했어요`);
+  }catch(err){
+    document.getElementById('wm-error').textContent = err.message;
+    get.disabled = false;
+  }
+  pollWorkerDownloads();
+});
 document.getElementById('wm-search').addEventListener('input', renderWorkerModels);
 document.getElementById('wm-fetch-all-btn').addEventListener('click', async () => {
   const btn = document.getElementById('wm-fetch-all-btn');

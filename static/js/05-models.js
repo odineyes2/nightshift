@@ -1,7 +1,8 @@
 // ---- "모델" 탭(전역) — 모델 등록부: 파드와 무관한 기준 데이터 ----
 // 서버의 models 테이블이 원본이다. (종류, 파일명)마다 베이스 모델·페이지 주소·다운로드 주소·트리거 키워드(LoRA)·
 // 태그·메모를 적어 두고, 어느 파드에서든 이 정보를 보고 모델을 받거나 트리거를 쓴다. 파일이 실제로 놓이는 곳만
-// 파드라서, 파드별 설치 여부(modelInventory)는 등록부 항목 위에 "어느 파드에 있나"로 얹어 보여준다.
+// 파드라서, 워커마다 무엇이 설치돼 있는지는 여기서 보지 않고 각 워커의 Models 탭(08b-worker-models.js)에서 본다 —
+// 이 탭은 등록부(순수 모델 정보)만 다룬다. modelInventory는 새 작업 폼·마법사가 "어느 워커에 있나"를 볼 때만 쓴다.
 let modelRegistry = { kinds: [], base_models: [], items: {} };
 let modelKindActive = 'checkpoints';
 let modelExpandedKey = null;
@@ -164,10 +165,6 @@ async function saveModelDraft(){
   }
 }
 
-// 파드별 설치 현황(modelInventory)에서 — 연결된 파드만 "있다/없다"를 말할 수 있다.
-function invPods(){ return (modelInventory && modelInventory.pods) || []; }
-function livePods(){ return invPods().filter(p => p.connected); }
-function podsHaving(kind, name){ return livePods().filter(p => (p.models[kind] || []).includes(name)); }
 function isWebUrl(u){ return /^https?:\/\//i.test(u || ''); }
 
 function modelThumbHtml(kind, name){
@@ -180,7 +177,7 @@ function modelThumbHtml(kind, name){
 
 function modelHeaderHtml(isLora){
   return `<div class="model-cols${isLora ? ' lora' : ''} model-header">
-    <span></span><span>파일명</span><span>베이스 모델</span>${isLora ? '<span>트리거 키워드</span>' : ''}<span>태그</span><span>사용</span><span>워커</span><span>주소</span><span></span>
+    <span></span><span>파일명</span><span>베이스 모델</span>${isLora ? '<span>트리거 키워드</span>' : ''}<span>태그</span><span>사용</span><span>주소</span><span></span>
   </div>`;
 }
 
@@ -188,17 +185,10 @@ function modelRowHtml(kind, name, isAdmin){
   const e = modelEntry(kind, name);
   const key = modelKey(kind, name);
   const open = modelExpandedKey === key;
-  const live = livePods();
-  const have = podsHaving(kind, name);
   const isLora = kind === 'loras';
   const usage = usageOf(kind, name);
   const tagList = e.tags || [];
   const tagsHtml = tagList.length ? `<div class="gallery-details-col model-cell-tags">${tagList.map(t => `<span class="model-badge">${escapeHtml(t)}</span>`).join('')}</div>`
-    : '<div class="gallery-details-col dim">-</div>';
-  const podsHtml = live.length
-    ? (have.length
-        ? `<div class="gallery-details-col" title="${escapeHtml(have.map(p => p.name).join(', '))}">${have.length}/${live.length}</div>`
-        : '<div class="gallery-details-col model-missing" title="연결된 워커 어디에도 없어요">없음</div>')
     : '<div class="gallery-details-col dim">-</div>';
   const links = e.download_url
     ? (isAdmin
@@ -213,7 +203,6 @@ function modelRowHtml(kind, name, isAdmin){
       ${isLora ? `<div class="gallery-details-col" title="${escapeHtml(e.trigger_keyword)}">${e.trigger_keyword ? escapeHtml(e.trigger_keyword) : '<span class="dim">-</span>'}</div>` : ''}
       ${tagsHtml}
       <div class="gallery-details-col dim">${usage ? usage.count : '-'}</div>
-      ${podsHtml}
       <div class="gallery-details-col dim">${links || '-'}</div>
       <svg class="ico model-chevron"><use href="#i-chevron-down"/></svg>
     </div>`;
@@ -224,14 +213,6 @@ function modelRowHtml(kind, name, isAdmin){
     const link = u => isWebUrl(u) ? `
       <button type="button" class="icon-btn icon-btn-neutral model-link" data-copy-url="${escapeHtml(u)}" title="주소 복사">${ico('copy')}</button>
       <button type="button" class="icon-btn icon-btn-neutral model-link-open" data-open-url="${escapeHtml(u)}" title="새 탭에서 열기">${ico('external-link')}</button>` : '';
-    const podRows = invPods().map(p => {
-      const has = p.connected && (p.models[kind] || []).includes(name);
-      let state;
-      if(!p.connected) state = '<span class="inv-off">연결 안 됨</span>';
-      else if(has) state = `<span class="inv-cell yes">${ico('check')} 설치됨</span>`;
-      else state = '<span class="inv-cell no">없음</span>';
-      return `<div class="model-pod-row"><span class="model-pod-name">${escapeHtml(p.name)}</span>${state}</div>`;
-    }).join('');
     const dirty = modelDraftDirty();
     const kindOptions = modelRegistry.kinds.map(k => `<option value="${escapeHtml(k.id)}"${k.id === d.kind ? ' selected' : ''}>${escapeHtml(k.label)}</option>`).join('');
     editor = `
@@ -253,7 +234,7 @@ function modelRowHtml(kind, name, isAdmin){
         <input type="text" class="option-input" data-field="tags" ${dis} placeholder="예: 캐릭터, 스타일, 실사" value="${escapeHtml((d.tags || []).join(', '))}"></label>
       <label class="model-field wide"><span>메모</span>
         <textarea class="option-input" data-field="notes" rows="3" ${dis} placeholder="권장 가중치, 잘 어울리는 조합 등" style="max-width:none;">${escapeHtml(d.notes)}</textarea></label>
-      <div class="model-field wide"><span>워커별 설치</span>${podRows || '<span class="comfy-model-empty">ComfyUI 워커가 없어요.</span>'}</div>
+      <div class="email-hint model-full">워커마다 설치됐는지는 각 워커의 Models 탭에서 보고 받아요.</div>
       ${isAdmin ? `<div class="model-full model-editor-actions">
           <button type="button" class="submit-btn model-save-btn" ${dirty ? '' : 'disabled'}>저장</button>
           <button type="button" class="modal-btn-secondary model-clear-btn">등록 정보 지우기</button>
@@ -262,7 +243,7 @@ function modelRowHtml(kind, name, isAdmin){
     </div>`;
   }
   return `
-  <div class="model-row${open ? ' open' : ''}${live.length && !have.length ? ' uninstalled' : ''}" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}">
+  <div class="model-row${open ? ' open' : ''}" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}">
     ${head}
     ${editor}
   </div>`;
@@ -271,12 +252,9 @@ function modelRowHtml(kind, name, isAdmin){
 function renderModelRegistry(){
   const tabsEl = document.getElementById('model-kind-tabs');
   const listEl = document.getElementById('lora-tab-list');
-  const live = livePods();
-  const namesOf = kind => {
-    const set = new Set(live.flatMap(p => p.models[kind] || []));
-    for(const e of Object.values(modelRegistry.items)) if(e.kind === kind) set.add(e.filename);
-    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-  };
+  // 등록부에 적힌 모델만 — 워커에 설치만 돼 있고 등록 안 된 것은 워커의 Models 탭에서 "등록"으로 들여온다.
+  const namesOf = kind => Object.values(modelRegistry.items).filter(e => e.kind === kind).map(e => e.filename)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   tabsEl.innerHTML = modelRegistry.kinds.map(k =>
     `<button type="button" class="enhance-mode-btn model-kind-tab${k.id === modelKindActive ? ' active' : ''}" data-kind="${escapeHtml(k.id)}">${escapeHtml(k.label)}<span class="model-kind-count">${namesOf(k.id).length}</span></button>`
   ).join('');
@@ -311,7 +289,7 @@ function renderModelRegistry(){
   }
   const filtered = !!(filter || modelBaseFilter);
   document.getElementById('model-count').textContent = `${filtered ? shown.length + ' / ' : ''}${all.length}개`;
-  const notice = live.length ? '' : '<div class="comfy-model-empty" style="margin-bottom:8px;">연결된 ComfyUI 워커가 없어 설치 현황은 못 봐요 — 등록해 둔 항목만 보여요.</div>';
+  const notice = '';
   const addBtn = document.getElementById('model-add-toggle');
   if(addBtn) addBtn.style.display = isAdminUser() ? '' : 'none';
   if(shown.length === 0){
@@ -465,8 +443,25 @@ async function initModelsTab(force){
   setModelError('');
   document.getElementById('lora-tab-list').innerHTML =
     '<div class="model-list-loading"><span class="btn-spinner"></span>모델 정보를 불러오는 중…</div>';
-  await Promise.all([fetchModelRegistry(), fetchModelUsage(), fetchModelInventory(force)]);
+  await Promise.all([fetchModelRegistry(), fetchModelUsage()]);
   renderModelRegistry();
+  if(pendingModelAdd){
+    // 워커 Models 탭의 "등록"으로 왔다 — 그 종류 탭에서 추가 칸을 열고 파일명을 채워 둔다.
+    const { filename } = pendingModelAdd;
+    pendingModelAdd = null;
+    renderModelAddForm();
+    document.getElementById('model-add-filename').value = filename;
+    document.getElementById('model-add-page').focus();
+  }
+}
+
+// 워커에 설치만 돼 있고 등록 안 된 모델을 등록하러 모델 탭으로 간다(08b-worker-models.js의 "등록").
+let pendingModelAdd = null;
+function openModelAddFor(kind, filename){
+  pendingModelAdd = { kind, filename };
+  modelKindActive = kind;
+  modelExpandedKey = null;
+  showTab('models');
 }
 
 document.getElementById('lora-tab-refresh-btn').addEventListener('click', () => initModelsTab(true));

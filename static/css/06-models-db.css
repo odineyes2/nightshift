@@ -6,12 +6,12 @@
   .model-table{ display:flex; flex-direction:column; gap:2px; }
   .model-cols{
     display:grid;
-    grid-template-columns: 44px minmax(150px,2.4fr) minmax(90px,1.1fr) minmax(110px,1.4fr) 52px 60px 40px 22px;
+    grid-template-columns: 44px minmax(150px,2.4fr) minmax(90px,1.1fr) minmax(110px,1.4fr) 52px 40px 22px;
     align-items:center;
     gap:10px;
   }
   .model-cols.lora{
-    grid-template-columns: 44px minmax(150px,2.2fr) minmax(90px,1fr) minmax(110px,1.3fr) minmax(110px,1.3fr) 52px 60px 40px 22px;
+    grid-template-columns: 44px minmax(150px,2.2fr) minmax(90px,1fr) minmax(110px,1.3fr) minmax(110px,1.3fr) 52px 40px 22px;
   }
   .model-header{
     padding:6px 8px;
@@ -24,7 +24,6 @@
   .model-row.open{ background:rgba(var(--queued-rgb),0.05); border-color:rgba(var(--queued-rgb),0.25); }
   .model-row-head{ padding:4px 8px; cursor:pointer; border-radius:6px; }
   .model-row-head:hover{ background:rgba(var(--queued-rgb),0.05); }
-  .model-row.uninstalled .lora-tab-name{ opacity:.6; }
   .model-thumb{
     width:44px; height:44px; border-radius:5px; overflow:hidden; background:var(--bg); border:1px solid var(--border);
     display:flex; align-items:center; justify-content:center; color:var(--text-dim);
