@@ -410,8 +410,16 @@ function initBoardCanvas(){
     updateBoardTempEdge(connect.fromId, e.clientX, e.clientY);
     const targetEl = boardNodeUnder(e.clientX, e.clientY);
     if(targetEl !== connect.targetEl){
-      if(connect.targetEl) connect.targetEl.classList.remove('connect-target');
-      if(targetEl) targetEl.classList.add('connect-target');
+      if(connect.targetEl) connect.targetEl.classList.remove('connect-target', 'connect-no-slot');
+      if(targetEl){
+        targetEl.classList.add('connect-target');
+        // 입구가 있는 생성 카드에 이미지 아닌 카드를 끌어 오면 입구 대신 보통 선이 된다고 알린다
+        const target = boardNodes.find(n => n.id === Number(targetEl.dataset.nodeId));
+        const source = boardNodes.find(n => n.id === connect.fromId);
+        if(target && target.kind === 'gen' && ((target.data && target.data.slots) || []).length && source && source.kind !== 'image'){
+          targetEl.classList.add('connect-no-slot');
+        }
+      }
       connect.targetEl = targetEl;
     }
     const slot = boardSlotFor(targetEl, e.clientX, e.clientY);
@@ -427,7 +435,7 @@ function initBoardCanvas(){
     if(!connect || e.pointerId !== connect.pointerId) return;
     const targetEl = e.type === 'pointerup' ? boardNodeUnder(e.clientX, e.clientY) : null;
     const slot = targetEl ? boardSlotFor(targetEl, e.clientX, e.clientY) : null;
-    if(connect.targetEl) connect.targetEl.classList.remove('connect-target');
+    if(connect.targetEl) connect.targetEl.classList.remove('connect-target', 'connect-no-slot');
     document.querySelectorAll('#board-world .board-gen-slot.connect-slot').forEach(r => r.classList.remove('connect-slot'));
     const fromId = connect.fromId;
     connect = null;
