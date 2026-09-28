@@ -776,7 +776,7 @@ function fillComfyModelSelect(select, opt){
   populateSelectOptions(select, choices, '(선택지 없음)');
   const info = comfyObjectInfoCache;
   select.title = (info && info.connected) ? ''
-    : '지금은 워커에 연결하지 않아, 모델 등록부에 적힌 이름을 보여줘요 — 그 모델을 갖춘 워커가 살아나면 작업이 시작돼요.';
+    : '지금은 연결된 파드가 없어, 모델 등록부에 적힌 이름을 보여줘요 — 그 모델을 갖춘 워커가 살아나면 작업이 시작돼요.';
 }
 
 function buildComfyModelControl(opt){

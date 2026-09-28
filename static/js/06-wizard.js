@@ -384,7 +384,7 @@ function renderWizardLoraModal(){
   const isPreset = wizardIsPreset();
   const all = modelChoices('loras');
   if(all.length === 0){
-    body.innerHTML = '<div class="comfy-model-empty">고를 수 있는 LoRA가 없어요 — 워커에 연결하거나 "모델" 탭에 LoRA를 등록하세요.</div>';
+    body.innerHTML = '<div class="comfy-model-empty">고를 수 있는 LoRA가 없어요 — 워커의 파드를 켜거나 "모델" 탭에 LoRA를 등록하세요.</div>';
     return;
   }
   // 등록부에 베이스 모델을 안 적은 LoRA는 모든 베이스 모델과 호환되는 것으로 취급한다 — 나머지는 자기 베이스 모델이

@@ -85,7 +85,7 @@ function renderWorkerModels(){
   const needed = wmData.needed || [];
   document.getElementById('wm-needed-count').textContent = needed.length ? `${needed.length}개` : '';
   document.getElementById('wm-needed-list').innerHTML = needed.length ? needed.map(n => {
-    const where = n.node ? '<span class="wm-tag warn" title="커스텀 노드는 받기로 설치할 수 없어요 — 워커에 직접 설치하세요">노드 — 직접 설치</span>'
+    const where = n.node ? '<span class="wm-tag warn" title="커스텀 노드는 받기로 설치할 수 없어요 — 파드에 직접 설치하세요">노드 — 직접 설치</span>'
       : n.download_url ? '<span class="wm-tag ok" title="모델 탭 등록부에 받을 주소가 있어요">받을 수 있음</span>'
       : '<span class="wm-tag warn" title="모델 탭에서 이 모델의 다운로드 주소를 적어 주면 받을 수 있어요">받을 주소 없음</span>';
     // 같은 템플릿의 작업이 여럿이면 "시드 반복 ×8"처럼 묶는다
@@ -107,9 +107,9 @@ function renderWorkerModels(){
   const hint = document.getElementById('wm-downloader-hint');
   hint.style.display = needed.length && !hasDl ? '' : 'none';
   if(needed.length && !hasDl){
-    hint.innerHTML = `이 워커에는 nightshift 다운로더가 없어서 여기서 받을 수 없어요. `
+    hint.innerHTML = `이 워커의 파드에는 nightshift 다운로더가 없어서 여기서 받을 수 없어요. `
       + `<a href="/api/models/downloader/install-script?pod_id=${encodeURIComponent(wmPodId)}" target="_blank" rel="noopener">설치 스크립트</a>를 `
-      + `워커의 터미널에서 실행하고 ComfyUI를 재시작하면 받을 수 있어요.`;
+      + `파드의 터미널에서 실행하고 ComfyUI를 재시작하면 받을 수 있어요.`;
   }
 
   // 설치된 모델 — 종류별, 이름 검색

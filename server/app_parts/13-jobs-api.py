@@ -452,7 +452,7 @@ async def _start_model_downloads(user: dict, pod: dict, names: list[str]) -> tup
     started, no_url, failed = [], [], []
     for name in names:
         if name.startswith("노드 "):
-            failed.append({"name": name, "detail": "커스텀 노드는 여기서 받을 수 없어요 — 워커에 직접 설치하세요."})
+            failed.append({"name": name, "detail": "커스텀 노드는 여기서 받을 수 없어요 — 파드에 직접 설치하세요."})
             continue
         entry = _registry_entry_for(name)
         if not entry or not entry.get("download_url"):
@@ -552,7 +552,7 @@ async def fetch_needed_models(pod_id: str, request: Request):
     pod = _download_pod(user, pod_id)
     needed = await asyncio.to_thread(_needed_models_on_pod, user, pod)
     if needed is None:
-        raise HTTPException(409, "워커에 연결하지 못해 무엇이 없는지 알 수 없어요.")
+        raise HTTPException(409, "이 워커의 파드에 연결하지 못해 무엇이 없는지 알 수 없어요.")
     names = [n["name"] for n in needed if not n["node"]]
     if not names:
         raise HTTPException(400, "받을 모델이 없어요 — 대기 작업에 필요한 모델이 이미 다 있어요.")

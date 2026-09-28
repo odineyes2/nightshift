@@ -778,7 +778,7 @@
     </div>
     <div class="panel-body">
       <div class="upload-error" id="wm-error"></div>
-      <div id="wm-offline" class="empty" style="display:none;">워커에 연결되지 않았어요 — RunPod 전원과 주소를 확인하세요.</div>
+      <div id="wm-offline" class="empty" style="display:none;">이 워커에 파드가 연결되지 않았어요 — RunPod 전원이 켜져 있는지, 워커 설정의 주소가 맞는지 확인하세요.</div>
       <section class="wm-section" id="wm-needed-section">
         <div class="wm-section-head">
           <h3>대기 작업에 필요한데 없는 모델 <span class="wm-count" id="wm-needed-count"></span></h3>
@@ -1298,7 +1298,7 @@
       <button class="modal-close" id="pod-edit-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
-      <div class="email-hint">워커는 nightshift가 작업을 보내는 곳이에요(RunPod에서 빌린 기계는 "RunPod 파드"라고 불러 구별해요).
+      <div class="email-hint">워커는 nightshift가 작업을 보내는 곳이고, 실제로 작업을 돌리는 기계(ComfyUI가 떠 있는 RunPod 파드 등)를 주소로 가리켜요.
         주소를 비워두면 <code>COMFY_URL</code> 환경변수 → <code>127.0.0.1</code> 자동 탐지 순으로 찾아요.</div>
       <div class="field">
         <label class="field-label" for="pod-edit-name">이름</label>

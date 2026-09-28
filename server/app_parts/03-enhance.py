@@ -263,7 +263,7 @@ def wait_for_pod(pod_id: str, job_id: str) -> tuple[str, str | None]:
             # 로그에 한 줄 남긴다(작업 행을 펼치면 그대로 보인다).
             where = url or "자동 탐지 실패"
             (LOGS_DIR / f"{job_id}.log").write_text(
-                f"'{pod['name']}' 워커에 연결할 수 없어 대기 목록으로 되돌렸어요 ({where}).\n"
+                f"'{pod['name']}' 워커의 파드에 연결할 수 없어 대기 목록으로 되돌렸어요 ({where}).\n"
                 "서버가 켜진 걸 확인한 뒤 ▶ 시작을 누르면 이어서 실행됩니다.\n",
                 encoding="utf-8",
             )

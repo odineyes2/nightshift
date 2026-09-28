@@ -172,7 +172,7 @@ function renderPodControls(){
   const pull = podEditId ? !!(podsById[podEditId] || {}).pull_outputs : podEditNewPull;
   document.getElementById('pod-ctl-pull').setAttribute('aria-checked', pull ? 'true' : 'false');
   document.getElementById('pod-ctl-pull-hint').textContent = pull
-    ? '켜짐 — 작업이 끝나면 결과를 이 서버 갤러리로 받아 와요.' : '꺼짐 — 결과는 워커에만 남아요.';
+    ? '켜짐 — 작업이 끝나면 결과를 이 서버 갤러리로 받아 와요.' : '꺼짐 — 결과는 파드에만 남아요.';
   const auto = podEditId ? !!(podsById[podEditId] || {}).auto_install_models : podEditNewAuto;
   document.getElementById('pod-ctl-auto').setAttribute('aria-checked', auto ? 'true' : 'false');
   document.getElementById('pod-ctl-auto-hint').textContent = auto
