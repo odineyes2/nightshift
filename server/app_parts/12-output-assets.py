@@ -120,6 +120,70 @@ async def move_assets_api(request: Request):
     return {"moved": moved, "project_id": project_id}
 
 
+UPLOAD_MAX_BYTES = 200 * 1024 * 1024   # 한 파일 — 뎁스·포즈 영상 클립 정도
+
+
+def _save_upload(file: UploadFile, day_dir: Path) -> str:
+    """올린 파일 하나를 day_dir에 저장하고 출력 폴더 기준 상대 경로를 돌려준다. 이름은 Path.name만 쓰고
+    (경로 조작 방지) 같은 이름이 있으면 _2, _3…을 붙인다. 너무 크거나 열리지 않는 이미지면 지우고 ValueError."""
+    safe = Path(file.filename or "").name
+    stem, suffix = Path(safe).stem, Path(safe).suffix.lower()
+    if not stem or suffix not in (IMAGE_EXTENSIONS | VIDEO_EXTENSIONS):
+        raise ValueError(f"'{file.filename}' — 이미지(png/jpg/webp 등)나 영상(mp4/webm/mov)만 올릴 수 있어요.")
+    day_dir.mkdir(parents=True, exist_ok=True)
+    target, n = day_dir / f"{stem}{suffix}", 2
+    while target.exists():
+        target, n = day_dir / f"{stem}_{n}{suffix}", n + 1
+    size = 0
+    try:
+        with open(target, "wb") as out:
+            while chunk := file.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > UPLOAD_MAX_BYTES:
+                    raise ValueError(f"'{file.filename}' — 파일이 너무 커요({UPLOAD_MAX_BYTES // 1024 // 1024}MB까지).")
+                out.write(chunk)
+        if suffix in IMAGE_EXTENSIONS:
+            try:
+                with Image.open(target) as img:
+                    img.verify()
+            except Exception:
+                raise ValueError(f"'{file.filename}' — 이미지 파일을 열 수 없어요.")
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
+    return target.relative_to(Path(OUTPUT_DIR)).as_posix()
+
+
+@app.post("/api/output-assets/upload")
+async def upload_assets_api(request: Request):
+    # 밖에서 만든 이미지/영상(뎁스·포즈·참고 자료 등)을 결과물로 들인다 — 출력 폴더 uploads/날짜/에 저장하고
+    # 바로 색인하므로 갤러리·프로젝트 이동·태그·보드 카드를 생성 결과와 똑같이 쓴다. project_id가 비면 미분류.
+    user = me(request)
+    scope = auth.owner_scope(user)
+    form = await request.form()
+    files = [f for f in form.getlist("files") if isinstance(f, UploadFile) and f.filename]
+    if not files:
+        raise HTTPException(400, "올릴 파일을 골라 주세요.")
+    project_id = parse_project_id(form.get("project_id"))
+    if project_id is not None and not project_store.project_exists(project_id, owner_id=scope):
+        raise HTTPException(400, "없는 프로젝트예요.")
+    tags = [t.strip() for t in str(form.get("tags") or "").split(",") if t.strip()]
+    day_dir = Path(OUTPUT_DIR) / "uploads" / datetime.now().strftime("%Y-%m-%d")
+    paths, errors = [], []
+    for f in files:
+        try:
+            path = await asyncio.to_thread(_save_upload, f, day_dir)
+            await asyncio.to_thread(assets_index.register_upload, path, user["id"], project_id)
+            paths.append(path)
+        except ValueError as e:
+            errors.append(str(e))
+    if paths and tags:
+        await asyncio.to_thread(asset_meta.change_tags, paths, tags, None, scope)
+    if not paths:
+        raise HTTPException(400, " / ".join(errors))
+    return {"paths": paths, "errors": errors, "project_id": project_id}
+
+
 @app.post("/api/output-assets/tags")
 async def change_asset_tags_api(request: Request):
     scope = auth.owner_scope(me(request))

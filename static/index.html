@@ -563,6 +563,7 @@
         <button class="load-btn" id="gallery-select-all-btn" type="button" disabled title="전체 선택"><svg class="ico"><use href="#i-square-check-big"/></svg> 전체선택</button>
         <button class="load-btn" id="gallery-pull-btn" type="button" style="display:none;"
                 title="원격 ComfyUI가 만든 결과 이미지를 이 서버로 가져와요. 작업이 끝날 때마다 자동으로도 가져오지만, pod를 껐다 켠 뒤 밀린 것을 한꺼번에 받을 때 쓰세요."><svg class="ico"><use href="#i-download"/></svg> 결과 가져오기</button>
+        <button class="load-btn" id="gallery-upload-btn" type="button" title="내 컴퓨터의 이미지·영상 올리기 — 목록에 파일을 끌어다 놓아도 돼요"><svg class="ico"><use href="#i-upload"/></svg><span class="btn-label"> 업로드</span></button>
         <button class="load-btn" id="gallery-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
       </div>
     </div>
@@ -623,6 +624,7 @@
         <button class="load-btn" id="video-gallery-select-all-btn" type="button" disabled title="전체 선택"><svg class="ico"><use href="#i-square-check-big"/></svg> 전체선택</button>
         <button class="load-btn" id="video-gallery-pull-btn" type="button" style="display:none;"
                 title="원격 ComfyUI가 만든 결과 영상을 이 서버로 가져와요. nightshift를 거치지 않고 ComfyUI에서 직접 돌린 작업도 ComfyUI 히스토리에 남아있으면 함께 가져와요."><svg class="ico"><use href="#i-download"/></svg> 결과 가져오기</button>
+        <button class="load-btn" id="video-gallery-upload-btn" type="button" title="내 컴퓨터의 이미지·영상 올리기 — 목록에 파일을 끌어다 놓아도 돼요"><svg class="ico"><use href="#i-upload"/></svg><span class="btn-label"> 업로드</span></button>
         <button class="load-btn" id="video-gallery-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
       </div>
     </div>
@@ -983,6 +985,34 @@
     </div>
   </div>
 </div>
+
+<!-- 업로드 — 밖에서 만든 이미지·영상(뎁스·포즈·참고 자료)을 결과물로 들인다(10-gallery-meta.js) -->
+<div class="modal-overlay" id="asset-upload-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">Upload</div>
+      <button class="modal-close" id="asset-upload-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="email-hint" id="asset-upload-hint"></div>
+      <div class="field">
+        <label class="field-label" for="asset-upload-select">올릴 프로젝트</label>
+        <select class="option-input" id="asset-upload-select"></select>
+        <input type="text" class="option-input" id="asset-upload-new-name" placeholder="새 프로젝트 이름" maxlength="80" autocomplete="off" style="display:none; max-width:100%; margin-top:8px;">
+      </div>
+      <div class="field">
+        <label class="field-label" for="asset-upload-tags">태그 (선택 · 쉼표로 구분)</label>
+        <input type="text" class="option-input" id="asset-upload-tags" placeholder="예: depth, pose" maxlength="200" autocomplete="off" style="max-width:100%;">
+      </div>
+      <div class="enhance-status" id="asset-upload-status" style="text-align:left; max-width:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="asset-upload-cancel-btn" type="button"><svg class="ico"><use href="#i-x"/></svg> 취소</button>
+      <button class="submit-btn" id="asset-upload-confirm-btn" type="button"><svg class="ico"><use href="#i-upload"/></svg> 올리기</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="asset-upload-input" multiple accept="image/*,video/*" hidden>
 
 <div class="modal-overlay" id="asset-move-modal" style="display:none;">
   <div class="modal-panel">

@@ -372,6 +372,168 @@ document.addEventListener('keydown', (e) => {
 document.getElementById('gallery-move-selected-btn').addEventListener('click', () => openAssetMoveModal('image', Array.from(selectedGalleryNames)));
 document.getElementById('video-gallery-move-selected-btn').addEventListener('click', () => openAssetMoveModal('video', Array.from(selectedGalleryVideoNames)));
 
+// ---- 업로드 (이미지/영상 공용) ----
+// 밖에서 만든 이미지·영상(뎁스·포즈·참고 자료)을 결과물로 들인다 — 서버가 출력 폴더 uploads/날짜/에 저장하고
+// 바로 색인하므로 갤러리·태그·이동·보드 카드를 생성 결과와 똑같이 쓴다. 버튼으로 고르거나 목록에 끌어다
+// 놓는다. 프로젝트 안에서 올리면 그 프로젝트가, 밖에서 올리면 미분류가 기본이다.
+const assetUploadModal = document.getElementById('asset-upload-modal');
+let assetUploadFiles = null;   // 창이 열려 있는 동안 올릴 File 목록
+let assetUploadXhr = null;     // 올리는 중인 요청(창을 닫으면 멈춘다)
+
+function assetUploadModalOpen(){ return assetUploadModal.style.display !== 'none'; }
+
+async function openAssetUploadModal(files){
+  if(assetUploadFiles) return;
+  // 형식은 서버가 확장자로 다시 본다 — 브라우저가 형식을 모르는 파일(빈 type)은 일단 보낸다.
+  files = files.filter(f => !f.type || /^(image|video)\//.test(f.type));
+  if(!files.length){ flashNotice('이미지나 영상 파일만 올릴 수 있어요'); return; }
+  assetUploadFiles = files;
+  await fetchProjects();
+  const here = typeof currentProjectId === 'number' ? currentProjectId : null;
+  const select = document.getElementById('asset-upload-select');
+  select.innerHTML = [{ value: '', label: UNASSIGNED_LABEL },
+    ...projectsCache.filter(p => !p.archived || p.id === here).map(p => ({ value: String(p.id), label: p.name }))]
+    .map(c => `<option value="${escapeHtml(c.value)}">${escapeHtml(c.label)}</option>`).join('')
+    + `<option value="${NEW_PROJECT_VALUE}">${NEW_PROJECT_LABEL}</option>`;
+  select.value = here === null ? '' : String(here);
+  document.getElementById('asset-upload-new-name').value = '';
+  syncAssetUploadNewField(false);
+  document.getElementById('asset-upload-tags').value = '';
+  const videos = files.filter(f => f.type.startsWith('video/')).length;
+  const mb = files.reduce((s, f) => s + f.size, 0) / 1024 / 1024;
+  const counts = [files.length - videos ? `이미지 ${files.length - videos}개` : '', videos ? `영상 ${videos}개` : ''].filter(Boolean).join(' · ');
+  document.getElementById('asset-upload-hint').textContent = `${counts} (${mb < 1 ? mb.toFixed(2) : mb.toFixed(1)}MB)를 올려요. 파일 하나는 200MB까지예요.`;
+  const statusEl = document.getElementById('asset-upload-status');
+  statusEl.textContent = '';
+  statusEl.classList.remove('error', 'success');
+  const btn = document.getElementById('asset-upload-confirm-btn');
+  btn.disabled = false;
+  btn.style.display = '';
+  assetUploadModal.style.display = 'flex';
+  select.focus();
+}
+const syncAssetUploadNewField = bindNewProjectField('asset-upload-select', 'asset-upload-new-name');
+
+function closeAssetUploadModal(){
+  if(assetUploadXhr){ assetUploadXhr.abort(); assetUploadXhr = null; }
+  assetUploadModal.style.display = 'none';
+  assetUploadFiles = null;
+}
+
+// fetch는 올리는 진행률을 알려 주지 않아서(큰 영상이면 필요) XHR로 보낸다 — 전역 fetch 래퍼를 안 거치므로 헤더를 직접 붙인다.
+function uploadAssetFiles(files, projectId, tags, onProgress){
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    files.forEach(f => form.append('files', f));
+    if(projectId !== null) form.append('project_id', String(projectId));
+    if(tags) form.append('tags', tags);
+    const xhr = assetUploadXhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/output-assets/upload');
+    xhr.setRequestHeader('X-Requested-With', 'nightshift');
+    xhr.upload.onprogress = (e) => { if(e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      let data = {};
+      try{ data = JSON.parse(xhr.responseText); }catch(e){ /* 아래에서 실패로 처리 */ }
+      if(xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new Error(data.detail || '올리지 못했어요.'));
+    };
+    xhr.onerror = () => reject(new Error('연결이 끊겨 올리지 못했어요.'));
+    xhr.onabort = () => reject(new Error('취소했어요.'));
+    xhr.send(form);
+  });
+}
+
+document.getElementById('asset-upload-confirm-btn').addEventListener('click', async () => {
+  const files = assetUploadFiles;
+  if(!files) return;
+  const btn = document.getElementById('asset-upload-confirm-btn');
+  const statusEl = document.getElementById('asset-upload-status');
+  const value = document.getElementById('asset-upload-select').value;
+  let projectId = value === '' || value === NEW_PROJECT_VALUE ? null : Number(value);
+  btn.disabled = true;
+  statusEl.classList.remove('error');
+  if(value === NEW_PROJECT_VALUE){
+    const name = document.getElementById('asset-upload-new-name').value.trim();
+    if(!name){
+      statusEl.classList.add('error');
+      statusEl.textContent = '새 프로젝트 이름을 입력하세요.';
+      btn.disabled = false;
+      return;
+    }
+    statusEl.textContent = '프로젝트를 만드는 중…';
+    try{
+      projectId = (await createProjectByName(name)).id;
+    }catch(e){
+      statusEl.classList.add('error');
+      statusEl.textContent = e.message || '프로젝트를 만들지 못했어요.';
+      btn.disabled = false;
+      return;
+    }
+  }
+  statusEl.textContent = '올리는 중… 0%';
+  let data;
+  try{
+    data = await uploadAssetFiles(files, projectId, document.getElementById('asset-upload-tags').value.trim(),
+      (r) => { statusEl.textContent = r < 1 ? `올리는 중… ${Math.floor(r * 100)}%` : '저장하는 중…'; });
+  }catch(e){
+    if(!assetUploadModalOpen()) return;   // 창을 닫아 멈춘 것
+    statusEl.classList.add('error');
+    statusEl.textContent = e.message;
+    btn.disabled = false;
+    return;
+  }finally{
+    assetUploadXhr = null;
+  }
+  const where = projectId === null ? UNASSIGNED_LABEL : projectName(projectId);
+  const done = data.paths.length;
+  fetchGalleryImages();
+  fetchGalleryVideos();
+  fetchProjects();
+  if(data.errors && data.errors.length){
+    // 일부만 올라갔으면 창을 닫지 않고 무엇이 빠졌는지 보여 준다(다시 올리면 올라간 것이 겹치므로 버튼은 숨긴다).
+    statusEl.classList.add('error');
+    statusEl.textContent = `${done}개는 '${where}'에 올렸어요. 올리지 못한 파일: ${data.errors.join(' / ')}`;
+    btn.style.display = 'none';
+    assetUploadFiles = [];
+    return;
+  }
+  flashNotice(`${done}개를 '${where}'에 올렸어요`);
+  closeAssetUploadModal();
+});
+document.getElementById('asset-upload-cancel-btn').addEventListener('click', closeAssetUploadModal);
+document.getElementById('asset-upload-modal-close').addEventListener('click', closeAssetUploadModal);
+assetUploadModal.addEventListener('click', (e) => { if(e.target === assetUploadModal) closeAssetUploadModal(); });
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape' && assetUploadModalOpen()){ e.stopImmediatePropagation(); closeAssetUploadModal(); }
+}, true);
+
+const assetUploadInput = document.getElementById('asset-upload-input');
+assetUploadInput.addEventListener('change', () => {
+  const files = Array.from(assetUploadInput.files);
+  assetUploadInput.value = '';   // 같은 파일을 다시 골라도 change가 오게
+  openAssetUploadModal(files);
+});
+for(const id of ['gallery-upload-btn', 'video-gallery-upload-btn']){
+  document.getElementById(id).addEventListener('click', () => assetUploadInput.click());
+}
+// 목록에 파일을 끌어다 놓기 — 바깥 파일일 때만(갤러리 안의 카드 끌기는 types에 Files가 없다).
+for(const id of ['tab-gallery', 'tab-video-gallery']){
+  const tab = document.getElementById(id);
+  const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
+  tab.addEventListener('dragover', (e) => {
+    if(!hasFiles(e)) return;
+    e.preventDefault();
+    tab.classList.add('upload-drop');
+  });
+  tab.addEventListener('dragleave', (e) => { if(!tab.contains(e.relatedTarget)) tab.classList.remove('upload-drop'); });
+  tab.addEventListener('drop', (e) => {
+    if(!hasFiles(e)) return;
+    e.preventDefault();
+    tab.classList.remove('upload-drop');
+    openAssetUploadModal(Array.from(e.dataTransfer.files));
+  });
+}
+
 // ---- 라이트박스 정보 패널 ----
 // 접힌 상태에선 ★ 즐겨찾기 · 평점 한 줄만 보이고, 펼치면 태그·메모·생성 정보(프롬프트/시드 등)가 나온다.
 // 같은 코드를 이미지/영상 라이트박스가 각자의 컨테이너에 붙여 쓴다.

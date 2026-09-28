@@ -23,7 +23,7 @@ from PIL import Image
 import auth
 import db
 from output_images import OUTPUT_DIR, OutputFolderError, list_output_images
-from output_videos import list_output_videos
+from output_videos import VIDEO_EXTENSIONS, list_output_videos
 
 MIN_SYNC_INTERVAL = 5.0
 _sync_lock = threading.Lock()
@@ -201,6 +201,35 @@ def meta_from_graph(graph) -> dict:
 
 def _iso(mtime: float) -> str:
     return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+
+
+def register_upload(path: str, owner_id: int, project_id: int | None) -> None:
+    """밖에서 올린 파일(출력 폴더 기준 상대 경로)을 바로 색인에 넣는다 — sync()는 짧은 간격 안이면
+    건너뛰고, 작업이 없어서 주인·프로젝트를 스스로 알 수 없기 때문이다. 프로젝트에 올리면 주인은 그
+    프로젝트의 주인(작업 결과물이 작업 주인을 따르는 것과 같이), nsfw는 프로젝트의 성인 설정을 따른다.
+    같은 경로의 지워진 행이 남아 있으면 되살려 덮어쓴다."""
+    f = Path(OUTPUT_DIR) / path
+    st = f.stat()
+    kind = "video" if f.suffix.lower() in VIDEO_EXTENSIONS else "image"
+    width = height = None
+    if kind == "image":
+        with Image.open(f) as img:
+            width, height = img.size
+    with db.connect() as conn:
+        project = conn.execute("SELECT owner_id, is_mature FROM projects WHERE id=?", (project_id,)).fetchone() \
+            if project_id is not None else None
+        if project is not None and project["owner_id"] is not None:
+            owner_id = project["owner_id"]
+        nsfw = 1 if project is not None and project["is_mature"] else 0
+        conn.execute(
+            """INSERT INTO assets(path, kind, project_id, size_bytes, mtime_ns, width, height, created_at, owner_id, nsfw)
+               VALUES(?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(path) DO UPDATE SET kind=excluded.kind, project_id=excluded.project_id,
+                 job_id=NULL, size_bytes=excluded.size_bytes, mtime_ns=excluded.mtime_ns, width=excluded.width,
+                 height=excluded.height, created_at=excluded.created_at, owner_id=excluded.owner_id,
+                 nsfw=excluded.nsfw, deleted_at=NULL""",
+            (path, kind, project_id, st.st_size, st.st_mtime_ns, width, height, _iso(st.st_mtime), owner_id, nsfw),
+        )
 
 
 def owner_of(path: str):
