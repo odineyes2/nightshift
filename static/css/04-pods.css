@@ -124,4 +124,35 @@
   .dash-thumb{ width:54px; height:54px; object-fit:cover; border-radius:6px; border:1px solid var(--border); }
   .dash-card-actions{ display:flex; flex-wrap:wrap; gap:6px; margin-top:auto; padding-top:4px; }
   .dash-card.disabled{ opacity:0.62; }
+  /* 카드의 상태 표시(누르면 설정 창) — 켜짐은 초록, 멈춤/꺼짐은 회색, 바뀌는 중은 파랑 */
+  .pod-chip{
+    display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px; cursor:pointer;
+    font:inherit; font-size:11.5px; color:var(--text-dim); background:var(--bg); border:1px solid var(--border);
+  }
+  .pod-chip::before{ content:''; width:7px; height:7px; border-radius:50%; background:#9aa0a6; }
+  .pod-chip.on{ color:var(--text); }
+  .pod-chip.on::before{ background:var(--done); }
+  .pod-chip.busy::before{ background:var(--running); }
+  .pod-chip:hover{ border-color:rgba(var(--queued-rgb),0.6); }
+
+  /* 워커 설정 창의 켜기/끄기 세 줄 */
+  .pod-controls{ display:flex; flex-direction:column; gap:8px; }
+  .pod-control-row{
+    display:flex; align-items:center; gap:12px; padding:9px 12px;
+    border:1px solid var(--border); border-radius:8px; background:var(--bg);
+  }
+  .pod-control-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; font-size:13px; color:var(--text); }
+  .pod-control-text span{ font-size:11.5px; color:var(--text-dim); }
+  .pod-switch{
+    flex:none; position:relative; width:42px; height:24px; border-radius:12px; padding:0; cursor:pointer;
+    background:#b8bdc4; border:none; transition:background .15s ease;
+  }
+  .pod-switch::after{
+    content:''; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%;
+    background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.25); transition:transform .15s ease;
+  }
+  .pod-switch[aria-checked="true"]{ background:var(--done); }
+  .pod-switch[aria-checked="true"]::after{ transform:translateX(18px); }
+  .pod-switch:disabled{ opacity:0.45; cursor:not-allowed; }
+  .pod-switch:focus-visible{ outline:2px solid rgba(var(--queued-rgb),0.6); outline-offset:2px; }
 

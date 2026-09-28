@@ -100,34 +100,43 @@ function renderRunpodLine(info){
   return `<div class="dash-card-runpod">${parts.map(p => `<span>${p}</span>`).join('')}</div>`;
 }
 
-// RunPod 전원 버튼 — 옆의 "시작/정지"(작업 큐)와 다르게 RunPod pod 자체를 켜고 끈다(과금이 걸림).
-// 관리자에게만, RunPod 상태를 아는 카드에만 보인다. 상태는 card.runpod.status(RunPod의 desiredStatus).
-// 누른 뒤 RunPod 상태가 실제로 바뀔 때까지(요청 몇 초 + 카드 정보 갱신) 버튼을 "끄는 중…/켜는 중…" 스피너로
-// 붙잡아 둔다 — 파드 화면이 4초마다 카드를 새로 그리면서 버튼이 원래대로 살아나 "눌렸나?"가 되던 것을 막는다.
+// 워커를 켜고 끄는 것은 세 가지이고 서로 다른 차원이라, 헷갈리지 않게 설정 창 한곳(renderPodControls)에서만 바꾼다.
+//   워커 사용   — nightshift가 이 워커로 새 작업을 보낼지(pod.enabled). 설정·기록은 남는다.
+//   작업 처리   — 이 워커가 대기 작업을 차례로 처리할지(auto_run). 멈추면 실행 중인 작업도 중단된다.
+//   RunPod 전원 — RunPod 파드 자체를 켜고 끈다(과금). 관리자에게만, RunPod 상태를 아는 워커에만.
+// 카드에는 버튼 없이 상태만 보여 주고, 누르면 설정 창이 열린다.
+// RunPod 전원은 누른 뒤 상태가 실제로 바뀔 때까지(요청 몇 초 + 정보 갱신) "켜는 중…/끄는 중…"으로 붙잡아 둔다 —
+// 4초마다 다시 그리면서 스위치가 원래대로 돌아가 "눌렸나?"가 되지 않게.
 // { podId: { action, target, until } } — 목표 상태가 보이거나, 실패하거나, 90초가 지나면 푼다.
 const runpodPowerPending = {};
 
-function renderRunpodPowerBtn(p){
+// RunPod 전원 상태 — { on, busy, label } 또는 null(RunPod 전원을 다룰 수 없는 워커).
+function runpodPowerState(p){
   const rp = p.card && p.card.runpod;
   const pending = runpodPowerPending[p.id];
   if(pending && ((rp && rp.status === pending.target) || Date.now() > pending.until)) delete runpodPowerPending[p.id];
-  if(isAdminUser() && runpodPowerPending[p.id]){
-    const label = runpodPowerPending[p.id].action === 'start' ? '켜는 중… (1~3분 뒤 ComfyUI가 떠요)' : '끄는 중…';
-    return `<button class="${runpodPowerPending[p.id].action === 'start' ? 'load-btn' : 'del-btn'}" type="button" disabled title="RunPod에 요청했어요 — 상태가 바뀌면 버튼이 돌아와요">${ico('loader-circle', true)} ${label}</button>`;
+  if(!isAdminUser()) return null;
+  if(runpodPowerPending[p.id]){
+    const starting = runpodPowerPending[p.id].action === 'start';
+    return { on: starting, busy: true, label: starting ? '켜는 중… (1~3분 뒤 ComfyUI가 떠요)' : '끄는 중…' };
   }
-  if(!isAdminUser() || !rp || !rp.status) return '';
-  const id = escapeHtml(p.id);
-  if(rp.status === 'RUNNING')
-    return `<button class="del-btn" type="button" data-runpod-power="stop" data-pod-id-power="${id}" title="RunPod 파드를 꺼요(과금 중지)"><svg class="ico"><use href="#i-cloud"/></svg> RunPod 끄기</button>`;
-  if(rp.status === 'EXITED' || rp.status === 'ERROR'){
-    const cost = rp.cost_per_hr != null ? ` $${Number(rp.cost_per_hr).toFixed(2)}/hr` : '';
-    return `<button class="load-btn" type="button" data-runpod-power="start" data-pod-id-power="${id}" title="RunPod 파드를 켜요(과금 시작)"><svg class="ico"><use href="#i-cloud"/></svg> RunPod 켜기${cost}</button>`;
-  }
-  return '';
+  if(!rp || !rp.status) return null;
+  const cost = rp.cost_per_hr != null ? ` · $${Number(rp.cost_per_hr).toFixed(2)}/hr` : '';
+  if(rp.status === 'RUNNING') return { on: true, busy: false, label: `켜져 있어요 — 과금 중${cost}` };
+  if(rp.status === 'EXITED' || rp.status === 'ERROR') return { on: false, busy: false, label: `꺼져 있어요 — 과금 없음${rp.status === 'ERROR' ? ' (오류로 멈춤)' : ''}` };
+  return { on: false, busy: true, label: `RunPod 상태: ${rp.status}` };
 }
 
-async function runpodPower(btn){
-  const podId = btn.dataset.podIdPower, action = btn.dataset.runpodPower;
+// 카드의 상태 표시 — 누르면 설정 창(켜기/끄기)이 열린다. 워커 사용 꺼짐은 카드 자체(회색·"사용 안 함")가 보여 준다.
+function renderPodChips(p){
+  const chips = [];
+  if(p.enabled) chips.push(p.auto_run ? ['on', '작업 처리 켜짐'] : ['off', '작업 처리 멈춤']);
+  const power = runpodPowerState(p);
+  if(power) chips.push(power.busy ? ['busy', power.label.split(' (')[0]] : power.on ? ['on', 'RunPod 켜짐'] : ['off', 'RunPod 꺼짐']);
+  return chips.map(([cls, label]) => `<button type="button" class="pod-chip ${cls}" data-pod-edit="${escapeHtml(p.id)}" title="눌러서 켜기/끄기 설정 열기">${escapeHtml(label)}</button>`).join('');
+}
+
+async function runpodPower(podId, action){
   const pod = (dashSummary.pods || []).find(x => x.id === podId) || {};
   const rp = (pod.card && pod.card.runpod) || {};
   const cost = rp.cost_per_hr != null ? `시간당 $${Number(rp.cost_per_hr).toFixed(2)}` : '요금';
@@ -136,7 +145,7 @@ async function runpodPower(btn){
     : `'${pod.name || podId}'의 RunPod 파드를 끌까요?\n과금이 멈추고, 네트워크 볼륨의 데이터는 그대로 남아요.`;
   if(!confirm(msg)) return;
   runpodPowerPending[podId] = { action, target: action === 'start' ? 'RUNNING' : 'EXITED', until: Date.now() + 90000 };
-  btn.outerHTML = renderRunpodPowerBtn(pod);   // 누르자마자 스피너로
+  renderPodControls();   // 누르자마자 "켜는 중…"으로
   try{
     const res = await fetch(`/api/pods/${encodeURIComponent(podId)}/runpod/${action}`, { method: 'POST' });
     const data = await res.json().catch(() => ({}));
@@ -145,8 +154,60 @@ async function runpodPower(btn){
     delete runpodPowerPending[podId];
     alert(`요청하지 못했어요: ${e.message}`);
   }
-  fetchDashboard();
+  await fetchDashboard();
 }
+
+// 설정 창의 켜기/끄기 세 줄 — 창이 열려 있고 기존 워커일 때만. 대시보드를 새로 받을 때마다 다시 그린다.
+function renderPodControls(){
+  const box = document.getElementById('pod-edit-controls');
+  const p = podEditId && (dashSummary.pods || []).find(x => x.id === podEditId);
+  box.style.display = p ? '' : 'none';
+  if(!p) return;
+  const setSwitch = (id, on, disabled) => {
+    const el = document.getElementById(id);
+    el.setAttribute('aria-checked', on ? 'true' : 'false');
+    el.disabled = !!disabled;
+  };
+  setSwitch('pod-ctl-enabled', p.enabled, false);
+  document.getElementById('pod-ctl-enabled-hint').textContent = p.enabled
+    ? '켜짐 — 새 작업을 이 워커로 보내요.' : '꺼짐 — 새 작업을 보내지 않아요. 설정·기록은 남아요.';
+  setSwitch('pod-ctl-queue', p.enabled && p.auto_run, !p.enabled);
+  document.getElementById('pod-ctl-queue-hint').textContent = !p.enabled ? '워커 사용을 켜야 처리할 수 있어요.'
+    : p.auto_run ? '켜짐 — 대기 중인 작업을 차례로 처리해요.' : '멈춤 — 대기 작업을 시작하지 않아요.';
+  const power = runpodPowerState(p);
+  document.getElementById('pod-ctl-power-row').style.display = power ? '' : 'none';
+  if(power){
+    setSwitch('pod-ctl-power', power.on, power.busy);
+    document.getElementById('pod-ctl-power-hint').textContent = power.label;
+  }
+}
+
+document.getElementById('pod-ctl-enabled').addEventListener('click', async (e) => {
+  const p = (dashSummary.pods || []).find(x => x.id === podEditId);
+  if(!p) return;
+  e.currentTarget.disabled = true;
+  const res = await fetch(`/api/pods/${encodeURIComponent(p.id)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !p.enabled }),
+  });
+  if(!res.ok) alert((await res.json().catch(() => ({}))).detail || '바꾸지 못했어요.');
+  await fetchPods();
+  await fetchDashboard();
+});
+document.getElementById('pod-ctl-queue').addEventListener('click', async (e) => {
+  const p = (dashSummary.pods || []).find(x => x.id === podEditId);
+  if(!p) return;
+  const running = (p.running_jobs || []).length;
+  if(p.auto_run && running && !confirm(`실행 중인 작업 ${running}개도 중단돼요. 작업 처리를 멈출까요?`)) return;
+  e.currentTarget.disabled = true;
+  const res = await fetch(`/api/pods/${encodeURIComponent(p.id)}/queue/${p.auto_run ? 'stop' : 'start'}`, { method: 'POST' });
+  if(!res.ok) alert((await res.json().catch(() => ({}))).detail || '바꾸지 못했어요.');
+  await fetchDashboard();
+});
+document.getElementById('pod-ctl-power').addEventListener('click', () => {
+  const p = (dashSummary.pods || []).find(x => x.id === podEditId);
+  const power = p && runpodPowerState(p);
+  if(power && !power.busy) runpodPower(p.id, power.on ? 'stop' : 'start');
+});
 
 // 파드 바로가기 — 드라이버의 card()가 만들어 준 card.links(ComfyUI 화면, RunPod면 JupyterLab·
 // 파일 브라우저)를 새 탭 링크로 그린다. http(s)가 아닌 주소는 그리지 않는다.
@@ -235,10 +296,7 @@ function renderPodCard(p){
       </div>
       ${thumbs ? `<div class="dash-thumbs">${thumbs}</div>` : ''}
       <div class="dash-card-actions">
-        ${p.auto_run
-          ? `<button class="del-btn" data-pod-stop="${escapeHtml(p.id)}"><svg class="ico"><use href="#i-pause"/></svg> 정지</button>`
-          : `<button class="load-btn" data-pod-start="${escapeHtml(p.id)}"${p.enabled ? '' : ' disabled'}><svg class="ico"><use href="#i-play"/></svg> 시작</button>`}
-        ${renderRunpodPowerBtn(p)}
+        ${renderPodChips(p)}
       </div>
     </div>`;
 }
@@ -296,15 +354,6 @@ function renderDashboard(){
   document.getElementById('dash-empty').style.display = cards.length ? 'none' : '';
   canvas.innerHTML = cards.map(c => (CARD_RENDERERS[c.type] || (() => ''))(c.data)).join('');
 
-  canvas.querySelectorAll('[data-pod-start]').forEach(btn => btn.addEventListener('click', async () => {
-    await fetch(`/api/pods/${btn.dataset.podStart}/queue/start`, { method: 'POST' });
-    fetchDashboard();
-  }));
-  canvas.querySelectorAll('[data-pod-stop]').forEach(btn => btn.addEventListener('click', async () => {
-    await fetch(`/api/pods/${btn.dataset.podStop}/queue/stop`, { method: 'POST' });
-    fetchDashboard();
-  }));
-  canvas.querySelectorAll('[data-runpod-power]').forEach(btn => btn.addEventListener('click', () => runpodPower(btn)));
   canvas.querySelectorAll('[data-pod-edit]').forEach(btn => btn.addEventListener('click', () => {
     openPodEditModal(btn.dataset.podEdit);
   }));
@@ -315,6 +364,7 @@ function renderDashboard(){
   canvas.querySelectorAll('[data-job-pod]').forEach(row => row.addEventListener('click', () => {
     showTab('jobs', { podId: row.dataset.jobPod });
   }));
+  if(document.getElementById('pod-edit-modal').style.display !== 'none') renderPodControls();   // 설정 창의 켜기/끄기도 새 상태로
 }
 
 // ---- 파드 카드를 길게 눌러 삭제 ----
@@ -456,7 +506,6 @@ function openPodEditModal(podId){
   document.getElementById('pod-edit-url').value = pod.url || '';
   document.getElementById('pod-edit-concurrent').value = pod.max_concurrent || 1;
   document.getElementById('pod-edit-pull').checked = podId ? !!pod.pull_outputs : true;   // 새 파드는 기본으로 가져오기
-  document.getElementById('pod-edit-enabled').checked = podId ? !!pod.enabled : true;
   document.getElementById('pod-edit-status').textContent = '';
   document.getElementById('pod-edit-error').textContent = '';
   document.getElementById('pod-edit-delete').style.display = podId ? '' : 'none';
@@ -468,6 +517,7 @@ function openPodEditModal(podId){
   renderRunpodInfoBox(runpodInfo);
   updatePodNameSuggest(runpodInfo && runpodInfo.pod_name);
   document.getElementById('pod-edit-modal').style.display = 'flex';
+  renderPodControls();
 }
 
 function closePodEditModal(){
@@ -482,7 +532,6 @@ function podEditPayload(){
     url: document.getElementById('pod-edit-url').value.trim(),
     max_concurrent: Number(document.getElementById('pod-edit-concurrent').value || 1),
     pull_outputs: document.getElementById('pod-edit-pull').checked,
-    enabled: document.getElementById('pod-edit-enabled').checked,
   };
 }
 

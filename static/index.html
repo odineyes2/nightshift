@@ -1285,12 +1285,21 @@
           결과 이미지를 이 서버로 가져오기
         </label>
       </div>
-      <div class="field">
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer;">
-          <input type="checkbox" id="pod-edit-enabled" checked style="accent-color:var(--queued); cursor:pointer;">
-          사용함
-        </label>
-        <div class="email-hint">끄면 새 작업을 보낼 수 없어요(기록은 남습니다). 파드를 잠시 쉬게 할 때 씁니다.</div>
+      <!-- 켜고 끄는 것 세 가지를 한곳에 — 누르면 바로 적용된다("저장"과 무관). 08-pods.js renderPodControls -->
+      <div class="field pod-controls" id="pod-edit-controls" style="display:none;">
+        <label class="field-label">켜기 / 끄기 <span class="opt">— 누르면 바로 적용돼요</span></label>
+        <div class="pod-control-row">
+          <div class="pod-control-text"><b>워커 사용</b><span id="pod-ctl-enabled-hint"></span></div>
+          <button type="button" class="pod-switch" id="pod-ctl-enabled" role="switch" aria-checked="false" aria-label="워커 사용"></button>
+        </div>
+        <div class="pod-control-row">
+          <div class="pod-control-text"><b>작업 처리</b><span id="pod-ctl-queue-hint"></span></div>
+          <button type="button" class="pod-switch" id="pod-ctl-queue" role="switch" aria-checked="false" aria-label="작업 처리"></button>
+        </div>
+        <div class="pod-control-row" id="pod-ctl-power-row">
+          <div class="pod-control-text"><b>RunPod 전원</b><span id="pod-ctl-power-hint"></span></div>
+          <button type="button" class="pod-switch" id="pod-ctl-power" role="switch" aria-checked="false" aria-label="RunPod 전원"></button>
+        </div>
       </div>
       <div class="field runpod-info-box" id="pod-edit-runpod-box" style="display:none;">
         <label class="field-label"><svg class="ico"><use href="#i-cloud"/></svg> RunPod 정보</label>
