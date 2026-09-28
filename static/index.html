@@ -1287,23 +1287,24 @@
       </div>
       <!-- 켜고 끄는 것 세 가지를 한곳에 — 누르면 바로 적용된다("저장"과 무관). 08-pods.js renderPodControls -->
       <div class="field pod-controls" id="pod-edit-controls" style="display:none;">
-        <label class="field-label">켜기 / 끄기 <span class="opt">— 누르면 바로 적용돼요</span></label>
-        <div class="pod-control-row">
+        <label class="field-label" id="pod-ctl-label">켜기 / 끄기 <span class="opt">— 누르면 바로 적용돼요</span></label>
+        <div class="pod-control-row" id="pod-ctl-enabled-row">
+          <svg class="ico pod-control-ico"><use href="#i-server"/></svg>
           <div class="pod-control-text"><b>워커 사용</b><span id="pod-ctl-enabled-hint"></span></div>
           <button type="button" class="pod-switch" id="pod-ctl-enabled" role="switch" aria-checked="false" aria-label="워커 사용"></button>
         </div>
-        <div class="pod-control-row">
+        <div class="pod-control-row" id="pod-ctl-queue-row">
+          <svg class="ico pod-control-ico"><use href="#i-list-checks"/></svg>
           <div class="pod-control-text"><b>작업 처리</b><span id="pod-ctl-queue-hint"></span></div>
           <button type="button" class="pod-switch" id="pod-ctl-queue" role="switch" aria-checked="false" aria-label="작업 처리"></button>
         </div>
-        <div class="pod-control-row" id="pod-ctl-power-row">
-          <div class="pod-control-text"><b>RunPod 전원</b><span id="pod-ctl-power-hint"></span></div>
+        <!-- RunPod 전원 + RunPod 정보(이름·GPU·비용·일시)를 한 상자에 -->
+        <div class="pod-control-row pod-control-runpod" id="pod-ctl-power-row">
+          <svg class="ico pod-control-ico"><use href="#i-cloud"/></svg>
+          <div class="pod-control-text"><b id="pod-ctl-power-title">RunPod 전원</b><span id="pod-ctl-power-hint"></span></div>
           <button type="button" class="pod-switch" id="pod-ctl-power" role="switch" aria-checked="false" aria-label="RunPod 전원"></button>
+          <div class="runpod-info-grid" id="pod-edit-runpod-fields"></div>
         </div>
-      </div>
-      <div class="field runpod-info-box" id="pod-edit-runpod-box" style="display:none;">
-        <label class="field-label"><svg class="ico"><use href="#i-cloud"/></svg> RunPod 정보</label>
-        <div class="runpod-info-grid" id="pod-edit-runpod-fields"></div>
       </div>
       <div class="enhance-status" id="pod-edit-status" style="text-align:left; max-width:none;"></div>
       <div class="upload-error" id="pod-edit-error"></div>

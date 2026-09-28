@@ -143,6 +143,11 @@
   }
   .pod-control-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; font-size:13px; color:var(--text); }
   .pod-control-text span{ font-size:11.5px; color:var(--text-dim); }
+  .pod-control-text span:empty{ display:none; }
+  .pod-control-ico{ flex:none; width:18px; height:18px; color:var(--text-dim); }
+  /* RunPod 줄은 아래에 RunPod 정보(이름·GPU·비용·일시)를 이어 붙인다 — 아이콘 너비만큼 들여서 제목과 줄을 맞춘다 */
+  .pod-control-runpod{ flex-wrap:wrap; }
+  .pod-control-runpod .runpod-info-grid{ flex:1 0 100%; box-sizing:border-box; padding:8px 0 0 30px; border-top:1px dashed var(--border); }
   .pod-switch{
     flex:none; position:relative; width:42px; height:24px; border-radius:12px; padding:0; cursor:pointer;
     background:#b8bdc4; border:none; transition:background .15s ease;

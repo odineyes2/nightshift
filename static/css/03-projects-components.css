@@ -956,7 +956,6 @@
     background:none; border:none; padding:0; margin-left:4px;
     color:var(--queued); font-size:12px; cursor:pointer; text-decoration:underline;
   }
-  .runpod-info-box{ background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
   .runpod-info-grid{ display:grid; grid-template-columns:auto 1fr; gap:5px 12px; font-size:12.5px; }
   .runpod-info-grid .ri-k{ color:var(--text-dim); }
   .runpod-info-grid .ri-v{ color:var(--text); font-family:var(--mono); }

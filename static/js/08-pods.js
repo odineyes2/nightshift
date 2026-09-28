@@ -157,11 +157,19 @@ async function runpodPower(podId, action){
   await fetchDashboard();
 }
 
-// 설정 창의 켜기/끄기 세 줄 — 창이 열려 있고 기존 워커일 때만. 대시보드를 새로 받을 때마다 다시 그린다.
+// 설정 창의 켜기/끄기 세 줄 — 기존 워커일 때만. 대시보드를 새로 받을 때마다 다시 그린다.
+// RunPod 줄은 RunPod 정보만 있어도 보인다(새 워커 추가 중 "RunPod 정보 테스트"를 눌렀을 때 — 이때 스위치는 없다).
 function renderPodControls(){
   const box = document.getElementById('pod-edit-controls');
   const p = podEditId && (dashSummary.pods || []).find(x => x.id === podEditId);
-  box.style.display = p ? '' : 'none';
+  const hasInfo = document.getElementById('pod-edit-runpod-fields').children.length > 0;
+  const power = p ? runpodPowerState(p) : null;
+  box.style.display = p || hasInfo ? '' : 'none';
+  for(const id of ['pod-ctl-label', 'pod-ctl-enabled-row', 'pod-ctl-queue-row']) document.getElementById(id).style.display = p ? '' : 'none';
+  document.getElementById('pod-ctl-power-row').style.display = power || hasInfo ? '' : 'none';
+  document.getElementById('pod-ctl-power').style.display = power ? '' : 'none';
+  document.getElementById('pod-ctl-power-title').textContent = power ? 'RunPod 전원' : 'RunPod 정보';
+  document.getElementById('pod-ctl-power-hint').textContent = power ? power.label : '';
   if(!p) return;
   const setSwitch = (id, on, disabled) => {
     const el = document.getElementById(id);
@@ -174,12 +182,7 @@ function renderPodControls(){
   setSwitch('pod-ctl-queue', p.enabled && p.auto_run, !p.enabled);
   document.getElementById('pod-ctl-queue-hint').textContent = !p.enabled ? '워커 사용을 켜야 처리할 수 있어요.'
     : p.auto_run ? '켜짐 — 대기 중인 작업을 차례로 처리해요.' : '멈춤 — 대기 작업을 시작하지 않아요.';
-  const power = runpodPowerState(p);
-  document.getElementById('pod-ctl-power-row').style.display = power ? '' : 'none';
-  if(power){
-    setSwitch('pod-ctl-power', power.on, power.busy);
-    document.getElementById('pod-ctl-power-hint').textContent = power.label;
-  }
+  if(power) setSwitch('pod-ctl-power', power.on, power.busy);
 }
 
 document.getElementById('pod-ctl-enabled').addEventListener('click', async (e) => {
@@ -460,8 +463,8 @@ function runpodInfoFromDashboard(podId){
   return (row && row.card && row.card.runpod) || null;
 }
 
+// RunPod 정보(이름·GPU·비용·일시) — "RunPod 전원" 줄 안에 함께 보인다. 줄을 보일지는 renderPodControls가 정한다.
 function renderRunpodInfoBox(info){
-  const box = document.getElementById('pod-edit-runpod-box');
   const grid = document.getElementById('pod-edit-runpod-fields');
   const rows = [];
   if(info){
@@ -473,7 +476,8 @@ function renderRunpodInfoBox(info){
   }
   grid.innerHTML = rows.map(([k, v]) =>
     `<span class="ri-k">${escapeHtml(k)}</span><span class="ri-v">${escapeHtml(String(v))}</span>`).join('');
-  box.style.display = rows.length ? '' : 'none';
+  grid.style.display = rows.length ? '' : 'none';
+  renderPodControls();
 }
 
 // RunPod가 자동으로 붙인 이름을 nightshift 이름 입력칸에 채워주는 제안 — 사용자가
