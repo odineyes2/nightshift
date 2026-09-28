@@ -87,9 +87,15 @@ NIGHTSHIFT_ADMIN_USER=admin NIGHTSHIFT_ADMIN_PASSWORD='Test-Passw0rd-xyz!' \
 python3 -m uvicorn app:app --port 8765
 ```
 
-JS 문법만 확인할 때는 인라인 `<script>`를 뽑아 `node --check`로 검사한다(브라우저를 띄우는 것보다 훨씬 싸다).
+JS 문법만 확인할 때는 고친 파일을 `node --check static/js/파일.js`로 검사한다(브라우저를 띄우는 것보다 훨씬 싸다).
 
 ## 스타일
 
 - 코드 주석과 문서는 한국어. 주변 코드의 주석 밀도·말투(“~한다”)를 따른다.
 - 화면 문구는 존댓말(“~해요”).
+
+## graphify (코드 지식 그래프)
+
+- `graphify-out/graph.json`이 있으면 코드 질문은 `graphify query "<질문>"`부터 쓴다(관계는 `graphify path "A" "B"`, 개념은 `graphify explain "X"`). `graphify-out/GRAPH_REPORT.md`는 전체 구조를 볼 때만 읽는다.
+- `app_parts/`·`static/js/`는 import 없이 이름을 공유해서 그래프에 파일 사이 연결이 빠질 수 있다 — 그래프에서 못 찾으면 위 파일 지도와 `grep`으로 확인한다.
+- 코드를 고친 뒤 `graphify update .`(AST만, API 비용 없음)로 그래프를 갱신한다. `graphify-out/`은 생성물이라 커밋하지 않는다.

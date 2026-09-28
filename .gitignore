@@ -32,3 +32,6 @@ node_modules/
 
 # Claude Code 로컬 설정/미리보기용 테스트 데이터 — 저장소에 올릴 것이 아니다
 .claude/
+
+# graphify가 만드는 코드 지식 그래프 — 코드에서 언제든 다시 만드는 생성물이라 커밋하지 않는다(CLAUDE.md 참고)
+graphify-out/
