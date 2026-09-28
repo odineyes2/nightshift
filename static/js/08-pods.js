@@ -173,6 +173,11 @@ function renderPodControls(){
   document.getElementById('pod-ctl-pull').setAttribute('aria-checked', pull ? 'true' : 'false');
   document.getElementById('pod-ctl-pull-hint').textContent = pull
     ? '켜짐 — 작업이 끝나면 결과를 이 서버 갤러리로 받아 와요.' : '꺼짐 — 결과는 워커에만 남아요.';
+  const auto = podEditId ? !!(podsById[podEditId] || {}).auto_install_models : podEditNewAuto;
+  document.getElementById('pod-ctl-auto').setAttribute('aria-checked', auto ? 'true' : 'false');
+  document.getElementById('pod-ctl-auto-hint').textContent = auto
+    ? '켜짐 — 대기 작업에 필요한 모델이 없으면 알아서 받아요(모델 탭에 받을 주소가 있는 것만).'
+    : '꺼짐 — 없는 모델은 작업 카드나 Models 탭에서 직접 받아요.';
   if(!p) return;
   const setSwitch = (id, on, disabled) => {
     const el = document.getElementById(id);
@@ -188,20 +193,26 @@ function renderPodControls(){
   if(power) setSwitch('pod-ctl-power', power.on, power.busy);
 }
 
-document.getElementById('pod-ctl-pull').addEventListener('click', async (e) => {
-  if(!podEditId){ podEditNewPull = !podEditNewPull; renderPodControls(); return; }
-  const pod = podsById[podEditId];
-  if(!pod) return;
-  const btn = e.currentTarget;
-  btn.disabled = true;
-  const res = await fetch(`/api/pods/${encodeURIComponent(pod.id)}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pull_outputs: !pod.pull_outputs }),
+// 워커 레코드의 켜고 끄는 값 하나(결과 가져오기·모델 자동 설치)를 스위치에 묶는다 — 기존 워커는 누르면 바로 저장,
+// 새 워커는 화면 값만 바꿔 두고 "저장" 때 함께 보낸다(podEditPayload).
+function bindPodFieldSwitch(switchId, field, toggleNew){
+  document.getElementById(switchId).addEventListener('click', async (e) => {
+    if(!podEditId){ toggleNew(); renderPodControls(); return; }
+    const pod = podsById[podEditId];
+    if(!pod) return;
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const res = await fetch(`/api/pods/${encodeURIComponent(pod.id)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: !pod[field] }),
+    });
+    if(!res.ok) alert((await res.json().catch(() => ({}))).detail || '바꾸지 못했어요.');
+    await fetchPods();
+    btn.disabled = false;
+    renderPodControls();
   });
-  if(!res.ok) alert((await res.json().catch(() => ({}))).detail || '바꾸지 못했어요.');
-  await fetchPods();
-  btn.disabled = false;
-  renderPodControls();
-});
+}
+bindPodFieldSwitch('pod-ctl-pull', 'pull_outputs', () => { podEditNewPull = !podEditNewPull; });
+bindPodFieldSwitch('pod-ctl-auto', 'auto_install_models', () => { podEditNewAuto = !podEditNewAuto; });
 document.getElementById('pod-ctl-enabled').addEventListener('click', async (e) => {
   const p = (dashSummary.pods || []).find(x => x.id === podEditId);
   if(!p) return;
@@ -472,6 +483,7 @@ document.getElementById('dash-refresh-btn').addEventListener('click', fetchDashb
 // ---- 파드 추가/편집 ----
 let podEditId = null;   // null이면 "추가"
 let podEditNewPull = true;   // 새 워커를 추가할 때의 "결과 가져오기"(저장 때 함께 보낸다)
+let podEditNewAuto = false;  // 새 워커를 추가할 때의 "모델 자동 설치"(저장 때 함께 보낸다) — 받는 시간도 GPU 요금이라 기본은 끔
 
 // RunPod 정보(card.runpod)는 대시보드가 4초마다 폴링해둔 dashSummary.pods에 이미
 // 있다 — 설정 모달은 늘 대시보드 카드에서 열리므로, 추가 요청 없이 이걸 그대로
@@ -528,6 +540,7 @@ function openPodEditModal(podId){
   document.getElementById('pod-edit-url').value = pod.url || '';
   document.getElementById('pod-edit-concurrent').value = pod.max_concurrent || 1;
   podEditNewPull = true;   // 새 워커는 기본으로 결과를 가져온다
+  podEditNewAuto = false;
   syncNumStepper();
   document.getElementById('pod-edit-status').textContent = '';
   document.getElementById('pod-edit-error').textContent = '';
@@ -551,7 +564,7 @@ function podEditPayload(){
     name: document.getElementById('pod-edit-name').value.trim(),
     url: document.getElementById('pod-edit-url').value.trim(),
     max_concurrent: Number(document.getElementById('pod-edit-concurrent').value || 1),
-    ...(podEditId ? {} : { pull_outputs: podEditNewPull }),
+    ...(podEditId ? {} : { pull_outputs: podEditNewPull, auto_install_models: podEditNewAuto }),
   };
 }
 

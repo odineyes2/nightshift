@@ -186,6 +186,8 @@ def schedule_once() -> None:
             reason = " · ".join(reasons)
             missing_info = ({"pod_id": best_missing[0]["id"], "pod_name": best_missing[0].get("name") or best_missing[0]["id"],
                              "names": best_missing[1]} if best_missing else None)
+            if best_missing and best_missing[0].get("auto_install_models"):
+                _maybe_auto_fetch(job["id"], best_missing[0], best_missing[1])   # 13-jobs-api.py
             with lock:
                 if job.get("waiting_reason") == reason and job.get("missing_models") == missing_info:
                     continue

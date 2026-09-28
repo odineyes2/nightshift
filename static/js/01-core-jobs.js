@@ -469,7 +469,7 @@ function buildJobCard(j){
         <div class="job-card-title">${kindIcon}<span>${escapeHtml(batchLabel)}</span></div>
         ${baseModel ? `<div class="job-card-base">${escapeHtml(baseModel)}</div>` : ''}
         ${fetching
-          ? `<div class="job-card-wait fetching" title="${escapeHtml(j.fetching_models.names.join('\n'))}">${ico('loader-circle', true)}<span>모델 받는 중 — 다 받으면 저절로 시작해요</span></div>`
+          ? `<div class="job-card-wait fetching" title="${escapeHtml(j.fetching_models.names.join('\n'))}">${ico('loader-circle', true)}<span>${j.fetching_models.auto ? '모델 자동 설치 중' : '모델 받는 중'} — 다 받으면 저절로 시작해요</span></div>`
           : blocked && j.fetch_error ? `<div class="job-card-wait" title="${escapeHtml('모델 받기 실패 — ' + j.fetch_error + '\n\n' + (j.waiting_reason || ''))}">${ico('triangle-alert')}<span>받기 실패 — ${escapeHtml(/HTTP 40[13]/.test(j.fetch_error) ? 'Civitai 토큰 필요(HTTP ' + j.fetch_error.match(/HTTP (40[13])/)[1] + ') · 카드를 눌러 자세히' : j.fetch_error)}</span></div>`
           : waitingForPod && j.waiting_reason ? `<div class="job-card-wait" title="${escapeHtml(j.waiting_reason)}">${ico('triangle-alert')}<span>${escapeHtml(j.waiting_reason)}</span></div>` : ''}
       </div>

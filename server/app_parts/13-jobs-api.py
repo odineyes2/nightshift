@@ -445,7 +445,10 @@ def _watch_model_downloads(pod: dict, job_id: str | None, names: list[str]) -> N
 async def _start_model_downloads(user: dict, pod: dict, names: list[str]) -> tuple[list, list, list]:
     """등록부의 받을 주소로 그 워커에 모델 받기를 시작한다 — (시작한 것, 주소가 없는 것, 실패한 것).
     작업 카드의 "없는 모델 받기"와 워커 모델 탭의 "모두 받기"가 함께 쓴다."""
-    token = (auth.get_secrets(user["id"]) or {}).get("civitai_token") or None
+    try:
+        token = (auth.get_secrets(user["id"]) or {}).get("civitai_token") or None
+    except Exception:
+        token = None   # 주인 없는 옛 작업 등 — 토큰 없이 받는다(공개 모델은 그대로 받힌다)
     started, no_url, failed = [], [], []
     for name in names:
         if name.startswith("노드 "):
@@ -461,8 +464,44 @@ async def _start_model_downloads(user: dict, pod: dict, names: list[str]) -> tup
             await asyncio.to_thread(model_download.call_node, pod, "POST", "/nightshift/dl/start", body)
             started.append(name)
         except model_download.DownloadError as e:
+            # "이미 받는 중"(다른 작업이 먼저 시작)·"이미 있어요"는 실패가 아니다 — 끝나면 스케줄러가 다시 본다.
+            if e.status == 409 and "이미" in str(e):
+                ComfyUIDriver.invalidate_capabilities(pod["id"])
+                continue
             failed.append({"name": name, "detail": str(e)})
     return started, no_url, failed
+
+
+def _maybe_auto_fetch(job_id: str, pod: dict, missing: list[str]) -> None:
+    """워커의 "필요한 모델 자동 설치"가 켜져 있을 때 스케줄러가 부른다 — 이 작업이 이 워커에서 모자란 모델을
+    사람이 "없는 모델 받기"를 누른 것처럼 받는다. 같은 모델은 작업마다 한 번만 시도하고(auto_fetch_tried),
+    받는 중이거나 지난 받기가 실패했으면(fetch_error — 사람이 "없는 모델 받기"를 누르면 풀린다) 손대지 않는다."""
+    names = [n for n in missing if not n.startswith("노드 ")]
+    with lock:
+        job = jobs.get(job_id)
+        if job is None or job.get("fetching_models") or job.get("fetch_error"):
+            return
+        tried = set(job.get("auto_fetch_tried") or [])
+        todo = [n for n in names if n not in tried]
+        if not todo:
+            return
+        job["auto_fetch_tried"] = sorted(tried | set(todo))
+        owner_id = job.get("owner_id")
+    threading.Thread(target=_auto_fetch_run, args=(job_id, pod, todo, owner_id), daemon=True).start()
+
+
+def _auto_fetch_run(job_id: str, pod: dict, names: list[str], owner_id) -> None:
+    started, no_url, failed = asyncio.run(_start_model_downloads({"id": owner_id}, pod, names))
+    with lock:
+        job = jobs.get(job_id)
+        if job is not None:
+            if started:
+                job["fetching_models"] = {"pod_id": pod["id"], "names": started, "started_at": now_iso(), "auto": True}
+            if failed:
+                job["fetch_error"] = "자동 설치 실패 — " + " · ".join(f"{f['name']}: {f['detail']}" for f in failed)
+    save_state()
+    if started:
+        _watch_model_downloads(pod, job_id, started)
 
 
 def _needed_models_on_pod(user: dict, pod: dict) -> list[dict] | None:

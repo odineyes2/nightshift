@@ -131,6 +131,8 @@ def normalize_pod(raw: dict) -> dict:
         "tags": [t.strip() for t in tags if t.strip()],
         "max_concurrent": max_concurrent,
         "pull_outputs": bool(raw.get("pull_outputs")),
+        # 대기 작업이 모델 때문에 이 워커에서 막히면 등록부의 주소로 알아서 받는다(스케줄러 → _maybe_auto_fetch).
+        "auto_install_models": bool(raw.get("auto_install_models")),
         # 파드의 주인(회원 id). 없으면 관리자 것이다(회원 기능 이전에 만든 파드).
         "owner_id": raw.get("owner_id") if isinstance(raw.get("owner_id"), int) and not isinstance(raw.get("owner_id"), bool) else None,
         "note": str(raw.get("note") or ""),
