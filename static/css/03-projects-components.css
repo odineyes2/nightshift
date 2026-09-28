@@ -349,7 +349,7 @@
   }
   .board-gen-status{ flex:1; min-width:0; display:flex; align-items:center; gap:6px; overflow:hidden; white-space:nowrap; font-size:11px; color:var(--text-dim); }
   .board-gen-status .badge{ flex:none; }
-  .board-gen-reason{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .board-gen-status > span{ min-width:0; overflow:hidden; text-overflow:ellipsis; }   /* 카드를 좁히면 말줄임 */
   .board-gen-btn{
     flex:none; display:inline-flex; align-items:center; gap:4px; padding:5px 10px; border-radius:6px;
     border:1px solid var(--border); background:var(--panel); color:var(--text); font-size:12px; cursor:pointer;
