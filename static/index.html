@@ -477,7 +477,6 @@
     <button class="icon-btn" id="board-zoom-out-btn" type="button" title="축소"><svg class="ico"><use href="#i-zoom-out"/></svg></button>
     <span class="board-zoom-label" id="board-zoom-label">100%</span>
     <button class="icon-btn" id="board-zoom-in-btn" type="button" title="확대"><svg class="ico"><use href="#i-zoom-in"/></svg></button>
-    <button class="icon-btn icon-btn-neutral" id="board-fit-btn" type="button" title="모든 카드가 보이게 맞추기"><svg class="ico"><use href="#i-maximize"/></svg></button>
     <span class="board-toolbar-sep"></span>
     <button class="load-btn" id="board-add-image-btn" type="button" title="이 프로젝트의 이미지를 카드로 놓기" aria-label="이미지"><svg class="ico"><use href="#i-images"/></svg><span class="btn-label"> 이미지</span></button>
     <button class="load-btn" id="board-add-video-btn" type="button" title="이 프로젝트의 영상을 카드로 놓기" aria-label="영상"><svg class="ico"><use href="#i-clapperboard"/></svg><span class="btn-label"> 영상</span></button>
@@ -492,6 +491,8 @@
   </div>
   <div class="board-viewport" id="board-viewport">
     <div class="board-world" id="board-world"></div>
+    <!-- 전체 보기 — 모든 카드가 한눈에 들어오게 위치·확대를 맞춘다(보드를 열 때도 저절로). 캔버스 오른쪽 아래에 떠 있다. -->
+    <button class="board-fit-fab" id="board-fit-btn" type="button" title="모든 카드가 한눈에 보이게 맞추기" aria-label="전체 보기"><svg class="ico"><use href="#i-maximize"/></svg></button>
     <!-- 카드를 고르면 캔버스 아래쪽에 뜨는 막대 — 툴바에 넣으면 고를 때마다 툴바 높이가
          바뀌어 캔버스 크기가 어긋나고, 폰에서는 툴바 폭도 모자라서 캔버스 위에 띄운다. -->
     <div class="board-selection-bar" id="board-selection-bar" style="display:none;">

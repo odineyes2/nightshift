@@ -89,7 +89,7 @@ function initBoardCanvas(){
       else addBoardPanPointer(e);
       return;
     }
-    if(e.target.closest('.board-node, .board-edge-del, .board-selection-bar')) return;
+    if(e.target.closest('.board-node, .board-edge-del, .board-selection-bar, .board-fit-fab')) return;
     // 선(투명한 굵은 선) 위를 누르면 팬 대신 그 선을 고른다. 여기서 바로 처리하는
     // 이유: 팬이 viewport에 포인터 캡처를 걸면 click 이벤트가 선이 아니라
     // viewport로 가서, click으로는 어느 선인지 알 수 없다.
@@ -624,7 +624,8 @@ function paintBoardSelection(){
 // 때마다(다른 탭 갔다 오거나 프로젝트를 바꿔도) 그 프로젝트의 보드를 다시 받는다.
 let boardFetchSeq = 0;   // 프로젝트를 빠르게 바꿀 때 늦게 도착한 옛 응답을 버리는 용도
 
-async function fetchBoard(){
+// fit: 다 받은 뒤 모든 카드가 한눈에 보이게 맞춘다 — 보드 탭을 열 때만(저장 실패로 다시 맞출 때는 보던 자리 그대로).
+async function fetchBoard({ fit = false } = {}){
   const seq = ++boardFetchSeq;
   const grid = document.getElementById('board-world');
   boardSelectedEdgeId = null;
@@ -660,6 +661,7 @@ async function fetchBoard(){
   boardEdges = data.edges || [];
   boardJobInfo.clear();
   renderBoard();
+  if(fit) boardFitToNodes();
   fetchBoardJobs();
 }
 
