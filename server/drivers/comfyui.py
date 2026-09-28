@@ -26,7 +26,10 @@ from runpod_api import extract_pod_id, get_runpod_info, proxy_links
 
 from .base import PodDriver
 
-CANDIDATE_URLS = ["http://127.0.0.1:8188", "http://127.0.0.1:8000"]
+# nightshift 자신이 뜬 포트는 후보에서 뺀다 — 홈서버처럼 NIGHTSHIFT_PORT가 8000이면 주소 없는 파드를
+# 확인할 때마다 자기 자신에게 /system_stats를 물어 404 로그만 쌓였다(운영 로그의 절반).
+_SELF_PORT = os.environ.get("NIGHTSHIFT_PORT", "8000").strip() or "8000"
+CANDIDATE_URLS = [u for u in ("http://127.0.0.1:8188", "http://127.0.0.1:8000") if not u.endswith(f":{_SELF_PORT}")]
 
 # RunPod의 프록시 주소(https://{POD_ID}-{PORT}.proxy.runpod.net/)는 Cloudflare가
 # 앞단에 있다. Cloudflare의 봇 차단이 파이썬 urllib의 기본 User-Agent
