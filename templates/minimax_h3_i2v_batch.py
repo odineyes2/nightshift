@@ -36,7 +36,8 @@ noise_seed 필드), 프롬프트는 "main_prompt"(PrimitiveStringMultiline), 영
                        치는 유예 초(기본 60) — 오래 걸리는 작업 자체는 시간과 무관하게 기다림
 
 결과물 파일명 규칙:
-    SaveVideo 노드의 filename_prefix를 "<JOB_ID>/minimax_h3_i2v_<순번>_seed<시드값>"로 채운다.
+    SaveVideo 노드의 filename_prefix를 "<JOB_ID>/minimax_h3_i2v_<순번>_seed<시드값>"로 채운다(이미지 입력 노드가
+    하나도 없는 워크플로우 — 마법사의 t2v — 면 "minimax_h3_t2v_…").
 """
 
 import copy
@@ -163,7 +164,9 @@ def apply_filename_prefix(workflow, index, seed):
     node_id, node = find_node(workflow, class_types=("SaveVideo",))
     if node is None:
         return
-    prefix = f"minimax_h3_i2v_{index}_seed{seed}"
+    # t2v(텍스트만)는 i2v와 같은 템플릿으로 돌지만, 결과 파일 이름은 무엇으로 만들었는지 드러나게 t2v로 붙인다.
+    mode = "i2v" if find_node(workflow, class_types=("LoadImage",))[1] is not None else "t2v"
+    prefix = f"minimax_h3_{mode}_{index}_seed{seed}"
     job_id = env("JOB_ID")
     if job_id:
         prefix = f"{job_id}/{prefix}"
