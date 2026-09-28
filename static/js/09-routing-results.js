@@ -175,7 +175,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(explicitProject || stayInProject){
     scopedProjectId = resolveProjectId(explicitProject ? projectId : currentProjectId);
     if(scopedProjectId === null) tab = 'dashboard';   // 지워졌거나 아직 못 읽은 프로젝트
-    else if(!PROJECT_TABS.includes(tab)) tab = 'prgallery';
+    else if(!PROJECT_TABS.includes(tab)) tab = projectDefaultTab(scopedProjectId);
   }
 
   let scopedPodId = null;
@@ -299,7 +299,10 @@ function applyHashRoute(){
   // 모델 탭은 파드 밖으로 나갔다 — 옛 링크(#pod/{id}/lora · #lora)는 전역 모델 탭으로 보낸다.
   if(podMatch && podMatch[2] === 'lora') showTab('models');
   else if(podMatch) showTab(podMatch[2] || podDefaultTab(podsById[podMatch[1]]), { podId: podMatch[1] });
-  else if(projectMatch) showTab(projectMatch[2] || 'prgallery', { projectId: projectMatch[1] === 'unassigned' ? 'unassigned' : Number(projectMatch[1]) });
+  else if(projectMatch){
+    const projectId = projectMatch[1] === 'unassigned' ? 'unassigned' : Number(projectMatch[1]);
+    showTab(projectMatch[2] || projectDefaultTab(projectId), { projectId });
+  }
   // 파드 안으로 옮겨간 옛 링크(#jobs · #lora)는 마지막/기본 파드의 같은
   // 화면으로 보낸다 — showTab이 주소도 새 형태로 고쳐 쓴다. #builder처럼 완전히
   // 없어진 탭은 TAB_MAINS에 없어 showTab이 'dashboard'로 떨어진다(showTab 맨 위 참고).

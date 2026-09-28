@@ -3,7 +3,9 @@
 // project_id가 없는 것은 "미분류"다. 홈이 프로젝트 대시보드이고, 프로젝트 안
 // (#project/{id}/...)에서는 그 프로젝트의 작업·갤러리·영상만 보인다. 파드는 새 작업 폼에서
 // 고르는 값이다(파드가 일시적이라 프로젝트가 파드에 종속되면 안 된다).
-const PROJECT_TABS = ['prgallery', 'prvideo', 'jobs', 'prboard'];
+const PROJECT_TABS = ['prboard', 'jobs', 'prgallery', 'prvideo'];   // 프로젝트 바의 탭 순서
+// 프로젝트에 들어갔을 때 처음 여는 화면 — 보드. "미분류"는 진짜 프로젝트가 아니라 보드가 없으니 다음 탭(작업).
+function projectDefaultTab(projectId){ return projectId === 'unassigned' ? 'jobs' : 'prboard'; }
 const PROJECT_TAB_META = {
   jobs:      { icon: 'list-checks',  label: 'Jobs' },
   prgallery: { icon: 'images',       label: 'Gallery' },
@@ -198,7 +200,8 @@ document.getElementById('project-canvas').addEventListener('click', (e) => {
   const card = e.target.closest('[data-project-open]');
   if(!card) return;
   const raw = card.dataset.projectOpen;
-  showTab('prgallery', { projectId: raw === 'unassigned' ? 'unassigned' : Number(raw) });
+  const projectId = raw === 'unassigned' ? 'unassigned' : Number(raw);
+  showTab(projectDefaultTab(projectId), { projectId });
 });
 document.getElementById('project-canvas').addEventListener('keydown', (e) => {
   if(e.key !== 'Enter' && e.key !== ' ') return;
