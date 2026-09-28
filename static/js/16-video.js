@@ -349,7 +349,8 @@ function videoGalleryItemHtml(vid, index){
 }
 
 function wireVideoGalleryItems(){
-  document.querySelectorAll('#video-gallery-grid .vgallery-item').forEach(el => {
+  document.querySelectorAll('#video-gallery-grid .vgallery-item:not([data-wired])').forEach(el => {
+    el.dataset.wired = '1';   // "더 보기"로 이어 붙일 때마다 부르므로 이미 묶은 칸은 건너뛴다
     const index = Number(el.dataset.index);
     const name = displayedGalleryVideos[index].name;
 
@@ -393,37 +394,35 @@ setupItemLongPressDelete(document.getElementById('video-gallery-grid'), '.vgalle
   if(vid) deleteGalleryVideos([vid.name]);
 });
 
+// 묶음 소제목의 체크박스 상태 — 화면에 그린 칸이 아니라 그 묶음 전체(아직 안 그린 것 포함) 기준(이미지 갤러리와 같다).
 function updateVideoGroupCheckboxState(groupEl){
   const groupCheckbox = groupEl.querySelector('.vgallery-group-checkbox');
   if(!groupCheckbox) return;
-  const itemEls = groupEl.querySelectorAll('.vgallery-item');
-  const selectedCount = Array.from(itemEls).filter(el => el.classList.contains('selected')).length;
-  groupCheckbox.checked = itemEls.length > 0 && selectedCount === itemEls.length;
-  groupCheckbox.indeterminate = selectedCount > 0 && selectedCount < itemEls.length;
+  const names = videoGalleryGroupNames.get(groupEl.dataset.groupKey) || [];
+  const selectedCount = names.filter(n => selectedGalleryVideoNames.has(n)).length;
+  groupCheckbox.checked = names.length > 0 && selectedCount === names.length;
+  groupCheckbox.indeterminate = selectedCount > 0 && selectedCount < names.length;
 }
 
 function refreshAllVideoGroupCheckboxStates(){
   document.querySelectorAll('#video-gallery-grid .vgallery-group').forEach(updateVideoGroupCheckboxState);
 }
 
-function wireVideoGalleryGroupCheckboxes(){
-  document.querySelectorAll('#video-gallery-grid .vgallery-group').forEach(groupEl => {
-    updateVideoGroupCheckboxState(groupEl);
-    const groupCheckbox = groupEl.querySelector('.vgallery-group-checkbox');
-    groupCheckbox.addEventListener('change', () => {
-      const checked = groupCheckbox.checked;
-      groupCheckbox.indeterminate = false;
-      groupEl.querySelectorAll('.vgallery-item').forEach(itemEl => {
-        const index = Number(itemEl.dataset.index);
-        const name = displayedGalleryVideos[index].name;
-        if(checked) selectedGalleryVideoNames.add(name);
-        else selectedGalleryVideoNames.delete(name);
-        itemEl.classList.toggle('selected', checked);
-        const itemCheckbox = itemEl.querySelector('.vgallery-item-select input');
-        if(itemCheckbox) itemCheckbox.checked = checked;
-      });
-      updateVideoGalleryToolbar();
+function wireVideoGalleryGroupCheckbox(groupEl){
+  const groupCheckbox = groupEl.querySelector('.vgallery-group-checkbox');
+  groupCheckbox.addEventListener('change', () => {
+    const checked = groupCheckbox.checked;
+    groupCheckbox.indeterminate = false;
+    for(const name of videoGalleryGroupNames.get(groupEl.dataset.groupKey) || []){
+      if(checked) selectedGalleryVideoNames.add(name);
+      else selectedGalleryVideoNames.delete(name);
+    }
+    groupEl.querySelectorAll('.vgallery-item').forEach(itemEl => {
+      itemEl.classList.toggle('selected', checked);
+      const itemCheckbox = itemEl.querySelector('.vgallery-item-select input');
+      if(itemCheckbox) itemCheckbox.checked = checked;
     });
+    updateVideoGalleryToolbar();
   });
 }
 
@@ -443,13 +442,18 @@ function videoGalleryGroupLabelFor(key){
   return '';
 }
 
+// 이미지 갤러리의 renderGalleryGrid/appendGalleryItems와 같은 방식 — 전체 순서는 displayedGalleryVideos에,
+// 화면에는 앞에서부터 videoGalleryLimit개만 그리고 나머지는 "더 보기"가 이어 붙인다.
+let videoGalleryLimit = LIST_PAGE;
+let videoGalleryRendered = 0;
+let videoGalleryGroupNames = new Map();   // 묶음 키 -> 그 묶음의 영상 이름 전부(안 그린 것 포함)
+let videoGalleryScopeKey = '';
 function renderVideoGalleryGrid(){
   const grid = document.getElementById('video-gallery-grid');
-  displayedGalleryVideos = [];
   const isDetails = videoGalleryDisplayMode === 'details';
   grid.classList.toggle('details-mode', isDetails);
-  const headerHtml = isDetails ? videoGalleryDetailsHeaderHtml() : '';
-
+  const scope = JSON.stringify([videoGalleryViewMode, videoGalleryDisplayMode, videoGalleryPodFilter, videoGalleryProjectFilter, galleryFilterQs(videoGalleryFilters)]);
+  if(scope !== videoGalleryScopeKey){ videoGalleryScopeKey = scope; videoGalleryLimit = LIST_PAGE; }
   if(videoGalleryViewMode !== 'all'){
     const groups = new Map();
     for(const vid of galleryVideos){
@@ -457,35 +461,52 @@ function renderVideoGalleryGrid(){
       if(!groups.has(key)) groups.set(key, []);
       groups.get(key).push(vid);
     }
-    let html = headerHtml;
-    for(const [key, groupVideos] of groups){
-      const label = videoGalleryGroupLabelFor(key);
-      const itemsHtml = groupVideos.map(vid => {
-        const item = videoGalleryItemHtml(vid, displayedGalleryVideos.length);
-        displayedGalleryVideos.push(vid);
-        return item;
-      }).join('');
-      html += `
-        <div class="vgallery-group">
-          <div class="vgallery-group-header">
-            <label class="vgallery-group-select-label" title="이 그룹 전체 선택">
-              <input type="checkbox" class="vgallery-group-checkbox">
-              ${escapeHtml(label)} · ${groupVideos.length}개
-            </label>
-          </div>
-          <div class="vgallery-group-grid${isDetails ? ' details-mode' : ''}">${itemsHtml}</div>
-        </div>
-      `;
-    }
-    grid.innerHTML = html;
+    displayedGalleryVideos = [].concat(...groups.values());
+    videoGalleryGroupNames = new Map([...groups].map(([key, list]) => [key, list.map(vid => vid.name)]));
   }else{
     displayedGalleryVideos = galleryVideos;
-    grid.innerHTML = headerHtml + galleryVideos.map((vid, i) => videoGalleryItemHtml(vid, i)).join('');
+    videoGalleryGroupNames = new Map();
   }
-
-  wireVideoGalleryItems();
-  wireVideoGalleryGroupCheckboxes();
+  grid.innerHTML = isDetails ? videoGalleryDetailsHeaderHtml() : '';
+  videoGalleryRendered = 0;
+  appendVideoGalleryItems();
 }
+
+function appendVideoGalleryItems(){
+  const grid = document.getElementById('video-gallery-grid');
+  const isDetails = videoGalleryDisplayMode === 'details';
+  const end = Math.min(videoGalleryLimit, displayedGalleryVideos.length);
+  for(let i = videoGalleryRendered; i < end; i++){
+    const vid = displayedGalleryVideos[i];
+    let target = grid;
+    if(videoGalleryViewMode !== 'all'){
+      const key = videoGalleryGroupKeyFor(vid);
+      let groupEl = grid.lastElementChild;
+      if(!groupEl || !groupEl.classList.contains('vgallery-group') || groupEl.dataset.groupKey !== key){
+        grid.insertAdjacentHTML('beforeend', `
+          <div class="vgallery-group" data-group-key="${escapeHtml(key)}">
+            <div class="vgallery-group-header">
+              <label class="vgallery-group-select-label" title="이 그룹 전체 선택">
+                <input type="checkbox" class="vgallery-group-checkbox">
+                ${escapeHtml(videoGalleryGroupLabelFor(key))} · ${(videoGalleryGroupNames.get(key) || []).length}개
+              </label>
+            </div>
+            <div class="vgallery-group-grid${isDetails ? ' details-mode' : ''}"></div>
+          </div>
+        `);
+        groupEl = grid.lastElementChild;
+        wireVideoGalleryGroupCheckbox(groupEl);
+      }
+      target = groupEl.querySelector('.vgallery-group-grid');
+    }
+    target.insertAdjacentHTML('beforeend', videoGalleryItemHtml(vid, i));
+  }
+  videoGalleryRendered = end;
+  wireVideoGalleryItems();
+  refreshAllVideoGroupCheckboxStates();
+  updateLoadMore('video-gallery-more-btn', displayedGalleryVideos.length - videoGalleryRendered, '개');
+}
+setupLoadMore('video-gallery-more-btn', () => { videoGalleryLimit += LIST_PAGE; appendVideoGalleryItems(); });
 
 document.querySelectorAll('#video-gallery-display-toggle .enhance-mode-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -540,6 +561,7 @@ async function fetchGalleryVideos(){
     lastVideoGallerySig = '';
     grid.innerHTML = '';
     displayedGalleryVideos = [];
+    updateLoadMore('video-gallery-more-btn', 0, '개');
     emptyMsg.textContent = galleryFiltersActive(videoGalleryFilters) ? '조건에 맞는 영상이 없어요'
       : videoGalleryPodFilter ? '이 워커가 만든 영상이 아직 없어요'
       : (videoGalleryProjectFilter !== null ? '이 프로젝트의 영상이 아직 없어요' : '서버에 저장된 영상이 없어요');

@@ -121,3 +121,10 @@
   /* 갤러리·영상 탭에 파일을 끌어 올렸을 때 — 놓으면 업로드 창이 열린다 */
   .upload-drop > .panel{ outline:2px dashed var(--running); outline-offset:-4px; }
   .board-viewport.upload-drop{ outline:2px dashed var(--running); outline-offset:-4px; }
+  /* 긴 목록 끝의 "더 보기" — 화면 가까이 오면 저절로 눌린다(01-core-jobs.js setupLoadMore) */
+  .load-more-btn{
+    display:block; width:100%; margin:14px 0 4px; padding:10px; border-radius:8px; cursor:pointer;
+    font:inherit; font-size:13px; color:var(--text-dim); background:var(--bg); border:1px dashed var(--border);
+  }
+  .load-more-btn:hover{ color:var(--text); border-color:rgba(var(--queued-rgb),0.6); }
+  .load-more-btn[hidden]{ display:none; }

@@ -265,7 +265,8 @@ function galleryItemHtml(img, index){
 }
 
 function wireGalleryItems(){
-  document.querySelectorAll('#gallery-grid .gallery-item').forEach(el => {
+  document.querySelectorAll('#gallery-grid .gallery-item:not([data-wired])').forEach(el => {
+    el.dataset.wired = '1';   // "더 보기"로 이어 붙일 때마다 부르므로 이미 묶은 칸은 건너뛴다
     const index = Number(el.dataset.index);
     const name = displayedGalleryImages[index].name;
 
@@ -348,13 +349,14 @@ setupItemLongPressDelete(document.getElementById('gallery-grid'), '.gallery-item
 // 상태에 맞춘다 — 전부 선택돼 있으면 체크, 하나도 없으면 빈 채, 일부만 선택돼
 // 있으면 indeterminate(가로줄) 표시. 개별 이미지 체크박스를 바꿀 때, 그리고
 // 매번 그룹을 새로 그린 직후 호출한다.
+// 묶음 소제목의 체크박스 상태 — 화면에 그린 칸이 아니라 그 묶음 전체(아직 안 그린 것 포함) 기준이다.
 function updateGroupCheckboxState(groupEl){
   const groupCheckbox = groupEl.querySelector('.gallery-group-checkbox');
   if(!groupCheckbox) return;
-  const itemEls = groupEl.querySelectorAll('.gallery-item');
-  const selectedCount = Array.from(itemEls).filter(el => el.classList.contains('selected')).length;
-  groupCheckbox.checked = itemEls.length > 0 && selectedCount === itemEls.length;
-  groupCheckbox.indeterminate = selectedCount > 0 && selectedCount < itemEls.length;
+  const names = galleryGroupNames.get(groupEl.dataset.groupKey) || [];
+  const selectedCount = names.filter(n => selectedGalleryNames.has(n)).length;
+  groupCheckbox.checked = names.length > 0 && selectedCount === names.length;
+  groupCheckbox.indeterminate = selectedCount > 0 && selectedCount < names.length;
 }
 
 function refreshAllGroupCheckboxStates(){
@@ -362,26 +364,23 @@ function refreshAllGroupCheckboxStates(){
 }
 
 // 그룹 소제목의 체크박스를 눌렀을 때 그 그룹 안 이미지 전체를 한꺼번에 선택/해제한다
-// (요구사항: "작업별 보기를 할 때 작업별로 한꺼번에 선택"). 개별 이미지 체크박스와
-// 상태를 그 자리에서 서로 맞춘다.
-function wireGalleryGroupCheckboxes(){
-  document.querySelectorAll('.gallery-group').forEach(groupEl => {
-    updateGroupCheckboxState(groupEl);
-    const groupCheckbox = groupEl.querySelector('.gallery-group-checkbox');
-    groupCheckbox.addEventListener('change', () => {
-      const checked = groupCheckbox.checked;
-      groupCheckbox.indeterminate = false;
-      groupEl.querySelectorAll('.gallery-item').forEach(itemEl => {
-        const index = Number(itemEl.dataset.index);
-        const name = displayedGalleryImages[index].name;
-        if(checked) selectedGalleryNames.add(name);
-        else selectedGalleryNames.delete(name);
-        itemEl.classList.toggle('selected', checked);
-        const itemCheckbox = itemEl.querySelector('.gallery-item-select input');
-        if(itemCheckbox) itemCheckbox.checked = checked;
-      });
-      updateGalleryToolbar();
+// (요구사항: "작업별 보기를 할 때 작업별로 한꺼번에 선택"). 아직 안 그린 칸도 선택에 들어가고,
+// 그려 둔 칸은 그 자리에서 체크 표시를 맞춘다.
+function wireGalleryGroupCheckbox(groupEl){
+  const groupCheckbox = groupEl.querySelector('.gallery-group-checkbox');
+  groupCheckbox.addEventListener('change', () => {
+    const checked = groupCheckbox.checked;
+    groupCheckbox.indeterminate = false;
+    for(const name of galleryGroupNames.get(groupEl.dataset.groupKey) || []){
+      if(checked) selectedGalleryNames.add(name);
+      else selectedGalleryNames.delete(name);
+    }
+    groupEl.querySelectorAll('.gallery-item').forEach(itemEl => {
+      itemEl.classList.toggle('selected', checked);
+      const itemCheckbox = itemEl.querySelector('.gallery-item-select input');
+      if(itemCheckbox) itemCheckbox.checked = checked;
     });
+    updateGalleryToolbar();
   });
 }
 
@@ -427,17 +426,18 @@ function applyProjectViewScope(toggleId, projectScoped, mode){
 // job_id/날짜로 묶고, 각 그룹은 그 안의 가장 최근 이미지 기준으로 정렬된다 —
 // galleryImages가 이미 mtime 내림차순이라 각 그룹 키가 처음 등장하는 순서를
 // 그대로 쓰면 된다(Map은 키를 처음 넣은 순서를 유지한다).
+// 전체 순서는 displayedGalleryImages(라이트박스·선택이 쓰는 목록)에 두고, 화면에는 앞에서부터 galleryLimit개만
+// 그린다 — 나머지는 "더 보기"가 이어 붙인다(appendGalleryItems). 보기 방식·필터·범위가 바뀌면 다시 LIST_PAGE개부터.
+let galleryLimit = LIST_PAGE;
+let galleryRendered = 0;
+let galleryGroupNames = new Map();   // 묶음 키 -> 그 묶음의 이미지 이름 전부(안 그린 것 포함)
+let galleryScopeKey = '';
 function renderGalleryGrid(){
   const grid = document.getElementById('gallery-grid');
-  displayedGalleryImages = [];
   const isDetails = galleryDisplayMode === 'details';
   grid.classList.toggle('details-mode', isDetails);
-  // 자세히 보기일 때만 맨 위에 열 제목 행을 한 번 붙인다 — 격자/작업별/날짜별
-  // 그룹 어느 조합이든 그룹들보다 위, #gallery-grid 바로 아래 한 곳에만 둔다
-  // (그룹마다 반복 안 함). .gallery-item 클래스가 없어서 선택/삭제 로직은
-  // 이 행을 그냥 지나친다.
-  const headerHtml = isDetails ? galleryDetailsHeaderHtml() : '';
-
+  const scope = JSON.stringify([galleryViewMode, galleryDisplayMode, galleryPodFilter, galleryProjectFilter, galleryFilterQs(galleryFilters)]);
+  if(scope !== galleryScopeKey){ galleryScopeKey = scope; galleryLimit = LIST_PAGE; }
   if(galleryViewMode !== 'all'){
     const groups = new Map();
     for(const img of galleryImages){
@@ -445,35 +445,56 @@ function renderGalleryGrid(){
       if(!groups.has(key)) groups.set(key, []);
       groups.get(key).push(img);
     }
-    let html = headerHtml;
-    for(const [key, groupImages] of groups){
-      const label = galleryGroupLabelFor(key);
-      const itemsHtml = groupImages.map(img => {
-        const item = galleryItemHtml(img, displayedGalleryImages.length);
-        displayedGalleryImages.push(img);
-        return item;
-      }).join('');
-      html += `
-        <div class="gallery-group">
-          <div class="gallery-group-header">
-            <label class="gallery-group-select-label" title="이 그룹 전체 선택">
-              <input type="checkbox" class="gallery-group-checkbox">
-              ${escapeHtml(label)} · ${groupImages.length}장
-            </label>
-          </div>
-          <div class="gallery-group-grid${isDetails ? ' details-mode' : ''}">${itemsHtml}</div>
-        </div>
-      `;
-    }
-    grid.innerHTML = html;
+    displayedGalleryImages = [].concat(...groups.values());
+    galleryGroupNames = new Map([...groups].map(([key, list]) => [key, list.map(img => img.name)]));
   }else{
     displayedGalleryImages = galleryImages;
-    grid.innerHTML = headerHtml + galleryImages.map((img, i) => galleryItemHtml(img, i)).join('');
+    galleryGroupNames = new Map();
   }
-
-  wireGalleryItems();
-  wireGalleryGroupCheckboxes();
+  // 자세히 보기일 때만 맨 위에 열 제목 행을 한 번 붙인다 — 그룹들보다 위, #gallery-grid 바로 아래 한 곳에만
+  // 둔다(그룹마다 반복 안 함). .gallery-item 클래스가 없어서 선택/삭제 로직은 이 행을 그냥 지나친다.
+  grid.innerHTML = isDetails ? galleryDetailsHeaderHtml() : '';
+  galleryRendered = 0;
+  appendGalleryItems();
 }
+
+// displayedGalleryImages에서 아직 안 그린 칸을 galleryLimit까지 이어 붙인다. 묶음 보기면 마지막 묶음이 이어지면
+// 그 안에, 아니면 새 묶음(소제목의 개수는 묶음 전체)을 만들어 넣는다.
+function appendGalleryItems(){
+  const grid = document.getElementById('gallery-grid');
+  const isDetails = galleryDisplayMode === 'details';
+  const end = Math.min(galleryLimit, displayedGalleryImages.length);
+  for(let i = galleryRendered; i < end; i++){
+    const img = displayedGalleryImages[i];
+    let target = grid;
+    if(galleryViewMode !== 'all'){
+      const key = galleryGroupKeyFor(img);
+      let groupEl = grid.lastElementChild;
+      if(!groupEl || !groupEl.classList.contains('gallery-group') || groupEl.dataset.groupKey !== key){
+        grid.insertAdjacentHTML('beforeend', `
+          <div class="gallery-group" data-group-key="${escapeHtml(key)}">
+            <div class="gallery-group-header">
+              <label class="gallery-group-select-label" title="이 그룹 전체 선택">
+                <input type="checkbox" class="gallery-group-checkbox">
+                ${escapeHtml(galleryGroupLabelFor(key))} · ${(galleryGroupNames.get(key) || []).length}장
+              </label>
+            </div>
+            <div class="gallery-group-grid${isDetails ? ' details-mode' : ''}"></div>
+          </div>
+        `);
+        groupEl = grid.lastElementChild;
+        wireGalleryGroupCheckbox(groupEl);
+      }
+      target = groupEl.querySelector('.gallery-group-grid');
+    }
+    target.insertAdjacentHTML('beforeend', galleryItemHtml(img, i));
+  }
+  galleryRendered = end;
+  wireGalleryItems();
+  refreshAllGroupCheckboxStates();
+  updateLoadMore('gallery-more-btn', displayedGalleryImages.length - galleryRendered, '장');
+}
+setupLoadMore('gallery-more-btn', () => { galleryLimit += LIST_PAGE; appendGalleryItems(); });
 
 document.querySelectorAll('#gallery-view-toggle .enhance-mode-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -603,6 +624,7 @@ async function fetchGalleryImages(){
     lastImageGallerySig = '';
     grid.innerHTML = '';
     displayedGalleryImages = [];
+    updateLoadMore('gallery-more-btn', 0, '장');
     emptyMsg.textContent = galleryFiltersActive(galleryFilters) ? '조건에 맞는 이미지가 없어요'
       : galleryPodFilter ? '이 워커가 만든 이미지가 아직 없어요'
       : (galleryProjectFilter !== null ? '이 프로젝트의 이미지가 아직 없어요' : '서버에 저장된 이미지가 없어요');

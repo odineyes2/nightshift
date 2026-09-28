@@ -463,6 +463,7 @@ document.getElementById('db-runpod-sessions-refresh-btn').addEventListener('clic
 let gitLogCommits = [];
 let gitlogDateFrom = '';
 let gitlogDateTo = '';
+let gitlogLimit = LIST_PAGE;   // 앞에서부터 몇 개 그릴지 — 날짜를 바꾸면 처음부터
 
 async function fetchGitLog(){
   const errorEl = document.getElementById('db-git-log-error');
@@ -491,14 +492,16 @@ function renderGitLog(){
     ? `${gitLogCommits.length}개` : `${filtered.length} / ${gitLogCommits.length}개`;
   const list = document.getElementById('db-git-log-list');
   if(gitLogCommits.length === 0){
+    updateLoadMore('db-git-log-more-btn', 0, '개');
     list.innerHTML = '<div class="comfy-model-empty">불러온 커밋이 없어요 — 이 서버가 git 저장소가 아니거나 git이 없을 수 있어요.</div>';
     return;
   }
+  updateLoadMore('db-git-log-more-btn', filtered.length - gitlogLimit, '개');
   if(filtered.length === 0){
     list.innerHTML = '<div class="comfy-model-empty">이 기간에는 커밋이 없어요.</div>';
     return;
   }
-  list.innerHTML = `<div class="changelog-list">${filtered.map(c => `
+  list.innerHTML = `<div class="changelog-list">${filtered.slice(0, gitlogLimit).map(c => `
     <div class="changelog-entry">
       <div class="changelog-head">
         <span>#${c.seq}</span>
@@ -513,10 +516,11 @@ function renderGitLog(){
 }
 
 document.getElementById('db-git-log-refresh-btn').addEventListener('click', fetchGitLog);
-document.getElementById('db-gitlog-date-from').addEventListener('change', (e) => { gitlogDateFrom = e.target.value; renderGitLog(); });
-document.getElementById('db-gitlog-date-to').addEventListener('change', (e) => { gitlogDateTo = e.target.value; renderGitLog(); });
+document.getElementById('db-gitlog-date-from').addEventListener('change', (e) => { gitlogDateFrom = e.target.value; gitlogLimit = LIST_PAGE; renderGitLog(); });
+document.getElementById('db-gitlog-date-to').addEventListener('change', (e) => { gitlogDateTo = e.target.value; gitlogLimit = LIST_PAGE; renderGitLog(); });
+setupLoadMore('db-git-log-more-btn', () => { gitlogLimit += LIST_PAGE; renderGitLog(); });
 document.getElementById('db-gitlog-filter-clear').addEventListener('click', () => {
-  gitlogDateFrom = ''; gitlogDateTo = '';
+  gitlogDateFrom = ''; gitlogDateTo = ''; gitlogLimit = LIST_PAGE;
   document.getElementById('db-gitlog-date-from').value = '';
   document.getElementById('db-gitlog-date-to').value = '';
   renderGitLog();
@@ -530,6 +534,7 @@ let genlogAssets = [];
 let genlogKindFilter = '';
 let genlogDateFrom = '';
 let genlogDateTo = '';
+let genlogLimit = LIST_PAGE;   // 앞에서부터 몇 개 그릴지 — 종류·날짜를 바꾸면 처음부터
 
 async function fetchGenerationLog(){
   const errorEl = document.getElementById('db-genlog-error');
@@ -559,6 +564,7 @@ function renderGenerationLog(){
   document.getElementById('db-genlog-count').textContent = filtered.length === genlogAssets.length
     ? `${genlogAssets.length}개` : `${filtered.length} / ${genlogAssets.length}개`;
   const list = document.getElementById('db-genlog-list');
+  updateLoadMore('db-genlog-more-btn', filtered.length - genlogLimit, '개');
   if(genlogAssets.length === 0){
     list.innerHTML = '<div class="comfy-model-empty">색인된 결과물이 없어요.</div>';
     return;
@@ -567,7 +573,7 @@ function renderGenerationLog(){
     list.innerHTML = '<div class="comfy-model-empty">조건에 맞는 결과물이 없어요.</div>';
     return;
   }
-  list.innerHTML = `<div class="genlog-list">${filtered.map(a => {
+  list.innerHTML = `<div class="genlog-list">${filtered.slice(0, genlogLimit).map(a => {
     let params = {};
     try{ params = a.params_json ? JSON.parse(a.params_json) : {}; }catch(e){ /* 못 읽으면 빈 값 */ }
     const filename = (a.path || '').split('/').pop();
@@ -599,13 +605,15 @@ document.getElementById('db-genlog-kind-tabs').addEventListener('click', (e) => 
   const btn = e.target.closest('.db-genlog-kind-tab');
   if(!btn || btn.dataset.kind === genlogKindFilter) return;
   genlogKindFilter = btn.dataset.kind;
+  genlogLimit = LIST_PAGE;
   document.querySelectorAll('.db-genlog-kind-tab').forEach(b => b.classList.toggle('active', b === btn));
   renderGenerationLog();
 });
-document.getElementById('db-genlog-date-from').addEventListener('change', (e) => { genlogDateFrom = e.target.value; renderGenerationLog(); });
-document.getElementById('db-genlog-date-to').addEventListener('change', (e) => { genlogDateTo = e.target.value; renderGenerationLog(); });
+document.getElementById('db-genlog-date-from').addEventListener('change', (e) => { genlogDateFrom = e.target.value; genlogLimit = LIST_PAGE; renderGenerationLog(); });
+document.getElementById('db-genlog-date-to').addEventListener('change', (e) => { genlogDateTo = e.target.value; genlogLimit = LIST_PAGE; renderGenerationLog(); });
+setupLoadMore('db-genlog-more-btn', () => { genlogLimit += LIST_PAGE; renderGenerationLog(); });
 document.getElementById('db-genlog-filter-clear').addEventListener('click', () => {
-  genlogKindFilter = ''; genlogDateFrom = ''; genlogDateTo = '';
+  genlogKindFilter = ''; genlogDateFrom = ''; genlogDateTo = ''; genlogLimit = LIST_PAGE;
   document.querySelectorAll('.db-genlog-kind-tab').forEach(b => b.classList.toggle('active', b.dataset.kind === ''));
   document.getElementById('db-genlog-date-from').value = '';
   document.getElementById('db-genlog-date-to').value = '';

@@ -150,6 +150,25 @@ function ico(name, spin){
   return `<svg class="ico${spin ? ' ico-spin' : ''}"><use href="#i-${name}"/></svg>`;
 }
 
+// ---- 긴 목록 나눠 그리기(갤러리·영상·DB 탭) ----
+// 앞에서부터 LIST_PAGE개만 그리고, 목록 끝의 "더 보기" 버튼이 화면 가까이 오면(또는 누르면) 다음 묶음을 이어 붙인다.
+// 받아 온 목록은 그대로 전부 들고 있으므로 전체 선택·라이트박스 넘기기는 안 그린 것까지 다룬다.
+// ponytail: 그리는 양만 나눈다 — 목록 자체(4초마다 전체)는 그대로 받으니, 수천 개가 되면 서버에서 나눠 받기로.
+const LIST_PAGE = 50;
+function setupLoadMore(btnId, onMore){
+  const btn = document.getElementById(btnId);
+  const nearView = () => { const r = btn.getBoundingClientRect(); return !btn.hidden && r.height > 0 && r.top < innerHeight + 200; };
+  // 한 번 이어 붙인 뒤에도 버튼이 여전히 화면 안이면(큰 화면) 관찰자가 다시 알려 주지 않으니 직접 이어서 부른다.
+  const more = () => { onMore(); requestAnimationFrame(() => { if(nearView()) more(); }); };
+  btn.addEventListener('click', more);
+  new IntersectionObserver(entries => { if(entries.some(e => e.isIntersecting) && !btn.hidden) more(); }, { rootMargin: '200px 0px' }).observe(btn);
+}
+function updateLoadMore(btnId, remaining, unit){
+  const btn = document.getElementById(btnId);
+  btn.hidden = remaining <= 0;
+  btn.textContent = `더 보기 (남은 ${remaining}${unit})`;
+}
+
 async function fetchJobs(){
   const res = await fetch('/api/jobs');
   // 401(API 키 없음/오류) 등으로 실패하면 목록을 비우지 않고 마지막으로 받아온
