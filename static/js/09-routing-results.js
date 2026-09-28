@@ -240,6 +240,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'jobs') fetchJobs();
   if(tab === 'results') renderResultsList();
   if(tab === 'pmodels') openWorkerModels(scopedPodId); else closeWorkerModels();
+  if(tab === 'pods') fetchRunpodVolumes();
   if(tab === 'admin') fetchAdminUsers();
   if(tab === 'db'){ renderDbPanelTabs(); fetchRunpodSessions(); fetchGitLog(); fetchGenerationLog(); }
   if(tab === 'prboard'){ initBoardCanvas(); resizeBoardViewport(); fetchBoard({ fit: true }); }

@@ -208,3 +208,6 @@
   .wm-group > summary{ cursor:pointer; padding:9px 12px; font-size:13px; color:var(--text); }
   .wm-group[open] > summary{ border-bottom:1px solid var(--border); }
   .wm-group .wm-row:last-child{ border-bottom:none; }
+
+  /* 워커 탭 아래 RunPod 네트워크 볼륨 */
+  .rp-volumes{ margin-top:28px; }

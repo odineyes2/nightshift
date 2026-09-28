@@ -691,3 +691,63 @@ document.getElementById('pod-edit-delete').addEventListener('click', async () =>
   }
 });
 
+// ---- RunPod 네트워크 볼륨(워커 탭 아래, 관리자만) ----
+// 파드를 지워도 볼륨은 남아 매달 요금이 나간다. 목록과 그 볼륨을 붙여 쓰는 파드를 보여 주고, 쓰는 파드가 없는 것만
+// 지울 수 있다 — 되돌릴 수 없으니 볼륨 이름을 그대로 입력해야 지운다(서버도 같은 이름인지 다시 본다).
+async function fetchRunpodVolumes(){
+  const box = document.getElementById('rp-volumes');
+  box.style.display = isAdminUser() ? '' : 'none';
+  if(!isAdminUser()) return;
+  const errorEl = document.getElementById('rp-volumes-error');
+  const listEl = document.getElementById('rp-volumes-list');
+  errorEl.textContent = '';
+  listEl.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
+  let data;
+  try{
+    const res = await fetch('/api/runpod/network-volumes');
+    data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '불러오지 못했어요.');
+  }catch(e){
+    listEl.innerHTML = '';
+    errorEl.textContent = e.message;
+    return;
+  }
+  const vols = data.volumes || [];
+  const total = vols.reduce((s, v) => s + (v.monthly_usd || 0), 0);
+  document.getElementById('rp-volumes-count').textContent = vols.length ? `${vols.length}개 · 월 약 $${total.toFixed(2)}` : '';
+  listEl.innerHTML = vols.length ? vols.map(v => {
+    const inUse = (v.pods || []).length > 0;
+    const used = inUse ? `<span class="wm-tag" title="이 볼륨을 붙여 쓰는 RunPod 파드">쓰는 파드: ${escapeHtml(v.pods.join(', '))}</span>`
+      : `<span class="wm-tag warn" title="붙여 쓰는 파드가 없어요 — 요금만 나가고 있을 수 있어요">쓰는 파드 없음</span>`;
+    return `<div class="wm-row"><span class="wm-name" title="${escapeHtml(v.id)}">${escapeHtml(v.name || v.id)}</span>
+      <span class="wm-kind">${v.size_gb != null ? `${v.size_gb}GB` : '?'} · ${escapeHtml(v.data_center || '?')}${v.monthly_usd != null ? ` · 월 약 $${v.monthly_usd.toFixed(2)}` : ''}</span>
+      ${used}
+      <button type="button" class="del-btn rp-volume-del" data-vol-id="${escapeHtml(v.id)}" data-vol-name="${escapeHtml(v.name)}"${inUse ? ' disabled title="쓰는 파드를 먼저 지워야 해요"' : ' title="볼륨 지우기(되돌릴 수 없어요)"'}>${ico('trash-2')} 지우기</button></div>`;
+  }).join('') : '<div class="comfy-model-empty">네트워크 볼륨이 없어요.</div>';
+}
+
+document.getElementById('rp-volumes-refresh').addEventListener('click', fetchRunpodVolumes);
+document.getElementById('rp-volumes-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.rp-volume-del');
+  if(!btn || btn.disabled) return;
+  const name = btn.dataset.volName;
+  const typed = prompt(`네트워크 볼륨 '${name}'을(를) 지울까요?
+안의 모델·파일이 모두 지워지고 되돌릴 수 없어요.
+
+지우려면 볼륨 이름을 그대로 입력하세요:`);
+  if(typed === null) return;
+  if(typed !== name){ alert('이름이 달라서 지우지 않았어요.'); return; }
+  btn.disabled = true;
+  const errorEl = document.getElementById('rp-volumes-error');
+  try{
+    const res = await fetch(`/api/runpod/network-volumes/${encodeURIComponent(btn.dataset.volId)}`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm_name: typed }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '지우지 못했어요.');
+    flashNotice(`볼륨 '${name}'을(를) 지웠어요`);
+  }catch(err){
+    errorEl.textContent = err.message;
+  }
+  fetchRunpodVolumes();
+});

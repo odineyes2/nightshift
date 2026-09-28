@@ -35,6 +35,7 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import re
 
@@ -139,10 +140,61 @@ def list_runpod_pods_verbose() -> tuple[list[dict] | None, str | None]:
             # 형태(예: "Exited by user: Wed Sep 23 2026 10:00:19 GMT+0000 (...)").
             "last_started_at": p.get("lastStartedAt"),
             "last_status_change": p.get("lastStatusChange"),
+            "network_volume_id": p.get("networkVolumeId") or None,
         }
         for p in raw if isinstance(p, dict) and p.get("id")
     ]
     return pods, None
+
+
+# ---- 네트워크 볼륨 ----
+# RunPod 네트워크 볼륨은 파드를 지워도 남아 매달 요금이 나간다(1TB 미만 GB당 월 $0.07 — RunPod 요금표, 2026-09).
+# 목록을 보고 안 쓰는 것을 지우는 화면(워커 탭)이 쓴다. 응답 형식은 RunPod REST 문서 기준:
+# GET /networkvolumes → [{id, name, size(GB), dataCenterId}], DELETE /networkvolumes/{id}.
+NETWORK_VOLUME_USD_PER_GB_MONTH = 0.07
+
+
+def _rest(method: str, path: str, timeout: float = REQUEST_TIMEOUT_SEC):
+    """(응답 JSON 또는 None, None) 또는 (None, 에러 문구). 에러 문구에 원 응답은 넣지 않는다(비밀값이 섞일 수 있어서)."""
+    if not RUNPOD_API_KEY:
+        return None, "RUNPOD_API_KEY가 설정되지 않았어요."
+    req = urllib.request.Request(f"{RUNPOD_API_BASE}{path}", method=method, headers={
+        "Authorization": f"Bearer {RUNPOD_API_KEY}", "User-Agent": RUNPOD_USER_AGENT, "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8")
+            return (json.loads(body) if body.strip() else None), None
+    except urllib.error.HTTPError as e:
+        try:
+            err = json.loads(e.read().decode("utf-8") or "{}")
+            reason = str(err.get("error") or err.get("message") or "")[:300] if isinstance(err, dict) else ""
+        except (json.JSONDecodeError, OSError):
+            reason = ""
+        return None, f"RunPod가 거절했어요(HTTP {e.code}){': ' + reason if reason else ''}"
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
+        return None, f"RunPod에 요청하지 못했어요: {type(e).__name__}."
+
+
+def list_network_volumes() -> tuple[list[dict] | None, str | None]:
+    raw, err = _rest("GET", "/networkvolumes")
+    if err:
+        return None, err
+    if not isinstance(raw, list):
+        return None, "RunPod 응답 형식이 예상과 달라요."
+    vols = []
+    for v in raw:
+        if not isinstance(v, dict) or not v.get("id"):
+            continue
+        size = v.get("size") if isinstance(v.get("size"), (int, float)) else None
+        vols.append({"id": v["id"], "name": v.get("name") or "", "size_gb": size, "data_center": v.get("dataCenterId") or "",
+                     "monthly_usd": round(size * NETWORK_VOLUME_USD_PER_GB_MONTH, 2) if size is not None else None})
+    return vols, None
+
+
+def delete_network_volume(volume_id: str) -> str | None:
+    """지우고 None, 실패하면 에러 문구. 되돌릴 수 없다 — 확인은 부르는 쪽(API)이 한다."""
+    _body, err = _rest("DELETE", f"/networkvolumes/{urllib.parse.quote(volume_id, safe='')}", timeout=30)
+    return err
 
 
 def list_runpod_pods() -> list[dict] | None:

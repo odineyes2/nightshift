@@ -299,6 +299,44 @@ async def runpod_power(pod_id: str, action: str, request: Request):
     return {"ok": True, "pod_id": pod_id, "runpod_pod_id": rp_id, "status": status}
 
 
+@app.get("/api/runpod/network-volumes")
+async def runpod_network_volumes_api(request: Request):
+    """워커 탭의 "RunPod 네트워크 볼륨" — 계정의 볼륨과, 그 볼륨을 붙여 쓰는 RunPod 파드 이름(관리자만)."""
+    admin_only(request)
+    (vols, err), (pods, _) = await asyncio.gather(asyncio.to_thread(runpod_api.list_network_volumes),
+                                                    asyncio.to_thread(runpod_api.list_runpod_pods_verbose))
+    if err:
+        raise HTTPException(502, err)
+    for v in vols:
+        v["pods"] = [p["name"] or p["id"] for p in (pods or []) if p.get("network_volume_id") == v["id"]]
+    return {"volumes": vols, "usd_per_gb_month": runpod_api.NETWORK_VOLUME_USD_PER_GB_MONTH, "pods_known": pods is not None}
+
+
+@app.delete("/api/runpod/network-volumes/{volume_id}")
+async def delete_runpod_network_volume_api(volume_id: str, request: Request):
+    """볼륨 지우기 — 되돌릴 수 없어서 본문의 confirm_name이 볼륨 이름과 똑같아야 하고, 붙여 쓰는 파드가 있으면 거절한다."""
+    admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    vols, err = await asyncio.to_thread(runpod_api.list_network_volumes)
+    if err:
+        raise HTTPException(502, err)
+    vol = next((v for v in vols if v["id"] == volume_id), None)
+    if vol is None:
+        raise HTTPException(404, "없는 볼륨이에요(이미 지워졌을 수 있어요).")
+    if str(body.get("confirm_name") or "") != vol["name"]:
+        raise HTTPException(400, "확인용 이름이 볼륨 이름과 달라요.")
+    pods, pods_err = await asyncio.to_thread(runpod_api.list_runpod_pods_verbose)
+    if pods_err:
+        raise HTTPException(502, f"이 볼륨을 쓰는 파드가 있는지 확인하지 못해 지우지 않았어요 — {pods_err}")
+    users = [p["name"] or p["id"] for p in pods if p.get("network_volume_id") == volume_id]
+    if users:
+        raise HTTPException(409, f"이 볼륨을 쓰는 파드가 있어요({', '.join(users)}) — 파드를 먼저 지워 주세요.")
+    err = await asyncio.to_thread(runpod_api.delete_network_volume, volume_id)
+    if err:
+        raise HTTPException(502, err)
+    return {"ok": True, "id": volume_id}
+
+
 @app.post("/api/pods/{pod_id}/runpod-test")
 async def test_pod_runpod_api(pod_id: str, request: Request):
     """카드에 뜨는 RunPod 메타데이터(card()의 get_runpod_info())는 실패를 전부 조용히
