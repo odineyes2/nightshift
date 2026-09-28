@@ -367,6 +367,20 @@ async def update_board_node_api(project_id: int, node_id: int, request: Request)
         data = dict(node["data"])
         data["values"] = {**data.get("values", {}), **{k: "" if v is None else str(v) for k, v in body["values"].items()}}
         fields["data"] = data
+    if "collapsed" in body:
+        # 묶음(틀)을 접었는지 — 접으면 화면에서 작은 칩으로 보이고 안의 카드는 숨는다(크기·위치는 그대로 둬서 펴면 원래대로).
+        node = board_store.get_node(project_id, node_id)
+        if node is None or node["kind"] != "frame":
+            raise HTTPException(400, "묶음만 접을 수 있어요.")
+        data = {k: v for k, v in (node.get("data") or {}).items() if k != "members"}
+        data["collapsed"] = bool(body["collapsed"])
+        if data["collapsed"]:
+            # 접을 때 안에 있던 카드 — 이 카드들만 숨고 칩과 같이 움직인다(나중에 그 자리에 놓은 카드는 안 숨게).
+            members = body.get("members") or []
+            if not isinstance(members, list) or not all(isinstance(m, int) and not isinstance(m, bool) for m in members):
+                raise HTTPException(400, "members는 카드 id 목록이어야 해요.")
+            data["members"] = members[:1000]
+        fields["data"] = data
     node = board_store.update_node(node_id, fields)
     if node is None:
         raise HTTPException(404, "없는 카드예요.")

@@ -213,7 +213,9 @@ function boardNodeHtml(node){
   if(node.kind === 'frame'){
     return `<div class="board-node board-frame" data-node-id="${node.id}" style="${style}">`
       + `<div class="board-frame-bar" title="끌어서 묶음째 옮기기 · 고른 상태에서 한 번 더 누르면 제목 고치기">`
-      + `<input class="board-node-textarea board-frame-title" data-board-text="${node.id}" value="${escapeHtml(node.text)}" maxlength="80" placeholder="묶음" spellcheck="false"></div>`
+      + `<button type="button" class="board-frame-fold" data-board-fold="${node.id}">${ico('chevron-down')}</button>`
+      + `<input class="board-node-textarea board-frame-title" data-board-text="${node.id}" value="${escapeHtml(node.text)}" maxlength="80" placeholder="묶음" spellcheck="false">`
+      + `<span class="board-frame-count"></span></div>`
       + `<button type="button" class="board-node-del" data-board-del="${node.id}" title="묶음 틀 지우기(안의 카드는 남아요)"><svg class="ico"><use href="#i-trash-2"/></svg></button>`
       + `<span class="board-frame-resize" title="끌어서 크기 바꾸기"></span></div>`;
   }
@@ -333,6 +335,7 @@ function renderBoard(){
   boardObserveMedia(world);
   paintBoardSelection();
   paintBoardGenSlots();
+  paintBoardCollapse();
 }
 
 // 보드 전체를 다시 그리지 않고 카드 몇 장만 붙인다 — 다시 그리면 영상 카드가 전부
@@ -347,6 +350,7 @@ function appendBoardNodeEls(nodes){
   boardObserveMedia(world);
   paintBoardSelection();
   paintBoardGenSlots();
+  paintBoardCollapse();
 }
 
 // 카드 몇 장을 화면에서만 뺀다(서버 요청은 부르는 쪽이) — 붙은 선·선택·대기 중인 글 저장도 같이 정리.
@@ -366,6 +370,7 @@ function removeBoardNodesLocal(ids){
   if([...ids].some(id => boardSelectedIds.has(id))){
     setBoardSelection(new Set([...boardSelectedIds].filter(id => !ids.has(id))));
   }
+  paintBoardCollapse();   // 접힌 틀을 지웠으면 안의 카드가 다시 보여야 한다
 }
 
 // 되돌리기용으로 카드를 그대로 떠 둔다 — 글칸에 아직 저장 안 된 글이 있으면 그 글로.
@@ -405,6 +410,7 @@ function renderBoardEdges(){
   if(oldBtn) oldBtn.remove();
   document.getElementById('board-world').insertAdjacentHTML('beforeend', boardEdgeDelHtml());
   paintBoardGenSlots();
+  paintBoardCollapse();
 }
 
 // 카드를 끄는 동안 픽셀마다 불린다 — 그 카드들(id 하나 또는 Set)에 붙은 선의 d만
@@ -576,6 +582,64 @@ function boardGenMinSize(node){
   return { w: 240, h: Math.max(140, 52 + 30 * (d.slots || []).length + fields + 14 + 46) };
 }
 const BOARD_FRAME_PAD = 30, BOARD_FRAME_BAR = 40;
+
+// ---- 묶음 접기 ----
+// 접으면 틀은 제목·개수만 있는 작은 칩으로 보이고, 접을 때 안에 있던 카드(data.members)는 숨는다. 틀의 크기·위치는
+// 그대로 둬서 펴면 원래대로 돌아온다. 숨길 카드를 위치가 아니라 목록으로 정하는 건, 접힌 뒤 그 자리(보이지 않는 틀
+// 영역)에 놓은 카드가 갑자기 사라지지 않게 하려고서다. 칩을 끌면 목록의 카드가 같이 움직인다.
+function boardFrameCollapsed(n){ return n.kind === 'frame' && !!(n.data && n.data.collapsed); }
+function boardFrameMembers(f){ return new Set((f.data && f.data.members) || []); }
+// 틀과 같이 움직이는 카드 — 접혀 있으면 접을 때 든 카드, 아니면 지금 틀 안에 완전히 든 카드.
+function boardFrameContents(f){
+  if(boardFrameCollapsed(f)){ const m = boardFrameMembers(f); return boardNodes.filter(n => m.has(n.id)); }
+  return boardNodes.filter(n => n.id !== f.id && boardNodeInside(n, f));
+}
+function boardHiddenIds(){
+  const hidden = new Set();
+  for(const f of boardNodes.filter(boardFrameCollapsed)) for(const id of boardFrameMembers(f)) hidden.add(id);
+  return hidden;
+}
+// 화면에 보이는 것들의 자리 — 숨은 카드는 빼고, 접힌 틀은 칩 크기로(전체 보기·사각형 고르기가 쓴다).
+function boardVisibleBoxes(){
+  const hidden = boardHiddenIds();
+  return boardNodes.filter(n => !hidden.has(n.id)).map(n => {
+    if(!boardFrameCollapsed(n)) return { id: n.id, x: n.x, y: n.y, w: n.width, h: n.height };
+    const el = document.querySelector(`#board-world .board-node[data-node-id="${n.id}"]`);
+    return { id: n.id, x: n.x, y: n.y, w: el ? el.offsetWidth : 200, h: el ? el.offsetHeight : 40 };
+  });
+}
+function paintBoardCollapse(){
+  const world = document.getElementById('board-world');
+  if(!world) return;
+  const hidden = boardHiddenIds();
+  for(const n of boardNodes){
+    const el = world.querySelector(`.board-node[data-node-id="${n.id}"]`);
+    if(!el) continue;
+    el.classList.toggle('board-hidden', hidden.has(n.id));
+    if(n.kind !== 'frame') continue;
+    const collapsed = boardFrameCollapsed(n);
+    el.classList.toggle('collapsed', collapsed);
+    el.querySelector('.board-frame-count').textContent = collapsed ? `${boardFrameContents(n).length}개` : '';
+    const fold = el.querySelector('.board-frame-fold');
+    fold.innerHTML = ico(collapsed ? 'chevron-right' : 'chevron-down');
+    fold.title = collapsed ? '펴기 — 안의 카드를 다시 보여 줘요' : '접기 — 안의 카드를 이 칩 하나로 모아 둬요';
+  }
+  for(const p of world.querySelectorAll('path[data-edge-id]')){
+    const edge = boardEdges.find(e => e.id === Number(p.dataset.edgeId));
+    p.classList.toggle('board-hidden', !!edge && (hidden.has(edge.from_node_id) || hidden.has(edge.to_node_id)));
+  }
+  if([...boardSelectedIds].some(id => hidden.has(id))) setBoardSelection(new Set([...boardSelectedIds].filter(id => !hidden.has(id))));
+}
+async function toggleBoardFrameFold(id){
+  const f = boardNodes.find(n => n.id === id && n.kind === 'frame');
+  if(!f) return;
+  const collapsed = !boardFrameCollapsed(f);
+  const members = collapsed ? boardFrameContents(f).map(n => n.id) : [];
+  f.data = { ...(f.data || {}), collapsed, members };
+  paintBoardCollapse();
+  const projectId = currentProjectId;
+  if(typeof projectId === 'number' && !await boardApi(projectId, 'PATCH', `/nodes/${id}`, { collapsed, members })) boardSaveFailed(projectId);
+}
 
 function boardNodeInside(n, f){
   return n.x >= f.x && n.y >= f.y && n.x + n.width <= f.x + f.width && n.y + n.height <= f.y + f.height;
@@ -848,10 +912,11 @@ function boardFitToNodes(){
     applyBoardTransform();
     return;
   }
-  const minX = Math.min(...boardNodes.map(n => n.x));
-  const minY = Math.min(...boardNodes.map(n => n.y));
-  const maxX = Math.max(...boardNodes.map(n => n.x + n.width));
-  const maxY = Math.max(...boardNodes.map(n => n.y + n.height));
+  const boxes = boardVisibleBoxes();
+  const minX = Math.min(...boxes.map(b => b.x));
+  const minY = Math.min(...boxes.map(b => b.y));
+  const maxX = Math.max(...boxes.map(b => b.x + b.w));
+  const maxY = Math.max(...boxes.map(b => b.y + b.h));
   const pad = 60;
   const scale = Math.min(BOARD_MAX_SCALE, Math.max(BOARD_MIN_SCALE,
     Math.min(rect.width / (maxX - minX + pad * 2), rect.height / (maxY - minY + pad * 2))));

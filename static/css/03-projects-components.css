@@ -301,6 +301,18 @@
   .board-frame:not(.editing) .board-frame-title{ pointer-events:none; cursor:inherit; }
   .board-frame.editing .board-frame-title{ background:var(--panel); }
   .board-frame .board-node-del{ pointer-events:auto; }
+  /* 묶음 접기 — 접기 버튼, 개수, 접힌 틀은 제목 띠만 남은 칩(안의 카드·선은 숨긴다) */
+  .board-frame-fold{
+    flex:none; width:24px; height:24px; margin-right:2px; padding:0; border:none; border-radius:5px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; background:transparent; color:var(--queued);
+  }
+  .board-frame-fold:hover{ background:rgba(var(--queued-rgb),0.14); }
+  .board-frame-fold .ico{ width:15px; height:15px; }
+  .board-frame-count{ flex:none; margin-left:6px; font-size:12px; color:var(--text-dim); }
+  .board-node.board-frame.collapsed{ width:auto !important; height:auto !important; min-width:180px; background:var(--panel); }
+  .board-frame.collapsed .board-frame-bar{ position:static; border-radius:10px; }
+  .board-frame.collapsed .board-frame-resize{ display:none; }
+  .board-hidden{ display:none !important; }
   /* 이미지·영상·텍스트 카드의 크기 손잡이 — 카드가 overflow:hidden이라 안쪽 모서리에 둔다.
      마우스는 카드에 올렸을 때만, 터치는 늘 보인다(연결 점과 같은 규칙). */
   .board-node-resize{

@@ -196,12 +196,13 @@ function initBoardCanvas(){
     const wx0 = (left - boardState.x) / boardState.scale, wy0 = (top - boardState.y) / boardState.scale;
     const wx1 = wx0 + w / boardState.scale, wy1 = wy0 + h / boardState.scale;
     const sel = new Set(marquee.base);
-    for(const n of boardNodes){
+    const kinds = new Map(boardNodes.map(n => [n.id, n.kind]));
+    for(const b of boardVisibleBoxes()){   // 접혀 숨은 카드는 빼고, 접힌 틀은 칩 크기로
       // 틀은 완전히 감쌌을 때만 — 큰 틀 안에서 카드 몇 장을 고르려는데 틀까지 딸려 오지 않게.
-      if(n.kind === 'frame'){
-        if(n.x >= wx0 && n.y >= wy0 && n.x + n.width <= wx1 && n.y + n.height <= wy1) sel.add(n.id);
-      }else if(n.x < wx1 && n.x + n.width > wx0 && n.y < wy1 && n.y + n.height > wy0){
-        sel.add(n.id);
+      if(kinds.get(b.id) === 'frame'){
+        if(b.x >= wx0 && b.y >= wy0 && b.x + b.w <= wx1 && b.y + b.h <= wy1) sel.add(b.id);
+      }else if(b.x < wx1 && b.x + b.w > wx0 && b.y < wy1 && b.y + b.h > wy0){
+        sel.add(b.id);
       }
     }
     setBoardSelection(sel);
@@ -245,7 +246,7 @@ function initBoardCanvas(){
       if(bgPointers.size){ addBoardPanPointer(e); return; }
     }
     if(dragNode || marquee) return;
-    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-resize, .board-node-textarea, .board-gen-input, .board-gen-btn')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
+    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-resize, .board-node-textarea, .board-gen-input, .board-gen-btn, .board-frame-fold')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
     const id = Number(nodeEl.dataset.nodeId);
     if(!boardNodes.some(n => n.id === id)) return;
     const selBefore = new Set(boardSelectedIds);   // 핀치로 바뀌면 이걸로 되돌린다
@@ -264,7 +265,7 @@ function initBoardCanvas(){
     // 끌어내면 그걸로 빠진다.
     const moveIds = new Set(boardSelectedIds);
     for(const f of boardNodes.filter(n => n.kind === 'frame' && boardSelectedIds.has(n.id))){
-      for(const n of boardNodes) if(n.id !== f.id && boardNodeInside(n, f)) moveIds.add(n.id);
+      for(const n of boardFrameContents(f)) moveIds.add(n.id);   // 접힌 틀은 접을 때 든 카드만
     }
     const group = boardNodes.filter(n => moveIds.has(n.id)).map(n => ({
       node: n, el: world.querySelector(`.board-node[data-node-id="${n.id}"]`), startX: n.x, startY: n.y,
@@ -451,6 +452,8 @@ function initBoardCanvas(){
   viewport.addEventListener('click', (e) => {
     const delBtn = e.target.closest('.board-node-del');
     if(delBtn) deleteBoardNodes([Number(delBtn.dataset.boardDel)]);
+    const foldBtn = e.target.closest('.board-frame-fold');
+    if(foldBtn) toggleBoardFrameFold(Number(foldBtn.dataset.boardFold));
     const edgeDelBtn = e.target.closest('.board-edge-del');
     if(edgeDelBtn) deleteBoardEdge(Number(edgeDelBtn.dataset.edgeDel));
     const runBtn = e.target.closest('[data-gen-run]');
@@ -470,7 +473,7 @@ function initBoardCanvas(){
     const key = e.key.toLowerCase();
     if(mod && key === 'z'){ e.preventDefault(); boardUndoRedo(e.shiftKey ? 'redo' : 'undo'); return; }
     if(mod && key === 'y'){ e.preventDefault(); boardUndoRedo('redo'); return; }
-    if(mod && key === 'a'){ e.preventDefault(); setBoardSelection(new Set(boardNodes.map(n => n.id))); return; }
+    if(mod && key === 'a'){ e.preventDefault(); const hidden = boardHiddenIds(); setBoardSelection(new Set(boardNodes.filter(n => !hidden.has(n.id)).map(n => n.id))); return; }
     if(e.key === 'Delete' || e.key === 'Backspace'){
       if(boardSelectedEdgeId !== null){ e.preventDefault(); deleteBoardEdge(boardSelectedEdgeId); }
       else if(boardSelectedIds.size){ e.preventDefault(); deleteBoardNodes([...boardSelectedIds]); }
