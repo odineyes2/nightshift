@@ -1259,35 +1259,30 @@
       <button class="modal-close" id="pod-edit-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
-      <div class="email-hint">워커는 nightshift가 작업을 보내는 곳이에요(RunPod에서 빌린 기계는 "RunPod 파드"라고 불러 구별해요). 종류(kind)가 그 워커를 어떻게 다룰지 정합니다.
+      <div class="email-hint">워커는 nightshift가 작업을 보내는 곳이에요(RunPod에서 빌린 기계는 "RunPod 파드"라고 불러 구별해요).
         주소를 비워두면 <code>COMFY_URL</code> 환경변수 → <code>127.0.0.1</code> 자동 탐지 순으로 찾아요.</div>
       <div class="field">
         <label class="field-label" for="pod-edit-name">이름</label>
         <input type="text" class="option-input" id="pod-edit-name" placeholder="비워두면 랜덤한 이름(예: 느긋한 다람쥐 사원)으로 지어져요" autocomplete="off" style="max-width:100%;">
         <div class="pod-name-suggest" id="pod-edit-name-suggest" style="display:none;"></div>
       </div>
-      <div class="field">
-        <label class="field-label" for="pod-edit-kind">종류</label>
-        <select id="pod-edit-kind"></select>
+      <!-- 주소 + 동시 실행 수 한 줄(모바일은 두 줄, 같은 너비) -->
+      <div class="pod-edit-addr-row">
+        <div class="field">
+          <label class="field-label" for="pod-edit-url">주소</label>
+          <input type="text" class="option-input" id="pod-edit-url" placeholder="예: https://abc123-8188.proxy.runpod.net" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label class="field-label" for="pod-edit-concurrent" title="이 워커에서 한 번에 몇 개까지 돌릴지 — GPU 한 장이면 1이 보통이에요">동시 실행 수</label>
+          <div class="num-stepper">
+            <button type="button" class="num-stepper-btn" data-step="-1" aria-label="하나 줄이기">&minus;</button>
+            <input type="number" id="pod-edit-concurrent" min="1" max="8" value="1" readonly tabindex="-1">
+            <button type="button" class="num-stepper-btn" data-step="1" aria-label="하나 늘리기">+</button>
+          </div>
+        </div>
       </div>
-      <div class="field">
-        <label class="field-label" for="pod-edit-url">주소</label>
-        <input type="text" class="option-input" id="pod-edit-url" placeholder="예: https://abc123-8188.proxy.runpod.net" autocomplete="off" spellcheck="false" style="max-width:100%;">
-      </div>
-      <div class="field">
-        <label class="field-label" for="pod-edit-concurrent">동시 실행 수</label>
-        <input type="number" class="option-input" id="pod-edit-concurrent" min="1" value="1" style="max-width:120px;">
-        <div class="email-hint">이 워커에서 한 번에 몇 개까지 돌릴지. GPU 한 장이면 1이 보통이에요.</div>
-      </div>
-      <div class="field">
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer;">
-          <input type="checkbox" id="pod-edit-pull" style="accent-color:var(--queued); cursor:pointer;">
-          결과 이미지를 이 서버로 가져오기
-        </label>
-      </div>
-      <!-- 켜고 끄는 것 세 가지를 한곳에 — 누르면 바로 적용된다("저장"과 무관). 08-pods.js renderPodControls -->
-      <div class="field pod-controls" id="pod-edit-controls" style="display:none;">
-        <label class="field-label" id="pod-ctl-label">켜기 / 끄기 <span class="opt">— 누르면 바로 적용돼요</span></label>
+      <!-- 스위치는 누르면 바로 적용된다(새 워커는 "저장" 때 함께). 입력칸은 "저장"으로. 08-pods.js renderPodControls -->
+      <div class="field pod-controls" id="pod-edit-controls">
         <div class="pod-control-row" id="pod-ctl-enabled-row">
           <svg class="ico pod-control-ico"><use href="#i-server"/></svg>
           <div class="pod-control-text"><b>워커 사용</b><span id="pod-ctl-enabled-hint"></span></div>
@@ -1297,6 +1292,11 @@
           <svg class="ico pod-control-ico"><use href="#i-list-checks"/></svg>
           <div class="pod-control-text"><b>작업 처리</b><span id="pod-ctl-queue-hint"></span></div>
           <button type="button" class="pod-switch" id="pod-ctl-queue" role="switch" aria-checked="false" aria-label="작업 처리"></button>
+        </div>
+        <div class="pod-control-row" id="pod-ctl-pull-row">
+          <svg class="ico pod-control-ico"><use href="#i-download"/></svg>
+          <div class="pod-control-text"><b>결과 가져오기</b><span id="pod-ctl-pull-hint"></span></div>
+          <button type="button" class="pod-switch" id="pod-ctl-pull" role="switch" aria-checked="true" aria-label="결과 가져오기"></button>
         </div>
         <!-- RunPod 전원 + RunPod 정보(이름·GPU·비용·일시)를 한 상자에 -->
         <div class="pod-control-row pod-control-runpod" id="pod-ctl-power-row">

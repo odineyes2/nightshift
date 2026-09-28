@@ -135,7 +135,30 @@
   .pod-chip.busy::before{ background:var(--running); }
   .pod-chip:hover{ border-color:rgba(var(--queued-rgb),0.6); }
 
-  /* 워커 설정 창의 켜기/끄기 세 줄 */
+  /* 워커 설정 창 — 주소와 동시 실행 수를 한 줄에. 모바일은 두 줄로, 둘 다 같은(전체) 너비 */
+  .pod-edit-addr-row{ display:grid; grid-template-columns:1fr 150px; gap:12px; align-items:end; }
+  .pod-edit-addr-row .field{ min-width:0; }
+  .pod-edit-addr-row .option-input{ max-width:100%; width:100%; box-sizing:border-box; }
+  @media (max-width:640px){ .pod-edit-addr-row{ grid-template-columns:1fr; gap:10px; } }
+  /* 숫자 전용 −/+ 고르개 — 가운데 숫자는 직접 치지 않는다 */
+  .num-stepper{
+    display:flex; align-items:stretch; height:38px; box-sizing:border-box;
+    border:1px solid var(--border); border-radius:8px; background:var(--bg); overflow:hidden;
+  }
+  .num-stepper input{
+    flex:1; min-width:0; width:100%; border:none; background:transparent; text-align:center;
+    font:inherit; font-size:15px; font-weight:600; color:var(--text); pointer-events:none; -moz-appearance:textfield;
+  }
+  .num-stepper input::-webkit-outer-spin-button, .num-stepper input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+  .num-stepper-btn{
+    flex:none; width:40px; border:none; background:transparent; color:var(--text); font-size:18px; line-height:1; cursor:pointer;
+  }
+  .num-stepper-btn:first-child{ border-right:1px solid var(--border); }
+  .num-stepper-btn:last-child{ border-left:1px solid var(--border); }
+  .num-stepper-btn:hover:not(:disabled){ background:rgba(var(--queued-rgb),0.08); }
+  .num-stepper-btn:disabled{ color:var(--text-dim); opacity:0.45; cursor:not-allowed; }
+
+  /* 워커 설정 창의 스위치 줄들 */
   .pod-controls{ display:flex; flex-direction:column; gap:8px; }
   .pod-control-row{
     display:flex; align-items:center; gap:12px; padding:9px 12px;

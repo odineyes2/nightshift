@@ -157,19 +157,22 @@ async function runpodPower(podId, action){
   await fetchDashboard();
 }
 
-// 설정 창의 켜기/끄기 세 줄 — 기존 워커일 때만. 대시보드를 새로 받을 때마다 다시 그린다.
-// RunPod 줄은 RunPod 정보만 있어도 보인다(새 워커 추가 중 "RunPod 정보 테스트"를 눌렀을 때 — 이때 스위치는 없다).
+// 설정 창의 스위치들 — 누르면 바로 적용된다(새 워커의 결과 가져오기만 "저장" 때 함께). 대시보드를 새로 받을 때마다 다시 그린다.
+// 워커 사용·작업 처리는 기존 워커일 때만. RunPod 줄은 RunPod 정보만 있어도 보인다(새 워커 추가 중
+// "RunPod 정보 테스트"를 눌렀을 때 — 이때 스위치는 없다).
 function renderPodControls(){
-  const box = document.getElementById('pod-edit-controls');
   const p = podEditId && (dashSummary.pods || []).find(x => x.id === podEditId);
   const hasInfo = document.getElementById('pod-edit-runpod-fields').children.length > 0;
   const power = p ? runpodPowerState(p) : null;
-  box.style.display = p || hasInfo ? '' : 'none';
-  for(const id of ['pod-ctl-label', 'pod-ctl-enabled-row', 'pod-ctl-queue-row']) document.getElementById(id).style.display = p ? '' : 'none';
+  for(const id of ['pod-ctl-enabled-row', 'pod-ctl-queue-row']) document.getElementById(id).style.display = p ? '' : 'none';
   document.getElementById('pod-ctl-power-row').style.display = power || hasInfo ? '' : 'none';
   document.getElementById('pod-ctl-power').style.display = power ? '' : 'none';
   document.getElementById('pod-ctl-power-title').textContent = power ? 'RunPod 전원' : 'RunPod 정보';
   document.getElementById('pod-ctl-power-hint').textContent = power ? power.label : '';
+  const pull = podEditId ? !!(podsById[podEditId] || {}).pull_outputs : podEditNewPull;
+  document.getElementById('pod-ctl-pull').setAttribute('aria-checked', pull ? 'true' : 'false');
+  document.getElementById('pod-ctl-pull-hint').textContent = pull
+    ? '켜짐 — 작업이 끝나면 결과를 이 서버 갤러리로 받아 와요.' : '꺼짐 — 결과는 워커에만 남아요.';
   if(!p) return;
   const setSwitch = (id, on, disabled) => {
     const el = document.getElementById(id);
@@ -185,6 +188,20 @@ function renderPodControls(){
   if(power) setSwitch('pod-ctl-power', power.on, power.busy);
 }
 
+document.getElementById('pod-ctl-pull').addEventListener('click', async (e) => {
+  if(!podEditId){ podEditNewPull = !podEditNewPull; renderPodControls(); return; }
+  const pod = podsById[podEditId];
+  if(!pod) return;
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  const res = await fetch(`/api/pods/${encodeURIComponent(pod.id)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pull_outputs: !pod.pull_outputs }),
+  });
+  if(!res.ok) alert((await res.json().catch(() => ({}))).detail || '바꾸지 못했어요.');
+  await fetchPods();
+  btn.disabled = false;
+  renderPodControls();
+});
 document.getElementById('pod-ctl-enabled').addEventListener('click', async (e) => {
   const p = (dashSummary.pods || []).find(x => x.id === podEditId);
   if(!p) return;
@@ -454,6 +471,7 @@ document.getElementById('dash-refresh-btn').addEventListener('click', fetchDashb
 
 // ---- 파드 추가/편집 ----
 let podEditId = null;   // null이면 "추가"
+let podEditNewPull = true;   // 새 워커를 추가할 때의 "결과 가져오기"(저장 때 함께 보낸다)
 
 // RunPod 정보(card.runpod)는 대시보드가 4초마다 폴링해둔 dashSummary.pods에 이미
 // 있다 — 설정 모달은 늘 대시보드 카드에서 열리므로, 추가 요청 없이 이걸 그대로
@@ -509,14 +527,11 @@ function openPodEditModal(podId){
   document.getElementById('pod-edit-name').value = pod.name || '';
   document.getElementById('pod-edit-url').value = pod.url || '';
   document.getElementById('pod-edit-concurrent').value = pod.max_concurrent || 1;
-  document.getElementById('pod-edit-pull').checked = podId ? !!pod.pull_outputs : true;   // 새 파드는 기본으로 가져오기
+  podEditNewPull = true;   // 새 워커는 기본으로 결과를 가져온다
+  syncNumStepper();
   document.getElementById('pod-edit-status').textContent = '';
   document.getElementById('pod-edit-error').textContent = '';
   document.getElementById('pod-edit-delete').style.display = podId ? '' : 'none';
-  const kindSel = document.getElementById('pod-edit-kind');
-  kindSel.innerHTML = (podKinds.length ? podKinds : [{ kind: 'comfyui', label: 'ComfyUI' }])
-    .map(k => `<option value="${escapeHtml(k.kind)}">${escapeHtml(k.label)}</option>`).join('');
-  if(pod.kind) kindSel.value = pod.kind;
   const runpodInfo = podId ? runpodInfoFromDashboard(podId) : null;
   renderRunpodInfoBox(runpodInfo);
   updatePodNameSuggest(runpodInfo && runpodInfo.pod_name);
@@ -529,14 +544,29 @@ function closePodEditModal(){
   podEditId = null;
 }
 
+// 종류(kind)는 화면에서 고르지 않는다 — 새 워커는 서버 기본(ComfyUI), 기존 워커는 그대로(부분 수정이라 안 보냄).
+// 스위치는 누를 때 바로 저장되므로 기존 워커의 결과 가져오기도 여기서는 안 보낸다.
 function podEditPayload(){
   return {
     name: document.getElementById('pod-edit-name').value.trim(),
-    kind: document.getElementById('pod-edit-kind').value,
     url: document.getElementById('pod-edit-url').value.trim(),
     max_concurrent: Number(document.getElementById('pod-edit-concurrent').value || 1),
-    pull_outputs: document.getElementById('pod-edit-pull').checked,
+    ...(podEditId ? {} : { pull_outputs: podEditNewPull }),
   };
+}
+
+// 동시 실행 수 — 숫자를 치는 대신 −/+ 로 1~8 사이를 고른다.
+document.querySelectorAll('#pod-edit-modal .num-stepper-btn').forEach(btn => btn.addEventListener('click', () => {
+  const input = document.getElementById('pod-edit-concurrent');
+  const next = Number(input.value || 1) + Number(btn.dataset.step);
+  input.value = Math.min(Number(input.max), Math.max(Number(input.min), next));
+  syncNumStepper();
+}));
+function syncNumStepper(){
+  const input = document.getElementById('pod-edit-concurrent');
+  const [minus, plus] = document.querySelectorAll('#pod-edit-modal .num-stepper-btn');
+  minus.disabled = Number(input.value) <= Number(input.min);
+  plus.disabled = Number(input.value) >= Number(input.max);
 }
 
 document.getElementById('pod-add-btn').addEventListener('click', () => openPodEditModal(null));
