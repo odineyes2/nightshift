@@ -43,7 +43,7 @@ class PodDriver:
 
     @staticmethod
     def unavailable_reason() -> str:
-        return "이 종류의 파드는 지금 쓸 수 없어요."
+        return "이 종류의 워커는 지금 쓸 수 없어요."
 
     # ---- 주소 ---------------------------------------------------------------
     @staticmethod

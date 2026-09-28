@@ -19,7 +19,7 @@ def _require_public_pod_url(url: str, kind: str | None) -> None:
     안 된다. 실패하면 HTTPException(400)."""
     url = (url or "").strip()
     if not url:
-        raise HTTPException(400, "파드 주소를 적어주세요.")
+        raise HTTPException(400, "워커 주소를 적어주세요.")
     try:
         normalized = pod_registry.normalize_pod_url(url, kind or pod_registry.DEFAULT_KIND)
         pod_registry.assert_public_url(normalized)
@@ -60,7 +60,7 @@ async def create_pod_api(request: Request):
         raise HTTPException(400, driver.unavailable_reason())
     if not auth.is_admin(user):
         if kind != pod_registry.DEFAULT_KIND:
-            raise HTTPException(403, "이 종류의 파드는 관리자만 만들 수 있어요.")
+            raise HTTPException(403, "이 종류의 워커는 관리자만 만들 수 있어요.")
         await asyncio.to_thread(_require_public_pod_url, data.get("url"), kind)
     try:
         pod = pod_registry.create_pod(data)
@@ -79,13 +79,13 @@ async def update_pod_api(pod_id: str, request: Request):
     data = {k: v for k, v in data.items() if k != "owner_id"}   # 주인은 바꿀 수 없다
     if not auth.is_admin(user):
         if data.get("kind") not in (None, pod_registry.DEFAULT_KIND):
-            raise HTTPException(403, "이 종류의 파드는 관리자만 만들 수 있어요.")
+            raise HTTPException(403, "이 종류의 워커는 관리자만 만들 수 있어요.")
         if "url" in data:
             await asyncio.to_thread(_require_public_pod_url, data.get("url"), current.get("kind"))
     try:
         pod = pod_registry.update_pod(pod_id, data)
     except pod_registry.PodError as e:
-        raise HTTPException(400 if "없는 파드" not in str(e) else 404, str(e))
+        raise HTTPException(400 if "없는 워커" not in str(e) else 404, str(e))
     # 주소나 종류가 바뀌었으면 그 파드에 대해 캐싱해 둔 것들은 더 이상 유효하지 않다.
     ComfyUIDriver.invalidate_capabilities(pod_id)
     invalidate_comfy_status_cache(pod_id)
@@ -103,7 +103,7 @@ def delete_pod_api(pod_id: str, request: Request):
         rt = pod_runtimes.get(pod_id)
         busy = list(rt.running) if rt else []
     if busy:
-        raise HTTPException(400, f"이 파드에서 작업 {len(busy)}개가 실행 중이에요. 먼저 멈춰주세요.")
+        raise HTTPException(400, f"이 워커에서 작업 {len(busy)}개가 실행 중이에요. 먼저 멈춰주세요.")
     # 이 파드에 배정돼 있던(아직 안 끝난) 작업은 같은 주인의 다른 파드로 되돌린다 — 갈 곳 없는
     # 작업이 영영 안 도는 상태로 남으면 안 되므로. 갈 파드가 없으면 지우지 못하게 막는다.
     others = [p for p in pod_registry.list_pods(target.get("owner_id")) if p["id"] != pod_id]
@@ -112,11 +112,11 @@ def delete_pod_api(pod_id: str, request: Request):
         waiting_jobs = any(j.get("pod_id") == pod_id and j["status"] in ("pending", "queued") and not j.get("deleted")
                            for j in jobs.values())
     if waiting_jobs and fallback is None:
-        raise HTTPException(400, "이 파드에 대기 중인 작업이 있어요. 다른 파드를 먼저 추가하거나 작업을 지워주세요.")
+        raise HTTPException(400, "이 워커에 대기 중인 작업이 있어요. 다른 워커를 먼저 추가하거나 작업을 지워주세요.")
     try:
         removed = pod_registry.delete_pod(pod_id)
     except pod_registry.PodError as e:
-        raise HTTPException(404 if "없는 파드" in str(e) else 400, str(e))
+        raise HTTPException(404 if "없는 워커" in str(e) else 400, str(e))
     with lock:
         moved = []
         for job in jobs.values():
@@ -281,7 +281,7 @@ async def runpod_power(pod_id: str, action: str, request: Request):
     if not rp_id:
         raise HTTPException(400, "RunPod 파드 주소가 아니에요(https://{POD_ID}-{PORT}.proxy.runpod.net).")
     if action == "stop" and _pod_has_running_job(pod_id):
-        raise HTTPException(409, "이 파드에서 실행 중인 작업이 있어요. 작업을 먼저 멈춘 뒤 꺼 주세요.")
+        raise HTTPException(409, "이 워커에서 실행 중인 작업이 있어요. 작업을 먼저 멈춘 뒤 꺼 주세요.")
     status, error = await asyncio.to_thread(runpod_api.pod_action, rp_id, action)
     if error:
         raise HTTPException(502, error)

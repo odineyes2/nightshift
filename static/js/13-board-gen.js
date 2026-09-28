@@ -115,7 +115,7 @@ async function runBoardGen(nodeId){
                              run_count: (node && node.data && node.data.runs || []).length });
   paintBoardJobCards();
   paintBoardGenSlots();
-  flashNotice('실행했어요 — 필요한 모델을 갖춘 파드가 잡히면 시작해요.');
+  flashNotice('실행했어요 — 필요한 모델을 갖춘 워커가 잡히면 시작해요.');
   fetchBoardJobs();
 }
 

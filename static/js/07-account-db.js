@@ -380,7 +380,7 @@ async function adminAction(action, id){
     path = `/api/admin/users/${id}/reset-password`; body = { new_password: password };
   }else if(action === 'delete'){
     const extra = user.status === 'pending' ? '가입 신청을 거절하고 삭제' : '계정을 삭제';
-    if(!confirm(`'${user.username}' ${extra}할까요? 이 회원의 프로젝트·작업·결과물·파드는 지워지지 않고 관리자 소유로 남아요.`)) return;
+    if(!confirm(`'${user.username}' ${extra}할까요? 이 회원의 프로젝트·작업·결과물·워커는 지워지지 않고 관리자 소유로 남아요.`)) return;
     path = `/api/admin/users/${id}`; method = 'DELETE'; body = null;
   }else return;
   try{

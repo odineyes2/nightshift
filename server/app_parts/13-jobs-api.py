@@ -20,7 +20,7 @@ def start_queue(request: Request, project_id: str | None = None):
                      or j.get("project_id") == (None if wanted_project == "unassigned" else wanted_project))]
         for job in sent:
             job["status"] = "queued"
-            job["waiting_reason"] = "파드를 찾는 중이에요"
+            job["waiting_reason"] = "워커를 찾는 중이에요"
     if sent:
         save_state()
     poke_scheduler()
@@ -66,7 +66,7 @@ def start_pod_queue(pod_id: str, request: Request):
     """이 파드만 켠다 — 파드가 여러 대일 때 한 대씩 굴리기 위한 것."""
     pod = pod_or_404(me(request), pod_id)
     if not pod.get("enabled"):
-        raise HTTPException(400, f"'{pod['name']}' 파드는 지금 사용 안 함 상태예요.")
+        raise HTTPException(400, f"'{pod['name']}' 워커는 지금 사용 안 함 상태예요.")
     ensure_runtime(pod)
     return {"pod_id": pod_id, "running": True, "started": start_pods([pod_id])}
 
@@ -354,7 +354,7 @@ def start_job(job_id: str, request: Request):
         job["returncode"] = None
         job["progress"] = None
         if not had_pod:
-            job["waiting_reason"] = "파드를 찾는 중이에요"
+            job["waiting_reason"] = "워커를 찾는 중이에요"
     save_state()
     if had_pod:
         dispatch_job(job_id)
@@ -457,7 +457,7 @@ async def fetch_missing_models(job_id: str, request: Request):
     started, no_url, failed = [], [], []
     for name in info["names"]:
         if name.startswith("노드 "):
-            failed.append({"name": name, "detail": "커스텀 노드는 여기서 받을 수 없어요 — 파드에 직접 설치하세요."})
+            failed.append({"name": name, "detail": "커스텀 노드는 여기서 받을 수 없어요 — 워커에 직접 설치하세요."})
             continue
         entry = _registry_entry_for(name)
         if not entry or not entry.get("download_url"):
@@ -532,22 +532,22 @@ async def move_job(job_id: str, request: Request):
             if not job or job.get("deleted"):
                 raise HTTPException(404, "없는 작업이에요.")
             if job["status"] not in ("pending", "queued"):
-                raise HTTPException(400, "대기 중인 작업만 파드 지정을 풀 수 있어요.")
+                raise HTTPException(400, "대기 중인 작업만 워커 지정을 풀 수 있어요.")
             job["pinned_pod_id"] = None
             job["pod_id"] = None
             job["auto_assigned"] = False
             set_comfy_wait_flag(job, False)
             if job["status"] == "queued":
-                job["waiting_reason"] = "파드를 찾는 중이에요"
+                job["waiting_reason"] = "워커를 찾는 중이에요"
         save_state()
         poke_scheduler()
         return jobs[job_id]
     target = pod_registry.get_pod(target_id)
     # 작업은 그 작업의 주인의 파드로만 옮길 수 있다.
     if target is None or target.get("owner_id") != source_job.get("owner_id"):
-        raise HTTPException(404, "없는 파드예요.")
+        raise HTTPException(404, "없는 워커예요.")
     if not target.get("enabled"):
-        raise HTTPException(400, f"'{target['name']}' 파드는 지금 사용 안 함 상태예요.")
+        raise HTTPException(400, f"'{target['name']}' 워커는 지금 사용 안 함 상태예요.")
 
     with lock:
         job = jobs.get(job_id)
@@ -560,7 +560,7 @@ async def move_job(job_id: str, request: Request):
         if job["status"] == "queued" and not job.get("pod_id"):
             # 대기 큐에서 파드를 기다리는 작업 — 그 파드로 고정만 하고, 배정은 스케줄러가 갖춰졌는지 보고 한다.
             job["pinned_pod_id"] = target_id
-            job["waiting_reason"] = "파드를 찾는 중이에요"
+            job["waiting_reason"] = "워커를 찾는 중이에요"
             pinned_only = True
         else:
             pinned_only = False

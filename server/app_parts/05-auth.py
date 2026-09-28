@@ -147,7 +147,7 @@ def pod_or_404(user: dict, pod_id: str) -> dict:
     """이 회원이 쓸 수 있는 파드 하나 — 남의 파드는 있다는 사실도 알려 주지 않는다(404)."""
     pod = pod_registry.get_pod(pod_id) if pod_id else None
     if pod is None or not auth.can_access(user, pod.get("owner_id")):
-        raise HTTPException(404, "없는 파드예요.")
+        raise HTTPException(404, "없는 워커예요.")
     return pod
 
 

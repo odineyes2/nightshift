@@ -203,7 +203,7 @@ async def put_comfy_endpoint(request: Request):
     user = me(request)
     pod = default_pod_for_user(user)
     if pod is None:
-        raise HTTPException(400, "파드가 아직 없어요. 파드 화면에서 먼저 추가해 주세요.")
+        raise HTTPException(400, "워커가 아직 없어요. 워커 화면에서 먼저 추가해 주세요.")
     patch = {"url": data.get("url", "")}
     if not auth.is_admin(user):
         await asyncio.to_thread(_require_public_pod_url, patch["url"], pod.get("kind"))

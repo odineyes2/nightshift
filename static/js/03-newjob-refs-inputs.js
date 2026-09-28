@@ -766,7 +766,7 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
     const wanted = [['checkpoints', lastWizardModels.checkpoint], ...lastWizardModels.loras.map(n => ['loras', n])];
     const absent = wanted.filter(([kind, name]) => { const pods = podsWithModel(kind, name); return pods !== null && pods.length === 0; })
                          .map(([, name]) => name);
-    if(absent.length && !confirm(`켜진 파드 어디에도 없는 모델이 있어요:\n- ${absent.join('\n- ')}\n\n그래도 추가할까요? 이 작업은 대기 칸에서 주황색 "조치 필요"로 보이고, 카드의 "없는 모델 받기"로 받을 수 있어요.`)) return;
+    if(absent.length && !confirm(`켜진 워커 어디에도 없는 모델이 있어요:\n- ${absent.join('\n- ')}\n\n그래도 추가할까요? 이 작업은 대기 칸에서 주황색 "조치 필요"로 보이고, 카드의 "없는 모델 받기"로 받을 수 있어요.`)) return;
   }
 
   const form = new FormData();
@@ -814,7 +814,7 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   const createdJob = await res.json().catch(() => null);
   closeNewJobModal();
   if(createdJob && preflightCount(createdJob.preflight) > 0){
-    flashNotice('대기 칸에 추가했어요 — 이 파드에 없는 모델이 있어요: ' + preflightLines(createdJob.preflight).slice(0, 3).join(' / '));
+    flashNotice('대기 칸에 추가했어요 — 이 워커에 없는 모델이 있어요: ' + preflightLines(createdJob.preflight).slice(0, 3).join(' / '));
   }else if(createdJob){
     flashNotice('대기 칸에 추가했어요 — 카드의 ▶ 시작을 누르면 돌아가요.');
   }

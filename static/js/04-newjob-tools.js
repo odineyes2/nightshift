@@ -370,7 +370,7 @@ function applyPullOutputsVisibility(){
     const on = galleryPodFilter ? !!(podsById[galleryPodFilter] || {}).pull_outputs : comfyPullOutputs;
     btn.style.display = on ? '' : 'none';
     btn.title = galleryPodFilter
-      ? `'${podName(galleryPodFilter)}' 파드가 만든 결과 이미지를 이 서버로 가져와요.`
+      ? `'${podName(galleryPodFilter)}' 워커가 만든 결과 이미지를 이 서버로 가져와요.`
       : '원격 ComfyUI가 만든 결과 이미지를 이 서버로 가져와요. 작업이 끝날 때마다 자동으로도 가져오지만, pod를 껐다 켠 뒤 밀린 것을 한꺼번에 받을 때 쓰세요.';
   }
   // 영상 갤러리도 이제 파드 갤러리(pvideo)가 있으니 이미지와 같은 규칙을 쓴다 —
@@ -381,7 +381,7 @@ function applyPullOutputsVisibility(){
     const videoOn = videoGalleryPodFilter ? !!(podsById[videoGalleryPodFilter] || {}).pull_outputs : comfyPullOutputs;
     videoBtn.style.display = videoOn ? '' : 'none';
     videoBtn.title = videoGalleryPodFilter
-      ? `'${podName(videoGalleryPodFilter)}' 파드가 만든 결과 영상을 이 서버로 가져와요.`
+      ? `'${podName(videoGalleryPodFilter)}' 워커가 만든 결과 영상을 이 서버로 가져와요.`
       : '원격 ComfyUI가 만든 결과 영상을 이 서버로 가져와요. nightshift를 거치지 않고 ComfyUI에서 직접 돌린 작업도 ComfyUI 히스토리에 남아있으면 함께 가져와요.';
   }
 }

@@ -437,7 +437,7 @@ function buildJobCard(j){
   const fetching = waitingForPod && !!j.fetching_models;
   const pfCount = ['pending', 'queued', 'interrupted', 'failed'].includes(j.status) ? preflightCount(j.preflight) : 0;
   const preflightBadge = pfCount
-    ? `<span class="pod-badge preflight-badge" title="${escapeHtml('등록할 때 이 작업이 갈 파드에 없던 것들:\n' + preflightLines(j.preflight).join('\n'))}">${ico('triangle-alert')} 모델 ${pfCount}</span>` : '';
+    ? `<span class="pod-badge preflight-badge" title="${escapeHtml('등록할 때 이 작업이 갈 워커에 없던 것들:\n' + preflightLines(j.preflight).join('\n'))}">${ico('triangle-alert')} 모델 ${pfCount}</span>` : '';
   // 대기 칸의 두 상태를 카드 모양과 버튼으로 가른다 — pending(일시정지: 빈 파드가 있어도 시작 안 함)은
   // 회색 카드에 ▶, queued(빈 파드가 생기면 바로 실행)는 보통 카드에 ⏸(POST /api/jobs/{id}/pause).
   const startable = ['pending', 'interrupted', 'failed'].includes(j.status);
@@ -466,8 +466,8 @@ function buildJobCard(j){
           : `<button class="del-btn" disabled title="진행 중인 작업은 먼저 정지해야 삭제할 수 있어요"><svg class="ico"><use href="#i-trash-2"/></svg></button>`}
         ${j.status === 'running' ? `<button class="stop-btn" data-stop="${j.id}" title="이 작업만 정지해요 — 상태가 '정지'로 바뀌면 삭제할 수 있어요"><svg class="ico"><use href="#i-pause"/></svg></button>` : ''}
         ${blocked && !fetching ? `<button class="fetch-models-btn" data-fetch-models="${j.id}" title="'${escapeHtml(j.missing_models.pod_name)}'에 없는 모델(${escapeHtml(j.missing_models.names.join(', '))})을 등록부의 다운로드 주소로 받아요 — 다 받으면 저절로 시작해요"><svg class="ico"><use href="#i-download"/></svg></button>` : ''}
-        ${j.status === 'queued' ? `<button class="pause-btn" data-pause="${j.id}" title="실행 대기 중 — 누르면 일시정지해요(빈 파드가 있어도 시작하지 않아요)"><svg class="ico"><use href="#i-pause"/></svg></button>` : ''}
-        ${startable ? `<button class="start-btn" data-start="${j.id}" title="${j.status === 'pending' ? '일시정지 중 — 누르면 실행 대기로 넘어가요(빈 파드가 있으면 바로 시작)' : '이 작업을 다시 시작해요'}"><svg class="ico"><use href="#i-play"/></svg></button>` : ''}
+        ${j.status === 'queued' ? `<button class="pause-btn" data-pause="${j.id}" title="실행 대기 중 — 누르면 일시정지해요(빈 워커가 있어도 시작하지 않아요)"><svg class="ico"><use href="#i-pause"/></svg></button>` : ''}
+        ${startable ? `<button class="start-btn" data-start="${j.id}" title="${j.status === 'pending' ? '일시정지 중 — 누르면 실행 대기로 넘어가요(빈 워커가 있으면 바로 시작)' : '이 작업을 다시 시작해요'}"><svg class="ico"><use href="#i-play"/></svg></button>` : ''}
       </div>
     </div>`;
 }
@@ -523,12 +523,12 @@ function renderJobDetailModalBody(){
   const est = estimateJob(job);
   const waitingForComfy = !!job.waiting_for_comfy;
   const waitingForPod = job.status === 'queued' && !job.pod_id;
-  const pinnedNote = job.pinned_pod_id ? ` (${escapeHtml(podName(job.pinned_pod_id) || '지정한 파드')}만)` : '';
+  const pinnedNote = job.pinned_pod_id ? ` (${escapeHtml(podName(job.pinned_pod_id) || '지정한 워커')}만)` : '';
   const movable = podsCache.some(p => p.enabled) && ['pending', 'queued', 'interrupted'].includes(job.status);
   const pfLines = preflightLines(job.preflight);
 
   document.getElementById('job-detail-title').innerHTML =
-    `<span class="badge ${(waitingForComfy || waitingForPod) ? 'waiting' : job.status}"><span class="bdot"></span>${waitingForComfy ? 'GPU 대기' : (waitingForPod ? '파드 대기' + pinnedNote : (STATUS_LABEL[job.status] || job.status))}</span> ${escapeHtml(templateText)}`;
+    `<span class="badge ${(waitingForComfy || waitingForPod) ? 'waiting' : job.status}"><span class="bdot"></span>${waitingForComfy ? 'GPU 대기' : (waitingForPod ? '워커 대기' + pinnedNote : (STATUS_LABEL[job.status] || job.status))}</span> ${escapeHtml(templateText)}`;
 
   document.getElementById('job-detail-fields').innerHTML = `
     ${promptText ? `<div class="field"><label class="field-label">프롬프트</label><div class="job-detail-prompt">${escapeHtml(promptText)}</div></div>` : ''}
@@ -536,7 +536,7 @@ function renderJobDetailModalBody(){
     <div class="field"><label class="field-label">워크플로우</label><div>${escapeHtml(job.workflow_original_name || '-')}</div></div>
     <div class="field"><label class="field-label">CSV</label><div>${escapeHtml(job.csv_original_name || '-')}</div></div>
     ${job.owner_name ? `<div class="field"><label class="field-label">만든 사람</label><div>${escapeHtml(job.owner_name)}</div></div>` : ''}
-    ${job.pod_id ? `<div class="field"><label class="field-label">파드</label><div>${escapeHtml(podName(job.pod_id) || job.pod_id)}</div></div>` : ''}
+    ${job.pod_id ? `<div class="field"><label class="field-label">워커</label><div>${escapeHtml(podName(job.pod_id) || job.pod_id)}</div></div>` : ''}
     ${job.project_id != null && projectsById[job.project_id] ? `<div class="field"><label class="field-label">프로젝트</label><div>${escapeHtml(projectName(job.project_id))}</div></div>` : ''}
     <div class="field">
       <label class="field-label">시간</label>
@@ -551,7 +551,7 @@ function renderJobDetailModalBody(){
     ${job.status === 'pending' ? `<button class="edit-btn" id="job-detail-edit-workflow-btn" title="워크플로우 수정"><svg class="ico"><use href="#i-pencil"/></svg> 워크플로우 수정</button>` : ''}
     ${job.status === 'pending' && job.csv_filename ? `<button class="edit-btn" id="job-detail-edit-csv-btn" title="CSV 수정"><svg class="ico"><use href="#i-pencil"/></svg> CSV 수정</button>` : ''}
     <button class="load-btn" id="job-detail-project-btn" title="이 작업(과 결과물)을 다른 프로젝트로 옮겨요"><svg class="ico"><use href="#i-folder-input"/></svg> 프로젝트 이동</button>
-    ${movable ? `<button class="load-btn" id="job-detail-move-btn" title="이 작업을 다른 파드로 옮겨요"><svg class="ico"><use href="#i-arrow-right"/></svg> 파드 이동</button>` : ''}`;
+    ${movable ? `<button class="load-btn" id="job-detail-move-btn" title="이 작업을 다른 워커로 옮겨요"><svg class="ico"><use href="#i-arrow-right"/></svg> 워커 이동</button>` : ''}`;
 
   document.getElementById('job-detail-load-btn').addEventListener('click', () => {
     closeJobDetailModal();

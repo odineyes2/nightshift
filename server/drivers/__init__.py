@@ -23,7 +23,7 @@ DRIVERS: dict[str, type[PodDriver]] = {
 def get_driver(kind: str) -> type[PodDriver]:
     driver = DRIVERS.get((kind or "").strip())
     if driver is None:
-        raise DriverError(f"모르는 파드 종류예요: {kind!r}")
+        raise DriverError(f"모르는 워커 종류예요: {kind!r}")
     return driver
 
 

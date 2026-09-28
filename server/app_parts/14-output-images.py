@@ -166,7 +166,7 @@ async def sync_comfy_outputs(request: Request):
     else:
         pod = default_pod_for_user(user)
         if pod is None:
-            raise HTTPException(400, "파드가 아직 없어요. 파드 화면에서 먼저 추가해 주세요.")
+            raise HTTPException(400, "워커가 아직 없어요. 워커 화면에서 먼저 추가해 주세요.")
         pod_id = pod["id"]
     health = await asyncio.to_thread(driver_for(pod).health, pod)
     url, connected = health["url"], health["ok"]

@@ -160,9 +160,9 @@ def schedule_once() -> None:
         best_missing: tuple[dict, list[str]] | None = None
         if not candidates:
             if pinned:
-                reasons.append("지정한 파드를 쓸 수 없어요(없어졌거나 사용 안 함)")
+                reasons.append("지정한 워커를 쓸 수 없어요(없어졌거나 사용 안 함)")
             else:
-                reasons.append("사용할 수 있는 파드가 없어요 — 파드를 추가하거나 켜 주세요")
+                reasons.append("사용할 수 있는 워커가 없어요 — 워커를 추가하거나 켜 주세요")
         for pod in sorted(candidates, key=lambda p: -free.get(p["id"], 0)):
             name = pod.get("name") or pod["id"]
             if not connected.get(pod["id"]):

@@ -220,7 +220,7 @@ def call_node(pod: dict, method: str, path: str, body: dict | None = None, timeo
     """파드의 nightshift_downloader 노드를 부른다. 안 깔려 있으면 DownloadError(404)."""
     url, _source = ComfyUIDriver.configured(pod)
     if not url:
-        raise DownloadError("파드 주소가 설정돼 있지 않아요.")
+        raise DownloadError("워커 주소가 설정돼 있지 않아요.")
     data = json.dumps(body).encode() if body is not None else None
     headers = {"User-Agent": COMFY_USER_AGENT, "X-Nightshift-Token": pod_token(pod["id"])}
     if data is not None:
@@ -235,12 +235,12 @@ def call_node(pod: dict, method: str, path: str, body: dict | None = None, timeo
         except Exception:
             detail = None
         if e.code in (404, 405, 501) and not detail:
-            raise DownloadError("이 파드에는 다운로더가 설치돼 있지 않아요(설치 후 ComfyUI 재시작 필요).", 404)
+            raise DownloadError("이 워커에는 다운로더가 설치돼 있지 않아요(설치 후 ComfyUI 재시작 필요).", 404)
         if e.code == 401:
-            raise DownloadError("다운로더 토큰이 맞지 않아요 — 이 파드에 설치 스크립트를 다시 실행해 주세요.", 409)
-        raise DownloadError(detail or f"파드가 오류를 돌려줬어요(HTTP {e.code}).", 409 if e.code == 409 else 400)
+            raise DownloadError("다운로더 토큰이 맞지 않아요 — 이 워커에 설치 스크립트를 다시 실행해 주세요.", 409)
+        raise DownloadError(detail or f"워커가 오류를 돌려줬어요(HTTP {e.code}).", 409 if e.code == 409 else 400)
     except (urllib.error.URLError, TimeoutError, OSError):
-        raise DownloadError("파드에 연결하지 못했어요.", 502)
+        raise DownloadError("워커에 연결하지 못했어요.", 502)
 
 
 def node_status(pod: dict) -> dict:

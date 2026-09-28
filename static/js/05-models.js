@@ -180,7 +180,7 @@ function modelThumbHtml(kind, name){
 
 function modelHeaderHtml(isLora){
   return `<div class="model-cols${isLora ? ' lora' : ''} model-header">
-    <span></span><span>파일명</span><span>베이스 모델</span>${isLora ? '<span>트리거 키워드</span>' : ''}<span>태그</span><span>사용</span><span>파드</span><span>주소</span><span></span>
+    <span></span><span>파일명</span><span>베이스 모델</span>${isLora ? '<span>트리거 키워드</span>' : ''}<span>태그</span><span>사용</span><span>워커</span><span>주소</span><span></span>
   </div>`;
 }
 
@@ -198,7 +198,7 @@ function modelRowHtml(kind, name, isAdmin){
   const podsHtml = live.length
     ? (have.length
         ? `<div class="gallery-details-col" title="${escapeHtml(have.map(p => p.name).join(', '))}">${have.length}/${live.length}</div>`
-        : '<div class="gallery-details-col model-missing" title="연결된 파드 어디에도 없어요">없음</div>')
+        : '<div class="gallery-details-col model-missing" title="연결된 워커 어디에도 없어요">없음</div>')
     : '<div class="gallery-details-col dim">-</div>';
   const links = e.download_url
     ? (isAdmin
@@ -253,7 +253,7 @@ function modelRowHtml(kind, name, isAdmin){
         <input type="text" class="option-input" data-field="tags" ${dis} placeholder="예: 캐릭터, 스타일, 실사" value="${escapeHtml((d.tags || []).join(', '))}"></label>
       <label class="model-field wide"><span>메모</span>
         <textarea class="option-input" data-field="notes" rows="3" ${dis} placeholder="권장 가중치, 잘 어울리는 조합 등" style="max-width:none;">${escapeHtml(d.notes)}</textarea></label>
-      <div class="model-field wide"><span>파드별 설치</span>${podRows || '<span class="comfy-model-empty">ComfyUI 파드가 없어요.</span>'}</div>
+      <div class="model-field wide"><span>워커별 설치</span>${podRows || '<span class="comfy-model-empty">ComfyUI 워커가 없어요.</span>'}</div>
       ${isAdmin ? `<div class="model-full model-editor-actions">
           <button type="button" class="submit-btn model-save-btn" ${dirty ? '' : 'disabled'}>저장</button>
           <button type="button" class="modal-btn-secondary model-clear-btn">등록 정보 지우기</button>
@@ -311,7 +311,7 @@ function renderModelRegistry(){
   }
   const filtered = !!(filter || modelBaseFilter);
   document.getElementById('model-count').textContent = `${filtered ? shown.length + ' / ' : ''}${all.length}개`;
-  const notice = live.length ? '' : '<div class="comfy-model-empty" style="margin-bottom:8px;">연결된 ComfyUI 파드가 없어 설치 현황은 못 봐요 — 등록해 둔 항목만 보여요.</div>';
+  const notice = live.length ? '' : '<div class="comfy-model-empty" style="margin-bottom:8px;">연결된 ComfyUI 워커가 없어 설치 현황은 못 봐요 — 등록해 둔 항목만 보여요.</div>';
   const addBtn = document.getElementById('model-add-toggle');
   if(addBtn) addBtn.style.display = isAdminUser() ? '' : 'none';
   if(shown.length === 0){

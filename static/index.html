@@ -230,13 +230,13 @@
 <div class="tab-bar" id="global-tab-bar">
   <div class="tab-bar-inner">
     <button class="tab-btn active" data-tab="dashboard" type="button" title="홈 — 프로젝트"><svg class="ico"><use href="#i-house"/></svg><span class="tab-label">Home</span></button>
-    <button class="tab-btn" data-tab="pods" type="button" title="파드(워커) — 연결 상태와 큐"><svg class="ico"><use href="#i-server"/></svg><span class="tab-label">Pods</span></button>
-    <button class="tab-btn" data-tab="jobs" type="button" title="작업 — 파드를 정하지 않고 구상해서 대기 큐로 보내면, 필요한 모델을 갖춘 파드가 살아날 때 시작해요"><svg class="ico"><use href="#i-list-checks"/></svg><span class="tab-label">Jobs</span></button>
+    <button class="tab-btn" data-tab="pods" type="button" title="워커 — nightshift가 작업을 보내는 곳(연결 상태·큐·켜기/끄기)"><svg class="ico"><use href="#i-server"/></svg><span class="tab-label">Workers</span></button>
+    <button class="tab-btn" data-tab="jobs" type="button" title="작업 — 워커를 정하지 않고 구상해서 대기 큐로 보내면, 필요한 모델을 갖춘 워커가 살아날 때 시작해요"><svg class="ico"><use href="#i-list-checks"/></svg><span class="tab-label">Jobs</span></button>
     <button class="tab-btn" data-tab="gallery" type="button" title="갤러리 — 결과 이미지"><svg class="ico"><use href="#i-images"/></svg><span class="tab-label">Gallery</span></button>
     <button class="tab-btn" data-tab="video-gallery" type="button" title="영상 갤러리 — 출력 폴더에 쌓인 영상 파일을 확인"><svg class="ico"><use href="#i-clapperboard"/></svg><span class="tab-label">Videos</span></button>
-    <button class="tab-btn" data-tab="models" type="button" title="모델 — 파드와 무관한 모델 기준 데이터(주소·트리거 키워드·베이스 모델)"><svg class="ico"><use href="#i-boxes"/></svg><span class="tab-label">Models</span></button>
+    <button class="tab-btn" data-tab="models" type="button" title="모델 — 워커와 무관한 모델 기준 데이터(주소·트리거 키워드·베이스 모델)"><svg class="ico"><use href="#i-boxes"/></svg><span class="tab-label">Models</span></button>
     <span class="tab-bar-sep"></span>
-    <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 파드와 무관한 프롬프트 작업대"><svg class="ico"><use href="#i-tag"/></svg><span class="tab-label">Danbooru</span></button>
+    <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 워커와 무관한 프롬프트 작업대"><svg class="ico"><use href="#i-tag"/></svg><span class="tab-label">Danbooru</span></button>
     <button class="tab-btn" id="db-tab-btn" data-tab="db" type="button" style="display:none;" title="DB — 앱이 쌓아 둔 여러 기록을 표로 봄(관리자 전용)"><svg class="ico"><use href="#i-database"/></svg><span class="tab-label">DB</span></button>
     <button class="tab-btn" id="admin-tab-btn" data-tab="admin" type="button" style="display:none;" title="회원 관리 (관리자 전용)"><svg class="ico"><use href="#i-users"/></svg><span class="tab-label">Admin</span><span class="tab-badge" id="admin-pending-badge" hidden></span></button>
   </div>
@@ -246,12 +246,12 @@
      그 파드에서 무엇을 할 수 있는지(서브탭 구성은 파드 종류가 정한다)를 한 줄에 담는다. -->
 <div class="pod-bar" id="pod-bar" style="display:none;">
   <div class="pod-bar-inner">
-    <button class="pod-bar-back" id="pod-bar-back" type="button" title="파드 목록으로 돌아가기" aria-label="파드 목록으로 돌아가기"><svg class="ico"><use href="#i-server"/></svg><span class="btn-label">Pods</span></button>
+    <button class="pod-bar-back" id="pod-bar-back" type="button" title="워커 목록으로 돌아가기" aria-label="워커 목록으로 돌아가기"><svg class="ico"><use href="#i-server"/></svg><span class="btn-label">Workers</span></button>
     <span class="dash-dot" id="pod-bar-dot"></span>
-    <select class="pod-bar-select" id="pod-bar-select" title="다른 파드로 이동"></select>
+    <select class="pod-bar-select" id="pod-bar-select" title="다른 워커로 이동"></select>
     <span class="pod-bar-kind" id="pod-bar-kind"></span>
     <span class="pod-bar-links" id="pod-bar-links"></span>
-    <button class="load-btn" id="pod-bar-settings" type="button" style="display:none;" title="이 파드 설정" aria-label="이 파드 설정"><svg class="ico"><use href="#i-settings"/></svg></button>
+    <button class="load-btn" id="pod-bar-settings" type="button" style="display:none;" title="이 워커 설정" aria-label="이 워커 설정"><svg class="ico"><use href="#i-settings"/></svg></button>
     <div class="pod-bar-subtabs" id="pod-bar-subtabs"></div>
   </div>
 </div>
@@ -285,16 +285,16 @@
   <div class="dash-totals" id="dash-totals"></div>
 
   <div class="dash-actions">
-    <button class="submit-btn" id="pod-add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg> 파드 추가</button>
+    <button class="submit-btn" id="pod-add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg> 워커 추가</button>
     <button class="load-btn" id="dash-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
   </div>
 
   <!-- 카드 캔버스 — 카드마다 타입(data-card-type)이 있고 타입별 렌더러가 그린다.
        지금은 파드 카드 하나뿐이지만, 통계·최근 산출물·메모 같은 카드를 나중에 같은
        그리드에 얹을 수 있게 이 구조로 둔다. -->
-  <div class="dash-longpress-hint">파드 카드를 길게 누르면 삭제할 수 있어요.</div>
+  <div class="dash-longpress-hint">워커 카드를 길게 누르면 삭제할 수 있어요.</div>
   <div class="card-canvas" id="dash-canvas"></div>
-  <div class="empty" id="dash-empty" style="display:none;">등록된 파드가 없어요</div>
+  <div class="empty" id="dash-empty" style="display:none;">등록된 워커가 없어요</div>
 </main>
 
 <main id="tab-jobs" style="display:none;">
@@ -333,7 +333,7 @@
           <select class="pod-bar-select" id="job-project-select"></select>
         </label>
         <label class="job-target-field" id="job-pod-field">
-          <span class="field-label"><svg class="ico"><use href="#i-server"/></svg> 실행 파드</span>
+          <span class="field-label"><svg class="ico"><use href="#i-server"/></svg> 실행 워커</span>
           <select class="pod-bar-select" id="job-pod-select"></select>
         </label>
       </div>
@@ -773,7 +773,7 @@
     </div>
     <div class="panel-body">
       <div class="results-list" id="results-list"></div>
-      <div class="empty" id="results-empty" style="display:none;">이 파드가 아직 만든 글이 없어요</div>
+      <div class="empty" id="results-empty" style="display:none;">이 워커가 아직 만든 글이 없어요</div>
     </div>
   </div>
 </main>
@@ -1255,11 +1255,11 @@
 <div class="modal-overlay" id="pod-edit-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
-      <div class="modal-title" id="pod-edit-title"><svg class="ico"><use href="#i-plus"/></svg> Add pod</div>
+      <div class="modal-title" id="pod-edit-title"><svg class="ico"><use href="#i-plus"/></svg> Add worker</div>
       <button class="modal-close" id="pod-edit-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
-      <div class="email-hint">파드는 nightshift가 작업을 보낼 워커예요. 종류(kind)가 그 워커를 어떻게 다룰지 정합니다.
+      <div class="email-hint">워커는 nightshift가 작업을 보내는 곳이에요(RunPod에서 빌린 기계는 "RunPod 파드"라고 불러 구별해요). 종류(kind)가 그 워커를 어떻게 다룰지 정합니다.
         주소를 비워두면 <code>COMFY_URL</code> 환경변수 → <code>127.0.0.1</code> 자동 탐지 순으로 찾아요.</div>
       <div class="field">
         <label class="field-label" for="pod-edit-name">이름</label>
@@ -1277,7 +1277,7 @@
       <div class="field">
         <label class="field-label" for="pod-edit-concurrent">동시 실행 수</label>
         <input type="number" class="option-input" id="pod-edit-concurrent" min="1" value="1" style="max-width:120px;">
-        <div class="email-hint">이 파드에서 한 번에 몇 개까지 돌릴지. GPU 한 장이면 1이 보통이에요.</div>
+        <div class="email-hint">이 워커에서 한 번에 몇 개까지 돌릴지. GPU 한 장이면 1이 보통이에요.</div>
       </div>
       <div class="field">
         <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer;">
@@ -1377,11 +1377,11 @@
       <button class="modal-close" id="job-move-modal-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
-      <div class="email-hint">파드마다 큐가 따로 돌아서, 파드 하나가 멈추면 그 큐만 멈춰요.
-        아직 시작하지 않은 작업은 다른 파드로 옮겨 이어서 돌릴 수 있어요(실행 중인 작업은 먼저 멈춰야 해요).</div>
+      <div class="email-hint">워커마다 큐가 따로 돌아서, 워커 하나가 멈추면 그 큐만 멈춰요.
+        아직 시작하지 않은 작업은 다른 워커로 옮겨 이어서 돌릴 수 있어요(실행 중인 작업은 먼저 멈춰야 해요).</div>
       <div class="comfy-endpoint-current" id="job-move-current"></div>
       <div class="field">
-        <label class="field-label" for="job-move-select">옮길 파드</label>
+        <label class="field-label" for="job-move-select">옮길 워커</label>
         <select id="job-move-select"></select>
       </div>
       <div class="upload-error" id="job-move-error"></div>

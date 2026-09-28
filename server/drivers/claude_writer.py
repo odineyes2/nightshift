@@ -50,7 +50,7 @@ class ClaudeWriterDriver(PodDriver):
 
     @staticmethod
     def unavailable_reason() -> str:
-        return "ANTHROPIC_API_KEY가 설정돼 있지 않아요. .env에 넣으면 이 종류의 파드를 추가할 수 있어요."
+        return "ANTHROPIC_API_KEY가 설정돼 있지 않아요. .env에 넣으면 이 종류의 워커를 추가할 수 있어요."
 
     @staticmethod
     def normalize_url(raw: str) -> str:

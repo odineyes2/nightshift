@@ -86,7 +86,7 @@ function renderWizardFamilyModal(){
   const body = document.getElementById('wizard-family-modal-body');
   const entries = Object.entries(baseModelFamilies);
   if(entries.length === 0){
-    body.innerHTML = '<div class="comfy-model-empty">고를 수 있는 베이스 모델이 없어요 — "모델" 탭에서 체크포인트의 베이스 모델을 적어 주세요(파드를 고른 경우엔 그 파드에 설치된 체크포인트만 나와요).</div>';
+    body.innerHTML = '<div class="comfy-model-empty">고를 수 있는 베이스 모델이 없어요 — "모델" 탭에서 체크포인트의 베이스 모델을 적어 주세요(워커를 고른 경우엔 그 워커에 설치된 체크포인트만 나와요).</div>';
     return;
   }
   body.innerHTML = `<div class="wizard-pick-list">${entries.map(([familyId, family]) => {
@@ -96,7 +96,7 @@ function renderWizardFamilyModal(){
     const header = `
       <div class="wizard-pick-row${disabled ? ' disabled' : ''}${headerSelected ? ' selected' : ''}" data-family-id="${escapeHtml(familyId)}">
         <div class="wizard-pick-row-label">${escapeHtml(family.label || familyId)}
-          ${disabled ? '<span class="wizard-pick-row-hint">이 파드에 설치된 체크포인트가 없어요</span>' : ''}
+          ${disabled ? '<span class="wizard-pick-row-hint">이 워커에 설치된 체크포인트가 없어요</span>' : ''}
         </div>
       </div>`;
     const rows = checkpoints.length > 1 ? checkpoints.map(ckpt => `
@@ -375,8 +375,8 @@ function loraPodsBadge(name){
   const pods = podsWithModel('loras', name);
   if(pods === null) return '';
   return pods.length
-    ? `<span class="model-pods-badge ok" title="설치된 파드: ${escapeHtml(pods.join(', '))}">${ico('circle-check')} ${escapeHtml(pods.join(', '))}</span>`
-    : `<span class="model-pods-badge warn" title="켜진 파드 어디에도 없어요 — 골라도 되지만, 작업이 대기 칸에서 '없는 모델 받기'를 기다려요">${ico('triangle-alert')} 켜진 파드에 없음</span>`;
+    ? `<span class="model-pods-badge ok" title="설치된 워커: ${escapeHtml(pods.join(', '))}">${ico('circle-check')} ${escapeHtml(pods.join(', '))}</span>`
+    : `<span class="model-pods-badge warn" title="켜진 워커 어디에도 없어요 — 골라도 되지만, 작업이 대기 칸에서 '없는 모델 받기'를 기다려요">${ico('triangle-alert')} 켜진 워커에 없음</span>`;
 }
 
 function renderWizardLoraModal(){
@@ -384,7 +384,7 @@ function renderWizardLoraModal(){
   const isPreset = wizardIsPreset();
   const all = modelChoices('loras');
   if(all.length === 0){
-    body.innerHTML = '<div class="comfy-model-empty">고를 수 있는 LoRA가 없어요 — 파드에 연결하거나 "모델" 탭에 LoRA를 등록하세요.</div>';
+    body.innerHTML = '<div class="comfy-model-empty">고를 수 있는 LoRA가 없어요 — 워커에 연결하거나 "모델" 탭에 LoRA를 등록하세요.</div>';
     return;
   }
   // 등록부에 베이스 모델을 안 적은 LoRA는 모든 베이스 모델과 호환되는 것으로 취급한다 — 나머지는 자기 베이스 모델이
@@ -611,7 +611,7 @@ function renderWorkflowCheck(tone, text){
 
 function availableOnText(v){
   const pods = (v.available_on || []).map(p => p.name);
-  let text = pods.length ? ` → ${pods.join(', ')} 파드에는 있어요` : '';
+  let text = pods.length ? ` → ${pods.join(', ')} 워커에는 있어요` : '';
   if(v.registry && v.registry.download_url) text += ' · 받을 주소가 모델 탭에 등록돼 있어요';
   return text;
 }

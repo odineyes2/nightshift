@@ -98,13 +98,13 @@ def sync_runpod_pods(owner_id: int, dry_run: bool, ensure_runtime_fn, job_has_ru
                 result["reenabled"].append({"id": existing_pod["id"], "runpod_pod_id": rpid})
             else:
                 result["skipped"].append({"runpod_pod_id": rpid,
-                                           "reason": "사람이 화면에서 꺼둔 파드예요(auto 태그 없음)."})
+                                           "reason": "사람이 화면에서 꺼둔 워커예요(auto 태그 없음)."})
 
         for rpid, pod in existing_by_runpod_id.items():
             if rpid in running_by_id or not pod.get("enabled") or "auto" not in (pod.get("tags") or []):
                 continue
             if job_has_running_fn(pod["id"]):
-                result["skipped"].append({"runpod_pod_id": rpid, "reason": "이 파드에 실행 중인 작업이 있어요."})
+                result["skipped"].append({"runpod_pod_id": rpid, "reason": "이 워커에 실행 중인 작업이 있어요."})
                 continue
             if not dry_run:
                 pod_registry.update_pod(pod["id"], {"enabled": False})

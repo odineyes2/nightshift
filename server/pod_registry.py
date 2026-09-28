@@ -46,7 +46,7 @@ PODS_FILE = Path(os.environ.get("NIGHTSHIFT_PODS_FILE") or data_path("pods.json"
 LEGACY_ENDPOINT_FILE = data_path("comfy_endpoint.json")
 
 DEFAULT_KIND = "comfyui"
-DEFAULT_POD_NAME = "기본 파드"
+DEFAULT_POD_NAME = "기본 워커"   # 새로 설치할 때만 쓰인다 — 이미 있는 파드의 이름은 그대로
 
 # 이름을 비워두고 파드를 만들면 이 세 목록에서 하나씩 뽑아 이어붙인다(예: "느긋한 다람쥐 사원").
 _RANDOM_NAME_ADJECTIVES = [
@@ -99,11 +99,11 @@ def normalize_pod(raw: dict) -> dict:
     """사용자/파일에서 온 dict를 완전한 파드 레코드로 만든다. 빠진 값은 기본값으로
     채우므로, 저장 형식이 나중에 늘어나도 옛 pods.json을 그대로 읽을 수 있다."""
     if not isinstance(raw, dict):
-        raise PodError("파드는 JSON 객체여야 해요.")
+        raise PodError("워커는 JSON 객체여야 해요.")
 
     name = str(raw.get("name") or "").strip()
     if not name:
-        raise PodError("파드 이름을 지어주세요.")
+        raise PodError("워커 이름을 지어주세요.")
 
     kind = str(raw.get("kind") or DEFAULT_KIND).strip() or DEFAULT_KIND
 
@@ -223,7 +223,7 @@ def get_pod(pod_id: str) -> dict | None:
 def require_pod(pod_id: str) -> dict:
     pod = get_pod(pod_id)
     if pod is None:
-        raise PodError("없는 파드예요.")
+        raise PodError("없는 워커예요.")
     return pod
 
 
@@ -284,16 +284,16 @@ def assert_public_url(url: str) -> None:
         raise PodError("http:// 또는 https://로 시작하는 주소를 적어주세요.")
     host = parsed.hostname
     if host.lower() in ("localhost", "localhost.localdomain") or host.lower().endswith((".local", ".internal")):
-        raise PodError("이 서버 안쪽 주소는 쓸 수 없어요. 인터넷에서 접속되는 파드 주소를 적어주세요.")
+        raise PodError("이 서버 안쪽 주소는 쓸 수 없어요. 인터넷에서 접속되는 워커 주소를 적어주세요.")
     try:
         infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
     except socket.gaierror:
-        raise PodError("주소를 찾을 수 없어요. 파드 주소를 확인해 주세요.")
+        raise PodError("주소를 찾을 수 없어요. 워커 주소를 확인해 주세요.")
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
                 or ip.is_reserved or ip.is_unspecified):
-            raise PodError("이 서버 안쪽이나 사설망 주소는 쓸 수 없어요. 인터넷에서 접속되는 파드 주소를 적어주세요.")
+            raise PodError("이 서버 안쪽이나 사설망 주소는 쓸 수 없어요. 인터넷에서 접속되는 워커 주소를 적어주세요.")
 
 
 def create_pod(raw: dict) -> dict:
@@ -322,7 +322,7 @@ def update_pod(pod_id: str, raw: dict) -> dict:
             _pods[i] = normalize_pod(merged)
             save()
             return dict(_pods[i])
-    raise PodError("없는 파드예요.")
+    raise PodError("없는 워커예요.")
 
 
 def delete_pod(pod_id: str) -> dict:
@@ -330,10 +330,10 @@ def delete_pod(pod_id: str) -> dict:
     보낼 수 없어서 화면이 통째로 무의미해진다(쓰지 않을 파드는 enabled=false로 둔다)."""
     with _lock:
         if len(_pods) <= 1:
-            raise PodError("마지막 파드는 지울 수 없어요. 쓰지 않으려면 '사용 안 함'으로 바꿔주세요.")
+            raise PodError("마지막 워커는 지울 수 없어요. 쓰지 않으려면 '사용 안 함'으로 바꿔주세요.")
         for i, p in enumerate(_pods):
             if p["id"] == pod_id:
                 removed = _pods.pop(i)
                 save()
                 return dict(removed)
-    raise PodError("없는 파드예요.")
+    raise PodError("없는 워커예요.")

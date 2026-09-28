@@ -9,10 +9,10 @@ function openJobMoveModal(jobId){
   jobMoveTargetId = jobId;
   document.getElementById('job-move-error').textContent = '';
   document.getElementById('job-move-current').textContent =
-    `${job.template_label || job.template_id} · 지금 파드: ${podName(job.pod_id) || '(없음)'}`;
+    `${job.template_label || job.template_id} · 지금 워커: ${podName(job.pod_id) || '(없음)'}`;
   const select = document.getElementById('job-move-select');
   const canAuto = job.status === 'pending' || job.status === 'queued';
-  select.innerHTML = (canAuto ? '<option value="">자동 — 모델이 갖춰진 파드 (파드 지정 해제)</option>' : '')
+  select.innerHTML = (canAuto ? '<option value="">자동 — 모델이 갖춰진 워커 (워커 지정 해제)</option>' : '')
     + podsCache
       .filter(p => p.enabled && p.id !== job.pod_id)
       .map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`)
@@ -33,7 +33,7 @@ document.getElementById('job-move-modal').addEventListener('click', (e) => {
 document.getElementById('job-move-confirm').addEventListener('click', async () => {
   const podId = document.getElementById('job-move-select').value;
   const errorEl = document.getElementById('job-move-error');
-  if(!jobMoveTargetId || document.getElementById('job-move-select').options.length === 0){ errorEl.textContent = '옮길 파드를 골라주세요.'; return; }
+  if(!jobMoveTargetId || document.getElementById('job-move-select').options.length === 0){ errorEl.textContent = '옮길 워커를 골라주세요.'; return; }
   try{
     const res = await fetch(`/api/jobs/${jobMoveTargetId}/move`, {
       method: 'POST',
@@ -44,7 +44,7 @@ document.getElementById('job-move-confirm').addEventListener('click', async () =
     if(!res.ok) throw new Error(data.detail || '옮기지 못했어요.');
     closeJobMoveModal();
     if(preflightCount(data.preflight) > 0){
-      flashNotice('옮긴 파드에 없는 모델이 있어요 — ' + preflightLines(data.preflight).slice(0, 3).join(' / '));
+      flashNotice('옮긴 워커에 없는 모델이 있어요 — ' + preflightLines(data.preflight).slice(0, 3).join(' / '));
     }
     fetchJobs();
   }catch(e){
@@ -776,7 +776,7 @@ function fillComfyModelSelect(select, opt){
   populateSelectOptions(select, choices, '(선택지 없음)');
   const info = comfyObjectInfoCache;
   select.title = (info && info.connected) ? ''
-    : '지금은 파드에 연결하지 않아, 모델 등록부에 적힌 이름을 보여줘요 — 그 모델을 갖춘 파드가 살아나면 작업이 시작돼요.';
+    : '지금은 워커에 연결하지 않아, 모델 등록부에 적힌 이름을 보여줘요 — 그 모델을 갖춘 워커가 살아나면 작업이 시작돼요.';
 }
 
 function buildComfyModelControl(opt){

@@ -269,9 +269,9 @@ function renderPodCard(p){
             <span class="dash-dot ${state.cls}" title="${state.label}"></span>
             <span class="dash-card-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
             <span class="dash-card-kind">${escapeHtml((p.card && p.card.runpod) ? 'RunPod 이미지 생성 모델' : (p.kind_label || p.kind))}</span>
-            ${p.owner_name ? `<span class="dash-card-kind owner-badge" title="이 파드의 주인">${ico('user')} ${escapeHtml(p.owner_name)}</span>` : ''}
+            ${p.owner_name ? `<span class="dash-card-kind owner-badge" title="이 워커의 주인">${ico('user')} ${escapeHtml(p.owner_name)}</span>` : ''}
             <div class="dash-card-head-right">
-              <button class="dash-gear-btn" type="button" data-pod-edit="${escapeHtml(p.id)}" title="파드 설정" aria-label="파드 설정"><svg class="ico"><use href="#i-settings"/></svg></button>
+              <button class="dash-gear-btn" type="button" data-pod-edit="${escapeHtml(p.id)}" title="워커 설정" aria-label="워커 설정"><svg class="ico"><use href="#i-settings"/></svg></button>
             </div>
           </div>
           <div class="dash-card-url">${podSpecLine(p)}</div>
@@ -320,7 +320,7 @@ function renderRecentJobsCard(){
     <div class="dash-card" data-card-type="recent-jobs" data-span="2">
       <div class="dash-card-head">
         <span class="dash-card-name">최근 작업</span>
-        <span class="dash-card-kind">모든 파드</span>
+        <span class="dash-card-kind">모든 워커</span>
       </div>
       ${rows ? `<div class="dash-jobs">${rows}</div>`
              : '<div class="dash-card-job"><span class="dim">아직 작업이 없어요</span></div>'}
@@ -333,13 +333,13 @@ function renderDashboard(){
   if(podLongPress.active) return;
   const totals = dashSummary.totals || {};
   document.getElementById('dash-totals').innerHTML = [
-    ['파드', `${totals.online ?? 0}/${totals.pods ?? 0}`, '연결된 파드 / 전체'],
+    ['워커', `${totals.online ?? 0}/${totals.pods ?? 0}`, '연결된 워커 / 전체'],
     ['실행 중', `${totals.running_jobs ?? 0}건`, ''],
     ['큐', `${totals.queued ?? 0}건`, ''],
     ['대기', `${totals.pending ?? 0}건`, ''],
     // 종류가 다른 워커를 합친 숫자라 "장"이라고 못 쓴다 — 이미지 워커의 장수와
     // 셸 워커의 실행 횟수가 같이 들어오므로 중립적인 "건"으로 센다.
-    ['오늘 처리', `${totals.images_today ?? 0}건`, '파드 종류가 섞여 있으면 이미지 장수와 실행 횟수를 합친 값이에요'],
+    ['오늘 처리', `${totals.images_today ?? 0}건`, '워커 종류가 섞여 있으면 이미지 장수와 실행 횟수를 합친 값이에요'],
   ].map(([label, value, title]) => `
     <div class="dash-total"${title ? ` title="${escapeHtml(title)}"` : ''}>
       <span class="dash-total-label">${label}</span>
@@ -385,7 +385,7 @@ function cancelPodLongPress(){
 
 async function deletePodWithConfirm(podId){
   const pod = podsById[podId] || {};
-  if(!confirm(`'${pod.name || podId}' 파드를 삭제할까요?\n이 파드에 배정된 대기 작업은 같은 계정의 다른 파드로 옮겨져요.`)) return;
+  if(!confirm(`'${pod.name || podId}' 워커를 삭제할까요?\n이 워커에 배정된 대기 작업은 같은 계정의 다른 워커로 옮겨져요.`)) return;
   try{
     const res = await fetch(`/api/pods/${encodeURIComponent(podId)}`, { method: 'DELETE' });
     const data = await res.json().catch(() => ({}));
@@ -501,7 +501,7 @@ function updatePodNameSuggest(runpodName){
 function openPodEditModal(podId){
   podEditId = podId || null;
   const pod = podId ? (podsById[podId] || {}) : {};
-  document.getElementById('pod-edit-title').innerHTML = podId ? ico('settings') + ' Pod settings' : ico('plus') + ' Add pod';
+  document.getElementById('pod-edit-title').innerHTML = podId ? ico('settings') + ' Worker settings' : ico('plus') + ' Add worker';
   document.getElementById('pod-edit-name').value = pod.name || '';
   document.getElementById('pod-edit-url').value = pod.url || '';
   document.getElementById('pod-edit-concurrent').value = pod.max_concurrent || 1;
@@ -628,7 +628,7 @@ document.getElementById('pod-edit-runpod-test').addEventListener('click', async 
 document.getElementById('pod-edit-delete').addEventListener('click', async () => {
   if(!podEditId) return;
   const pod = podsById[podEditId] || {};
-  if(!confirm(`'${pod.name || podEditId}' 파드를 지울까요? 이 파드에 배정된 대기 작업은 기본 파드로 옮겨져요.`)) return;
+  if(!confirm(`'${pod.name || podEditId}' 워커를 지울까요? 이 워커에 배정된 대기 작업은 기본 워커로 옮겨져요.`)) return;
   const errorEl = document.getElementById('pod-edit-error');
   try{
     const res = await fetch(`/api/pods/${podEditId}`, { method: 'DELETE' });

@@ -23,7 +23,7 @@ function updateJobTargetRow(){
   if(signature !== jobTargetSignature){
     jobTargetSignature = signature;
     document.getElementById('job-pod-select').innerHTML =
-      `<option value="">자동 — 모델이 갖춰진 파드</option>`
+      `<option value="">자동 — 모델이 갖춰진 워커</option>`
       + enabledPods.map(p =>
         `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.kind_label ? ' · ' + escapeHtml(p.kind_label) : ''}</option>`).join('');
     document.getElementById('job-project-select').innerHTML =

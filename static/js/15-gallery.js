@@ -604,7 +604,7 @@ async function fetchGalleryImages(){
     grid.innerHTML = '';
     displayedGalleryImages = [];
     emptyMsg.textContent = galleryFiltersActive(galleryFilters) ? '조건에 맞는 이미지가 없어요'
-      : galleryPodFilter ? '이 파드가 만든 이미지가 아직 없어요'
+      : galleryPodFilter ? '이 워커가 만든 이미지가 아직 없어요'
       : (galleryProjectFilter !== null ? '이 프로젝트의 이미지가 아직 없어요' : '서버에 저장된 이미지가 없어요');
     emptyMsg.style.display = 'block';
     return;
@@ -1104,7 +1104,7 @@ async function startI2vFromImage(img){
   if(Object.keys(templatesById).length === 0) await fetchTemplates();
   openNewJobModal();
   if(!selectHasOptionValue(templateSelect, I2V_TEMPLATE_ID)){
-    loadError.textContent = '이 파드에서는 영상 생성(WAN2.2 i2v) 템플릿을 쓸 수 없어요 — ComfyUI 파드를 골라 주세요.';
+    loadError.textContent = '이 워커에서는 영상 생성(WAN2.2 i2v) 템플릿을 쓸 수 없어요 — ComfyUI 워커를 골라 주세요.';
     return;
   }
   resetForm();

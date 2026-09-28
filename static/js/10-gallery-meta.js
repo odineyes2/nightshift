@@ -607,7 +607,7 @@ function createAssetMetaPanel(root, kind){
     const negative = d.negative_prompt
       ? `<details class="am-neg"><summary>네거티브 프롬프트</summary><div class="am-prompt">${escapeHtml(d.negative_prompt)}</div></details>`
       : '';
-    const facts = row('작업', d.job_label) + row('파드', d.pod_name) + row('체크포인트', d.checkpoint)
+    const facts = row('작업', d.job_label) + row('워커', d.pod_name) + row('체크포인트', d.checkpoint)
       + row('시드', d.seed) + row('샘플링', paramText) + row('LoRA', (params.loras || []).join(', ')) + row('해상도', dims);
     infoEl.innerHTML = (facts ? `<dl class="am-facts">${facts}</dl>` : '') + prompt + negative
       || '<span class="am-empty">ComfyUI가 남긴 생성 정보가 없어요(회전·편집으로 지워졌거나 직접 넣은 파일일 수 있어요).</span>';

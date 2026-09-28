@@ -541,7 +541,7 @@ async function fetchGalleryVideos(){
     grid.innerHTML = '';
     displayedGalleryVideos = [];
     emptyMsg.textContent = galleryFiltersActive(videoGalleryFilters) ? '조건에 맞는 영상이 없어요'
-      : videoGalleryPodFilter ? '이 파드가 만든 영상이 아직 없어요'
+      : videoGalleryPodFilter ? '이 워커가 만든 영상이 아직 없어요'
       : (videoGalleryProjectFilter !== null ? '이 프로젝트의 영상이 아직 없어요' : '서버에 저장된 영상이 없어요');
     emptyMsg.style.display = 'block';
     return;

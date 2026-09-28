@@ -73,7 +73,7 @@ function projectCardHtml(p){
   const favs = d.favorite_count > 0 ? `<span title="즐겨찾기한 결과물">${ico('star')}<b>${d.favorite_count}</b></span>` : '';
   // 추정 비용 = 작업 실행 시간 × 그 작업이 돈 파드의 시간당 비용. 비용을 모르는 작업은 빠지므로 "+"로 표시한다.
   const costText = d.est_cost > 0
-    ? `<span title="${d.uncosted_jobs > 0 ? `비용을 모르는 작업 ${d.uncosted_jobs}개는 빠진 값이에요 — ` : ''}작업 실행 시간 × 파드 시간당 비용">추정 <b>${fmtUsd(d.est_cost)}${d.uncosted_jobs > 0 ? '+' : ''}</b></span>`
+    ? `<span title="${d.uncosted_jobs > 0 ? `비용을 모르는 작업 ${d.uncosted_jobs}개는 빠진 값이에요 — ` : ''}작업 실행 시간 × 워커 시간당 비용">추정 <b>${fmtUsd(d.est_cost)}${d.uncosted_jobs > 0 ? '+' : ''}</b></span>`
     : '';
   return `
     <div class="project-card${inbox ? ' inbox' : ''}${d.archived ? ' archived' : ''}" data-project-open="${d.id}" role="button" tabindex="0">
@@ -100,12 +100,12 @@ function renderHome(){
   if(!canvas) return;
   const t = (dashSummary && dashSummary.totals) || {};
   document.getElementById('home-strip').innerHTML = [
-    ['파드', `${t.online ?? 0}/${t.pods ?? 0}`],
+    ['워커', `${t.online ?? 0}/${t.pods ?? 0}`],
     ['실행 중', `${t.running_jobs ?? 0}건`],
     ['대기', `${t.pending ?? 0}건`],
   ].map(([label, value]) => `
     <div class="dash-total"><span class="dash-total-label">${label}</span><span class="dash-total-value">${escapeHtml(String(value))}</span></div>`).join('')
-    + `<button class="load-btn home-strip-pods" type="button" data-go-pods title="파드 탭으로">${ico('server')} 파드 보기</button>`;
+    + `<button class="load-btn home-strip-pods" type="button" data-go-pods title="워커 탭으로">${ico('server')} 워커 보기</button>`;
 
   const showArchived = document.getElementById('home-show-archived').checked;
   const list = projectsCache.filter(p => showArchived || !p.archived);

@@ -4,7 +4,7 @@
 def _download_pod(user: dict, pod_id: str) -> dict:
     pod = pod_or_404(user, pod_id)
     if pod.get("kind") != pod_registry.DEFAULT_KIND:
-        raise HTTPException(400, "ComfyUI 파드만 모델을 받을 수 있어요.")
+        raise HTTPException(400, "ComfyUI 워커만 모델을 받을 수 있어요.")
     return pod
 
 

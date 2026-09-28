@@ -256,9 +256,9 @@ async def create_job(
     if pod_id:
         pod = pod_registry.get_pod(pod_id)
         if pod is None or pod.get("owner_id") != user["id"]:
-            raise HTTPException(400, "없는 파드예요.")
+            raise HTTPException(400, "없는 워커예요.")
         if not pod.get("enabled"):
-            raise HTTPException(400, f"'{pod['name']}' 파드는 지금 사용 안 함 상태예요.")
+            raise HTTPException(400, f"'{pod['name']}' 워커는 지금 사용 안 함 상태예요.")
 
     # 프로젝트는 파드와 무관하게 작업을 묶는다. 없으면 "미분류"(project_id=None). 자기 프로젝트만 쓸 수 있다.
     if project_id is not None and not project_store.project_exists(project_id, owner_id=user["id"]):
@@ -270,15 +270,15 @@ async def create_job(
     if pod is not None and allowed_kinds and pod["kind"] not in allowed_kinds:
         raise HTTPException(
             400,
-            f"'{template['label']}' 템플릿은 {', '.join(allowed_kinds)} 종류의 파드에서만 쓸 수 있어요 "
-            f"(고른 파드 '{pod['name']}'는 {pod['kind']}).",
+            f"'{template['label']}' 템플릿은 {', '.join(allowed_kinds)} 종류의 워커에서만 쓸 수 있어요 "
+            f"(고른 워커 '{pod['name']}'는 {pod['kind']}).",
         )
     # 반대 방향도 막는다 — ComfyUI용 템플릿(대부분)은 셸 파드로 보낼 수 없다.
     if pod is not None and not allowed_kinds and pod["kind"] != pod_registry.DEFAULT_KIND:
         raise HTTPException(
             400,
-            f"'{template['label']}' 템플릿은 {pod_registry.DEFAULT_KIND} 파드용이에요 "
-            f"(고른 파드 '{pod['name']}'는 {pod['kind']}).",
+            f"'{template['label']}' 템플릿은 {pod_registry.DEFAULT_KIND} 워커용이에요 "
+            f"(고른 워커 '{pod['name']}'는 {pod['kind']}).",
         )
 
     with lock:
@@ -352,7 +352,7 @@ async def create_job(
     pod_gpu = pod_cost_per_hr = None
     try:
         if pod is None:
-            raise RuntimeError("파드 없음")
+            raise RuntimeError("워커 없음")
         info = await asyncio.wait_for(
             asyncio.to_thread(runpod_api.get_runpod_info, pod.get("url") or ""), timeout=3)
         if info:
@@ -440,7 +440,7 @@ async def create_job(
         elif pod is None:
             # 파드 없이 만든 작업은 곧장 대기 큐로 간다("보내기") — 스케줄러가 갖춰진 파드를 찾는다.
             jobs[job_id]["status"] = "queued"
-            jobs[job_id]["waiting_reason"] = "파드를 찾는 중이에요"
+            jobs[job_id]["waiting_reason"] = "워커를 찾는 중이에요"
             auto_queued = False
         else:
             # 자동 실행 모드("▶ 시작"이 켜져 있는 동안)면 대기 목록에 머무르지 않고

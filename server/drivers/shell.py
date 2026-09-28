@@ -87,7 +87,7 @@ class ShellDriver(PodDriver):
 
     @staticmethod
     def unavailable_reason() -> str:
-        return ("셸 파드는 임의 명령을 실행하므로 기본으로 꺼져 있어요. "
+        return ("셸 워커는 임의 명령을 실행하므로 기본으로 꺼져 있어요. "
                 "쓰려면 NIGHTSHIFT_ENABLE_SHELL_PODS=1로 켜고, "
                 "NIGHTSHIFT_API_KEY도 함께 설정하세요.")
 
@@ -112,7 +112,7 @@ class ShellDriver(PodDriver):
         target, label = parse_target(pod)
         if not shell_pods_enabled():
             return {"ok": False, "url": label, "source": "local",
-                    "detail": "셸 파드가 꺼져 있어요 (NIGHTSHIFT_ENABLE_SHELL_PODS=1로 켭니다)."}
+                    "detail": "셸 워커가 꺼져 있어요 (NIGHTSHIFT_ENABLE_SHELL_PODS=1로 켭니다)."}
         if target is None:
             # 로컬은 "작업 폴더가 실제로 있는가"가 곧 살아 있는지 여부다.
             ok = Path(workdir(pod)).is_dir()
