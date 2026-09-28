@@ -372,6 +372,9 @@
     -webkit-user-select:text; user-select:text; cursor:text;
   }
   textarea.board-gen-input{ resize:none; height:66px; line-height:1.4; }
+  /* 카드를 키우면 남는 높이를 글칸(프롬프트)이 나눠 채운다 — 66px은 최소, 글칸이 여럿이면 똑같이 나눈다 */
+  .board-gen-field.grow{ flex:1 0 auto; }
+  .board-gen-field.grow textarea.board-gen-input{ flex:1 0 auto; }
   select.board-gen-input{ cursor:pointer; }
   .board-gen-input:focus{ outline:2px solid rgba(var(--running-rgb),0.35); outline-offset:-1px; }
 

@@ -15,7 +15,7 @@ function boardGenFieldHtml(nodeId, f, value){
   }else{
     control = `<input type="number" step="any" ${attrs} value="${escapeHtml(value)}"${ph}>`;
   }
-  return `<label class="board-gen-field"><span class="board-gen-field-label">${escapeHtml(f.label)}</span>${control}</label>`;
+  return `<label class="board-gen-field${f.type === 'textarea' ? ' grow' : ''}"><span class="board-gen-field-label">${escapeHtml(f.label)}</span>${control}</label>`;
 }
 
 function boardGenCardHtml(node, style, delBtn){
