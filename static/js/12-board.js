@@ -246,7 +246,7 @@ function initBoardCanvas(){
       if(bgPointers.size){ addBoardPanPointer(e); return; }
     }
     if(dragNode || marquee) return;
-    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-resize, .board-node-textarea, .board-gen-input, .board-gen-btn, .board-frame-fold, .board-gen-copy')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
+    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-resize, .board-node-textarea, .board-gen-input, .board-gen-btn, .board-frame-fold, .board-gen-copy, .board-gen-port')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
     const id = Number(nodeEl.dataset.nodeId);
     if(!boardNodes.some(n => n.id === id)) return;
     const selBefore = new Set(boardSelectedIds);   // 핀치로 바뀌면 이걸로 되돌린다
@@ -461,6 +461,11 @@ function initBoardCanvas(){
       const text = ta ? ta.value : '';
       if(!text.trim()){ flashNotice('복사할 내용이 없어요'); }
       else copyTextToClipboard(text).then(() => flashNotice('프롬프트를 복사했어요'), () => flashNotice('복사하지 못했어요'));
+    }
+    const port = e.target.closest('.board-gen-port');
+    if(port){   // 생성 카드 입구 점 — 이미지를 골라 카드로 놓고 이 입구에 잇는다
+      const nodeEl = port.closest('.board-node');
+      openBoardAssetPicker('image', { nodeId: Number(nodeEl.dataset.nodeId), slot: port.closest('.board-gen-slot').dataset.genSlot });
     }
     const edgeDelBtn = e.target.closest('.board-edge-del');
     if(edgeDelBtn) deleteBoardEdge(Number(edgeDelBtn.dataset.edgeDel));

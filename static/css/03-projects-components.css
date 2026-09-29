@@ -357,8 +357,10 @@
   .board-gen-slot-state{ font-size:11px; color:var(--text-dim); white-space:nowrap; }
   .board-gen-port{
     position:absolute; left:-7px; top:50%; margin-top:-6px; width:12px; height:12px; box-sizing:border-box;
-    border-radius:50%; background:var(--panel); border:2px solid var(--running);
+    border-radius:50%; background:var(--panel); border:2px solid var(--running); cursor:pointer;
   }
+  .board-gen-port::before{ content:""; position:absolute; inset:-7px; border-radius:50%; }   /* 누르기 쉽게 넓힌 자리 */
+  .board-gen-port:hover{ transform:scale(1.35); }
   .board-gen-fields{ flex:1; min-height:0; overflow:hidden; padding:4px 12px 10px; display:flex; flex-direction:column; gap:6px; }
   .board-gen-slot.filled .board-gen-port{ background:var(--running); }
   .board-gen-slot.connect-slot{ background:rgba(var(--running-rgb),0.14); }

@@ -24,7 +24,7 @@ function boardGenFieldHtml(nodeId, f, value){
 function boardGenCardHtml(node, style, delBtn){
   const d = node.data || {};
   const slots = (d.slots || []).map(sl => `<div class="board-gen-slot" data-gen-slot="${escapeHtml(sl.name)}">`
-    + `<span class="board-gen-port" title="이미지 카드를 이어 채우는 입구"></span>`
+    + `<span class="board-gen-port" title="눌러서 이미지 고르기 — 이미지 카드를 끌어 이어도 돼요"></span>`
     + `<span class="board-gen-slot-label">${escapeHtml(sl.label)}${sl.required ? '' : ' <em>(선택)</em>'}</span>`
     + `<span class="board-gen-slot-state">비어 있음</span></div>`).join('');
   const fields = (d.fields || []).map(f => boardGenFieldHtml(node.id, f, (d.values || {})[f.name] ?? '')).join('');
@@ -601,6 +601,7 @@ async function createBoardNode(kind, assetPath, text, geom){
   setBoardSelection(new Set([node.id]));
   pushBoardHistory({ type: 'create', node: { ...node } });
   if(kind === 'job') fetchBoardJobs();
+  return node;
 }
 
 // 묶음 틀 — 고른 카드가 있으면 그 둘레를 감싸고(제목 띠 자리만큼 위를 더 띄움), 없으면
@@ -963,10 +964,12 @@ function boardFitToNodes(){
 
 // ---- 프로젝트 보드 — 이미지/영상 카드를 놓을 때 "이 프로젝트 결과물 중 고르기" ----
 let boardPickerKind = null;   // 'image' | 'video' | 'job'
+let boardPickerSlot = null;   // 생성 카드 입구 점을 눌러 열었으면 { nodeId, slot } — 고른 이미지 카드를 그 입구에 잇는다
 
-async function openBoardAssetPicker(kind){
+async function openBoardAssetPicker(kind, slot){
   if(typeof currentProjectId !== 'number') return;
   boardPickerKind = kind;
+  boardPickerSlot = slot || null;
   document.getElementById('board-asset-picker-title').textContent =
     kind === 'image' ? '이미지 고르기' : kind === 'video' ? '영상 고르기' : kind === 'job' ? '작업 고르기' : '보드 프리셋 고르기';
   const grid = document.getElementById('board-asset-picker-grid');
@@ -1050,6 +1053,13 @@ document.getElementById('board-asset-picker-grid').addEventListener('click', (e)
   const btn = e.target.closest('[data-pick]');
   if(!btn) return;
   closeBoardAssetPicker();
-  createBoardNode(boardPickerKind, btn.dataset.pick, '');
+  const target = boardPickerSlot && boardNodes.find(n => n.id === boardPickerSlot.nodeId);
+  if(!target){ createBoardNode(boardPickerKind, btn.dataset.pick, ''); return; }
+  // 입구 줄 높이에 맞춰 생성 카드 왼쪽에 놓고 그 입구로 잇는다.
+  const slotName = boardPickerSlot.slot;
+  const i = Math.max(0, ((target.data && target.data.slots) || []).findIndex(sl => sl.name === slotName));
+  const portY = target.y + BOARD_GEN_PORT_Y0 + BOARD_GEN_SLOT_H * i;
+  createBoardNode('image', btn.dataset.pick, '', { x: target.x - 220 - 60, y: portY - 110, width: 220, height: 220 })
+    .then(node => { if(node) createBoardEdge(node.id, target.id, slotName); });
 });
 
