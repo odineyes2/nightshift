@@ -265,7 +265,7 @@ function boardNodeHtml(node){
       + `<div class="board-nsfw-cover">${ico(hidden ? 'ban' : 'eye-off')}<span>NSFW</span></div>${delBtn}<span class="board-node-resize" title="끌어서 크기 바꾸기"></span></div>`;
   }
   if(node.kind === 'image'){
-    const url = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(node.asset_path)}/thumbnail?size=400&fit=cover`);
+    const url = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(node.asset_path)}/thumbnail?size=800`);   // 잘리지 않은 축소판(fit 기본 inside) — 카드가 전체를 보여 준다(NS-5)
     return `<div class="board-node board-node-image" data-node-id="${node.id}" style="${style}"><img src="${url}" loading="lazy" alt="">${delBtn}<span class="board-node-resize" title="끌어서 크기 바꾸기"></span></div>`;
   }
   if(node.kind === 'video'){

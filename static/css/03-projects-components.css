@@ -191,8 +191,9 @@
   .board-viewport{ -webkit-user-select:none; user-select:none; }
   .board-node-textarea{ -webkit-user-select:text; user-select:text; }
   .board-node.dragging{ cursor:grabbing; box-shadow:0 8px 20px rgba(16,24,40,0.22); z-index:5; }
+  /* 카드 크기와 상관없이 이미지·영상 전체가 보이게(NS-5) — 남는 칸은 카드 배경. 예전엔 cover라 잘려 보였다. */
   .board-node-image img, .board-node-video video{
-    width:100%; height:100%; object-fit:cover; display:block; pointer-events:none;
+    width:100%; height:100%; object-fit:contain; display:block; pointer-events:none;
   }
   .board-node-textarea{
     width:100%; height:100%; border:none; resize:none; box-sizing:border-box;
