@@ -246,7 +246,7 @@ function initBoardCanvas(){
       if(bgPointers.size){ addBoardPanPointer(e); return; }
     }
     if(dragNode || marquee) return;
-    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-resize, .board-node-textarea, .board-gen-input, .board-gen-btn, .board-frame-fold')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
+    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-resize, .board-node-textarea, .board-gen-input, .board-gen-btn, .board-frame-fold, .board-gen-copy')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
     const id = Number(nodeEl.dataset.nodeId);
     if(!boardNodes.some(n => n.id === id)) return;
     const selBefore = new Set(boardSelectedIds);   // 핀치로 바뀌면 이걸로 되돌린다
@@ -454,6 +454,14 @@ function initBoardCanvas(){
     if(delBtn) deleteBoardNodes([Number(delBtn.dataset.boardDel)]);
     const foldBtn = e.target.closest('.board-frame-fold');
     if(foldBtn) toggleBoardFrameFold(Number(foldBtn.dataset.boardFold));
+    const copyBtn = e.target.closest('.board-gen-copy');
+    if(copyBtn){
+      e.preventDefault();   // 글칸을 감싼 label이 글칸에 포커스를 넘기지 않게
+      const ta = document.querySelector(`#board-world .board-gen-input[data-gen-node="${copyBtn.dataset.genCopyNode}"][data-gen-field="${CSS.escape(copyBtn.dataset.genCopyField)}"]`);
+      const text = ta ? ta.value : '';
+      if(!text.trim()){ flashNotice('복사할 내용이 없어요'); }
+      else copyTextToClipboard(text).then(() => flashNotice('프롬프트를 복사했어요'), () => flashNotice('복사하지 못했어요'));
+    }
     const edgeDelBtn = e.target.closest('.board-edge-del');
     if(edgeDelBtn) deleteBoardEdge(Number(edgeDelBtn.dataset.edgeDel));
     const runBtn = e.target.closest('[data-gen-run]');

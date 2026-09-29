@@ -385,7 +385,13 @@
   .board-node-gen .board-node-resize{ right:-7px; bottom:-7px; }
   @media (pointer:coarse){ .board-node-gen .board-node-resize{ right:-11px; bottom:-11px; } }
   .board-gen-field{ display:flex; flex-direction:column; gap:3px; }
-  .board-gen-field-label{ font-size:11px; color:var(--text-dim); }
+  .board-gen-field-label{ font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:4px; }
+  .board-gen-copy{
+    margin-left:auto; width:22px; height:22px; padding:0; border:none; border-radius:5px; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center; background:transparent; color:var(--text-dim);
+  }
+  .board-gen-copy:hover{ background:rgba(var(--queued-rgb),0.12); color:var(--queued); }
+  .board-gen-copy .ico{ width:13px; height:13px; }
   .board-gen-input{
     width:100%; box-sizing:border-box; font:inherit; font-size:12.5px; color:var(--text);
     background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:6px 8px;
