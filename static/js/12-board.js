@@ -465,7 +465,10 @@ function initBoardCanvas(){
     const edgeDelBtn = e.target.closest('.board-edge-del');
     if(edgeDelBtn) deleteBoardEdge(Number(edgeDelBtn.dataset.edgeDel));
     const runBtn = e.target.closest('[data-gen-run]');
-    if(runBtn && !runBtn.disabled) runBoardGen(Number(runBtn.dataset.genRun));
+    if(runBtn && !runBtn.disabled){
+      if(runBtn.classList.contains('busy')) stopBoardGen(Number(runBtn.dataset.genRun));   // 대기·실행 중이면 "멈추기"
+      else runBoardGen(Number(runBtn.dataset.genRun));
+    }
     const detailBtn = e.target.closest('[data-gen-detail]');
     if(detailBtn) openBoardGenDetail(Number(detailBtn.dataset.genDetail));
   });

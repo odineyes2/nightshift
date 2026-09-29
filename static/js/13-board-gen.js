@@ -44,7 +44,7 @@ function boardGenStatusHtml(info, node){
   const runs = ((node && node.data && node.data.runs) || []).length;
   if(!runs) return '<span>아직 실행하지 않았어요</span>';
   if(!info) return '<span>불러오는 중…</span>';
-  if(info.missing) return `<span>마지막 작업이 지워졌어요 · ${runs}회 실행</span>`;
+  if(info.missing) return `<span>마지막 작업을 멈췄거나 지웠어요 · ${runs}회 실행</span>`;
   const pr = info.progress;
   const progress = pr && pr.total ? `<span>${pr.done}/${pr.total}</span>` : '';
   // 대기 사유는 길 수 있어 맨 뒤에 두고 말줄임(전체 문구는 마우스를 올리면) — 실행 횟수가 잘리지 않게.
@@ -81,14 +81,17 @@ function paintBoardGenSlots(){
     }
     const runBtn = el.querySelector('[data-gen-run]');
     if(runBtn){
-      // 마지막 실행이 아직 대기·실행 중이면 버튼을 막고 일시정지 아이콘으로 — 같은 작업을 겹쳐 쏘지 않게.
+      // 마지막 실행이 아직 대기·실행 중이면 버튼이 "멈추기"가 된다(#22) — 대기 중이면 바로 거둬들여 고쳐서 다시
+      // 실행할 수 있게, 실행 중이면 한 번 더 확인받고 멈춘다(stopBoardGen). 같은 작업을 겹쳐 쏘지는 않는다.
       const info = boardJobInfo.get(node.id);
       const busy = !!(info && !info.missing && info.active);
-      runBtn.disabled = busy || empty.length > 0;
+      const running = busy && info.status === 'running';
+      runBtn.disabled = !busy && empty.length > 0;
       runBtn.classList.toggle('busy', busy);
-      runBtn.title = busy ? '이전 실행이 끝나면 다시 실행할 수 있어요'
+      runBtn.title = busy ? (running ? '실행 중이에요 — 누르면 확인 후 멈춰요(지금까지 만든 결과는 남아요)'
+                                     : '대기 중이에요 — 누르면 멈추고, 고쳐서 다시 실행할 수 있어요')
         : empty.length ? `이미지 카드를 이어 주세요: ${empty.join(', ')}` : '이 카드 설정으로 작업을 만들어 바로 대기 큐에 넣어요';
-      const html = busy ? `${ico('pause')} ${info.status === 'running' ? '실행 중' : '대기 중'}` : `${ico('play')} 실행`;
+      const html = busy ? `${ico('pause')} ${running ? '실행 중 · 멈추기' : '대기 중 · 멈추기'}` : `${ico('play')} 실행`;
       if(runBtn._html !== html){ runBtn.innerHTML = html; runBtn._html = html; }
     }
   }
@@ -120,6 +123,35 @@ async function runBoardGen(nodeId){
   paintBoardGenSlots();
   flashNotice('실행했어요 — 필요한 모델을 갖춘 워커가 잡히면 시작해요.');
   fetchBoardJobs();
+}
+
+// 멈추기(#22) — 대기 중(pending·queued)이면 일시정지로 큐에서 빼고 지운다(소프트 삭제 — 지운 작업에서 되살릴 수 있다).
+// 실행 중이면 경고하고 한 번 더 확인받은 뒤 정지(중단됨). 그다음 카드 값을 고쳐 다시 "실행"하면 새 작업이 된다.
+async function stopBoardGen(nodeId){
+  const info = boardJobInfo.get(nodeId);
+  if(!info || info.missing || !info.active) return;
+  const running = info.status === 'running';
+  if(running && !confirm('이 생성 카드의 작업이 이미 실행 중이에요.\n멈추면 지금 만들고 있는 결과는 중단돼요(이미 나온 결과는 남아요). 멈출까요?')) return;
+  const btn = document.querySelector(`#board-world [data-gen-run="${nodeId}"]`);
+  if(btn) btn.disabled = true;
+  const call = (path, method) => fetch(`/api/jobs/${encodeURIComponent(info.job_id)}${path}`, { method });
+  let res;
+  try{
+    if(running){
+      res = await call('/stop', 'POST');
+    }else{
+      if(info.status === 'queued') await call('/pause', 'POST');   // 워커 큐에 들어가 있어도 여기서 빠진다
+      res = await call('', 'DELETE');
+    }
+  }catch(e){ res = null; }
+  if(!res || !res.ok){
+    const data = res ? await res.json().catch(() => ({})) : {};
+    flashNotice(data.detail || '멈추지 못했어요 — 잠시 뒤 다시 해 주세요.');
+  }else{
+    flashNotice(running ? '멈추라고 했어요 — 곧 중단돼요' : '멈췄어요 — 고쳐서 다시 실행하세요');
+  }
+  await fetchBoardJobs();
+  paintBoardGenSlots();
 }
 
 // 결과 펼치기 — 서버가 아직 안 펼친 결과를 이미지/영상 카드로 만들어 생성 카드 오른쪽에 놓고 선으로
