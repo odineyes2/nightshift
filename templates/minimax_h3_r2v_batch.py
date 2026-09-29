@@ -269,6 +269,41 @@ def apply_ref_audio(workflow, comfy_url, title, audio_path):
     return True
 
 
+# 빈 로더 — 이미지·영상·오디오를 안 넣은 칸의 로더는 파일 이름이 빈 채로 남는다. ComfyUI는 빈 이름을 미리 검사에서
+# 통과시키고(input 폴더가 있으니까) 실행할 때 "[Errno 21] Is a directory: .../ComfyUI/input"으로 실패한다(NS-4).
+# 그런 로더를 지우고, 그 출력을 받던 입력도 뺀다(MiniMax의 last_frame·ref_images.* 같은 선택 입력).
+_LOADER_FIELDS = {"LoadImage": "image", "LoadVideo": "file", "VHS_LoadVideo": "video", "LoadAudio": "audio"}
+
+
+def prune_empty_loaders(workflow):
+    empty = {nid for nid, node in workflow.items()
+             if node.get("class_type") in _LOADER_FIELDS
+             and not str((node.get("inputs") or {}).get(_LOADER_FIELDS[node["class_type"]]) or "").strip()}
+    for nid in empty:
+        del workflow[nid]
+    for node in workflow.values():
+        inputs = node.get("inputs") or {}
+        for key in [k for k, v in inputs.items() if isinstance(v, list) and len(v) == 2 and str(v[0]) in empty]:
+            del inputs[key]
+    return empty
+
+
+def _comfy_rejection(e):
+    """ComfyUI가 /prompt를 400으로 거절하면 이유(error·node_errors)가 본문에 있다 — 로그에 남긴다(NS-4: 전에는 안 남아 원인을 몰랐다)."""
+    try:
+        body = json.loads(e.read().decode("utf-8", "replace"))
+    except Exception:
+        return f"HTTP {e.code}"
+    parts = []
+    err = body.get("error")
+    if isinstance(err, dict):
+        parts.append(f"{err.get('message', '')} {err.get('details', '')}".strip())
+    for nid, ne in (body.get("node_errors") or {}).items():
+        for x in ne.get("errors") or []:
+            parts.append(f"노드 {nid}({ne.get('class_type', '')}): {x.get('message', '')} {x.get('details', '')}".strip())
+    return " / ".join(p for p in parts if p) or f"HTTP {e.code}"
+
+
 def queue_prompt(comfy_url, workflow):
     payload = json.dumps({"prompt": workflow, "client_id": str(uuid.uuid4())}).encode("utf-8")
     req = urllib.request.Request(
@@ -277,8 +312,11 @@ def queue_prompt(comfy_url, workflow):
         headers={"Content-Type": "application/json", "User-Agent": COMFY_USER_AGENT},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"ComfyUI가 프롬프트를 거부했습니다: {_comfy_rejection(e)}") from None
     if "error" in data:
         raise RuntimeError(f"ComfyUI가 프롬프트를 거부했습니다: {data['error']}")
     return data["prompt_id"]
@@ -372,6 +410,7 @@ def run_once(base_workflow, comfy_url, index, seed, user_prompt, duration,
     for i, path in enumerate(ref_audio_paths, start=1):
         if path is not None:
             apply_ref_audio(workflow, comfy_url, f"ref_audio_{i}", path)
+    prune_empty_loaders(workflow)
     apply_filename_prefix(workflow, index, seed)
 
     prompt_id = queue_prompt(comfy_url, workflow)
