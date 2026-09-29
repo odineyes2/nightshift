@@ -89,6 +89,9 @@
   .job-card-wait{ display:flex; align-items:center; gap:4px; margin-top:2px; font-size:10.5px; color:var(--running); min-width:0; }
   .job-card-wait .ico{ width:12px; height:12px; flex:none; }
   .job-card-wait span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* 모델 안내는 워커 모델 탭으로 가는 링크(NS-3) — 글자색은 상태색 그대로, 올리면 밑줄 */
+  a.job-card-models-link{ text-decoration:none; cursor:pointer; }
+  a.job-card-models-link:hover span{ text-decoration:underline; text-underline-offset:2px; }
   .job-card-base{ font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .job-card-actions{ display:flex; gap:2px; justify-content:flex-end; }
   /* 경과 시간은 버튼 줄 왼쪽 끝 — 버튼들은 그대로 오른쪽에 붙는다. */

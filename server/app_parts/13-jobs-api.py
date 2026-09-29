@@ -412,14 +412,23 @@ def _watch_model_downloads(pod: dict, job_id: str | None, names: list[str]) -> N
         except Exception:
             continue
         finished = False
-        for item in result.get("downloads", []):
+        seen_files = set()
+        for item in result.get("downloads", []):   # 다운로더는 최근 것부터 준다
             fname = str(item.get("filename") or "")
             match = next((n for n in pending if n == fname or n.endswith("/" + fname) or fname.endswith("/" + n)), None)
-            if match and item.get("status") in ("done", "error", "failed", "cancelled"):
+            # 같은 파일의 옛 기록(예: 전에 실패한 받기)은 보지 않는다 — 다시 받는 중인데 옛 실패로 판정해
+            # "받기 실패 → 없는 모델 받기" 버튼이 다시 뜨던 문제(NS-3).
+            if not match or match in seen_files:
+                continue
+            seen_files.add(match)
+            if item.get("status") in ("done", "error", "failed", "cancelled"):
                 pending.discard(match)
                 finished = True
                 if item.get("status") != "done":
                     errors.append(f"{match}: {item.get('error') or item.get('status')}")
+                    _note_model_event(job_id, f"받기 실패: {match} — {item.get('error') or item.get('status')}")
+                else:
+                    _note_model_event(job_id, f"받음: {match}")
         if finished:
             ComfyUIDriver.invalidate_capabilities(pod["id"])
             poke_scheduler()
@@ -432,6 +441,7 @@ def _watch_model_downloads(pod: dict, job_id: str | None, names: list[str]) -> N
             if pending:
                 errors.append(f"{', '.join(sorted(pending))}: 6시간 안에 끝나지 않았어요")
             job["fetch_error"] = " · ".join(errors) or None
+            _append_model_event(job, "다 받았어요 — 설치 목록을 다시 확인해요" if not errors else "받기가 끝났지만 실패가 있어요")
             if not errors and job.get("status") == "queued" and not job.get("pod_id"):
                 # 다 받았으면 옛 "없는 것 — …"을 지운다 — 스케줄러가 새 설치 목록으로 다시 볼 때까지(최대 몇 초)
                 # 카드에 옛 이유가 다시 보여 "받았는데 또 없다고?"처럼 깜빡였다. 아직 모자라면 스케줄러가 다시 적는다.
@@ -464,12 +474,45 @@ async def _start_model_downloads(user: dict, pod: dict, names: list[str]) -> tup
             await asyncio.to_thread(model_download.call_node, pod, "POST", "/nightshift/dl/start", body)
             started.append(name)
         except model_download.DownloadError as e:
-            # "이미 받는 중"(다른 작업이 먼저 시작)·"이미 있어요"는 실패가 아니다 — 끝나면 스케줄러가 다시 본다.
+            if e.status == 409 and "받는 중" in str(e):
+                # 다른 작업(또는 자동 설치)이 먼저 받고 있다 — 이 작업도 "받는 중"으로 따라간다. 전에는 시작도 실패도
+                # 아닌 채로 빠져서, 받는 동안 카드에 "없는 모델 + 받기 버튼"이 떠 있었다(NS-3).
+                started.append(name)
+                continue
             if e.status == 409 and "이미" in str(e):
+                # 파일이 이미 있다 — 받을 것 없이 설치 목록만 다시 읽으면 된다.
                 ComfyUIDriver.invalidate_capabilities(pod["id"])
+                poke_scheduler()
                 continue
             failed.append({"name": name, "detail": str(e)})
     return started, no_url, failed
+
+
+def _append_model_event(job: dict, text: str) -> None:
+    """작업의 모델 받기 기록 한 줄(최근 30개) — 작업 상세에 보인다. lock을 잡은 채로 부른다."""
+    events = list(job.get("model_events") or [])[-29:]
+    events.append({"at": now_iso(), "text": text})
+    job["model_events"] = events
+
+
+def _note_model_event(job_id: str | None, text: str) -> None:
+    if not job_id:
+        return
+    with lock:
+        job = jobs.get(job_id)
+        if job is not None:
+            _append_model_event(job, text)
+
+
+def _describe_fetch(prefix: str, started, no_url, failed) -> list[str]:
+    lines = []
+    if started:
+        lines.append(f"{prefix}: {', '.join(started)}")
+    if no_url:
+        lines.append(f"주소가 없어 못 받음(모델 탭에서 다운로드 주소 등록): {', '.join(no_url)}")
+    for f in failed:
+        lines.append(f"받기 실패: {f['name']} — {f['detail']}")
+    return lines
 
 
 def _maybe_auto_fetch(job_id: str, pod: dict, missing: list[str]) -> None:
@@ -495,6 +538,8 @@ def _auto_fetch_run(job_id: str, pod: dict, names: list[str], owner_id) -> None:
     with lock:
         job = jobs.get(job_id)
         if job is not None:
+            for line in _describe_fetch("자동 설치 시작", started, no_url, failed) or ["자동 설치 — 이미 있어서 받을 것이 없어요"]:
+                _append_model_event(job, line)
             if started:
                 job["fetching_models"] = {"pod_id": pod["id"], "names": started, "started_at": now_iso(), "auto": True}
             if failed:
@@ -575,6 +620,11 @@ async def fetch_missing_models(job_id: str, request: Request):
         raise HTTPException(400, "받을 모델이 없어요(이미 갖춰졌거나 아직 확인 전이에요).")
     pod = _download_pod(user, info["pod_id"])
     started, no_url, failed = await _start_model_downloads(user, pod, info["names"])
+    with lock:
+        job = jobs.get(job_id)
+        if job is not None:
+            for line in _describe_fetch("받기 시작(없는 모델 받기)", started, no_url, failed) or ["없는 모델 받기 — 이미 있어서 받을 것이 없어요"]:
+                _append_model_event(job, line)
     if started:
         with lock:
             job = jobs.get(job_id)

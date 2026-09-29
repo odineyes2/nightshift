@@ -234,6 +234,7 @@ function render(jobs, pendingCount, running, perPod){
     j.project_id, j.project_id != null ? projectName(j.project_id) : '',
     preflightCount(j.preflight), j.waiting_reason, j.pinned_pod_id,
     j.missing_models && j.missing_models.names.join('|'), !!j.fetching_models, j.fetch_error,
+    (j.model_events || []).length,
   ]));
   if(rowsSignature === lastJobsRowsSignature) return;
   lastJobsRowsSignature = rowsSignature;
@@ -254,7 +255,7 @@ function render(jobs, pendingCount, running, perPod){
 
   board.querySelectorAll('.job-card').forEach(card => {
     card.addEventListener('click', (e) => {
-      if(e.target.closest('.start-btn, .stop-btn, .del-btn')) return;
+      if(e.target.closest('.start-btn, .stop-btn, .del-btn, .job-card-models-link')) return;   // 모델 안내는 링크(워커 모델 탭)
       openJobDetailModal(card.dataset.id);
     });
   });
@@ -469,8 +470,9 @@ function buildJobCard(j){
         <div class="job-card-title">${kindIcon}<span>${escapeHtml(batchLabel)}</span></div>
         ${baseModel ? `<div class="job-card-base">${escapeHtml(baseModel)}</div>` : ''}
         ${fetching
-          ? `<div class="job-card-wait fetching" title="${escapeHtml(j.fetching_models.names.join('\n'))}">${ico('loader-circle', true)}<span>${j.fetching_models.auto ? '모델 자동 설치 중' : '모델 받는 중'} — 다 받으면 저절로 시작해요</span></div>`
+          ? `<a class="job-card-wait fetching job-card-models-link" href="#pod/${encodeURIComponent(j.fetching_models.pod_id)}/pmodels" title="${escapeHtml(j.fetching_models.names.join('\n') + '\n\n눌러서 워커의 모델 탭에서 진행 보기')}">${ico('loader-circle', true)}<span>${j.fetching_models.auto ? '모델 자동 설치 중' : '모델 받는 중'} ${j.fetching_models.names.length}개 — 눌러서 진행 보기</span></a>`
           : blocked && j.fetch_error ? `<div class="job-card-wait" title="${escapeHtml('모델 받기 실패 — ' + j.fetch_error + '\n\n' + (j.waiting_reason || ''))}">${ico('triangle-alert')}<span>받기 실패 — ${escapeHtml(/HTTP 40[13]/.test(j.fetch_error) ? 'Civitai 토큰 필요(HTTP ' + j.fetch_error.match(/HTTP (40[13])/)[1] + ') · 카드를 눌러 자세히' : j.fetch_error)}</span></div>`
+          : blocked ? `<a class="job-card-wait job-card-models-link" href="#pod/${encodeURIComponent(j.missing_models.pod_id)}/pmodels" title="${escapeHtml((j.waiting_reason || '') + '\n\n눌러서 워커의 모델 탭 보기')}">${ico('triangle-alert')}<span>${escapeHtml(j.waiting_reason || '없는 모델이 있어요')}</span></a>`
           : waitingForPod && j.waiting_reason ? `<div class="job-card-wait" title="${escapeHtml(j.waiting_reason)}">${ico('triangle-alert')}<span>${escapeHtml(j.waiting_reason)}</span></div>` : ''}
       </div>
       ${progress ? `
@@ -563,6 +565,7 @@ function renderJobDetailModalBody(){
     </div>
     ${waitingForPod && job.waiting_reason ? `<div class="job-wait-reason">${escapeHtml(job.waiting_reason)}</div>` : ''}
     ${waitingForPod && job.fetch_error ? `<div class="job-wait-reason">모델 받기 실패 — ${escapeHtml(job.fetch_error)}${/HTTP 40[13]/.test(job.fetch_error) ? '<br>→ 계정 창(오른쪽 위 계정 이름)의 CIVITAI 토큰을 확인하고, 모델 탭의 다운로드 주소가 civitai.com/civitai.red 주소인지 확인하세요.' : ''}</div>` : ''}
+    ${(job.model_events || []).length ? `<div class="field"><label class="field-label">모델 받기 기록</label><div class="job-detail-preflight">${escapeHtml(job.model_events.map(e => `${fmtTime(e.at)}  ${e.text}`).join('\n'))}</div></div>` : ''}
     ${pfLines.length ? `<div class="field"><label class="field-label">모델 확인 필요</label><div class="job-detail-preflight">${escapeHtml(pfLines.join('\n'))}</div></div>` : ''}`;
 
   document.getElementById('job-detail-actions').innerHTML = `
