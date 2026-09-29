@@ -414,11 +414,21 @@ function cancelPodLongPress(){
   podLongPress.card = null;
 }
 
+// 워커 지우기(카드 길게 누르기·설정 창 공용). RunPod 파드를 가리키는 워커면 파드도 같이 지우는 게 기본이다 —
+// 남겨 두면 꺼져 있어도 디스크 요금이 나간다. 첫 확인에서 취소하면 "파드는 남기고 워커만" 지울지 한 번 더 묻는다.
 async function deletePodWithConfirm(podId){
   const pod = podsById[podId] || {};
-  if(!confirm(`'${pod.name || podId}' 워커를 삭제할까요?\n이 워커에 배정된 대기 작업은 같은 계정의 다른 워커로 옮겨져요.`)) return;
+  const name = pod.name || podId;
+  const isRunpod = /^https:\/\/[a-z0-9]+-\d+\.proxy\.runpod\.net/i.test(pod.url || '') && isAdminUser();
+  let terminate = false;
+  if(isRunpod){
+    terminate = confirm(`'${name}' 워커와 RunPod 파드를 함께 지울까요?\n파드 안의 모델·파일이 모두 지워지고 요금도 멈춰요(되돌릴 수 없어요).\n\n취소하면 "워커만 지우기"를 물어봐요.`);
+    if(!terminate && !confirm(`RunPod 파드는 남기고 '${name}' 워커만 지울까요?\n남은 파드는 꺼져 있어도 디스크 요금이 나가요.`)) return;
+  }else if(!confirm(`'${name}' 워커를 삭제할까요?\n이 워커에 배정된 대기 작업은 같은 계정의 다른 워커로 옮겨져요.`)){
+    return;
+  }
   try{
-    const res = await fetch(`/api/pods/${encodeURIComponent(podId)}`, { method: 'DELETE' });
+    const res = await fetch(`/api/pods/${encodeURIComponent(podId)}${terminate ? '?terminate_runpod=true' : ''}`, { method: 'DELETE' });
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || '지우지 못했어요.');
     const wasInside = currentPodId === podId;
@@ -548,9 +558,67 @@ function openPodEditModal(podId){
   const runpodInfo = podId ? runpodInfoFromDashboard(podId) : null;
   renderRunpodInfoBox(runpodInfo);
   updatePodNameSuggest(runpodInfo && runpodInfo.pod_name);
-  document.getElementById('pod-edit-modal').style.display = 'flex';
+  const modal = document.getElementById('pod-edit-modal');
+  modal.classList.toggle('create-mode', !podId);
+  modal.classList.remove('manual-open');
+  modal.style.display = 'flex';
   renderPodControls();
+  if(!podId) renderPodCreateTiers();
 }
+
+// ---- 워커 추가 = RunPod 파드 만들기(#12) ----
+// 등급(이미지용·영상용) 카드를 누르면 서버가 RunPod에 파드를 만들고 워커에 바로 연결한다(POST /api/pods/runpod-create).
+// 관리자가 아니거나 RunPod 키가 없으면 만들 수 없으니 곧장 주소 입력(고급)을 펼친다.
+async function renderPodCreateTiers(){
+  const box = document.getElementById('pod-create-tiers');
+  const statusEl = document.getElementById('pod-create-status');
+  statusEl.textContent = '';
+  statusEl.classList.remove('error');
+  box.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
+  let data = null;
+  if(isAdminUser()){
+    try{ const res = await fetch('/api/runpod/tiers'); if(res.ok) data = await res.json(); }catch(e){ /* 아래에서 */ }
+  }
+  if(!data || !data.api_key){
+    box.innerHTML = `<div class="comfy-model-empty">${isAdminUser() ? 'RUNPOD_API_KEY가 없어 파드를 만들 수 없어요.' : 'RunPod 파드 만들기는 관리자만 할 수 있어요.'} 아래 주소로 연결해 주세요.</div>`;
+    document.getElementById('pod-edit-modal').classList.add('manual-open');
+    return;
+  }
+  box.innerHTML = data.tiers.map(t => `
+    <button type="button" class="pod-create-tier" data-tier="${escapeHtml(t.id)}" data-label="${escapeHtml(t.label)}" data-price="${escapeHtml(t.price_hint)}"
+            title="GPU 후보(이 순서로 찾아요): ${escapeHtml(t.gpus.map(g => g.replace(/^NVIDIA (GeForce )?/, '')).join(' → '))}">
+      <svg class="ico"><use href="#i-${t.id === 'video' ? 'clapperboard' : 'images'}"/></svg>
+      <b>${escapeHtml(t.label)}</b><span>${escapeHtml(t.vram)} · ${escapeHtml(t.price_hint)}</span>
+    </button>`).join('');
+}
+
+document.getElementById('pod-create-tiers').addEventListener('click', async (e) => {
+  const card = e.target.closest('.pod-create-tier');
+  if(!card || card.disabled) return;
+  if(!confirm(`${card.dataset.label} RunPod 파드를 만들까요?\n만드는 순간부터 요금이 나가요(${card.dataset.price}).\nComfyUI가 뜨기까지 1~3분 걸려요.`)) return;
+  const statusEl = document.getElementById('pod-create-status');
+  const cards = document.querySelectorAll('#pod-create-tiers .pod-create-tier');
+  cards.forEach(c => { c.disabled = true; });
+  statusEl.classList.remove('error');
+  statusEl.innerHTML = `${ico('loader-circle', true)} RunPod에 파드를 만드는 중… (재고를 찾느라 1분쯤 걸릴 수 있어요)`;
+  try{
+    const res = await fetch('/api/pods/runpod-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier: card.dataset.tier }) });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '파드를 만들지 못했어요.');
+    closePodEditModal();
+    await fetchPods();
+    fetchDashboard();
+    const rp = data.runpod || {};
+    flashNotice(`워커 '${data.name}'을(를) 만들었어요 — ${[rp.gpu, rp.data_center, rp.cost_per_hr != null ? `$${rp.cost_per_hr}/hr` : ''].filter(Boolean).join(' · ')}. ComfyUI가 뜨기까지 1~3분 걸려요.`);
+  }catch(err){
+    statusEl.classList.add('error');
+    statusEl.textContent = err.message;
+    cards.forEach(c => { c.disabled = false; });
+  }
+});
+document.getElementById('pod-manual-toggle').addEventListener('click', () => {
+  document.getElementById('pod-edit-modal').classList.toggle('manual-open');
+});
 
 function closePodEditModal(){
   document.getElementById('pod-edit-modal').style.display = 'none';
@@ -674,21 +742,9 @@ document.getElementById('pod-edit-runpod-test').addEventListener('click', async 
 
 document.getElementById('pod-edit-delete').addEventListener('click', async () => {
   if(!podEditId) return;
-  const pod = podsById[podEditId] || {};
-  if(!confirm(`'${pod.name || podEditId}' 워커를 지울까요? 이 워커에 배정된 대기 작업은 기본 워커로 옮겨져요.`)) return;
-  const errorEl = document.getElementById('pod-edit-error');
-  try{
-    const res = await fetch(`/api/pods/${podEditId}`, { method: 'DELETE' });
-    const data = await res.json().catch(() => ({}));
-    if(!res.ok) throw new Error(data.detail || '지우지 못했어요.');
-    closePodEditModal();
-    const wasInside = currentPodId === podEditId;
-    await fetchPods();
-    // 방금 지운 파드 안에 서 있었으면 갈 곳이 없다 — 대시보드로 내보낸다.
-    if(wasInside) showTab('pods'); else fetchDashboard();
-  }catch(e){
-    errorEl.textContent = e.message || '지우지 못했어요.';
-  }
+  const id = podEditId;
+  closePodEditModal();
+  deletePodWithConfirm(id);   // 카드 길게 누르기와 같은 확인(RunPod 파드도 지울지 포함)
 });
 
 // ---- RunPod 네트워크 볼륨(워커 탭 아래, 관리자만) ----

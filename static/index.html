@@ -1321,15 +1321,22 @@
       <button class="modal-close" id="pod-edit-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
-      <div class="email-hint">워커는 nightshift가 작업을 보내는 곳이고, 실제로 작업을 돌리는 기계(ComfyUI가 떠 있는 RunPod 파드 등)를 주소로 가리켜요.
+      <!-- 워커 추가 = RunPod 파드 만들기(#12) — 등급 카드를 누르면 파드를 만들어 바로 연결한다. 주소 입력은 아래 "고급"에. -->
+      <div class="pod-create-box create-only" id="pod-create-box">
+        <div class="email-hint">어떤 일에 쓸지 고르면 RunPod에 파드를 만들어 바로 연결해요. 서울에서 가까운 일본 데이터센터를 먼저 찾고, 재고가 없으면 다른 곳에 만들어요. 만드는 순간부터 시간당 요금이 나가요.</div>
+        <div class="pod-create-tiers" id="pod-create-tiers"></div>
+        <div class="enhance-status" id="pod-create-status" style="text-align:left; max-width:none;"></div>
+        <button type="button" class="pod-manual-toggle" id="pod-manual-toggle">고급 — 주소로 직접 연결 <svg class="ico"><use href="#i-chevron-down"/></svg></button>
+      </div>
+      <div class="email-hint manual-only">워커는 nightshift가 작업을 보내는 곳이고, 실제로 작업을 돌리는 기계(ComfyUI가 떠 있는 RunPod 파드 등)를 주소로 가리켜요.
         주소를 비워두면 <code>COMFY_URL</code> 환경변수 → <code>127.0.0.1</code> 자동 탐지 순으로 찾아요.</div>
-      <div class="field">
+      <div class="field manual-only">
         <label class="field-label" for="pod-edit-name">이름</label>
         <input type="text" class="option-input" id="pod-edit-name" placeholder="비워두면 랜덤한 이름(예: 느긋한 다람쥐 사원)으로 지어져요" autocomplete="off" style="max-width:100%;">
         <div class="pod-name-suggest" id="pod-edit-name-suggest" style="display:none;"></div>
       </div>
       <!-- 주소 + 동시 실행 수 한 줄(모바일은 두 줄, 같은 너비) -->
-      <div class="pod-edit-addr-row">
+      <div class="pod-edit-addr-row manual-only">
         <div class="field">
           <label class="field-label" for="pod-edit-url">주소</label>
           <input type="text" class="option-input" id="pod-edit-url" placeholder="예: https://abc123-8188.proxy.runpod.net" autocomplete="off" spellcheck="false">
@@ -1344,7 +1351,7 @@
         </div>
       </div>
       <!-- 스위치는 누르면 바로 적용된다(새 워커는 "저장" 때 함께). 입력칸은 "저장"으로. 08-pods.js renderPodControls -->
-      <div class="field pod-controls" id="pod-edit-controls">
+      <div class="field pod-controls manual-only" id="pod-edit-controls">
         <div class="pod-control-row" id="pod-ctl-enabled-row">
           <svg class="ico pod-control-ico"><use href="#i-server"/></svg>
           <div class="pod-control-text"><b>워커 사용</b><span id="pod-ctl-enabled-hint"></span></div>
@@ -1378,10 +1385,10 @@
     </div>
     <div class="modal-footer">
       <button class="del-btn" id="pod-edit-delete" type="button" style="margin-right:auto;" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label"> 삭제</span></button>
-      <button class="modal-btn-secondary" id="pod-edit-test" type="button" title="연결 테스트"><svg class="ico"><use href="#i-plug-zap"/></svg><span class="btn-label"> 연결 테스트</span></button>
-      <button class="modal-btn-secondary" id="pod-edit-runpod-test" type="button" title="RunPod 정보 테스트"><svg class="ico"><use href="#i-cloud"/></svg><span class="btn-label"> RunPod 정보 테스트</span></button>
+      <button class="modal-btn-secondary manual-only" id="pod-edit-test" type="button" title="연결 테스트"><svg class="ico"><use href="#i-plug-zap"/></svg><span class="btn-label"> 연결 테스트</span></button>
+      <button class="modal-btn-secondary manual-only" id="pod-edit-runpod-test" type="button" title="RunPod 정보 테스트"><svg class="ico"><use href="#i-cloud"/></svg><span class="btn-label"> RunPod 정보 테스트</span></button>
       <button class="modal-btn-secondary" id="pod-edit-cancel" type="button" title="취소"><svg class="ico"><use href="#i-x"/></svg><span class="btn-label"> 취소</span></button>
-      <button class="submit-btn" id="pod-edit-save" type="button" title="저장"><svg class="ico"><use href="#i-save"/></svg><span class="btn-label"> 저장</span></button>
+      <button class="submit-btn manual-only" id="pod-edit-save" type="button" title="저장"><svg class="ico"><use href="#i-save"/></svg><span class="btn-label"> 저장</span></button>
     </div>
   </div>
 </div>
