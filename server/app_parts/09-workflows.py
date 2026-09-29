@@ -224,6 +224,8 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
             source = MODEL_LIST_SOURCES.get(kind)
             if source is None:
                 return
+            # 목록이 통째로 비었으면(새로 만든 파드) 막지 않는다 — 작업을 받아 두고 스케줄러가 "없는 모델"로 기다리며
+            # 자동 설치하게 한다(job_missing_on_pod는 빈 목록도 "없음"으로 본다 — 역할이 다르다).
             installed = combo_choices(object_info, *source)
             if installed and value not in installed:
                 raise HTTPException(400, f"{label} '{value}'은(는) 지금 연결된 ComfyUI에 설치돼 있지 않아요.")
@@ -465,6 +467,7 @@ def coerce_option(option: dict, raw: str | None, options_so_far: dict, pod: dict
         # 확인함), 확인할 수 없을 때는 막지 않고 그대로 통과시킨다.
         if object_info is None:
             return value
+        # 빈 목록(새 파드)이면 막지 않는다 — 위 require_installed와 같은 이유(받아 두고 자동 설치로 기다린다).
         installed = combo_choices(object_info, *source)
         if installed and value not in installed:
             raise HTTPException(

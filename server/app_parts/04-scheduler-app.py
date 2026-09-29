@@ -48,8 +48,8 @@ def job_missing_on_pod(job: dict, pod: dict) -> list[str] | None:
         if not value or source is None:
             continue
         overridden.add(source)
-        installed = combo_choices(info, *source)
-        if installed and value not in installed:
+        installed = combo_spec(info, *source)   # 로더는 있는데 목록이 비었으면(새 파드) 그것도 "없음"
+        if installed is not None and value not in installed:
             problems.append(value)
     blobs: list[bytes | None] = []
     for field in ("workflow_filename", "video_workflow_filename"):

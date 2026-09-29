@@ -151,17 +151,26 @@ def fetch_comfy_object_info(force: bool = False, pod: dict | None = None) -> tup
     return driver_for(pod).capabilities(pod, force)
 
 
-def combo_choices(object_info: dict, class_type: str, field: str) -> list[str]:
-    """그 노드의 그 입력이 고를 수 있는 선택지 목록. ComfyUI는 목록에서 고르는
-    입력(COMBO)을 [["선택지1", "선택지2", ...], {옵션들}] 형태로 주고, 그냥 문자열/
-    숫자 입력은 ["STRING", {...}]처럼 타입 이름을 준다 — 첫 원소가 리스트인지로
-    둘을 구분한다. 목록형이 아니면 빈 리스트."""
+def combo_spec(object_info: dict, class_type: str, field: str) -> list[str] | None:
+    """그 노드의 그 입력이 목록에서 고르는 입력(COMBO)이면 선택지 목록(**비어 있을 수 있다** — 새로 만든 파드의
+    UNet 목록처럼 "설치된 게 하나도 없음"), 목록형이 아니거나 노드가 없으면 None. ComfyUI는 COMBO를
+    [["선택지1", ...], {옵션들}] 또는 새 형식 ["COMBO", {"options": [...]}]로 주고, 그냥 문자열/숫자 입력은
+    ["STRING", {...}]처럼 타입 이름을 준다."""
     spec = (object_info.get(class_type) or {}).get("input", {})
     for section in ("required", "optional"):
         entry = (spec.get(section) or {}).get(field)
-        if isinstance(entry, list) and entry and isinstance(entry[0], list):
+        if not isinstance(entry, list) or not entry:
+            continue
+        if isinstance(entry[0], list):
             return [str(v) for v in entry[0]]
-    return []
+        if entry[0] == "COMBO" and len(entry) > 1 and isinstance(entry[1], dict) and isinstance(entry[1].get("options"), list):
+            return [str(v) for v in entry[1]["options"]]
+    return None
+
+
+def combo_choices(object_info: dict, class_type: str, field: str) -> list[str]:
+    """그 노드의 그 입력이 고를 수 있는 선택지 목록 — 목록형이 아니면 빈 리스트(비어 있는 목록과 구분이 필요하면 combo_spec)."""
+    return combo_spec(object_info, class_type, field) or []
 
 
 def workflow_missing(object_info: dict, workflow: dict) -> tuple[list[str], list[dict], int]:
@@ -185,8 +194,10 @@ def workflow_missing(object_info: dict, workflow: dict) -> tuple[list[str], list
         for field, value in (node.get("inputs") or {}).items():
             if not isinstance(value, str):
                 continue
-            choices = combo_choices(object_info, class_type, field)
-            if choices and value not in choices:
+            # 빈 목록도 "없음"이다 — 새로 만든 파드는 UNet 같은 목록이 통째로 비어 있어서, 빈 목록을 "모름"으로
+            # 넘기면 없는 모델이 안 잡혀 작업이 ComfyUI에서 400으로 튕겼다(2026-09-29 실제 파드 검사).
+            choices = combo_spec(object_info, class_type, field)
+            if choices is not None and value not in choices:
                 missing_values.append({
                     "node_id": str(node_id),
                     "class_type": class_type,
