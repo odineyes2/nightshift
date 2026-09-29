@@ -38,6 +38,8 @@ OPENCUT_ORIGINS = {o for o in ([OPENCUT_URL] + [x.strip().rstrip("/") for x in
 SHARED_API_RE = re.compile(r"^/api/shared/")
 SHARE_UPLOAD_MAX_BYTES = int(os.environ.get("NIGHTSHIFT_SHARE_UPLOAD_MAX_MB", "2048")) * 1024 * 1024
 PUBLIC_API_PATHS = {"/api/auth/register", "/api/auth/login", "/api/auth/logout", "/api/auth/me"}
+# 새 RunPod 파드가 부팅하며 다운로더 설치 스크립트를 받아 가는 길 — 로그인 대신 워커별 열쇠(model_download.bootstrap_token)로 지킨다.
+BOOTSTRAP_PATH_RE = re.compile(r"^/api/bootstrap/[A-Za-z0-9_-]{1,40}/[0-9a-f]{40}$")
 INTERNAL_PROGRESS_RE = re.compile(r"^/api/jobs/[^/]+/progress$")
 CSRF_HEADER, CSRF_VALUE = "x-requested-with", "nightshift"
 MAX_REQUEST_BYTES = int(os.environ.get("NIGHTSHIFT_MAX_REQUEST_MB", "200")) * 1024 * 1024
@@ -98,7 +100,7 @@ async def authenticate_request(request: Request, call_next):
     else:
         user = await asyncio.to_thread(auth.user_for_token, request.cookies.get(auth.SESSION_COOKIE))
     request.state.user = user
-    if user is None and path not in PUBLIC_API_PATHS:
+    if user is None and path not in PUBLIC_API_PATHS and not (request.method == "GET" and BOOTSTRAP_PATH_RE.match(path)):
         return JSONResponse({"detail": "로그인이 필요해요."}, status_code=401)
     ctx_token = auth.current_user.set(user)
     try:

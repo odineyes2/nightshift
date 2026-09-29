@@ -101,6 +101,29 @@ def runpod_tiers_api(request: Request):
             "api_key": bool(runpod_api.RUNPOD_API_KEY)}
 
 
+def _public_base_url(request: Request) -> str | None:
+    """RunPod 파드(인터넷 저편)가 닿을 수 있는 nightshift 주소 — NIGHTSHIFT_PUBLIC_URL이 있으면 그것, 없으면 지금 접속한 주소.
+    localhost 같은 안쪽 주소면 None(파드가 못 닿으니 다운로더 자동 설치를 건너뛴다)."""
+    env_url = os.environ.get("NIGHTSHIFT_PUBLIC_URL", "").strip().rstrip("/")
+    if env_url:
+        return env_url
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    name = host.split(":")[0].lower()
+    if not name or name in ("localhost", "127.0.0.1", "::1") or name.startswith(("192.168.", "10.")) or "." not in name:
+        return None
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    return f"{proto}://{host}"
+
+
+@app.get("/api/bootstrap/{pod_id}/{token}")
+def bootstrap_script_api(pod_id: str, token: str):
+    """새 파드가 부팅하며 받아 가는 다운로더 설치 스크립트(로그인 없음 — 워커별 열쇠로 지킨다, 05-auth BOOTSTRAP_PATH_RE)."""
+    if not hmac.compare_digest(token, model_download.bootstrap_token(pod_id)) or pod_registry.get_pod(pod_id) is None:
+        raise HTTPException(404, "없는 주소예요.")
+    return Response(model_download.install_script(pod_id), media_type="text/x-shellscript; charset=utf-8",
+                    headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/pods/runpod-create")
 async def runpod_create_worker_api(request: Request):
     """워커 추가 = RunPod 파드 만들기(#12). 워커 기록을 먼저(꺼진 채, 주소 없이) 만들고, 그 이름으로 RunPod에 파드를
@@ -113,7 +136,13 @@ async def runpod_create_worker_api(request: Request):
     worker = pod_registry.create_pod({"kind": pod_registry.DEFAULT_KIND, "url": "", "name": "", "enabled": False,
                                       "pull_outputs": True, "auto_install_models": True, "tags": ["runpod", "auto"],
                                       "note": "runpod:creating", "owner_id": user["id"]})
-    created, err = await asyncio.to_thread(runpod_api.create_pod, f"nightshift-{worker['id']}", tier)
+    # 부팅하며 다운로더를 깔게 한다 — 파드가 받아 갈 nightshift 공개 주소가 있을 때만(지금 접속한 주소, 또는 NIGHTSHIFT_PUBLIC_URL).
+    env, entrypoint = None, None
+    base = _public_base_url(request)
+    if base:
+        env = {"NIGHTSHIFT_BOOTSTRAP": f"{base}/api/bootstrap/{worker['id']}/{model_download.bootstrap_token(worker['id'])}"}
+        entrypoint = model_download.BOOTSTRAP_ENTRYPOINT
+    created, err = await asyncio.to_thread(runpod_api.create_pod, f"nightshift-{worker['id']}", tier, env, entrypoint)
     if err:
         pod_registry.delete_pod(worker["id"])
         raise HTTPException(502, err)

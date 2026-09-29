@@ -64,6 +64,26 @@ def pod_token(pod_id: str) -> str:
     return hmac.new(_secret().encode(), f"downloader:{pod_id}".encode(), hashlib.sha256).hexdigest()[:40]
 
 
+def bootstrap_token(pod_id: str) -> str:
+    """새 RunPod 파드가 부팅하며 설치 스크립트를 받아 갈 때 쓰는 열쇠(GET /api/bootstrap/<워커>/<이것>) — 워커 id에서
+    서버 비밀값으로 계산하므로 따로 저장하지 않고, 워커를 지우면 더는 통하지 않는다."""
+    return hmac.new(_secret().encode(), f"bootstrap:{pod_id}".encode(), hashlib.sha256).hexdigest()[:40]
+
+
+# 새 파드의 시작 명령(entrypoint) — runpod/comfyui 이미지는 ENTRYPOINT ["/start.sh"]뿐이고 훅이 없어서, 그 앞에서 다운로더를
+# 깔고 원래 시작 스크립트로 넘긴다. /opt/comfyui-baked에 깔면 첫 시작 때 /workspace/runpod-slim/ComfyUI로 통째로 복사되고,
+# 이미 복사된 뒤(다시 켤 때)면 그쪽에도 깐다. 무엇이 실패해도 파드는 그대로 시작한다(다운로더 없이).
+BOOTSTRAP_ENTRYPOINT = [
+    "bash", "-c",
+    'if [ -n "$NIGHTSHIFT_BOOTSTRAP" ]; then'
+    ' curl -fsSL -A "Mozilla/5.0 nightshift-bootstrap" "$NIGHTSHIFT_BOOTSTRAP" -o /tmp/nightshift_bootstrap.sh'
+    ' && for d in /opt/comfyui-baked /workspace/runpod-slim/ComfyUI; do'
+    ' if [ -d "$d/custom_nodes" ]; then COMFY_DIR="$d" bash /tmp/nightshift_bootstrap.sh; fi; done'
+    ' || echo "[nightshift] 다운로더 설치 실패 — 그대로 시작해요";'
+    ' fi; exec /start.sh',
+]
+
+
 def install_script(pod_id: str) -> str:
     """파드의 터미널에 붙여 넣는 설치 스크립트 — 노드 소스와 이 파드의 토큰이 들어 있다."""
     source = (NODE_DIR / "__init__.py").read_bytes()

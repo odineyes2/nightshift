@@ -217,7 +217,7 @@ RUNPOD_TIERS = {
 }
 
 
-def create_pod(name: str, tier: str, env: dict | None = None, start_cmd: list[str] | None = None) -> tuple[dict | None, str | None]:
+def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[str] | None = None) -> tuple[dict | None, str | None]:
     """등급(tier)대로 RunPod 파드를 만든다. ({id, name, gpu, cost_per_hr, data_center, cloud}, None) 또는 (None, 이유).
     응답의 env(비밀값)는 버린다."""
     spec = RUNPOD_TIERS.get(tier)
@@ -234,8 +234,8 @@ def create_pod(name: str, tier: str, env: dict | None = None, start_cmd: list[st
             body["dataCenterPriority"] = "custom"
         if env:
             body["env"] = env
-        if start_cmd:
-            body["dockerStartCmd"] = start_cmd
+        if entrypoint:
+            body["dockerEntrypoint"] = entrypoint   # 이미지의 ENTRYPOINT를 바꾼다(CMD가 아니라 — runpod/comfyui는 CMD가 없다)
         raw, err = _rest("POST", "/pods", timeout=60, body=body)
         if err:
             errors.append(f"{cloud}{'·' + dcs[0] if dcs else ''}: {err}")
