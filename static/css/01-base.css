@@ -10,6 +10,11 @@
     font-display: swap;
     src: url('/fonts/PretendardVariable.woff2') format('woff2-variations');
   }
+  /* IBM Plex Mono — --mono가 첫 글꼴로 지정해 두고도 파일이 없어서 Windows에서는 Consolas로 보이고
+     있었다(NS-1). latin 400/500/600만 자체 호스팅한다(OFL, static/fonts/IBMPlexMono-LICENSE.txt). */
+  @font-face{ font-family:'IBM Plex Mono'; font-weight:400; font-style:normal; font-display:swap; src:url('/fonts/IBMPlexMono-400.woff2') format('woff2'); }
+  @font-face{ font-family:'IBM Plex Mono'; font-weight:500; font-style:normal; font-display:swap; src:url('/fonts/IBMPlexMono-500.woff2') format('woff2'); }
+  @font-face{ font-family:'IBM Plex Mono'; font-weight:600; font-style:normal; font-display:swap; src:url('/fonts/IBMPlexMono-600.woff2') format('woff2'); }
   :root{
     --bg: #F7F8FA;
     --panel: #FFFFFF;
