@@ -480,6 +480,7 @@ function initBoardCanvas(){
   // 보드 단축키 — 글을 쓰는 중이면(글칸·입력칸) 전부 그 칸의 기본 동작(글자 지우기,
   // 글자 되돌리기, 전체 선택)에 양보한다. 모달이 떠 있을 때도 건드리지 않는다.
   //   Ctrl/⌘+Z 되돌리기 · Ctrl/⌘+Shift+Z 또는 Ctrl+Y 다시 하기 · Ctrl/⌘+A 카드 전체 선택
+  //   Ctrl/⌘+C 고른 카드 복사 · Ctrl/⌘+V 화면 가운데에 붙여넣기
   //   Delete/Backspace 고른 선(없으면 고른 카드) 지우기 · Esc 선택 해제
   document.addEventListener('keydown', (e) => {
     if(currentTab !== 'prboard') return;
@@ -489,6 +490,8 @@ function initBoardCanvas(){
     const key = e.key.toLowerCase();
     if(mod && key === 'z'){ e.preventDefault(); boardUndoRedo(e.shiftKey ? 'redo' : 'undo'); return; }
     if(mod && key === 'y'){ e.preventDefault(); boardUndoRedo('redo'); return; }
+    if(mod && key === 'c' && boardSelectedIds.size){ e.preventDefault(); copyBoardNodes([...boardSelectedIds]); return; }
+    if(mod && key === 'v' && readBoardClip()){ e.preventDefault(); pasteBoardClip(); return; }
     if(mod && key === 'a'){ e.preventDefault(); const hidden = boardHiddenIds(); setBoardSelection(new Set(boardNodes.filter(n => !hidden.has(n.id)).map(n => n.id))); return; }
     if(e.key === 'Delete' || e.key === 'Backspace'){
       if(boardSelectedEdgeId !== null){ e.preventDefault(); deleteBoardEdge(boardSelectedEdgeId); }
@@ -498,6 +501,30 @@ function initBoardCanvas(){
       setBoardSelection(new Set());
     }
   });
+  // 우클릭(안드로이드는 길게 누르면 여기로 온다) · 터치로 길게 누르기 → 복사/붙여넣기 메뉴.
+  // 글칸 안에서는 브라우저 기본 메뉴(잘라내기·붙여넣기)를 그대로 둔다.
+  const ctxTarget = (el) => !el.closest('input, textarea, select, [contenteditable]');
+  const ctxNodeId = (el) => { const n = el.closest('.board-node'); return n ? Number(n.dataset.nodeId) : null; };
+  viewport.addEventListener('contextmenu', (e) => {
+    if(!ctxTarget(e.target)) return;
+    e.preventDefault();
+    openBoardCtxMenu(e.clientX, e.clientY, ctxNodeId(e.target));
+  });
+  let longPress = null;   // { timer, x, y }
+  const cancelLongPress = () => { if(longPress){ clearTimeout(longPress.timer); longPress = null; } };
+  viewport.addEventListener('pointerdown', (e) => {
+    cancelLongPress();
+    if(e.pointerType !== 'touch' || !ctxTarget(e.target)) return;
+    const nodeId = ctxNodeId(e.target);
+    longPress = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
+      longPress = null;
+      if(!viewport.classList.contains('connecting')) openBoardCtxMenu(e.clientX, e.clientY, nodeId);
+    }, 550) };
+  });
+  viewport.addEventListener('pointermove', (e) => {
+    if(longPress && Math.hypot(e.clientX - longPress.x, e.clientY - longPress.y) > 8) cancelLongPress();
+  });
+  for(const type of ['pointerup', 'pointercancel']) viewport.addEventListener(type, cancelLongPress);
   document.getElementById('board-undo-btn').addEventListener('click', () => boardUndoRedo('undo'));
   document.getElementById('board-redo-btn').addEventListener('click', () => boardUndoRedo('redo'));
   document.getElementById('board-select-mode-btn').addEventListener('click', (e) => {

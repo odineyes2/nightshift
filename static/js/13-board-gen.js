@@ -765,6 +765,7 @@ async function deleteBoardNodes(nodeIds){
 //   { type: 'move', items: [{ id, from: {x, y}, to: {x, y} }] }
 //   { type: 'create', node, edges? }        — edges는 되돌릴 때 그 사이 붙은 선을 떠 둔 것
 //   { type: 'delete', nodes, edges }
+//   { type: 'paste', nodes, edges }         — 붙여넣기(되돌리면 붙인 카드를 지운다)
 //   { type: 'text', id, from, to }
 //   { type: 'edge-add', edge } / { type: 'edge-del', edge }
 //   { type: 'resize', id, from: {width, height}, to: {width, height} }   — 묶음 틀 크기
@@ -887,9 +888,15 @@ async function applyBoardHistoryEntry(projectId, entry, dir){
     if(ta) ta.value = text;
     return !!await boardApi(projectId, 'PATCH', `/nodes/${entry.id}`, { text });
   }
-  if(entry.type === 'create' || entry.type === 'delete'){
+  if(entry.type === 'create' || entry.type === 'delete' || entry.type === 'paste'){
     // 놓기를 되돌리기 = 지우기, 지우기를 되돌리기 = 되살리기(다시 하기는 그 반대)
-    const removing = (entry.type === 'create') === undo;
+    const removing = (entry.type !== 'delete') === undo;
+    if(removing && entry.type === 'paste'){
+      // 붙인 뒤 고친 내용·새로 이은 선도 다시 하기 때 살리게 지금 모습을 떠 둔다.
+      const ids = new Set(entry.nodes.map(n => n.id));
+      entry.nodes = boardNodes.filter(n => ids.has(n.id)).map(boardNodeSnapshot);
+      entry.edges = boardEdges.filter(e => ids.has(e.from_node_id) || ids.has(e.to_node_id)).map(e => ({ ...e }));
+    }
     if(removing){
       if(entry.type === 'create'){
         // 그 사이 이 카드에 붙은 선이 있으면 같이 지워지므로, 다시 하기 때 살리게 떠 둔다.
@@ -1063,3 +1070,100 @@ document.getElementById('board-asset-picker-grid').addEventListener('click', (e)
     .then(node => { if(node) createBoardEdge(node.id, target.id, slotName); });
 });
 
+// ---- 프로젝트 보드 — 복사 / 붙여넣기 ----
+// 고른 카드(묶음이면 안에 든 카드까지)와 그 사이의 선을 localStorage에 떠 둔다 — 다른 프로젝트 보드나
+// 다른 탭에서도 붙일 수 있게. 붙이기는 되살리기(/restore)로 보낸다: 원래 id가 쓰이고 있으면 서버가 새 id를
+// 주고 id_map으로 알려 주며, 선의 양 끝도 그 새 id로 잇는다.
+const BOARD_CLIP_KEY = 'nightshift.boardClip';
+
+function readBoardClip(){
+  try{
+    const clip = JSON.parse(localStorage.getItem(BOARD_CLIP_KEY) || 'null');
+    return clip && Array.isArray(clip.nodes) && clip.nodes.length ? clip : null;
+  }catch(e){ return null; }
+}
+
+function copyBoardNodes(nodeIds){
+  const ids = new Set(nodeIds);
+  for(const n of boardNodes.filter(n => ids.has(n.id) && n.kind === 'frame')) boardFrameContents(n).forEach(c => ids.add(c.id));
+  const nodes = boardNodes.filter(n => ids.has(n.id)).map(n => {
+    const s = boardNodeSnapshot(n);
+    delete s.created_at; delete s.updated_at; delete s.project_id;
+    if(s.kind === 'gen' && s.data) s.data.runs = [];   // 실행 기록은 원래 카드 것 — 붙인 카드는 새로 시작
+    if(s.kind === 'frame') s.data = null;              // 접힘은 원래 카드 id를 가리켜서 펼친 채로 붙인다
+    return s;
+  });
+  if(!nodes.length) return;
+  const edges = boardEdges.filter(e => ids.has(e.from_node_id) && ids.has(e.to_node_id))
+    .map(e => ({ from_node_id: e.from_node_id, to_node_id: e.to_node_id, to_slot: e.to_slot || null }));
+  try{
+    localStorage.setItem(BOARD_CLIP_KEY, JSON.stringify({ nodes, edges }));
+  }catch(e){ flashNotice('복사하지 못했어요 — 카드 내용이 너무 커요.'); return; }
+  flashNotice(`카드 ${nodes.length}개를 복사했어요 — 붙일 곳에서 우클릭(길게 누르기)이나 Ctrl+V`);
+}
+
+// at: 붙일 자리(월드 좌표, 묶음의 왼쪽 위). 없으면 지금 화면 가운데에 가운데를 맞춘다.
+async function pasteBoardClip(at){
+  const projectId = currentProjectId;
+  const clip = readBoardClip();
+  if(typeof projectId !== 'number' || !clip) return;
+  const x0 = Math.min(...clip.nodes.map(n => n.x)), y0 = Math.min(...clip.nodes.map(n => n.y));
+  let dx, dy;
+  if(at){ dx = at.x - x0; dy = at.y - y0; }
+  else{
+    const c = boardViewportCenterWorld();
+    const x1 = Math.max(...clip.nodes.map(n => n.x + n.width)), y1 = Math.max(...clip.nodes.map(n => n.y + n.height));
+    dx = c.x - (x0 + x1) / 2; dy = c.y - (y0 + y1) / 2;
+  }
+  const nodes = clip.nodes.map(n => ({ ...n, x: n.x + dx, y: n.y + dy }));
+  const res = await boardApi(projectId, 'POST', '/restore', { nodes, edges: clip.edges || [] });
+  if(!res){ flashNotice('붙여넣지 못했어요 — 원래 결과물이나 작업이 지워졌을 수 있어요.'); return; }
+  const data = await res.json();
+  if(projectId !== currentProjectId) return;
+  boardNodes.push(...data.nodes);
+  appendBoardNodeEls(data.nodes);
+  if(data.nodes.some(n => n.kind === 'job')) fetchBoardJobs();
+  boardEdges.push(...data.edges.filter(e => !boardEdges.some(b => b.id === e.id)));
+  if(data.edges.length) renderBoardEdges();
+  setBoardSelection(new Set(data.nodes.map(n => n.id)));
+  pushBoardHistory({ type: 'paste', nodes: data.nodes.map(boardNodeSnapshot), edges: data.edges.map(e => ({ ...e })) });
+}
+
+// 우클릭 / 길게 누르기 메뉴 — 카드 위면 복사(+붙여넣기), 빈 곳이면 그 자리에 붙여넣기.
+function openBoardCtxMenu(clientX, clientY, nodeId){
+  closeBoardCtxMenu();
+  const viewport = document.getElementById('board-viewport');
+  const rect = viewport.getBoundingClientRect();
+  const at = { x: (clientX - rect.left - boardState.x) / boardState.scale, y: (clientY - rect.top - boardState.y) / boardState.scale };
+  let copyIds = null;
+  if(nodeId != null){
+    if(!boardSelectedIds.has(nodeId)) setBoardSelection(new Set([nodeId]));
+    copyIds = [...boardSelectedIds];
+  }
+  const clip = readBoardClip();
+  const items = [];
+  if(copyIds) items.push(`<button type="button" data-ctx="copy">${ico('copy')}복사${copyIds.length > 1 ? ` (${copyIds.length}개)` : ''}</button>`);
+  items.push(clip ? `<button type="button" data-ctx="paste">${ico('clipboard')}여기에 붙여넣기 (${clip.nodes.length}개)</button>`
+    : `<button type="button" disabled>${ico('clipboard')}복사한 카드가 없어요</button>`);
+  const menu = document.createElement('div');
+  menu.id = 'board-ctx-menu';
+  menu.className = 'board-ctx-menu';
+  menu.innerHTML = items.join('');
+  document.body.appendChild(menu);
+  menu.style.left = Math.min(clientX, window.innerWidth - menu.offsetWidth - 8) + 'px';
+  menu.style.top = Math.min(clientY, window.innerHeight - menu.offsetHeight - 8) + 'px';
+  menu.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-ctx]');
+    if(!btn) return;
+    closeBoardCtxMenu();
+    if(btn.dataset.ctx === 'copy') copyBoardNodes(copyIds);
+    else pasteBoardClip(at);
+  });
+}
+function closeBoardCtxMenu(){
+  const menu = document.getElementById('board-ctx-menu');
+  if(menu) menu.remove();
+}
+document.addEventListener('pointerdown', (e) => { if(!e.target.closest('#board-ctx-menu')) closeBoardCtxMenu(); }, true);
+document.addEventListener('keydown', (e) => { if(e.key === 'Escape') closeBoardCtxMenu(); });
+window.addEventListener('blur', closeBoardCtxMenu);
