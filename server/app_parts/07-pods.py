@@ -150,6 +150,7 @@ async def runpod_create_worker_api(request: Request):
                                                   "note": f"runpod:{created['id']}", "enabled": True})
     ensure_runtime(pod)
     poke_scheduler()
+    threading.Thread(target=_log_runpod_sessions_quietly, daemon=True).start()   # 사용 내역에 이 파드의 시작을 남긴다(NS-2)
     return {**pod_payload(pod), "runpod": created}
 
 
@@ -183,6 +184,7 @@ def delete_pod_api(pod_id: str, request: Request, terminate_runpod: bool = False
             err = runpod_api.terminate_pod(rpid)
             if err and "HTTP 404" not in err:   # 이미 없는 파드면 워커만 지운다
                 raise HTTPException(502, f"RunPod 파드를 지우지 못해 워커도 그대로 뒀어요 — {err}")
+            threading.Thread(target=_log_runpod_sessions_quietly, daemon=True).start()   # 지운 파드의 세션을 닫는다(NS-2)
     try:
         removed = pod_registry.delete_pod(pod_id)
     except pod_registry.PodError as e:
@@ -474,6 +476,24 @@ def get_generation_log(request: Request):
             pod_name = pod["name"] if pod else r["origin_pod_id"]
         r["pod_name"] = pod_name
     return {"assets": rows}
+
+
+def _log_runpod_sessions_quietly():
+    err = None
+    try:
+        err = runpod_sync.log_runpod_sessions()
+    except Exception:
+        logging.getLogger("uvicorn.error").exception("RunPod 사용 내역 기록 실패")
+    if err:
+        logging.getLogger("uvicorn.error").warning("RunPod 사용 내역 기록 실패: %s", err)
+
+
+def _runpod_session_log_loop():
+    """RUNPOD_SESSION_LOG_SEC마다 사용 내역(DB 탭)만 맞춘다(NS-2) — 전체 동기화(워커 자동 등록)를 켜지
+    않아도 켜고 끈 기록이 빠지지 않게. RunPod 목록 GET 한 번이라 가볍다."""
+    while True:
+        time.sleep(RUNPOD_SESSION_LOG_SEC)
+        _log_runpod_sessions_quietly()
 
 
 def _runpod_sync_loop():

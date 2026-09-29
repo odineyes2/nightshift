@@ -115,11 +115,7 @@ def sync_runpod_pods(owner_id: int, dry_run: bool, ensure_runtime_fn, job_has_ru
         # 목적이라 ComfyUI 포트 유무와 상관없이 완전하게 남겨야 한다. dry_run이면(아무것도
         # 안 바꾸는 게 정의) 이것도 건너뛴다.
         if not dry_run:
-            for p in pods:
-                gpu_type = runpod_api.get_gpu_type_cached(p["id"]) or ""
-                runpod_sessions.sync_pod_session(
-                    p["id"], p["name"], gpu_type, p.get("cost_per_hr"), p["status"] == "RUNNING",
-                    p.get("last_started_at"), p.get("last_status_change"))
+            _log_sessions(pods)
 
     log.info("runpod 동기화%s: added=%d reenabled=%d disabled=%d unchanged=%d skipped=%d",
               " (dry_run)" if dry_run else "", len(result["added"]), len(result["reenabled"]),
@@ -127,4 +123,23 @@ def sync_runpod_pods(owner_id: int, dry_run: bool, ensure_runtime_fn, job_has_ru
     return result
 
 
-__all__ = ["sync_runpod_pods"]
+def _log_sessions(pods: list[dict]) -> None:
+    for p in pods:
+        gpu_type = runpod_api.get_gpu_type_cached(p["id"]) or ""
+        runpod_sessions.sync_pod_session(
+            p["id"], p["name"], gpu_type, p.get("cost_per_hr"), p["status"] == "RUNNING",
+            p.get("last_started_at"), p.get("last_status_change"))
+    runpod_sessions.close_missing([p["id"] for p in pods])   # 지운 pod의 열린 세션
+
+
+def log_runpod_sessions() -> str | None:
+    """사용 내역(DB 탭)만 맞춘다 — 워커 등록·켜기/끄기는 건드리지 않는다(NS-2). RunPod 목록 GET 한 번.
+    주기 루프(RUNPOD_SESSION_LOG_SEC)와 파드 만들기·지우기 직후에 부른다. 실패하면 에러 문구."""
+    pods, error = runpod_api.list_runpod_pods_verbose()
+    if error:
+        return error
+    _log_sessions(pods)
+    return None
+
+
+__all__ = ["sync_runpod_pods", "log_runpod_sessions"]

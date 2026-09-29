@@ -16,6 +16,9 @@ _sched_wake = threading.Event()
 # 않아도 이 간격마다 스스로 돌게 한다. 관리자 권한으로 돈다(그 계정 소유로 파드가
 # 등록된다) — 자동화라 특정 사람이 부른 게 아니므로.
 RUNPOD_SYNC_INTERVAL_SEC = float(os.environ.get("RUNPOD_SYNC_INTERVAL_SEC", "0"))
+# 사용 내역(DB 탭 RunPod 세션)만 맞추는 가벼운 주기(초, 기본 5분). 0이면 끔. 위 전체 동기화가 켜져 있으면
+# 그쪽이 같이 기록하므로 따로 돌리지 않는다(NS-2 — 전체 동기화가 꺼져 있어 기록이 멈췄었다).
+RUNPOD_SESSION_LOG_SEC = float(os.environ.get("RUNPOD_SESSION_LOG_SEC", "300"))
 
 
 def poke_scheduler():
@@ -465,6 +468,9 @@ async def lifespan(app: FastAPI):
     poke_scheduler()
     if RUNPOD_SYNC_INTERVAL_SEC > 0:
         threading.Thread(target=_runpod_sync_loop, daemon=True, name="runpod-sync").start()
+    elif RUNPOD_SESSION_LOG_SEC > 0 and runpod_api.RUNPOD_API_KEY:
+        threading.Thread(target=_log_runpod_sessions_quietly, daemon=True).start()   # 켤 때 한 번 — 놓친 기록을 바로 채운다
+        threading.Thread(target=_runpod_session_log_loop, daemon=True, name="runpod-session-log").start()
     # 결과물 색인(assets)을 디스크와 맞춘다 — 파일이 많으면 시간이 걸릴 수 있으니
     # 서버가 뜨는 걸 붙잡지 않게 뒤에서 돌린다.
     threading.Thread(target=_sync_assets_quietly, kwargs={"force": True}, daemon=True).start()

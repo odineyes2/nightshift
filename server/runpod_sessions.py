@@ -109,10 +109,37 @@ def sync_pod_session(
                 (runpod_pod_id, pod_name, gpu_type or "", vram_gb, cost_per_hr, started_at),
             )
         else:
-            if open_row is None:
-                return  # 열린 세션이 없으면 닫을 것도 없다
-            ended_at = _parse_status_change_dt(last_status_change_raw) or now
-            _close_row(conn, open_row, ended_at)
+            ended_at = _parse_status_change_dt(last_status_change_raw)
+            if open_row is not None:
+                _close_row(conn, open_row, ended_at or now)
+                return
+            # 켜질 때 sync를 못 불러 세션을 연 적이 없어도(새 워커 만들기로 켠 파드 등, NS-2), RunPod가 마지막
+            # 시작·종료 시각을 둘 다 알려 주면 끝난 세션을 통째로 남긴다. 같은 시작은 두 번 넣지 않는다.
+            started_at = _parse_runpod_dt(last_started_at_raw)
+            if not started_at or not ended_at or datetime.fromisoformat(ended_at) <= datetime.fromisoformat(started_at):
+                return
+            if conn.execute("SELECT 1 FROM runpod_sessions WHERE runpod_pod_id=? AND started_at=?",
+                            (runpod_pod_id, started_at)).fetchone():
+                return
+            cur = conn.execute(
+                "INSERT INTO runpod_sessions(runpod_pod_id, pod_name, gpu_type, vram_gb, cost_per_hr, started_at) "
+                "VALUES(?,?,?,?,?,?)",
+                (runpod_pod_id, pod_name, gpu_type or "", vram_gb, cost_per_hr, started_at),
+            )
+            _close_row(conn, conn.execute("SELECT * FROM runpod_sessions WHERE id=?", (cur.lastrowid,)).fetchone(), ended_at)
+
+
+def close_missing(present_pod_ids, ended_at: str | None = None) -> int:
+    """RunPod 계정에서 사라진(지운) pod의 열린 세션을 닫는다 — 지운 pod는 목록에 안 나와서 위의
+    sync_pod_session으로는 영영 안 닫힌다. 정확한 종료 시각은 모르므로 "지금"(또는 준 시각). 닫은 수."""
+    ended_at = ended_at or db.now_iso()
+    present = set(present_pod_ids)
+    with db.connect() as conn:
+        rows = [r for r in conn.execute("SELECT * FROM runpod_sessions WHERE ended_at IS NULL").fetchall()
+                if r["runpod_pod_id"] not in present]
+        for r in rows:
+            _close_row(conn, r, ended_at)
+    return len(rows)
 
 
 def _close_row(conn, row, ended_at: str) -> None:
@@ -149,4 +176,4 @@ def list_sessions(limit: int = 200) -> list[dict]:
     return out
 
 
-__all__ = ["sync_pod_session", "list_sessions", "vram_for", "GPU_VRAM_GB"]
+__all__ = ["sync_pod_session", "close_missing", "list_sessions", "vram_for", "GPU_VRAM_GB"]
