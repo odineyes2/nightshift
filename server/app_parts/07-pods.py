@@ -135,8 +135,17 @@ async def runpod_create_worker_api(request: Request):
         raise HTTPException(400, "등급을 골라 주세요(image/video).")
     worker = pod_registry.create_pod({"kind": pod_registry.DEFAULT_KIND, "url": "", "name": "", "enabled": False,
                                       "pull_outputs": True, "auto_install_models": True, "tags": ["runpod", "auto"],
-                                      "note": "runpod:creating", "owner_id": user["id"]})
-    # 부팅하며 다운로더를 깔게 한다 — 파드가 받아 갈 nightshift 공개 주소가 있을 때만(지금 접속한 주소, 또는 NIGHTSHIFT_PUBLIC_URL).
+                                      "note": "runpod:creating", "owner_id": user["id"], "runpod_tier": tier})
+    pod, created, err = await _attach_new_runpod(request, worker, tier)
+    if err:
+        pod_registry.delete_pod(worker["id"])
+        raise HTTPException(502, err)
+    return {**pod_payload(pod), "runpod": created}
+
+
+async def _attach_new_runpod(request: Request, worker: dict, tier: str):
+    """그 워커에 새 RunPod 파드를 만들어 붙인다 — 워커 추가와 "RunPod 전원 켜기"(NS-6)가 같이 쓴다. (워커, 만든 파드, 에러).
+    부팅하며 다운로더를 깔게 한다 — 파드가 받아 갈 nightshift 공개 주소가 있을 때만(지금 접속한 주소, 또는 NIGHTSHIFT_PUBLIC_URL)."""
     env, entrypoint = None, None
     base = _public_base_url(request)
     if base:
@@ -144,14 +153,38 @@ async def runpod_create_worker_api(request: Request):
         entrypoint = model_download.BOOTSTRAP_ENTRYPOINT
     created, err = await asyncio.to_thread(runpod_api.create_pod, f"nightshift-{worker['id']}", tier, env, entrypoint)
     if err:
-        pod_registry.delete_pod(worker["id"])
-        raise HTTPException(502, err)
+        return None, None, err
     pod = pod_registry.update_pod(worker["id"], {"url": f"https://{created['id']}-8188.proxy.runpod.net",
-                                                  "note": f"runpod:{created['id']}", "enabled": True})
+                                                  "note": f"runpod:{created['id']}", "enabled": True, "runpod_tier": tier})
     ensure_runtime(pod)
     poke_scheduler()
     threading.Thread(target=_log_runpod_sessions_quietly, daemon=True).start()   # 사용 내역에 이 파드의 시작을 남긴다(NS-2)
-    return {**pod_payload(pod), "runpod": created}
+    return pod, created, None
+
+
+def _tier_from_gpu(gpu: str) -> str:
+    """GPU 이름(예: "RTX PRO 4500")으로 등급 추정 — 등급별 GPU 후보에 들어 있으면 그 등급, 모르면 이미지용."""
+    g = (gpu or "").replace("NVIDIA ", "").replace("GeForce ", "").lower()
+    for tier, spec in runpod_api.RUNPOD_TIERS.items():
+        for cand in spec["gpus"]:
+            c = cand.replace("NVIDIA ", "").replace("GeForce ", "").lower()
+            if g and (g in c or c in g):
+                return tier
+    return "image"
+
+
+def _managed_runpod_tier(pod: dict) -> str | None:
+    """nightshift가 만든 RunPod 워커면 그 등급, 아니면 None(NS-6). 표시는 runpod_tier — 그 전에 만든 워커는 RunPod 파드
+    이름(nightshift-{워커 id})으로 알아보고 GPU로 등급을 추정해 적어 둔다. 손으로 등록한 RunPod 워커는 None(지금처럼 stop/start)."""
+    tier = pod.get("runpod_tier")
+    if tier in runpod_api.RUNPOD_TIERS:
+        return tier
+    info = runpod_api.get_runpod_info(pod.get("url") or "") or {}
+    if info.get("pod_name") != f"nightshift-{pod['id']}":
+        return None
+    tier = _tier_from_gpu(info.get("gpu_type") or "")
+    pod_registry.update_pod(pod["id"], {"runpod_tier": tier})
+    return tier
 
 
 @app.delete("/api/pods/{pod_id}")
@@ -350,10 +383,13 @@ async def runpod_power(pod_id: str, action: str, request: Request):
         raise HTTPException(404, "알 수 없는 동작이에요.")
     pod = pod_or_404(user, pod_id)
     rp_id = runpod_api.extract_pod_id(pod.get("url") or "")
-    if not rp_id:
-        raise HTTPException(400, "RunPod 파드 주소가 아니에요(https://{POD_ID}-{PORT}.proxy.runpod.net).")
     if action == "stop" and _pod_has_running_job(pod_id):
         raise HTTPException(409, "이 워커에서 실행 중인 작업이 있어요. 작업을 먼저 멈춘 뒤 꺼 주세요.")
+    tier = await asyncio.to_thread(_managed_runpod_tier, pod)
+    if tier:
+        return await _managed_runpod_power(request, pod, rp_id, action, tier)
+    if not rp_id:
+        raise HTTPException(400, "RunPod 파드 주소가 아니에요(https://{POD_ID}-{PORT}.proxy.runpod.net).")
     status, error = await asyncio.to_thread(runpod_api.pod_action, rp_id, action)
     if error:
         raise HTTPException(502, error)
@@ -369,6 +405,32 @@ async def runpod_power(pod_id: str, action: str, request: Request):
     invalidate_comfy_status_cache(pod_id)
     ComfyUIDriver.invalidate_capabilities(pod_id)
     return {"ok": True, "pod_id": pod_id, "runpod_pod_id": rp_id, "status": status}
+
+
+async def _managed_runpod_power(request: Request, pod: dict, rp_id: str | None, action: str, tier: str) -> dict:
+    """nightshift가 만든 RunPod 워커의 전원(NS-6). 이 파드들은 볼륨이 없어(컨테이너 디스크만) 끄면 받은 모델이 지워지고,
+    다시 켤 때 처음 그 호스트에 GPU가 비어 있어야 해서 자주 실패했다 — 그래서 끄기=파드 지우기(워커는 남김, 과금 완전히 멈춤),
+    켜기=같은 등급으로 새 파드를 만들어 붙이기. 모델은 작업이 오면 자동 설치로 다시 받는다."""
+    pod_id = pod["id"]
+    if rp_id:   # 켤 때 옛 파드가 남아 있으면(예전 방식으로 꺼 둔 것) 먼저 지운다
+        err = await asyncio.to_thread(runpod_api.terminate_pod, rp_id)
+        if err and "HTTP 404" not in err:
+            raise HTTPException(502, f"RunPod 파드를 지우지 못했어요 — {err}")
+    if action == "stop":
+        pod = pod_registry.update_pod(pod_id, {"url": "", "enabled": False, "note": "runpod:off"})
+        created = None
+    else:
+        pod, created, err = await _attach_new_runpod(request, pod, tier)
+        if err:
+            pod_registry.update_pod(pod_id, {"url": "", "enabled": False, "note": "runpod:off"})
+            raise HTTPException(502, f"새 RunPod 파드를 만들지 못했어요 — {err}")
+    threading.Thread(target=_log_runpod_sessions_quietly, daemon=True).start()   # 지운 파드의 세션을 닫는다(NS-2)
+    with _pod_card_lock:
+        _pod_card_cache.pop(pod_id, None)
+    invalidate_comfy_status_cache(pod_id)
+    ComfyUIDriver.invalidate_capabilities(pod_id)
+    return {"ok": True, "pod_id": pod_id, "managed": True, "tier": tier,
+            "status": "RUNNING" if created else "TERMINATED", "runpod": created, "runpod_pod_id": (created or {}).get("id")}
 
 
 @app.get("/api/runpod/network-volumes")

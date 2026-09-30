@@ -138,6 +138,8 @@ def normalize_pod(raw: dict) -> dict:
         # 파드의 주인(회원 id). 없으면 관리자 것이다(회원 기능 이전에 만든 파드).
         "owner_id": raw.get("owner_id") if isinstance(raw.get("owner_id"), int) and not isinstance(raw.get("owner_id"), bool) else None,
         "note": str(raw.get("note") or ""),
+        # nightshift가 만든 RunPod 워커의 등급(image/video, NS-6) — 있으면 전원 끄기=파드 지우기, 켜기=이 등급으로 새 파드.
+        "runpod_tier": str(raw.get("runpod_tier") or "")[:20],
         "created_at": raw.get("created_at") or _now_iso(),
         "updated_at": raw.get("updated_at") or _now_iso(),
     }

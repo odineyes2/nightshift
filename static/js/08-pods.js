@@ -111,18 +111,26 @@ function renderRunpodLine(info){
 const runpodPowerPending = {};
 
 // RunPod 전원 상태 — { on, busy, label } 또는 null(RunPod 전원을 다룰 수 없는 워커).
+// nightshift가 만든 RunPod 워커(NS-6) — 전원 끄기=파드 지우기(워커는 남김), 켜기=같은 등급으로 새 파드.
+const RUNPOD_TIER_LABEL = { image: '이미지용', video: '영상용' };
+function managedRunpodTier(podId){ const w = podsById[podId] || {}; return RUNPOD_TIER_LABEL[w.runpod_tier] ? w.runpod_tier : null; }
+
 function runpodPowerState(p){
   const rp = p.card && p.card.runpod;
+  const tier = managedRunpodTier(p.id);
+  const noPod = tier && !((podsById[p.id] || {}).url);
   const pending = runpodPowerPending[p.id];
-  if(pending && ((rp && rp.status === pending.target) || Date.now() > pending.until)) delete runpodPowerPending[p.id];
+  if(pending && ((rp && rp.status === pending.target) || (pending.target === 'TERMINATED' && noPod) || Date.now() > pending.until)) delete runpodPowerPending[p.id];
   if(!isAdminUser()) return null;
   if(runpodPowerPending[p.id]){
     const starting = runpodPowerPending[p.id].action === 'start';
-    return { on: starting, busy: true, label: starting ? '켜는 중… (1~3분 뒤 ComfyUI가 떠요)' : '끄는 중…' };
+    return { on: starting, busy: true, label: starting ? (tier ? '새 파드를 만드는 중… (재고를 찾느라 1분, ComfyUI까지 1~3분)' : '켜는 중… (1~3분 뒤 ComfyUI가 떠요)')
+                                                       : (tier ? '파드를 지우는 중…' : '끄는 중…') };
   }
+  if(noPod) return { on: false, busy: false, label: `꺼져 있어요 — 파드 없음, 과금 없음. 켜면 ${RUNPOD_TIER_LABEL[tier]} 새 파드를 만들어요` };
   if(!rp || !rp.status) return null;
   const cost = rp.cost_per_hr != null ? ` · $${Number(rp.cost_per_hr).toFixed(2)}/hr` : '';
-  if(rp.status === 'RUNNING') return { on: true, busy: false, label: `켜져 있어요 — 과금 중${cost}` };
+  if(rp.status === 'RUNNING') return { on: true, busy: false, label: `켜져 있어요 — 과금 중${cost}${tier ? ' · 끄면 파드를 지워요(워커는 남음)' : ''}` };
   if(rp.status === 'EXITED' || rp.status === 'ERROR') return { on: false, busy: false, label: `꺼져 있어요 — 과금 없음${rp.status === 'ERROR' ? ' (오류로 멈춤)' : ''}` };
   return { on: false, busy: true, label: `RunPod 상태: ${rp.status}` };
 }
@@ -140,16 +148,28 @@ async function runpodPower(podId, action){
   const pod = (dashSummary.pods || []).find(x => x.id === podId) || {};
   const rp = (pod.card && pod.card.runpod) || {};
   const cost = rp.cost_per_hr != null ? `시간당 $${Number(rp.cost_per_hr).toFixed(2)}` : '요금';
-  const msg = action === 'start'
-    ? `'${pod.name || podId}'의 RunPod 파드를 켤까요?\n켜는 순간부터 ${cost}이 청구돼요. ComfyUI가 뜨기까지 1~3분 걸려요.`
-    : `'${pod.name || podId}'의 RunPod 파드를 끌까요?\n과금이 멈추고, 네트워크 볼륨의 데이터는 그대로 남아요.`;
+  const tier = managedRunpodTier(podId);
+  const msg = tier
+    ? (action === 'start'
+      ? `'${pod.name || podId}'에 ${RUNPOD_TIER_LABEL[tier]} RunPod 파드를 새로 만들까요?\n만드는 순간부터 요금이 나가요. ComfyUI까지 1~3분, 필요한 모델은 작업이 오면 다시 받아요(큰 모델은 10분 넘게 걸릴 수 있어요).`
+      : `'${pod.name || podId}'의 RunPod 파드를 지울까요?\n과금이 완전히 멈추고, 받아 둔 모델도 함께 지워져요. 워커는 남고, 다시 켜면 새 파드를 만들어요.`)
+    : (action === 'start'
+      ? `'${pod.name || podId}'의 RunPod 파드를 켤까요?\n켜는 순간부터 ${cost}이 청구돼요. ComfyUI가 뜨기까지 1~3분 걸려요.`
+      : `'${pod.name || podId}'의 RunPod 파드를 끌까요?\n과금이 멈추고, 네트워크 볼륨의 데이터는 그대로 남아요.`);
   if(!confirm(msg)) return;
-  runpodPowerPending[podId] = { action, target: action === 'start' ? 'RUNNING' : 'EXITED', until: Date.now() + 90000 };
+  runpodPowerPending[podId] = { action, target: action === 'start' ? 'RUNNING' : (tier ? 'TERMINATED' : 'EXITED'), until: Date.now() + (tier && action === 'start' ? 240000 : 90000) };
   renderPodControls();   // 누르자마자 "켜는 중…"으로
   try{
     const res = await fetch(`/api/pods/${encodeURIComponent(podId)}/runpod/${action}`, { method: 'POST' });
     const data = await res.json().catch(() => ({}));
     if(!res.ok){ delete runpodPowerPending[podId]; alert(data.detail || `실패했어요(HTTP ${res.status}).`); }
+    else if(data.managed){
+      await fetchPods();   // 주소가 바뀌었다(새 파드 / 비움)
+      const rp = data.runpod || {};
+      flashNotice(data.status === 'RUNNING'
+        ? `새 파드를 만들었어요 — ${[rp.gpu, rp.data_center, rp.cost_per_hr != null ? `$${rp.cost_per_hr}/hr` : ''].filter(Boolean).join(' · ')}. ComfyUI까지 1~3분.`
+        : '파드를 지웠어요 — 과금이 멈췄어요. 다시 켜면 새 파드를 만들어요.');
+    }
   }catch(e){
     delete runpodPowerPending[podId];
     alert(`요청하지 못했어요: ${e.message}`);

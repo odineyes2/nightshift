@@ -97,6 +97,9 @@ class ComfyUIDriver(PodDriver):
         saved = (pod.get("url") or "").strip()
         if saved:
             return saved, "setting"
+        if "runpod" in (pod.get("tags") or []):
+            # 파드를 지워 둔(꺼진) RunPod 워커 — 주소가 비었다고 이 서버의 ComfyUI를 찾아가면 안 된다(NS-6).
+            return None, "runpod-off"
         env_url = (os.environ.get("COMFY_URL") or "").strip()
         if env_url:
             return env_url, "env"
@@ -116,6 +119,9 @@ class ComfyUIDriver(PodDriver):
             ok = check_url(url, timeout if timeout is not None else CHECK_TIMEOUT)
             return {"ok": ok, "url": url, "source": source,
                     "detail": "" if ok else "응답이 없어요."}
+        if source == "runpod-off":
+            return {"ok": False, "url": None, "source": source,
+                    "detail": "RunPod 파드가 없어요(꺼짐) — RunPod 전원을 켜면 새 파드를 만들어요."}
         for candidate in CANDIDATE_URLS:
             if check_url(candidate, CHECK_TIMEOUT_LOCAL):
                 return {"ok": True, "url": candidate, "source": "auto", "detail": ""}
