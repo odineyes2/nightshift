@@ -19,6 +19,10 @@ RUNPOD_SYNC_INTERVAL_SEC = float(os.environ.get("RUNPOD_SYNC_INTERVAL_SEC", "0")
 # 사용 내역(DB 탭 RunPod 세션)만 맞추는 가벼운 주기(초, 기본 5분). 0이면 끔. 위 전체 동기화가 켜져 있으면
 # 그쪽이 같이 기록하므로 따로 돌리지 않는다(NS-2 — 전체 동기화가 꺼져 있어 기록이 멈췄었다).
 RUNPOD_SESSION_LOG_SEC = float(os.environ.get("RUNPOD_SESSION_LOG_SEC", "300"))
+# "작업이 끝나면 자동으로 끄기"(NS-8) — 이 간격(초)마다 보고, 마지막 작업이 끝난 뒤 RUNPOD_AUTO_OFF_IDLE_SEC 동안
+# 새 작업이 없으면 끈다. 0이면 검사 자체를 끈다.
+RUNPOD_AUTO_OFF_CHECK_SEC = float(os.environ.get("RUNPOD_AUTO_OFF_CHECK_SEC", "60"))
+RUNPOD_AUTO_OFF_IDLE_SEC = float(os.environ.get("RUNPOD_AUTO_OFF_IDLE_SEC", "300"))
 
 
 def poke_scheduler():
@@ -466,6 +470,8 @@ async def lifespan(app: FastAPI):
     sync_runtimes()
     threading.Thread(target=scheduler_loop, daemon=True, name="scheduler").start()
     poke_scheduler()
+    if RUNPOD_AUTO_OFF_CHECK_SEC > 0 and runpod_api.RUNPOD_API_KEY:
+        threading.Thread(target=_auto_power_off_loop, daemon=True, name="runpod-auto-off").start()   # NS-8
     if RUNPOD_SYNC_INTERVAL_SEC > 0:
         threading.Thread(target=_runpod_sync_loop, daemon=True, name="runpod-sync").start()
     elif RUNPOD_SESSION_LOG_SEC > 0 and runpod_api.RUNPOD_API_KEY:

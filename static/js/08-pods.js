@@ -189,6 +189,13 @@ function renderPodControls(){
   document.getElementById('pod-ctl-power').style.display = power ? '' : 'none';
   document.getElementById('pod-ctl-power-title').textContent = power ? 'RunPod 전원' : 'RunPod 정보';
   document.getElementById('pod-ctl-power-hint').textContent = power ? power.label : '';
+  // 자동 끄기(NS-8) — RunPod 전원을 다룰 수 있을 때만(관리자 · RunPod 워커)
+  const w = podEditId ? (podsById[podEditId] || {}) : {};
+  document.getElementById('pod-ctl-autooff-row').style.display = p && power ? '' : 'none';
+  document.getElementById('pod-ctl-autooff').setAttribute('aria-checked', w.auto_power_off ? 'true' : 'false');
+  document.getElementById('pod-ctl-autooff-hint').textContent = (w.auto_power_off
+    ? `켜짐 — 실행·대기 작업이 모두 끝나고 5분 동안 새 작업이 없으면 RunPod 파드를 꺼요${w.runpod_tier ? '(이 워커는 파드를 지워요)' : ''}.`
+    : '꺼짐 — 직접 끌 때까지 켜 둬요.') + (w.auto_off_at ? ` 마지막 자동 끄기: ${fmtGalleryDateTime(w.auto_off_at)}` : '');
   const pull = podEditId ? !!(podsById[podEditId] || {}).pull_outputs : podEditNewPull;
   document.getElementById('pod-ctl-pull').setAttribute('aria-checked', pull ? 'true' : 'false');
   document.getElementById('pod-ctl-pull-hint').textContent = pull
@@ -233,6 +240,7 @@ function bindPodFieldSwitch(switchId, field, toggleNew){
 }
 bindPodFieldSwitch('pod-ctl-pull', 'pull_outputs', () => { podEditNewPull = !podEditNewPull; });
 bindPodFieldSwitch('pod-ctl-auto', 'auto_install_models', () => { podEditNewAuto = !podEditNewAuto; });
+bindPodFieldSwitch('pod-ctl-autooff', 'auto_power_off', () => {});   // 새 워커 추가 중엔 안 보인다
 document.getElementById('pod-ctl-enabled').addEventListener('click', async (e) => {
   const p = (dashSummary.pods || []).find(x => x.id === podEditId);
   if(!p) return;

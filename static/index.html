@@ -124,6 +124,7 @@
   <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></symbol>
   <symbol id="i-plug-zap" viewBox="0 0 24 24"><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="m2 22 3-3"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m18 3-4 4h6l-4 4"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
   <symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
   <symbol id="i-group" viewBox="0 0 24 24"><path d="M3 7V5c0-1.1.9-2 2-2h2"/><path d="M17 3h2c1.1 0 2 .9 2 2v2"/><path d="M21 17v2c0 1.1-.9 2-2 2h-2"/><path d="M7 21H5c-1.1 0-2-.9-2-2v-2"/><rect width="7" height="5" x="7" y="7" rx="1"/><rect width="7" height="5" x="10" y="12" rx="1"/></symbol>
@@ -1381,6 +1382,12 @@
           <svg class="ico pod-control-ico"><use href="#i-package"/></svg>
           <div class="pod-control-text"><b>모델 자동 설치</b><span id="pod-ctl-auto-hint"></span></div>
           <button type="button" class="pod-switch" id="pod-ctl-auto" role="switch" aria-checked="false" aria-label="모델 자동 설치"></button>
+        </div>
+        <!-- 작업이 끝나면 자동으로 끄기(NS-8) — RunPod 전원을 다룰 수 있는 워커에만 보인다 -->
+        <div class="pod-control-row" id="pod-ctl-autooff-row">
+          <svg class="ico pod-control-ico"><use href="#i-power"/></svg>
+          <div class="pod-control-text"><b>작업이 끝나면 자동으로 끄기</b><span id="pod-ctl-autooff-hint"></span></div>
+          <button type="button" class="pod-switch" id="pod-ctl-autooff" role="switch" aria-checked="false" aria-label="작업이 끝나면 자동으로 끄기"></button>
         </div>
         <!-- RunPod 전원 + RunPod 정보(이름·GPU·비용·일시)를 한 상자에 -->
         <div class="pod-control-row pod-control-runpod" id="pod-ctl-power-row">

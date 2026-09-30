@@ -556,6 +556,75 @@ def _log_runpod_sessions_quietly():
         logging.getLogger("uvicorn.error").warning("RunPod 사용 내역 기록 실패: %s", err)
 
 
+def _power_off_runpod_worker(pod: dict) -> str | None:
+    """워커가 가리키는 RunPod 파드를 끈다 — nightshift가 만든 워커는 파드를 지우고(NS-6) 워커는 남기며, 손으로 등록한
+    워커는 stop. 실패하면 이유. 자동 끄기(NS-8)가 쓴다(요청이 아니라 스레드에서)."""
+    rp_id = runpod_api.extract_pod_id(pod.get("url") or "")
+    if not rp_id:
+        return "RunPod 파드 주소가 아니에요."
+    if _managed_runpod_tier(pod):
+        err = runpod_api.terminate_pod(rp_id)
+        if err and "HTTP 404" not in err:
+            return err
+        pod_registry.update_pod(pod["id"], {"url": "", "enabled": False, "note": "runpod:off"})
+    else:
+        _status, err = runpod_api.pod_action(rp_id, "stop")
+        if err:
+            return err
+    with _pod_card_lock:
+        _pod_card_cache.pop(pod["id"], None)
+    invalidate_comfy_status_cache(pod["id"])
+    ComfyUIDriver.invalidate_capabilities(pod["id"])
+    threading.Thread(target=_log_runpod_sessions_quietly, daemon=True).start()
+    return None
+
+
+def _auto_power_off_check(now: datetime | None = None) -> list[str]:
+    """"작업이 끝나면 자동으로 끄기"(NS-8)가 켜진 RunPod 워커 중, 켜진 파드에서 작업을 하나 이상 끝냈고, 실행 중·실행 대기
+    작업이 없으며, 마지막 작업이 끝난 뒤 RUNPOD_AUTO_OFF_IDLE_SEC가 지난 것을 끈다. 끈 워커 id 목록.
+    - 대기 큐의 아직 워커가 안 정해진 작업도 "이 워커로 올 수 있는 일"로 보고 기다린다(일시정지·실패한 작업은 안 셈).
+    - 파드를 켠 뒤 아직 작업을 하나도 안 했으면 끄지 않는다(켜 두고 작업을 준비하는 중일 수 있어서)."""
+    now = now or datetime.now(timezone.utc)
+    turned_off = []
+    for pod in pod_registry.list_pods(pod_registry.ALL):
+        if not pod.get("auto_power_off") or not runpod_api.extract_pod_id(pod.get("url") or ""):
+            continue
+        info = runpod_api.get_runpod_info(pod["url"]) or {}
+        if info.get("status") != "RUNNING":
+            continue
+        with lock:
+            mine = [j for j in jobs.values() if not j.get("deleted") and j.get("pod_id") == pod["id"]]
+            busy = any(j["status"] in ("running", "queued") for j in mine) or any(
+                j["status"] == "queued" and not j.get("pod_id") and not j.get("deleted") for j in jobs.values())
+            finished = [j.get("finished_at") for j in mine if j["status"] in ("done", "failed", "interrupted") and j.get("finished_at")]
+        if busy or not finished:
+            continue
+        last = max(datetime.fromisoformat(f) for f in finished)
+        started = runpod_sessions._parse_runpod_dt(info.get("last_started_at")) if info.get("last_started_at") else None
+        if started and last < datetime.fromisoformat(started):
+            continue   # 이 파드를 켠 뒤로는 아직 작업을 안 했다
+        if (now - last).total_seconds() < RUNPOD_AUTO_OFF_IDLE_SEC:
+            continue
+        err = _power_off_runpod_worker(pod)
+        log = logging.getLogger("uvicorn.error")
+        if err:
+            log.warning("자동 끄기 실패 — 워커 %s: %s", pod["id"], err)
+            continue
+        pod_registry.update_pod(pod["id"], {"auto_off_at": now.isoformat(timespec="seconds")})
+        log.info("자동 끄기 — 워커 %s(%s): 마지막 작업 %s 뒤 새 작업 없음", pod["id"], pod.get("name"), last.isoformat())
+        turned_off.append(pod["id"])
+    return turned_off
+
+
+def _auto_power_off_loop():
+    while True:
+        time.sleep(RUNPOD_AUTO_OFF_CHECK_SEC)
+        try:
+            _auto_power_off_check()
+        except Exception:
+            logging.getLogger("uvicorn.error").exception("자동 끄기 검사 실패")
+
+
 def _runpod_session_log_loop():
     """RUNPOD_SESSION_LOG_SEC마다 사용 내역(DB 탭)만 맞춘다(NS-2) — 전체 동기화(워커 자동 등록)를 켜지
     않아도 켜고 끈 기록이 빠지지 않게. RunPod 목록 GET 한 번이라 가볍다."""
