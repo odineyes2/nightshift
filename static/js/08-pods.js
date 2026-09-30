@@ -360,6 +360,24 @@ function renderRecentJobsCard(){
 
 const CARD_RENDERERS = { pod: renderPodCard, 'recent-jobs': renderRecentJobsCard };
 
+// 로컬 워커(이 서버 자신을 가리키는 워커) — 평소엔 숨긴다(NS-7). 고른 적 없으면 켜져 있을 때만 보인다.
+const SHOW_LOCAL_KEY = 'nightshift-show-local-worker';
+function isLocalWorker(p){
+  if(!p || (p.tags || []).includes('runpod')) return false;
+  const url = (p.url || '').trim();
+  if(!url) return true;
+  try{ return ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(url).hostname); }catch(e){ return false; }
+}
+function showLocalWorkers(){
+  const saved = localStorage.getItem(SHOW_LOCAL_KEY);
+  if(saved !== null) return saved === '1';
+  return (dashSummary.pods || []).some(p => isLocalWorker(podsById[p.id] || p) && (podsById[p.id] || p).enabled);
+}
+document.getElementById('dash-show-local').addEventListener('click', () => {
+  localStorage.setItem(SHOW_LOCAL_KEY, showLocalWorkers() ? '0' : '1');
+  renderDashboard();
+});
+
 function renderDashboard(){
   if(podLongPress.active) return;
   const totals = dashSummary.totals || {};
@@ -379,7 +397,12 @@ function renderDashboard(){
 
   // 카드 목록 — 파드마다 카드 하나에, 파드를 가로지르는 카드(최근 작업)를 덧붙인다.
   // 나중에 통계나 산출물 카드도 같은 자리에 섞으면 된다.
-  const cards = (dashSummary.pods || []).map(p => ({ type: 'pod', data: p }));
+  const allPods = dashSummary.pods || [];
+  const hasLocal = allPods.some(p => isLocalWorker(podsById[p.id] || p));
+  const showLocal = showLocalWorkers();
+  document.getElementById('dash-local-toggle').hidden = !hasLocal;
+  document.getElementById('dash-show-local').setAttribute('aria-checked', String(showLocal));
+  const cards = allPods.filter(p => showLocal || !isLocalWorker(podsById[p.id] || p)).map(p => ({ type: 'pod', data: p }));
   cards.push({ type: 'recent-jobs' });
   const canvas = document.getElementById('dash-canvas');
   document.getElementById('dash-empty').style.display = cards.length ? 'none' : '';

@@ -46,7 +46,9 @@ PODS_FILE = Path(os.environ.get("NIGHTSHIFT_PODS_FILE") or data_path("pods.json"
 LEGACY_ENDPOINT_FILE = data_path("comfy_endpoint.json")
 
 DEFAULT_KIND = "comfyui"
-DEFAULT_POD_NAME = "기본 워커"   # 새로 설치할 때만 쓰인다 — 이미 있는 파드의 이름은 그대로
+DEFAULT_POD_NAME = "로컬 워커"   # 새로 설치할 때 — 이 서버 자신(주소가 비었거나 127.0.0.1)을 가리키는 워커(NS-7)
+# 예전 기본 이름. 이 서버 자신을 가리키는 워커가 이 이름이면 load()가 한 번 "로컬 워커"로 바꾼다(NS-7).
+_OLD_DEFAULT_NAMES = ("기본 파드", "기본 워커")
 
 # 이름을 비워두고 파드를 만들면 이 세 목록에서 하나씩 뽑아 이어붙인다(예: "느긋한 다람쥐 사원").
 _RANDOM_NAME_ADJECTIVES = [
@@ -195,6 +197,25 @@ def load():
             save()
             return
         _pods.extend(loaded)
+        renamed = False
+        for p in _pods:
+            if p.get("name") in _OLD_DEFAULT_NAMES and is_local(p):
+                p["name"] = DEFAULT_POD_NAME
+                renamed = True
+        if renamed:
+            save()
+
+
+def is_local(pod: dict) -> bool:
+    """이 서버 자신을 가리키는 워커인가 — 주소가 비었거나(자동: 이 서버의 ComfyUI) 127.0.0.1/localhost.
+    RunPod 워커는 만드는 동안 잠깐 주소가 비어 있어서 runpod 태그로 뺀다."""
+    if "runpod" in (pod.get("tags") or []):
+        return False
+    url = (pod.get("url") or "").strip()
+    if not url:
+        return True
+    host = urllib.parse.urlparse(url).hostname or ""
+    return host in ("127.0.0.1", "localhost", "::1")
 
 
 def save():

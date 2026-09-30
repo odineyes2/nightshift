@@ -288,6 +288,8 @@
   <div class="dash-actions">
     <button class="submit-btn" id="pod-add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg> 워커 추가</button>
     <button class="load-btn" id="dash-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
+    <!-- 로컬 워커(이 서버 자신) 보기 — 이 서버에 GPU가 생길 때를 위해 남겨 둔 워커라 평소엔 숨긴다(NS-7). 로컬 워커가 있을 때만 보인다. -->
+    <label class="dash-local-toggle" id="dash-local-toggle" hidden><button type="button" class="pod-switch" id="dash-show-local" role="switch" aria-checked="false" aria-label="로컬 워커 보기"></button> 로컬 워커 보기</label>
   </div>
 
   <!-- 카드 캔버스 — 카드마다 타입(data-card-type)이 있고 타입별 렌더러가 그린다.
