@@ -78,6 +78,7 @@
     .db-sessions .db-cols > *{ display:block !important; min-width:0; overflow-wrap:anywhere; }
     .db-sessions .db-cell-num{ display:none !important; }
     .db-sessions .db-cell-name{ grid-column:1 / -1; font-weight:600; }
+    .db-cell-worker{ font-weight:400; color:var(--text-dim); }
     .db-sessions [data-label]::before{ content:attr(data-label); margin-right:6px; font-size:10px; font-family:var(--mono);
                                        color:var(--text-dim); text-transform:uppercase; letter-spacing:0.04em; }
     .db-sessions .db-row{ border-bottom:1px solid var(--border); }

@@ -450,7 +450,13 @@ def get_runpod_sessions(request: Request):
     """DB 탭 — RunPod 세션(사용 내역) 로그(runpod_sessions.py). 비용 정보라 회원
     관리와 같은 기준으로 관리자만 볼 수 있다."""
     admin_only(request)
-    return {"sessions": runpod_sessions.list_sessions()}
+    sessions = runpod_sessions.list_sessions()
+    if any(not s.get("worker_name") for s in sessions):   # 예전 기록은 지금 그 파드를 가리키는 워커로(NS-14)
+        names = runpod_sync.worker_names_by_runpod_id()
+        for s in sessions:
+            if not s.get("worker_name"):
+                s["worker_name"] = names.get(s["runpod_pod_id"])
+    return {"sessions": sessions}
 
 
 @app.get("/api/git-log")

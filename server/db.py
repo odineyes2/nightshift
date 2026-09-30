@@ -364,10 +364,16 @@ SCHEMA_V15 = """
 ALTER TABLE board_presets ADD COLUMN slots_json TEXT
 """
 
+# v16: RunPod 세션에 "그때의 워커 이름"(NS-14) — 워커는 이름이 바뀌거나 지워질 수 있어 기록할 때 떠 둔다.
+# NULL이면(예전 기록) 화면이 지금 그 파드를 가리키는 워커 이름으로 채운다.
+SCHEMA_V16 = """
+ALTER TABLE runpod_sessions ADD COLUMN worker_name TEXT
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
-              (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15)]
+              (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}

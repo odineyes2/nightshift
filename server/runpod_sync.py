@@ -123,12 +123,23 @@ def sync_runpod_pods(owner_id: int, dry_run: bool, ensure_runtime_fn, job_has_ru
     return result
 
 
+def worker_names_by_runpod_id() -> dict[str, str]:
+    """RunPod pod id → 지금 그 파드를 가리키는 워커 이름(NS-14 — 사용 내역에 "그때의 워커"로 떠 둔다)."""
+    out = {}
+    for w in pod_registry.list_pods(pod_registry.ALL):
+        rpid = runpod_api.extract_pod_id(w.get("url") or "")
+        if rpid:
+            out[rpid] = w.get("name") or w["id"]
+    return out
+
+
 def _log_sessions(pods: list[dict]) -> None:
+    names = worker_names_by_runpod_id()
     for p in pods:
         gpu_type = runpod_api.get_gpu_type_cached(p["id"]) or ""
         runpod_sessions.sync_pod_session(
             p["id"], p["name"], gpu_type, p.get("cost_per_hr"), p["status"] == "RUNNING",
-            p.get("last_started_at"), p.get("last_status_change"))
+            p.get("last_started_at"), p.get("last_status_change"), worker_name=names.get(p["id"]))
     runpod_sessions.close_missing([p["id"] for p in pods])   # 지운 pod의 열린 세션
 
 

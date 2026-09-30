@@ -77,12 +77,13 @@ def _row_to_entry(row) -> dict:
         "gpu_type": row["gpu_type"], "vram_gb": row["vram_gb"], "cost_per_hr": row["cost_per_hr"],
         "started_at": row["started_at"], "ended_at": row["ended_at"],
         "duration_sec": row["duration_sec"], "cost_total": row["cost_total"],
+        "worker_name": row["worker_name"],
     }
 
 
 def sync_pod_session(
     runpod_pod_id: str, pod_name: str, gpu_type: str, cost_per_hr: float | None, running: bool,
-    last_started_at_raw: str | None, last_status_change_raw: str | None,
+    last_started_at_raw: str | None, last_status_change_raw: str | None, worker_name: str | None = None,
 ) -> None:
     """이 pod의 지금 상태 하나를 반영해 세션을 열거나 닫는다 — runpod_sync.py가 RunPod
     계정의 pod마다 sync 한 번당 한 번씩 부른다."""
@@ -98,15 +99,17 @@ def sync_pod_session(
         if running:
             started_at = _parse_runpod_dt(last_started_at_raw) or now
             if open_row is not None and open_row["started_at"] == started_at:
+                if worker_name and not open_row["worker_name"]:   # 켜진 뒤에 워커가 연결됐으면 채운다
+                    conn.execute("UPDATE runpod_sessions SET worker_name=? WHERE id=?", (worker_name, open_row["id"]))
                 return  # 이미 이 시작을 기록해 뒀다 — 할 일 없음
             if open_row is not None:
                 # 다른 시작 시각의 열린 세션이 있다는 건 그 사이 종료를 놓쳤다는 뜻 —
                 # 잃어버리지 않게 "지금"으로 닫아 둔다(정확한 종료 시각은 알 수 없음).
                 _close_row(conn, open_row, now)
             conn.execute(
-                "INSERT INTO runpod_sessions(runpod_pod_id, pod_name, gpu_type, vram_gb, cost_per_hr, started_at) "
-                "VALUES(?,?,?,?,?,?)",
-                (runpod_pod_id, pod_name, gpu_type or "", vram_gb, cost_per_hr, started_at),
+                "INSERT INTO runpod_sessions(runpod_pod_id, pod_name, gpu_type, vram_gb, cost_per_hr, started_at, worker_name) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (runpod_pod_id, pod_name, gpu_type or "", vram_gb, cost_per_hr, started_at, worker_name),
             )
         else:
             ended_at = _parse_status_change_dt(last_status_change_raw)
@@ -122,9 +125,9 @@ def sync_pod_session(
                             (runpod_pod_id, started_at)).fetchone():
                 return
             cur = conn.execute(
-                "INSERT INTO runpod_sessions(runpod_pod_id, pod_name, gpu_type, vram_gb, cost_per_hr, started_at) "
-                "VALUES(?,?,?,?,?,?)",
-                (runpod_pod_id, pod_name, gpu_type or "", vram_gb, cost_per_hr, started_at),
+                "INSERT INTO runpod_sessions(runpod_pod_id, pod_name, gpu_type, vram_gb, cost_per_hr, started_at, worker_name) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (runpod_pod_id, pod_name, gpu_type or "", vram_gb, cost_per_hr, started_at, worker_name),
             )
             _close_row(conn, conn.execute("SELECT * FROM runpod_sessions WHERE id=?", (cur.lastrowid,)).fetchone(), ended_at)
 

@@ -443,7 +443,7 @@ function renderRunpodSessions(){
   const rows = runpodSessions.map(s => `
     <div class="db-row db-cols${s.ended_at ? '' : ' db-row-open'}">
       <span class="db-cell-num">${s.id}</span>
-      <span class="db-cell-name" title="${escapeHtml(s.runpod_pod_id)}">${escapeHtml(s.pod_name || s.runpod_pod_id)}</span>
+      <span class="db-cell-name" title="${escapeHtml(s.runpod_pod_id + (s.worker_name ? ' — 워커 ' + s.worker_name : ''))}">${escapeHtml(s.pod_name || s.runpod_pod_id)}${s.worker_name ? ` <span class="db-cell-worker">(${escapeHtml(s.worker_name)})</span>` : ''}</span>
       <span class="db-cell-dim" data-label="GPU">${s.gpu_type ? escapeHtml(s.gpu_type) : '-'}</span>
       <span class="db-cell-dim" data-label="VRAM">${s.vram_gb ? `${s.vram_gb}GB` : '-'}</span>
       <span data-label="시작">${fmtGalleryDateTime(s.started_at)}</span>
