@@ -322,6 +322,10 @@
   .account-facts{ display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:0 0 14px; font-size:13px; }
   .account-facts dt{ color:var(--text-dim); font-family:var(--mono); font-size:11.5px; }
   .account-facts dd{ margin:0; overflow-wrap:anywhere; }
+  .account-dev-link{ display:flex; align-items:center; gap:6px; margin-top:14px; padding-top:12px; border-top:1px solid var(--border);
+    font-size:13px; color:var(--queued); text-decoration:none; }
+  .account-dev-link span{ color:var(--text-dim); }
+  .account-dev-link:hover{ text-decoration:underline; text-underline-offset:3px; }
   .account-secret-input{ display:flex; gap:6px; align-items:center; }
   .account-secret-input .option-input{ flex:1; max-width:none; }
   .account-secret-input .icon-btn{ flex-shrink:0; }
