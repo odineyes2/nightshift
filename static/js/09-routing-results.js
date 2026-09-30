@@ -153,7 +153,24 @@ function formPodId(){
   return resolvePodId(currentPodId || formPodChoice);
 }
 
+// 전역 탭의 "보드"(NS-12)가 열 프로젝트 — 마지막에 연 보드, 없으면 마지막에 보던 프로젝트, 없으면 보관 안 된 첫 프로젝트.
+const LAST_BOARD_KEY = 'nightshift-last-board-project';
+function boardTargetProject(){
+  const ok = (id) => typeof id === 'number' && id > 0 && projectsById[id] && !projectsById[id].archived;   // 미분류(unassigned)는 보드가 없다
+  const saved = Number(localStorage.getItem(LAST_BOARD_KEY));
+  if(ok(saved)) return saved;
+  if(typeof lastProjectId === 'number' && ok(lastProjectId)) return lastProjectId;
+  const first = Object.values(projectsById).find(p => ok(p.id));
+  return first ? first.id : null;
+}
+
 function showTab(tab, { podId = null, projectId = null } = {}){
+  if(tab === 'board'){
+    const pid = boardTargetProject();
+    if(pid !== null) return showTab('prboard', { projectId: pid });
+    flashNotice('보드를 열 프로젝트가 없어요 — 먼저 프로젝트를 만들어 주세요.');
+    tab = 'dashboard';
+  }
   if(!TAB_MAINS[tab]) tab = 'dashboard';
   if(tab === 'admin' && !isAdminUser()) tab = 'dashboard';
   if(tab === 'db' && !isAdminUser()) tab = 'dashboard';
@@ -193,13 +210,14 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   currentProjectId = scopedProjectId;
   if(scopedPodId){ lastPodId = scopedPodId; lastScopeKind = 'pod'; }
   if(scopedProjectId !== null){ lastProjectId = scopedProjectId; lastScopeKind = 'project'; }
+  if(tab === 'prboard' && typeof scopedProjectId === 'number') localStorage.setItem(LAST_BOARD_KEY, String(scopedProjectId));
   currentTab = tab;
   // 작업 목록은 언제나 지금 들어와 있는 파드(또는 프로젝트) 것만 보여준다.
   jobPodFilter = (tab === 'jobs') ? scopedPodId : null;
   jobProjectFilter = (tab === 'jobs') ? scopedProjectId : null;
 
   // 파드 안에 있을 때는 상단 내비게이션의 PODS를 켜 둔다(파드 화면은 PODS 아래 층이다).
-  document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab || (!!scopedPodId && b.dataset.tab === 'pods')));
+  document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab || (!!scopedPodId && b.dataset.tab === 'pods') || (tab === 'prboard' && b.dataset.tab === 'board')));
   const targetMain = TAB_MAINS[tab];
   for(const el of new Set(Object.values(TAB_MAINS))){
     el.style.display = (el === targetMain) ? '' : 'none';
