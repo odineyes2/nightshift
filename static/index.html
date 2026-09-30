@@ -1387,6 +1387,7 @@
         <div class="pod-control-row" id="pod-ctl-autooff-row">
           <svg class="ico pod-control-ico"><use href="#i-power"/></svg>
           <div class="pod-control-text"><b>작업이 끝나면 자동으로 끄기</b><span id="pod-ctl-autooff-hint"></span></div>
+          <label class="pod-control-minutes"><input type="number" id="pod-ctl-autooff-min" min="1" max="1440" step="1" value="15" aria-label="자동 끄기까지 기다릴 시간(분)">분</label>
           <button type="button" class="pod-switch" id="pod-ctl-autooff" role="switch" aria-checked="false" aria-label="작업이 끝나면 자동으로 끄기"></button>
         </div>
         <!-- RunPod 전원 + RunPod 정보(이름·GPU·비용·일시)를 한 상자에 -->

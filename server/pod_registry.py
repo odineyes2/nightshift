@@ -46,6 +46,7 @@ PODS_FILE = Path(os.environ.get("NIGHTSHIFT_PODS_FILE") or data_path("pods.json"
 LEGACY_ENDPOINT_FILE = data_path("comfy_endpoint.json")
 
 DEFAULT_KIND = "comfyui"
+AUTO_OFF_DEFAULT_MIN = 15   # 자동 끄기(NS-8) 기다리는 시간 기본값(분, NS-16)
 DEFAULT_POD_NAME = "로컬 워커"   # 새로 설치할 때 — 이 서버 자신(주소가 비었거나 127.0.0.1)을 가리키는 워커(NS-7)
 # 예전 기본 이름. 이 서버 자신을 가리키는 워커가 이 이름이면 load()가 한 번 "로컬 워커"로 바꾼다(NS-7).
 _OLD_DEFAULT_NAMES = ("기본 파드", "기본 워커")
@@ -124,6 +125,16 @@ def normalize_pod(raw: dict) -> dict:
     if max_concurrent < 1:
         raise PodError("max_concurrent는 1 이상이어야 해요.")
 
+    raw_off = raw.get("auto_off_minutes")
+    if raw_off is None or raw_off == "":
+        raw_off = AUTO_OFF_DEFAULT_MIN
+    try:
+        auto_off_minutes = int(raw_off)
+    except (TypeError, ValueError):
+        raise PodError("자동 끄기 시간은 정수(분)여야 해요.")
+    if not 1 <= auto_off_minutes <= 1440:
+        raise PodError("자동 끄기 시간은 1분에서 1440분 사이여야 해요.")
+
     return {
         "id": str(raw.get("id") or "").strip() or str(uuid.uuid4())[:8],
         "name": name,
@@ -142,6 +153,7 @@ def normalize_pod(raw: dict) -> dict:
         "runpod_tier": str(raw.get("runpod_tier") or "")[:20],
         # 작업이 다 끝나고 한동안 새 작업이 없으면 RunPod 전원을 끈다(NS-8). auto_off_at은 마지막으로 스스로 끈 시각.
         "auto_power_off": bool(raw.get("auto_power_off")),
+        "auto_off_minutes": auto_off_minutes,   # 마지막 작업이 끝난 뒤 이만큼(분) 새 작업이 없으면 끈다
         "auto_off_at": str(raw.get("auto_off_at") or ""),
         "created_at": raw.get("created_at") or _now_iso(),
         "updated_at": raw.get("updated_at") or _now_iso(),

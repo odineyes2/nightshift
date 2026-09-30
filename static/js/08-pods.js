@@ -193,8 +193,10 @@ function renderPodControls(){
   const w = podEditId ? (podsById[podEditId] || {}) : {};
   document.getElementById('pod-ctl-autooff-row').style.display = p && power ? '' : 'none';
   document.getElementById('pod-ctl-autooff').setAttribute('aria-checked', w.auto_power_off ? 'true' : 'false');
+  const minEl = document.getElementById('pod-ctl-autooff-min');
+  if(document.activeElement !== minEl) minEl.value = w.auto_off_minutes || 15;
   document.getElementById('pod-ctl-autooff-hint').textContent = (w.auto_power_off
-    ? `켜짐 — 실행·대기 작업이 모두 끝나고 5분 동안 새 작업이 없으면 RunPod 파드를 꺼요${w.runpod_tier ? '(이 워커는 파드를 지워요)' : ''}.`
+    ? `켜짐 — 실행·대기 작업이 모두 끝나고 ${w.auto_off_minutes || 15}분 동안 새 작업이 없으면 RunPod 파드를 꺼요${w.runpod_tier ? '(이 워커는 파드를 지워요)' : ''}.`
     : '꺼짐 — 직접 끌 때까지 켜 둬요.') + (w.auto_off_at ? ` 마지막 자동 끄기: ${fmtGalleryDateTime(w.auto_off_at)}` : '');
   const pull = podEditId ? !!(podsById[podEditId] || {}).pull_outputs : podEditNewPull;
   document.getElementById('pod-ctl-pull').setAttribute('aria-checked', pull ? 'true' : 'false');
@@ -241,6 +243,16 @@ function bindPodFieldSwitch(switchId, field, toggleNew){
 bindPodFieldSwitch('pod-ctl-pull', 'pull_outputs', () => { podEditNewPull = !podEditNewPull; });
 bindPodFieldSwitch('pod-ctl-auto', 'auto_install_models', () => { podEditNewAuto = !podEditNewAuto; });
 bindPodFieldSwitch('pod-ctl-autooff', 'auto_power_off', () => {});   // 새 워커 추가 중엔 안 보인다
+document.getElementById('pod-ctl-autooff-min').addEventListener('change', async (e) => {
+  const pod = podsById[podEditId];
+  if(!pod) return;
+  const res = await fetch(`/api/pods/${encodeURIComponent(pod.id)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ auto_off_minutes: e.currentTarget.value }),
+  });
+  if(!res.ok) alert((await res.json().catch(() => ({}))).detail || '바꾸지 못했어요.');
+  await fetchPods();
+  renderPodControls();
+});
 document.getElementById('pod-ctl-enabled').addEventListener('click', async (e) => {
   const p = (dashSummary.pods || []).find(x => x.id === podEditId);
   if(!p) return;

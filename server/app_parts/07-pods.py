@@ -581,7 +581,7 @@ def _power_off_runpod_worker(pod: dict) -> str | None:
 
 def _auto_power_off_check(now: datetime | None = None) -> list[str]:
     """"작업이 끝나면 자동으로 끄기"(NS-8)가 켜진 RunPod 워커 중, 켜진 파드에서 작업을 하나 이상 끝냈고, 실행 중·실행 대기
-    작업이 없으며, 마지막 작업이 끝난 뒤 RUNPOD_AUTO_OFF_IDLE_SEC가 지난 것을 끈다. 끈 워커 id 목록.
+    작업이 없으며, 마지막 작업이 끝난 뒤 워커의 auto_off_minutes가 지난 것을 끈다. 끈 워커 id 목록.
     - 대기 큐의 아직 워커가 안 정해진 작업도 "이 워커로 올 수 있는 일"로 보고 기다린다(일시정지·실패한 작업은 안 셈).
     - 파드를 켠 뒤 아직 작업을 하나도 안 했으면 끄지 않는다(켜 두고 작업을 준비하는 중일 수 있어서)."""
     now = now or datetime.now(timezone.utc)
@@ -603,7 +603,7 @@ def _auto_power_off_check(now: datetime | None = None) -> list[str]:
         started = runpod_sessions._parse_runpod_dt(info.get("last_started_at")) if info.get("last_started_at") else None
         if started and last < datetime.fromisoformat(started):
             continue   # 이 파드를 켠 뒤로는 아직 작업을 안 했다
-        if (now - last).total_seconds() < RUNPOD_AUTO_OFF_IDLE_SEC:
+        if (now - last).total_seconds() < pod["auto_off_minutes"] * 60:
             continue
         err = _power_off_runpod_worker(pod)
         log = logging.getLogger("uvicorn.error")
