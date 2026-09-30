@@ -41,10 +41,11 @@ const TAB_MAINS = {
   // (renderResultsList)를 쓰는 완전히 별개의 화면이다.
   results: document.getElementById('tab-results'),
   pmodels: document.getElementById('tab-pmodels'),   // 워커에 설치된 모델(08b-worker-models.js)
+  psettings: document.getElementById('tab-psettings'),   // 워커 설정 — 설정 창을 이 자리에 그린다(NS-9, 08-pods.js)
 };
 
 // 작업(Jobs)은 전역 Jobs 탭에서만 관리한다 — 파드 안에는 결과물(갤러리/영상/글)과 설정만 둔다.
-const POD_TABS = ['pgallery', 'pvideo', 'pmodels', 'results'];
+const POD_TABS = ['pgallery', 'pvideo', 'pmodels', 'results', 'psettings'];
 // 폰에서는 글자를 숨기고 아이콘만 보이므로(CSS .btn-label), 라벨은 title/aria-label에도 넣는다.
 const POD_TAB_META = {
   jobs:     { icon: 'list-checks', label: 'Jobs' },
@@ -52,7 +53,7 @@ const POD_TAB_META = {
   pvideo:   { icon: 'clapperboard', label: 'Videos' },
   results:  { icon: 'file-text',   label: 'Results' },
   pmodels:  { icon: 'boxes',       label: 'Models' },
-  // 화면이 아니라 "이 파드 설정" 모달을 여는 서브탭 버튼이다(POD_TABS에 없음 — 탭 전환이 일어나지 않는다).
+  // 워커 설정 — 예전엔 모달을 여는 버튼이었고, 이제 다른 서브탭처럼 화면이다(NS-9).
   psettings: { icon: 'settings',   label: 'Settings' },
 };
 // 파드 종류가 서브탭 구성을 정한다 — 셸 파드에는 워크플로우도 설치된 모델도 없다.
@@ -240,6 +241,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'jobs') fetchJobs();
   if(tab === 'results') renderResultsList();
   if(tab === 'pmodels') openWorkerModels(scopedPodId); else closeWorkerModels();
+  if(tab === 'psettings') openPodSettingsPage(scopedPodId); else closePodSettingsPage();
   if(tab === 'pods') fetchRunpodVolumes();
   if(tab === 'admin') fetchAdminUsers();
   if(tab === 'db'){ renderDbPanelTabs(); fetchRunpodSessions(); fetchGitLog(); fetchGenerationLog(); }
@@ -319,12 +321,11 @@ document.getElementById('brand-home').addEventListener('click', (e) => {
 });
 document.getElementById('pod-bar-back').addEventListener('click', () => showTab('pods'));
 document.getElementById('pod-bar-settings').addEventListener('click', () => {
-  if(currentPodId) openPodEditModal(currentPodId);
+  if(currentPodId) showTab('psettings', { podId: currentPodId });
 });
 document.getElementById('pod-bar-subtabs').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-pod-tab]');
   if(!btn) return;
-  if(btn.dataset.podTab === 'psettings'){ openPodEditModal(currentPodId); return; }
   showTab(btn.dataset.podTab, { podId: currentPodId });
 });
 // 파드를 바꾸면 같은 서브탭을 그 파드에서 연다. "새 작업 추가" 폼은 그대로 두므로,

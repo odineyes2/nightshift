@@ -333,6 +333,10 @@ def _normalize(raw: dict) -> dict:
         "cost_per_hr": _first(raw, "costPerHr", "costPerHour", "adjustedCostPerHr"),
         "created_at": _first(raw, "createdAt", "created_at"),
         "last_started_at": _first(raw, "lastStartedAt", "last_started_at", "lastStartAt"),
+        # 디스크(NS-9) — 컨테이너 디스크는 끄거나 지우면 사라지고, 볼륨은 끄면 남고, 네트워크 볼륨은 지워도 남는다.
+        "container_disk_gb": _first(raw, "containerDiskInGb"),
+        "volume_gb": _first(raw, "volumeInGb"),
+        "network_volume_id": _first(raw, "networkVolumeId", "networkVolume.id") or None,
     }
     ports = raw.get("ports")
     if isinstance(ports, list):

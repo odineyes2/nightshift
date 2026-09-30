@@ -409,11 +409,13 @@ function renderDashboard(){
   canvas.innerHTML = cards.map(c => (CARD_RENDERERS[c.type] || (() => ''))(c.data)).join('');
 
   canvas.querySelectorAll('[data-pod-edit]').forEach(btn => btn.addEventListener('click', () => {
-    openPodEditModal(btn.dataset.podEdit);
+    showTab('psettings', { podId: btn.dataset.podEdit });
   }));
   canvas.querySelectorAll('[data-pod-open]').forEach(card => card.addEventListener('click', (e) => {
     if(e.target.closest('button, select, a')) return; // ⚙ 설정, ▶ 시작/⏸ 정지는 자기 할 일만 한다
-    showTab(podDefaultTab(podsById[card.dataset.podOpen]), { podId: card.dataset.podOpen });
+    // 워커 카드를 누르면 그 워커의 설정부터(NS-9) — 설정 서브탭이 없는 종류는 첫 서브탭.
+    const pod = podsById[card.dataset.podOpen];
+    showTab(podSubtabs(pod).includes('psettings') ? 'psettings' : podDefaultTab(pod), { podId: card.dataset.podOpen });
   }));
   canvas.querySelectorAll('[data-job-pod]').forEach(row => row.addEventListener('click', () => {
     showTab('jobs', { podId: row.dataset.jobPod });
@@ -527,6 +529,14 @@ function runpodInfoFromDashboard(podId){
 }
 
 // RunPod 정보(이름·GPU·비용·일시) — "RunPod 전원" 줄 안에 함께 보인다. 줄을 보일지는 renderPodControls가 정한다.
+// 디스크 종류(NS-9) — 받은 모델이 파드를 끄거나 지운 뒤에도 남는지가 요점이라 그 말까지 붙인다.
+function runpodDiskText(info){
+  if(info.network_volume_id) return `네트워크 볼륨 연결됨 — 파드를 지워도 모델이 남아요${info.container_disk_gb ? ` · 컨테이너 ${info.container_disk_gb}GB` : ''}`;
+  if(info.volume_gb) return `볼륨 ${info.volume_gb}GB(끄면 남음) · 컨테이너 ${info.container_disk_gb || 0}GB(끄면 지워짐)`;
+  if(info.container_disk_gb) return `컨테이너 디스크 ${info.container_disk_gb}GB만 — 끄거나 지우면 받은 모델이 지워져요`;
+  return '';
+}
+
 function renderRunpodInfoBox(info){
   const grid = document.getElementById('pod-edit-runpod-fields');
   const rows = [];
@@ -536,6 +546,8 @@ function renderRunpodInfoBox(info){
     if(info.cost_per_hr != null) rows.push(['비용', `$${Number(info.cost_per_hr).toFixed(2)}/hr`]);
     if(info.created_at) rows.push(['생성', fmtGalleryDateTime(info.created_at)]);
     if(info.last_started_at) rows.push(['최근 시작', fmtGalleryDateTime(info.last_started_at)]);
+    const disk = runpodDiskText(info);
+    if(disk) rows.push(['디스크', disk]);
   }
   grid.innerHTML = rows.map(([k, v]) =>
     `<span class="ri-k">${escapeHtml(k)}</span><span class="ri-v">${escapeHtml(String(v))}</span>`).join('');
@@ -565,7 +577,28 @@ function updatePodNameSuggest(runpodName){
   el.appendChild(btn);
 }
 
+// 설정 서브탭(NS-9) — 같은 설정 창을 모달 대신 #tab-psettings 안으로 옮겨 그린다(.inline). 워커 추가는 여전히 모달.
+function podEditInline(){ return document.getElementById('pod-edit-modal').classList.contains('inline'); }
+async function openPodSettingsPage(podId){
+  const modal = document.getElementById('pod-edit-modal');
+  if(!podId) return;
+  if(!podsById[podId]) await fetchPods();   // 새로고침·바로가기로 들어오면 워커 목록이 아직 없다
+  if(!podsById[podId] || currentTab !== 'psettings' || currentPodId !== podId) return;
+  document.getElementById('pod-settings-host').appendChild(modal);
+  modal.classList.add('inline');
+  openPodEditModal(podId);
+}
+function closePodSettingsPage(){
+  const modal = document.getElementById('pod-edit-modal');
+  if(!podEditInline()) return;
+  modal.classList.remove('inline');
+  document.body.appendChild(modal);
+  modal.style.display = 'none';
+  podEditId = null;
+}
+
 function openPodEditModal(podId){
+  if(!podId && podEditInline()) closePodSettingsPage();   // 워커 추가는 모달로
   podEditId = podId || null;
   const pod = podId ? (podsById[podId] || {}) : {};
   document.getElementById('pod-edit-title').innerHTML = podId ? ico('settings') + ' Worker settings' : ico('plus') + ' Add worker';
@@ -644,6 +677,7 @@ document.getElementById('pod-manual-toggle').addEventListener('click', () => {
 });
 
 function closePodEditModal(){
+  if(podEditInline()) return;   // 서브탭에서는 닫지 않는다(다른 탭으로 가면 closePodSettingsPage)
   document.getElementById('pod-edit-modal').style.display = 'none';
   podEditId = null;
 }
@@ -692,10 +726,12 @@ document.getElementById('pod-edit-save').addEventListener('click', async () => {
     });
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || '저장하지 못했어요.');
+    const inline = podEditInline();
     closePodEditModal();
     await fetchPods();
     fetchDashboard();
     fetchComfyStatus();
+    if(inline){ flashNotice('저장했어요'); renderPodBar && renderPodBar(); }
   }catch(e){
     errorEl.textContent = e.message || '저장하지 못했어요.';
   }
