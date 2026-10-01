@@ -631,7 +631,8 @@
   #options-fields input.option-input,
   #options-fields select.option-input,
   #options-fields textarea.option-input,
-  #lora-trigger-field input.option-input{
+  #lora-trigger-field input.option-input,
+  #quality-prompt-field input.option-input{
     max-width:none;
     width:100%;
   }

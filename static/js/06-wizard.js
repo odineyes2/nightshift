@@ -582,6 +582,7 @@ async function wizardApply(){
   }
 
   setLoraTriggerField(wizard.loras.map(l => l.name));
+  setQualityPromptField((baseModelFamilies[wizard.familyId] || {}).label);
   lastWizardModels = { checkpoint: wizard.checkpoint, loras: wizard.loras.map(l => l.name) };
 
   const typeSlug = isPreset ? wizard.preset : [wizard.base, architecture === 'sdxl' && wizard.post.hires_fix && 'hires', architecture === 'sdxl' && wizard.post.usdu && 'usdu'].filter(Boolean).join('_');

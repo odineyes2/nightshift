@@ -909,6 +909,7 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
 
 - **1단계(베이스 모델)**: `GET /api/base-model-families?pod_id=`가 등록부에서 `base_model`이 적힌 **체크포인트**를 그 값으로 묶어 `{id: {label, checkpoints}}`로 돌려줍니다. `label`은 `base_model` 값 그대로, `id`는 그 값의 식별자입니다(소문자, 영문/숫자/`-`/`_`/`.` 외는 `-`: `Wan 2.2`→`wan-2.2`, `Krea.2`→`krea.2`). 지금 들어가 있는 파드(없으면 내 연결된 파드 전체)에 **설치된 체크포인트만** 남기고, 파드에 연결하지 못하면 좁힐 기준이 없어 등록된 것을 전부 보여 줍니다. 체크포인트가 하나면 그룹을 고르는 즉시 확정되고, 여러 개면 그중 하나를 고릅니다. **체크포인트가 마법사에 나타나려면 모델 탭에서 그 체크포인트의 베이스 모델을 적어야 합니다**(베이스 모델이 비어 있으면 안 보임).
 - **3단계(LoRA)**: LoRA의 `base_model`이 고른 그룹과 같을 때만 보이고, LoRA의 `base_model`이 비어 있으면 모든 그룹에서 보입니다(호환 정보를 안 적은 LoRA는 항상 보임). 트리거 키워드도 등록부 값입니다.
+- **퀄리티 프롬프트**: 베이스 모델이 Illustrious·NoobAI면 세부 설정에 "퀄리티 프롬프트" 칸이 `masterpiece, best quality, amazing quality, very aesthetic, absurdres`로 채워져 보입니다(Pony·그 밖의 계열은 안 보임). 제출할 때 메인 프롬프트·시드별 Danbooru 프롬프트 **뒤**에 붙고(CSV 순회면 사본의 각 행 `main_prompt`에, `quality_prompt` 칸을 채운 행은 그대로), 프롬프트가 비었거나 이미 들어 있으면 붙이지 않습니다. 고친 값은 기억하지 않아 다음 작업은 다시 기본값으로 시작합니다.
 - **ControlNet/IPAdapter 프리셋 워크플로우**: 위 "워크플로우 유형의 조합 규칙" 절에서 설명한 프리셋 그룹(`openpose_cn`/`depth_cn`/`lineart_cn`/`ipadapter`) — 베이스 모델 그룹(위 `id`, 예: `illustrious`)별로 미리 만들어둔 워크플로우 JSON을 `PUT /api/workflow-presets/{그룹 id}/{유형}`으로 올려 두면(관리 화면은 없음) `workflow_presets/<그룹 id>__<유형>.json`에 저장되고 그대로 재사용합니다. 그룹에 프리셋이 없는 유형은 마법사의 "워크플로우 유형" 목록에서 아예 숨겨집니다(LoRA 호환성 필터링과 같은 원칙 — 골라봤자 실행할 워크플로우가 없으므로).
 
 ### 모델 등록부 · 파드별 설치 현황 · 사용 통계 · 내려받기 (`🎛 모델` 탭, 전역)

@@ -450,6 +450,14 @@
           <div class="email-hint" id="lora-trigger-hint"></div>
         </div>
 
+        <!-- Danbooru 태그 계열(Illustrious·NoobAI) 마법사일 때만 보이는 퀄리티 태그 — 제출할 때 프롬프트 뒤에 붙인다
+             (setQualityPromptField). 기본값은 매번 새로 채우고 기억하지 않는다. -->
+        <div class="field" id="quality-prompt-field" style="display:none;">
+          <label class="field-label" for="quality-prompt-input">퀄리티 프롬프트</label>
+          <input type="text" class="option-input" id="quality-prompt-input" autocomplete="off" spellcheck="false" placeholder="비워두면 붙이지 않아요">
+          <div class="email-hint">작업을 추가할 때 프롬프트 뒤에 붙어요(CSV 순회면 각 행의 메인 프롬프트). 이미 들어 있거나 프롬프트가 비어 있으면 붙이지 않고, 칸을 비우면 붙이지 않아요.</div>
+        </div>
+
         <div class="options-fields" id="options-fields"></div>
 
         <div class="field" id="video-workflow-field" style="display:none;">

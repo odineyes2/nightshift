@@ -122,6 +122,7 @@ const setCsvFile = setupSlot('csv-slot', 'csv-input', 'csv', '.csv');
 
 function resetForm(){
   setLoraTriggerField([]);
+  setQualityPromptField(null);
   lastWizardModels = null;
   setWorkflowFile(null);
   setVideoWorkflowFile(null);
