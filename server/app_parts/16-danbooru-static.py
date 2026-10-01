@@ -100,6 +100,18 @@ def css_bundle(request: Request):
     return _bundle(request, "css", "css", "text/css; charset=utf-8")
 
 
+@app.get("/", include_in_schema=False)
+@app.get("/index.html", include_in_schema=False)
+def index_html():
+    # Cloudflare가 번들 JS/CSS에 브라우저 캐시 4시간을 덮어쓰므로, 내용 해시를 주소에 붙여 바뀌면 바로 새로 받게 한다.
+    html = (REPO_ROOT / "static" / "index.html").read_text("utf-8")
+    for folder, ext in (("js", "js"), ("css", "css")):
+        files = sorted((REPO_ROOT / "static" / folder).glob(f"*.{ext}"))
+        v = hashlib.sha1("".join(f.read_text("utf-8") for f in files).encode("utf-8")).hexdigest()[:10]
+        html = html.replace(f'"/{folder}/bundle.{ext}"', f'"/{folder}/bundle.{ext}?v={v}"')
+    return Response(html, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache"})
+
+
 app.mount("/", StaticFiles(directory=str(REPO_ROOT / "static"), html=True), name="static")
 
 
