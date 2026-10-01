@@ -255,7 +255,11 @@ function render(jobs, pendingCount, running, perPod){
 
   board.querySelectorAll('.job-card').forEach(card => {
     card.addEventListener('click', (e) => {
-      if(e.target.closest('.start-btn, .stop-btn, .del-btn, .job-card-models-link')) return;   // 모델 안내는 링크(워커 모델 탭)
+      // 모델 안내 링크는 해시 이동 대신 showTab으로 간다 — 해시 링크는 기록을 쌓고 popstate를 내서
+      // 설치된 앱에서 뒤로 가기 가드가 "앱이 종료돼요"를 띄우고 이동을 막는다(openGalleryForModel과 같은 이유)
+      const modelsLink = e.target.closest('.job-card-models-link');
+      if(modelsLink){ e.preventDefault(); showTab('pmodels', { podId: modelsLink.dataset.podId }); return; }
+      if(e.target.closest('.start-btn, .stop-btn, .del-btn')) return;
       openJobDetailModal(card.dataset.id);
     });
   });
@@ -470,9 +474,9 @@ function buildJobCard(j){
         <div class="job-card-title">${kindIcon}<span>${escapeHtml(batchLabel)}</span></div>
         ${baseModel ? `<div class="job-card-base">${escapeHtml(baseModel)}</div>` : ''}
         ${fetching
-          ? `<a class="job-card-wait fetching job-card-models-link" href="#pod/${encodeURIComponent(j.fetching_models.pod_id)}/pmodels" title="${escapeHtml(j.fetching_models.names.join('\n') + '\n\n눌러서 워커의 모델 탭에서 진행 보기')}">${ico('loader-circle', true)}<span>${j.fetching_models.auto ? '모델 자동 설치 중' : '모델 받는 중'} ${j.fetching_models.names.length}개 — 눌러서 진행 보기</span></a>`
+          ? `<a class="job-card-wait fetching job-card-models-link" href="#pod/${encodeURIComponent(j.fetching_models.pod_id)}/pmodels" data-pod-id="${escapeHtml(j.fetching_models.pod_id)}" title="${escapeHtml(j.fetching_models.names.join('\n') + '\n\n눌러서 워커의 모델 탭에서 진행 보기')}">${ico('loader-circle', true)}<span>${j.fetching_models.auto ? '모델 자동 설치 중' : '모델 받는 중'} ${j.fetching_models.names.length}개 — 눌러서 진행 보기</span></a>`
           : blocked && j.fetch_error ? `<div class="job-card-wait" title="${escapeHtml('모델 받기 실패 — ' + j.fetch_error + '\n\n' + (j.waiting_reason || ''))}">${ico('triangle-alert')}<span>받기 실패 — ${escapeHtml(/HTTP 40[13]/.test(j.fetch_error) ? 'Civitai 토큰 필요(HTTP ' + j.fetch_error.match(/HTTP (40[13])/)[1] + ') · 카드를 눌러 자세히' : j.fetch_error)}</span></div>`
-          : blocked ? `<a class="job-card-wait job-card-models-link" href="#pod/${encodeURIComponent(j.missing_models.pod_id)}/pmodels" title="${escapeHtml((j.waiting_reason || '') + '\n\n눌러서 워커의 모델 탭 보기')}">${ico('triangle-alert')}<span>${escapeHtml(j.waiting_reason || '없는 모델이 있어요')}</span></a>`
+          : blocked ? `<a class="job-card-wait job-card-models-link" href="#pod/${encodeURIComponent(j.missing_models.pod_id)}/pmodels" data-pod-id="${escapeHtml(j.missing_models.pod_id)}" title="${escapeHtml((j.waiting_reason || '') + '\n\n눌러서 워커의 모델 탭 보기')}">${ico('triangle-alert')}<span>${escapeHtml(j.waiting_reason || '없는 모델이 있어요')}</span></a>`
           : waitingForPod && j.waiting_reason ? `<div class="job-card-wait" title="${escapeHtml(j.waiting_reason)}">${ico('triangle-alert')}<span>${escapeHtml(j.waiting_reason)}</span></div>` : ''}
       </div>
       ${progress ? `
