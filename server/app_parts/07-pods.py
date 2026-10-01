@@ -136,22 +136,22 @@ async def runpod_create_worker_api(request: Request):
     worker = pod_registry.create_pod({"kind": pod_registry.DEFAULT_KIND, "url": "", "name": "", "enabled": False,
                                       "pull_outputs": True, "auto_install_models": True, "tags": ["runpod", "auto"],
                                       "note": "runpod:creating", "owner_id": user["id"], "runpod_tier": tier})
-    pod, created, err = await _attach_new_runpod(request, worker, tier)
+    pod, created, err = await asyncio.to_thread(_attach_new_runpod, _public_base_url(request), worker, tier)
     if err:
         pod_registry.delete_pod(worker["id"])
         raise HTTPException(502, err)
     return {**pod_payload(pod), "runpod": created}
 
 
-async def _attach_new_runpod(request: Request, worker: dict, tier: str):
-    """그 워커에 새 RunPod 파드를 만들어 붙인다 — 워커 추가와 "RunPod 전원 켜기"(NS-6)가 같이 쓴다. (워커, 만든 파드, 에러).
-    부팅하며 다운로더를 깔게 한다 — 파드가 받아 갈 nightshift 공개 주소가 있을 때만(지금 접속한 주소, 또는 NIGHTSHIFT_PUBLIC_URL)."""
+def _attach_new_runpod(base: str | None, worker: dict, tier: str):
+    """그 워커에 새 RunPod 파드를 만들어 붙인다 — 워커 추가·"RunPod 전원 켜기"(NS-6)·부팅 감시(NS-18)가 같이 쓴다. (워커, 만든 파드, 에러).
+    부팅하며 다운로더를 깔게 한다 — 파드가 받아 갈 nightshift 공개 주소(base)가 있을 때만. 요청이 없는 스레드에서도 부르도록
+    주소를 받는다(요청에서는 _public_base_url, 감시에서는 NIGHTSHIFT_PUBLIC_URL)."""
     env, entrypoint = None, None
-    base = _public_base_url(request)
     if base:
         env = {"NIGHTSHIFT_BOOTSTRAP": f"{base}/api/bootstrap/{worker['id']}/{model_download.bootstrap_token(worker['id'])}"}
         entrypoint = model_download.BOOTSTRAP_ENTRYPOINT
-    created, err = await asyncio.to_thread(runpod_api.create_pod, f"nightshift-{worker['id']}", tier, env, entrypoint)
+    created, err = runpod_api.create_pod(f"nightshift-{worker['id']}", tier, env, entrypoint)
     if err:
         return None, None, err
     pod = pod_registry.update_pod(worker["id"], {"url": f"https://{created['id']}-8188.proxy.runpod.net",
@@ -420,7 +420,7 @@ async def _managed_runpod_power(request: Request, pod: dict, rp_id: str | None, 
         pod = pod_registry.update_pod(pod_id, {"url": "", "enabled": False, "note": "runpod:off"})
         created = None
     else:
-        pod, created, err = await _attach_new_runpod(request, pod, tier)
+        pod, created, err = await asyncio.to_thread(_attach_new_runpod, _public_base_url(request), pod, tier)
         if err:
             pod_registry.update_pod(pod_id, {"url": "", "enabled": False, "note": "runpod:off"})
             raise HTTPException(502, f"새 RunPod 파드를 만들지 못했어요 — {err}")
@@ -629,6 +629,73 @@ def _auto_power_off_loop():
             _auto_power_off_check()
         except Exception:
             logging.getLogger("uvicorn.error").exception("자동 끄기 검사 실패")
+
+
+def _boot_watch_check(now: datetime | None = None) -> dict[str, str]:
+    """부팅 감시(NS-18) — nightshift가 만든 RunPod 워커의 파드가 RUNNING인데 켠 지 RUNPOD_BOOT_TIMEOUT_MIN이 지나도록 ComfyUI가
+    응답하지 않으면 파드를 지우고 한 번만 새로 만든다(다른 머신에 배정될 기회). 다시 만든 파드(note에 :boot_retry)도 그러면 파드를
+    지우고 워커는 꺼 둔 채 note를 runpod:boot_failed로 남긴다. 자동 끄기 설정과 관계없이 돈다(돈이 새는 걸 막는 안전장치라서).
+    {워커 id: "retried" | "failed"}를 돌려준다.
+    - 이 파드에서 작업을 돌리고 있거나 켠 뒤 끝낸 작업이 있으면 한 번은 떴던 파드라 건드리지 않는다."""
+    now = now or datetime.now(timezone.utc)
+    log = logging.getLogger("uvicorn.error")
+    acted = {}
+    for pod in pod_registry.list_pods(pod_registry.ALL):
+        rp_id = runpod_api.extract_pod_id(pod.get("url") or "")
+        tier = _managed_runpod_tier(pod) if rp_id else None
+        if not tier:
+            continue
+        info = runpod_api.get_runpod_info(pod["url"]) or {}
+        if info.get("status") != "RUNNING":
+            continue
+        started = runpod_sessions._parse_runpod_dt(info.get("last_started_at")) or pod.get("updated_at")   # 모르면 파드를 붙인 시각
+        if not started:
+            continue
+        started = datetime.fromisoformat(started)
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if (now - started).total_seconds() < RUNPOD_BOOT_TIMEOUT_MIN * 60:
+            continue
+        with lock:
+            used = any(j.get("pod_id") == pod["id"] and not j.get("deleted") and (
+                j["status"] == "running" or (j.get("finished_at") and datetime.fromisoformat(j["finished_at"]) >= started))
+                for j in jobs.values())
+        if used or driver_for(pod).health(pod, COMFY_CHECK_TIMEOUT_INTERACTIVE)["ok"]:
+            continue
+        err = runpod_api.terminate_pod(rp_id)
+        if err and "HTTP 404" not in err:
+            log.warning("부팅 감시 — 워커 %s의 파드 %s를 지우지 못했어요: %s", pod["id"], rp_id, err)
+            continue
+        retried = (pod.get("note") or "").endswith(":boot_retry")
+        if not retried:
+            new, _created, err = _attach_new_runpod(os.environ.get("NIGHTSHIFT_PUBLIC_URL", "").strip().rstrip("/") or None,
+                                                     pod, tier)
+            if not err:
+                pod_registry.update_pod(pod["id"], {"note": f"{new['note']}:boot_retry"})
+                log.warning("부팅 감시 — 워커 %s: 켠 지 %d분 넘게 ComfyUI가 응답하지 않아 파드 %s를 지우고 새로 만들었어요",
+                            pod["id"], RUNPOD_BOOT_TIMEOUT_MIN, rp_id)
+                acted[pod["id"]] = "retried"
+            else:
+                log.warning("부팅 감시 — 워커 %s: 새 파드를 만들지 못했어요: %s", pod["id"], err)
+        if retried or err:
+            pod_registry.update_pod(pod["id"], {"url": "", "enabled": False, "note": "runpod:boot_failed"})
+            log.warning("부팅 감시 — 워커 %s: ComfyUI가 끝내 뜨지 않아 파드를 지우고 멈췄어요(runpod:boot_failed)", pod["id"])
+            acted[pod["id"]] = "failed"
+        with _pod_card_lock:
+            _pod_card_cache.pop(pod["id"], None)
+        invalidate_comfy_status_cache(pod["id"])
+        ComfyUIDriver.invalidate_capabilities(pod["id"])
+        threading.Thread(target=_log_runpod_sessions_quietly, daemon=True).start()
+    return acted
+
+
+def _boot_watch_loop():
+    while True:
+        time.sleep(RUNPOD_AUTO_OFF_CHECK_SEC)
+        try:
+            _boot_watch_check()
+        except Exception:
+            logging.getLogger("uvicorn.error").exception("부팅 감시 실패")
 
 
 def _runpod_session_log_loop():

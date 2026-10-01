@@ -22,6 +22,9 @@ RUNPOD_SESSION_LOG_SEC = float(os.environ.get("RUNPOD_SESSION_LOG_SEC", "300"))
 # "작업이 끝나면 자동으로 끄기"(NS-8) — 이 간격(초)마다 보고, 마지막 작업이 끝난 뒤 워커의 auto_off_minutes(NS-16) 동안
 # 새 작업이 없으면 끈다. 0이면 검사 자체를 끈다.
 RUNPOD_AUTO_OFF_CHECK_SEC = float(os.environ.get("RUNPOD_AUTO_OFF_CHECK_SEC", "60"))
+# 부팅 감시(NS-18) — nightshift가 만든 RunPod 파드가 켠 지 이만큼(분) 지나도 ComfyUI가 응답하지 않으면 한 번 다시 만들고,
+# 또 그러면 지운다. 위 간격마다 본다(자동 끄기와 같은 주기).
+RUNPOD_BOOT_TIMEOUT_MIN = float(os.environ.get("RUNPOD_BOOT_TIMEOUT_MIN", "15"))
 
 
 def poke_scheduler():
@@ -471,6 +474,8 @@ async def lifespan(app: FastAPI):
     poke_scheduler()
     if RUNPOD_AUTO_OFF_CHECK_SEC > 0 and runpod_api.RUNPOD_API_KEY:
         threading.Thread(target=_auto_power_off_loop, daemon=True, name="runpod-auto-off").start()   # NS-8
+        if RUNPOD_BOOT_TIMEOUT_MIN > 0:
+            threading.Thread(target=_boot_watch_loop, daemon=True, name="runpod-boot-watch").start()   # NS-18
     if RUNPOD_SYNC_INTERVAL_SEC > 0:
         threading.Thread(target=_runpod_sync_loop, daemon=True, name="runpod-sync").start()
     elif RUNPOD_SESSION_LOG_SEC > 0 and runpod_api.RUNPOD_API_KEY:
