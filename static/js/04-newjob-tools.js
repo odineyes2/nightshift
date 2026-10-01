@@ -513,6 +513,53 @@ async function csvWithLoraTrigger(file, template, trigger){
   return new File([lines.join('\r\n') + '\r\n'], file.name, { type: 'text/csv' });
 }
 
+// ---- 퀄리티 프롬프트 (Danbooru 태그 계열) ----
+// Pony는 score_* 태그 체계라 넣지 않는다(NS-19 결정).
+const QUALITY_PROMPT_FAMILIES = ['Illustrious', 'NoobAI'];
+const DANBOORU_QUALITY_DEFAULT = 'masterpiece, best quality, amazing quality, very aesthetic, absurdres';
+
+// 세부 설정 탭의 "퀄리티 프롬프트" 칸 — 계열이 맞으면 보이고 기본값으로 채운다. 같은 계열로 다시 들어오면
+// 사람이 고친 값을 그대로 두고, 계열이 바뀌거나 폼을 초기화할 때(familyLabel 없음)만 다시 채운다.
+function setQualityPromptField(familyLabel){
+  const field = document.getElementById('quality-prompt-field');
+  if(!field) return;
+  const input = document.getElementById('quality-prompt-input');
+  const show = QUALITY_PROMPT_FAMILIES.includes(familyLabel);
+  if(show && field.dataset.family === familyLabel) return;
+  field.dataset.family = show ? familyLabel : '';
+  field.style.display = show ? '' : 'none';
+  input.value = show ? DANBOORU_QUALITY_DEFAULT : '';
+}
+
+// 보이는 칸의 값(없으면 '').
+function currentQualityPrompt(){
+  const field = document.getElementById('quality-prompt-field');
+  return field && field.style.display !== 'none' ? document.getElementById('quality-prompt-input').value.trim() : '';
+}
+
+// 퀄리티 태그를 프롬프트 뒤에 붙인다. 프롬프트가 비었으면(워크플로우 프롬프트를 그대로 쓰는 경우) 덮어쓰지 않게
+// 붙이지 않고, 이미 들어 있으면 그대로 둔다.
+function appendQualityPrompt(text, quality){
+  const q = (quality || '').trim();
+  const v = text || '';
+  if(!q || !v.trim()) return v;
+  if(v.toLowerCase().includes(q.toLowerCase())) return v;
+  return `${v.replace(/[\s,]+$/, '')}, ${q}`;
+}
+
+// CSV 사본의 각 행 main_prompt(또는 prompt)에 퀄리티 태그를 붙인다 — quality_prompt 칸을 직접 채운 행은 건너뛴다.
+async function csvWithQualityPrompt(file, quality){
+  const { header, rows } = parseCsvText(await file.text());
+  const target = header.includes('main_prompt') ? 'main_prompt' : (header.includes('prompt') ? 'prompt' : null);
+  if(!target) return file;
+  const lines = [header.map(csvFieldEscape).join(',')];
+  for(const row of rows){
+    if(!(row.quality_prompt || '').trim()) row[target] = appendQualityPrompt(row[target] || '', quality);
+    lines.push(header.map(h => csvFieldEscape(row[h])).join(','));
+  }
+  return new File([lines.join('\r\n') + '\r\n'], file.name, { type: 'text/csv' });
+}
+
 // ---- 베이스 모델 그룹 ----
 // "새 작업 추가" 마법사가 이 그룹을 기준으로 워크플로우 유형/LoRA/ControlNet 프리셋을 걸러서 보여준다. 따로 관리하는
 // 데이터가 아니라, 모델 등록부에서 base_model이 적힌 체크포인트를 그 값으로 묶어 서버가 돌려준다

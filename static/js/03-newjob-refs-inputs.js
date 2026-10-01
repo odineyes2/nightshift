@@ -788,15 +788,21 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   const loraField = document.getElementById('lora-trigger-field');
   const loraTrigger = loraField && loraField.style.display !== 'none'
     ? document.getElementById('lora-trigger-input').value.trim() : '';
+  // 퀄리티 프롬프트는 LoRA 트리거 뒤에 붙인다 — 결과 순서는 "트리거, 메인, 퀄리티".
+  const quality = currentQualityPrompt();
+  const withExtras = p => appendQualityPrompt(loraTrigger ? prependLoraTrigger(p, loraTrigger) : p, quality);
   if(template && template.requires_csv){
-    form.append('csv', loraTrigger ? await csvWithLoraTrigger(selectedFiles.csv, template, loraTrigger) : selectedFiles.csv);
+    let csv = loraTrigger ? await csvWithLoraTrigger(selectedFiles.csv, template, loraTrigger) : selectedFiles.csv;
+    if(quality) csv = await csvWithQualityPrompt(csv, quality);
+    form.append('csv', csv);
   }
   optionsFields.querySelectorAll('.option-input').forEach(input => {
     let value = input.value;
-    if(loraTrigger && input.dataset.name === 'main_prompt') value = prependLoraTrigger(value, loraTrigger);
-    if(loraTrigger && input.dataset.name === 'danbooru_seed_prompts' && value.trim()){
+    if(input.dataset.name === 'main_prompt' && value.trim()) value = withExtras(value);
+    else if(loraTrigger && input.dataset.name === 'main_prompt') value = prependLoraTrigger(value, loraTrigger);
+    if((loraTrigger || quality) && input.dataset.name === 'danbooru_seed_prompts' && value.trim()){
       // 시드마다 다른 프롬프트(JSON 배열)는 MAIN_PROMPT를 대신하므로 각각에도 붙인다.
-      try{ value = JSON.stringify(JSON.parse(value).map(p => typeof p === 'string' && p.trim() ? prependLoraTrigger(p, loraTrigger) : p)); }catch(e){}
+      try{ value = JSON.stringify(JSON.parse(value).map(p => typeof p === 'string' && p.trim() ? withExtras(p) : p)); }catch(e){}
     }
     form.append(input.dataset.name, value);
   });
