@@ -206,7 +206,10 @@ def delete_network_volume(volume_id: str) -> str | None:
 # AP-JP-1을 먼저 — RunPod 재고가 수시로 바뀌므로 후보를 한꺼번에 넘겨 되는 곳에 만들게 하고, 안 되면
 # Secure(일본) → Secure(아무 곳) → Community(일본) → Community(아무 곳) 순으로 다시 시도한다.
 RUNPOD_COMFY_IMAGE = "runpod/comfyui:1.4.7-cuda13.0"   # 지금까지 손으로 만들어 쓰던 이미지
-RUNPOD_PORTS = ["8188/http", "8888/http", "8080/http", "22/tcp"]   # ComfyUI · Jupyter · 파일 브라우저 · SSH
+# 이미지가 CUDA 13을 쓰므로 드라이버가 받쳐 주는 호스트에만 만든다(아니면 ComfyUI가 시작하지 못한다 — NS-18).
+# 이미지를 바꾸면 같이 바꾼다.
+RUNPOD_CUDA_VERSIONS = ["13.0"]
+RUNPOD_PORTS =["8188/http", "8888/http", "8080/http", "22/tcp"]   # ComfyUI · Jupyter · 파일 브라우저 · SSH
 RUNPOD_PREFERRED_DATA_CENTERS = ["AP-JP-1"]
 RUNPOD_TIERS = {
     "image": {"label": "이미지용", "vram": "16GB급", "disk_gb": 80, "price_hint": "시간당 약 $0.2~0.6",
@@ -228,7 +231,8 @@ def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[s
                        ("COMMUNITY", RUNPOD_PREFERRED_DATA_CENTERS), ("COMMUNITY", None)):
         body = {"name": name, "imageName": RUNPOD_COMFY_IMAGE, "cloudType": cloud, "gpuCount": 1,
                 "gpuTypeIds": spec["gpus"], "gpuTypePriority": "custom",
-                "containerDiskInGb": spec["disk_gb"], "volumeInGb": 0, "ports": RUNPOD_PORTS}
+                "containerDiskInGb": spec["disk_gb"], "volumeInGb": 0, "ports": RUNPOD_PORTS,
+                "allowedCudaVersions": RUNPOD_CUDA_VERSIONS}
         if dcs:
             body["dataCenterIds"] = dcs
             body["dataCenterPriority"] = "custom"
