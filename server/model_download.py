@@ -73,12 +73,14 @@ def bootstrap_token(pod_id: str) -> str:
 # 새 파드의 시작 명령(entrypoint) — runpod/comfyui 이미지는 ENTRYPOINT ["/start.sh"]뿐이고 훅이 없어서, 그 앞에서 다운로더를
 # 깔고 원래 시작 스크립트로 넘긴다. /opt/comfyui-baked에 깔면 첫 시작 때 /workspace/runpod-slim/ComfyUI로 통째로 복사되고,
 # 이미 복사된 뒤(다시 켤 때)면 그쪽에도 깐다. 무엇이 실패해도 파드는 그대로 시작한다(다운로더 없이).
+# 받기·설치에 시간 상한을 둔다 — nightshift 주소가 연결만 받고 응답을 안 주면 /start.sh까지 못 가서 ComfyUI가 영영 안 뜬다(NS-18).
 BOOTSTRAP_ENTRYPOINT = [
     "bash", "-c",
     'if [ -n "$NIGHTSHIFT_BOOTSTRAP" ]; then'
-    ' curl -fsSL -A "Mozilla/5.0 nightshift-bootstrap" "$NIGHTSHIFT_BOOTSTRAP" -o /tmp/nightshift_bootstrap.sh'
+    ' curl -fsSL --connect-timeout 10 --max-time 60 -A "Mozilla/5.0 nightshift-bootstrap" "$NIGHTSHIFT_BOOTSTRAP"'
+    ' -o /tmp/nightshift_bootstrap.sh'
     ' && for d in /opt/comfyui-baked /workspace/runpod-slim/ComfyUI; do'
-    ' if [ -d "$d/custom_nodes" ]; then COMFY_DIR="$d" bash /tmp/nightshift_bootstrap.sh; fi; done'
+    ' if [ -d "$d/custom_nodes" ]; then COMFY_DIR="$d" timeout 120 bash /tmp/nightshift_bootstrap.sh; fi; done'
     ' || echo "[nightshift] 다운로더 설치 실패 — 그대로 시작해요";'
     ' fi; exec /start.sh',
 ]
