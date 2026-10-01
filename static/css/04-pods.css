@@ -106,6 +106,10 @@
   .pod-bar-links{ display:flex; flex-wrap:wrap; gap:6px; }
   .dash-card-job{ font-size:12px; color:var(--text); }
   .dash-card-job .dim{ color:var(--text-dim); }
+  /* 부팅 상태(NS-18) — 켠 지 몇 분째 ComfyUI 응답 없음 / 부팅 실패와 "다시 만들기" */
+  .dash-boot{ color:var(--text-dim); }
+  .dash-boot.failed{ color:var(--failed); }
+  .dash-card-job [data-pod-reboot]{ margin-left:8px; }
   .dash-card-stats{ display:flex; flex-wrap:wrap; gap:14px; }
   .dash-stat{ display:flex; flex-direction:column; }
   .dash-stat-label{ font-size:10.5px; color:var(--text-dim); }

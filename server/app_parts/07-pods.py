@@ -299,6 +299,19 @@ def recent_job_images(job_ids: list[str], limit: int = 3) -> list[str]:
     return names
 
 
+def _boot_info(pod: dict, connected: bool, card: dict) -> dict | None:
+    """카드에 보일 부팅 상태(NS-18) — 부팅 감시가 멈춘 워커면 {"failed"}, RunPod 파드가 RUNNING인데 ComfyUI가 아직
+    응답하지 않으면 {"since": 켠 시각(ISO), "retry": 감시가 다시 만든 파드인지}. 그 밖에는 None."""
+    note = pod.get("note") or ""
+    if note == "runpod:boot_failed":
+        return {"failed": True}
+    rp = card.get("runpod") or {}
+    since = runpod_sessions._parse_runpod_dt(rp.get("last_started_at"))
+    if rp.get("status") != "RUNNING" or connected or not since:
+        return None
+    return {"since": since, "retry": note.endswith(":boot_retry")}
+
+
 @app.get("/api/pods/summary")
 async def pods_summary(request: Request):
     """대시보드가 폴링할 파드별 요약 — 레코드 + 연결 상태(캐시) + 큐/실행 상태 +
@@ -335,11 +348,13 @@ async def pods_summary(request: Request):
             )
             recent_job_ids = [j["id"] for j in ([*(j for j in pod_jobs if j["status"] == "running")]
                                                 + finished)[:3]]
+            card = pod_card_data(pod)
             rows.append({
                 **pod_payload(pod),   # 레코드 + kind_label/effective_url 같은 파생 정보
                 "owner_name": owner_names.get(pod.get("owner_id")),
                 "status": statuses[pod["id"]],
-                "card": pod_card_data(pod),
+                "card": card,
+                "boot": _boot_info(pod, statuses[pod["id"]].get("connected"), card),
                 "recent_images": recent_job_images(recent_job_ids),
                 "auto_run": bool(rt and rt.auto_run),
                 "queue_len": rt.queue.qsize() if rt else 0,

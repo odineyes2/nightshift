@@ -127,7 +127,7 @@ function runpodPowerState(p){
     return { on: starting, busy: true, label: starting ? (tier ? '새 파드를 만드는 중… (재고를 찾느라 1분, ComfyUI까지 1~3분)' : '켜는 중… (1~3분 뒤 ComfyUI가 떠요)')
                                                        : (tier ? '파드를 지우는 중…' : '끄는 중…') };
   }
-  if(noPod) return { on: false, busy: false, label: `꺼져 있어요 — 파드 없음, 과금 없음. 켜면 ${RUNPOD_TIER_LABEL[tier]} 새 파드를 만들어요` };
+  if(noPod) return { on: false, busy: false, label: `${p.boot && p.boot.failed ? 'ComfyUI가 끝내 뜨지 않아 파드를 지웠어요' : '꺼져 있어요'} — 파드 없음, 과금 없음. 켜면 ${RUNPOD_TIER_LABEL[tier]} 새 파드를 만들어요` };
   if(!rp || !rp.status) return null;
   const cost = rp.cost_per_hr != null ? ` · $${Number(rp.cost_per_hr).toFixed(2)}/hr` : '';
   if(rp.status === 'RUNNING') return { on: true, busy: false, label: `켜져 있어요 — 과금 중${cost}${tier ? ' · 끄면 파드를 지워요(워커는 남음)' : ''}` };
@@ -323,6 +323,19 @@ function podSpecLine(p){
   return fn(p);
 }
 
+// 부팅 상태(NS-18) — 파드는 켜졌는데 ComfyUI가 아직 응답하지 않으면 켠 지 몇 분인지, 부팅 감시가 멈춘 워커면 이유와
+// "다시 만들기"(관리자만, RunPod 전원 켜기와 같다 — 같은 등급으로 새 파드).
+function renderBootLine(p){
+  const boot = p.boot;
+  if(!boot) return '';
+  if(boot.failed){
+    return `<span class="dash-boot failed">부팅 실패 — ComfyUI가 끝내 뜨지 않아 파드를 지웠어요</span>
+      ${isAdminUser() ? `<button type="button" class="load-btn" data-pod-reboot="${escapeHtml(p.id)}">다시 만들기</button>` : ''}`;
+  }
+  const min = Math.max(0, Math.floor((Date.now() - new Date(boot.since).getTime()) / 60000));
+  return `<span class="dash-boot">켠 지 ${min}분 — ComfyUI가 아직 응답하지 않아요${boot.retry ? ' (다시 만든 파드)' : ''}</span>`;
+}
+
 function renderPodCard(p){
   const state = POD_STATE[podState(p)];
   const job = (p.running_jobs || [])[0];
@@ -357,6 +370,7 @@ function renderPodCard(p){
                  <div class="progress-track"><div class="progress-fill running" style="width:${pct}%"></div></div>
                  <span class="progress-text">${prog.done}/${prog.total}</span>
                </div>` : ''}`
+          : p.boot ? renderBootLine(p)
           : `<span class="dim">${state.label}${p.waiting_for_pod ? ` · 연결 대기 ${p.waiting_for_pod}건` : ''}</span>`}
       </div>
       <div class="dash-card-stats">
@@ -451,6 +465,7 @@ function renderDashboard(){
   canvas.querySelectorAll('[data-pod-edit]').forEach(btn => btn.addEventListener('click', () => {
     showTab('psettings', { podId: btn.dataset.podEdit });
   }));
+  canvas.querySelectorAll('[data-pod-reboot]').forEach(btn => btn.addEventListener('click', () => runpodPower(btn.dataset.podReboot, 'start')));
   canvas.querySelectorAll('[data-pod-open]').forEach(card => card.addEventListener('click', (e) => {
     if(e.target.closest('button, select, a')) return; // ⚙ 설정, ▶ 시작/⏸ 정지는 자기 할 일만 한다
     // 워커 카드를 누르면 그 워커의 설정부터(NS-9) — 설정 서브탭이 없는 종류는 첫 서브탭.
