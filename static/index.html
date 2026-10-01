@@ -90,6 +90,7 @@
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
   <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
   <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
   <symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/></symbol>
   <symbol id="i-clapperboard" viewBox="0 0 24 24"><path d="m12.296 3.464 3.02 3.956"/><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3z"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="m6.18 5.276 3.1 3.899"/></symbol>
   <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></symbol>
@@ -712,6 +713,23 @@
       </div>
     </div>
     <div class="panel-body">
+      <div class="db-period-bar">
+        <div class="enhance-mode" id="db-period-unit" role="group" aria-label="기간 단위">
+          <button class="enhance-mode-btn" type="button" data-unit="all">전체</button>
+          <button class="enhance-mode-btn" type="button" data-unit="year">년</button>
+          <button class="enhance-mode-btn" type="button" data-unit="month">월</button>
+          <button class="enhance-mode-btn" type="button" data-unit="week">주</button>
+          <button class="enhance-mode-btn" type="button" data-unit="day">일</button>
+        </div>
+        <div class="db-period-nav" id="db-period-nav">
+          <button class="load-btn" id="db-period-prev" type="button" title="이전 기간" aria-label="이전 기간"><svg class="ico"><use href="#i-chevron-left"/></svg></button>
+          <button class="db-period-label" id="db-period-label" type="button" title="기간 직접 고르기"></button>
+          <input class="db-period-pick" id="db-period-pick" aria-label="기간 직접 고르기" hidden>
+          <button class="load-btn" id="db-period-next" type="button" title="다음 기간" aria-label="다음 기간"><svg class="ico"><use href="#i-chevron-right"/></svg></button>
+          <button class="load-btn" id="db-period-today" type="button" title="지금 기간으로">오늘</button>
+        </div>
+      </div>
+      <div class="admin-stats db-session-stats" id="db-session-stats"></div>
       <div class="upload-error" id="db-runpod-sessions-error"></div>
       <div id="db-runpod-sessions-list"></div>
     </div>

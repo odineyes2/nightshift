@@ -50,6 +50,27 @@
 
   /* ---- DB 탭 — RunPod 세션 로그. model-table 계열과 같은 그리드 표 느낌이지만
      펼치기(row-head/editor) 없이 한 줄짜리 읽기 전용 표라 훨씬 단순하다. ---- */
+  /* 기간 바(단위 세그먼트 · ‹ 기간 › · 오늘)와 그 아래 요약 카드(NS-20). 카드는 .admin-stat 재사용,
+     좁은 화면에서도 세 장이 한 줄에 남게 숫자만 줄인다. */
+  .db-period-bar{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; }
+  .db-period-bar [hidden]{ display:none !important; }
+  .db-period-nav{ display:flex; align-items:center; gap:4px; }
+  .db-period-label, .db-period-pick{
+    min-width:150px; padding:6px 8px; border:1px solid transparent; border-radius:var(--radius-sm);
+    background:none; color:var(--text); font:inherit; font-size:14px; font-weight:600; text-align:center;
+    font-variant-numeric:tabular-nums; cursor:pointer;
+  }
+  .db-period-label:hover{ background:var(--panel-2); }
+  .db-period-pick{ border-color:var(--border); background:var(--panel); cursor:text; }
+  .db-session-stats .admin-stat{ flex:1 1 0; min-width:0; }
+  .db-session-stats b{ font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .db-session-stats-note{ flex-basis:100%; font-size:12px; color:var(--text-dim); }
+  @media (max-width:760px){
+    .db-session-stats{ flex-wrap:wrap; gap:8px; }
+    .db-session-stats .admin-stat{ padding:8px 10px; }
+    .db-session-stats b{ font-size:16px; }
+    .db-period-label, .db-period-pick{ min-width:0; }
+  }
   .db-table{ display:flex; flex-direction:column; gap:2px; }
   .db-cols{
     display:grid;

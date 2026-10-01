@@ -404,20 +404,94 @@ setInterval(() => { if(isAdminUser()) fetchAdminUsers(); }, 30000);
 
 // ---- DB 탭 — RunPod 세션(사용 내역). ----
 let runpodSessions = [];
+let runpodSessionSummary = null;
+// 기간 거르기(NS-20) — 단위(all/year/month/week/day)와 그 기간의 시작 시각(현지 자정). 경계는 브라우저가
+// 현지 시각으로 계산해 UTC ISO로 보내고, 서버는 [start, end) 안에 시작한 세션만 돌려준다. 주는 월요일 시작.
+let dbPeriodUnit = localStorage.getItem('dbSessionUnit') || 'month';
+let dbPeriodStart = dbPeriodStartOf(dbPeriodUnit, new Date());
+let dbSessionsSeq = 0;
+
+function dbPeriodStartOf(unit, d){
+  if(unit === 'year') return new Date(d.getFullYear(), 0, 1);
+  if(unit === 'month') return new Date(d.getFullYear(), d.getMonth(), 1);
+  if(unit === 'week') return new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function dbPeriodShift(unit, d, n){
+  if(unit === 'year') return new Date(d.getFullYear() + n, 0, 1);
+  if(unit === 'month') return new Date(d.getFullYear(), d.getMonth() + n, 1);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n * (unit === 'week' ? 7 : 1));
+}
+
+function dbPeriodIsCurrent(){
+  return dbPeriodUnit === 'all' || +dbPeriodStart === +dbPeriodStartOf(dbPeriodUnit, new Date());
+}
+
+function dbPeriodLabel(){
+  const s = dbPeriodStart, y = s.getFullYear();
+  const yp = y === new Date().getFullYear() ? '' : `${y}년 `;
+  if(dbPeriodUnit === 'year') return `${y}년`;
+  if(dbPeriodUnit === 'month') return `${y}년 ${s.getMonth() + 1}월`;
+  if(dbPeriodUnit === 'day') return `${yp}${s.getMonth() + 1}월 ${s.getDate()}일 (${'일월화수목금토'[s.getDay()]})`;
+  const e = dbPeriodShift('day', s, 6);
+  return `${yp}${s.getMonth() + 1}월 ${s.getDate()}일 – ${e.getMonth() !== s.getMonth() ? `${e.getMonth() + 1}월 ` : ''}${e.getDate()}일`;
+}
+
+function renderDbPeriodBar(){
+  document.querySelectorAll('#db-period-unit .enhance-mode-btn').forEach(b => {
+    const on = b.dataset.unit === dbPeriodUnit;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on);
+  });
+  document.getElementById('db-period-nav').hidden = dbPeriodUnit === 'all';
+  document.getElementById('db-period-label').textContent = dbPeriodLabel();
+  document.getElementById('db-period-next').disabled = dbPeriodIsCurrent();   // 앞으로의 기간엔 세션이 없다
+  document.getElementById('db-period-today').hidden = dbPeriodIsCurrent();
+}
+
+function setDbPeriod(unit, start){
+  dbPeriodUnit = unit;
+  dbPeriodStart = start;
+  localStorage.setItem('dbSessionUnit', unit);
+  renderDbPeriodBar();
+  fetchRunpodSessions();
+}
 
 async function fetchRunpodSessions(){
   const errorEl = document.getElementById('db-runpod-sessions-error');
   errorEl.textContent = '';
+  renderDbPeriodBar();
+  const seq = ++dbSessionsSeq;   // 기간을 빨리 넘길 때 늦게 온 옛 응답이 덮지 않게
+  const qs = dbPeriodUnit === 'all' ? '' :
+    `?start=${encodeURIComponent(dbPeriodStart.toISOString())}&end=${encodeURIComponent(dbPeriodShift(dbPeriodUnit, dbPeriodStart, 1).toISOString())}`;
   try{
-    const res = await fetch('/api/runpod-sessions');
+    const res = await fetch('/api/runpod-sessions' + qs);
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || '불러오지 못했어요.');
+    if(seq !== dbSessionsSeq) return;
     runpodSessions = data.sessions || [];
+    runpodSessionSummary = data.summary || null;
   }catch(e){
-    errorEl.textContent = e.message || '불러오지 못했어요 — 연결을 확인하세요.';
+    if(seq === dbSessionsSeq) errorEl.textContent = e.message || '불러오지 못했어요 — 연결을 확인하세요.';
     return;
   }
   renderRunpodSessions();
+}
+
+function renderDbSessionStats(){
+  const el = document.getElementById('db-session-stats');
+  const s = runpodSessionSummary;
+  if(!s){ el.innerHTML = ''; return; }
+  const est = s.estimated_count ? ' *' : '';
+  const notes = [];
+  if(s.estimated_count) notes.push(`* 진행 중 ${s.estimated_count}개는 지금 시각까지로 추정해 넣었어요`);
+  if(s.count > runpodSessions.length) notes.push(`목록은 최근 ${runpodSessions.length}개만 보여요 — 합계는 ${s.count}개 전체예요`);
+  el.innerHTML = `
+    <div class="admin-stat">총 시간<b>${fmtDbDuration(s.duration_sec)}${est}</b></div>
+    <div class="admin-stat">총 비용<b>${fmtDbCost(s.cost_total)}${est}</b></div>
+    <div class="admin-stat">세션<b>${s.count}개</b></div>
+    ${notes.length ? `<div class="db-session-stats-note">${notes.map(escapeHtml).join(' · ')}</div>` : ''}`;
 }
 
 function fmtDbDuration(sec){
@@ -431,9 +505,11 @@ function fmtDbCost(v){
 }
 
 function renderRunpodSessions(){
-  document.getElementById('db-runpod-sessions-count').textContent = `${runpodSessions.length}개`;
+  document.getElementById('db-runpod-sessions-count').textContent = `${runpodSessionSummary ? runpodSessionSummary.count : runpodSessions.length}개`;
+  renderDbSessionStats();
   const list = document.getElementById('db-runpod-sessions-list');
   if(runpodSessions.length === 0){
+    if(dbPeriodUnit !== 'all'){ list.innerHTML = '<div class="comfy-model-empty">이 기간에는 세션이 없어요.</div>'; return; }
     list.innerHTML = '<div class="comfy-model-empty">아직 기록된 세션이 없어요 — Claude에게 RunPod pod를 켜고 nightshift MCP의 sync 도구를 불러달라고 하면 여기 쌓이기 시작해요.</div>';
     return;
   }
@@ -455,6 +531,37 @@ function renderRunpodSessions(){
 }
 
 document.getElementById('db-runpod-sessions-refresh-btn').addEventListener('click', fetchRunpodSessions);
+// 단위를 바꾸면 그 단위의 지금 기간(올해·이번 달·이번 주·오늘)이 자동으로 골라진다.
+document.querySelectorAll('#db-period-unit .enhance-mode-btn').forEach(b => b.addEventListener('click', () =>
+  setDbPeriod(b.dataset.unit, dbPeriodStartOf(b.dataset.unit, new Date()))));
+document.getElementById('db-period-prev').addEventListener('click', () => setDbPeriod(dbPeriodUnit, dbPeriodShift(dbPeriodUnit, dbPeriodStart, -1)));
+document.getElementById('db-period-next').addEventListener('click', () => setDbPeriod(dbPeriodUnit, dbPeriodShift(dbPeriodUnit, dbPeriodStart, 1)));
+document.getElementById('db-period-today').addEventListener('click', () => setDbPeriod(dbPeriodUnit, dbPeriodStartOf(dbPeriodUnit, new Date())));
+// 기간 이름을 누르면 그 자리에서 직접 고르기 — 년은 숫자, 월은 month, 주·일은 date(주는 고른 날의 월요일로).
+document.getElementById('db-period-label').addEventListener('click', () => {
+  const label = document.getElementById('db-period-label'), pick = document.getElementById('db-period-pick');
+  const s = dbPeriodStart, now = new Date(), p = n => String(n).padStart(2, '0');
+  const ymd = d => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  if(dbPeriodUnit === 'year'){ pick.type = 'number'; pick.min = 2020; pick.max = now.getFullYear(); pick.value = s.getFullYear(); }
+  else if(dbPeriodUnit === 'month'){ pick.type = 'month'; pick.min = ''; pick.max = `${now.getFullYear()}-${p(now.getMonth() + 1)}`; pick.value = `${s.getFullYear()}-${p(s.getMonth() + 1)}`; }
+  else { pick.type = 'date'; pick.min = ''; pick.max = ymd(now); pick.value = ymd(s); }
+  label.hidden = true;
+  pick.hidden = false;
+  pick.focus();
+  try{ if(pick.type !== 'number') pick.showPicker(); }catch(_){}   // 지원하지 않는 브라우저는 입력칸만
+});
+document.getElementById('db-period-pick').addEventListener('change', e => {
+  const v = e.target.value;
+  if(!v) return;
+  const [y, m, d] = v.split('-').map(Number);
+  if(dbPeriodUnit === 'year' && !(y >= 2000 && y <= 9999)) return;
+  setDbPeriod(dbPeriodUnit, dbPeriodStartOf(dbPeriodUnit, new Date(y, (m || 1) - 1, d || 1)));
+  if(e.target.type !== 'number') e.target.blur();
+});
+document.getElementById('db-period-pick').addEventListener('blur', e => {
+  e.target.hidden = true;
+  document.getElementById('db-period-label').hidden = false;
+});
 
 // ---- DB 탭 — 업데이트 내역(git 커밋 로그, git_log.py). nightshift 저장소의 커밋을
 // 그대로 읽어 보여준다 — 따로 기록하는 동작이 없다(커밋 메시지가 곧 이 목록).
