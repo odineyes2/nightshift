@@ -157,13 +157,32 @@ def _close_row(conn, row, ended_at: str) -> None:
     )
 
 
-def list_sessions(limit: int = 200) -> list[dict]:
-    """started_at DESC로 최근 것부터. 아직 열린 세션(ended_at NULL)은 duration_sec/
-    cost_total을 지금 시각 기준으로 즉석 계산해서 채워 돌려준다(추정치 — estimated=True)."""
+def parse_bound(raw: str | None) -> datetime | None:
+    """기간 경계(ISO 문자열)를 aware datetime으로. 시간대가 없으면 UTC로 본다. 틀린 값은 ValueError."""
+    if not raw:
+        return None
+    dt = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _in_range(started_at: str, start: datetime | None, end: datetime | None) -> bool:
+    """세션은 시작 시각 기준으로 통째로 한 기간에 든다(start 이상, end 미만, NS-20). started_at은
+    표기가 제각각일 수 있어 문자열 비교 대신 파싱해서 비교한다."""
+    if start is None and end is None:
+        return True
+    started = parse_bound(started_at)
+    return (start is None or started >= start) and (end is None or started < end)
+
+
+def list_sessions(limit: int | None = 200, start: datetime | None = None, end: datetime | None = None) -> list[dict]:
+    """started_at DESC로 최근 것부터, [start, end) 안에 시작한 것만(limit=None이면 전부). 아직 열린
+    세션(ended_at NULL)은 duration_sec/cost_total을 지금 시각 기준으로 즉석 계산해서 채워 돌려준다
+    (추정치 — estimated=True)."""
     with db.connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM runpod_sessions ORDER BY started_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM runpod_sessions ORDER BY started_at DESC").fetchall()
+    rows = [r for r in rows if _in_range(r["started_at"], start, end)]
+    if limit is not None:
+        rows = rows[:limit]
     now = datetime.now(timezone.utc)
     out = []
     for row in rows:
@@ -179,4 +198,17 @@ def list_sessions(limit: int = 200) -> list[dict]:
     return out
 
 
-__all__ = ["sync_pod_session", "close_missing", "list_sessions", "vram_for", "GPU_VRAM_GB"]
+def summarize_sessions(start: datetime | None = None, end: datetime | None = None) -> dict:
+    """[start, end) 안에 시작한 세션 전체(LIMIT 없음)의 수·시간·비용 합계. 진행 중 세션은 지금 시각
+    기준 추정치로 넣고 그 수를 estimated_count로 알린다. 비용을 모르는(cost_per_hr 없음) 세션은 비용 합에서 빠진다."""
+    sessions = list_sessions(limit=None, start=start, end=end)
+    return {
+        "count": len(sessions),
+        "duration_sec": sum(s["duration_sec"] or 0 for s in sessions),
+        "cost_total": sum(s["cost_total"] or 0 for s in sessions),
+        "estimated_count": sum(1 for s in sessions if s["estimated"]),
+    }
+
+
+__all__ = ["sync_pod_session", "close_missing", "list_sessions", "summarize_sessions", "parse_bound",
+           "vram_for", "GPU_VRAM_GB"]

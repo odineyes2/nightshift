@@ -508,17 +508,23 @@ async def sync_runpod_pods_api(request: Request):
 
 
 @app.get("/api/runpod-sessions")
-def get_runpod_sessions(request: Request):
+def get_runpod_sessions(request: Request, start: str | None = None, end: str | None = None):
     """DB 탭 — RunPod 세션(사용 내역) 로그(runpod_sessions.py). 비용 정보라 회원
-    관리와 같은 기준으로 관리자만 볼 수 있다."""
+    관리와 같은 기준으로 관리자만 볼 수 있다. start/end(ISO, 브라우저가 현지 기간 경계를 계산해 보냄)를
+    주면 그 사이에 시작한 세션만 — 목록은 최근 200개, summary는 기간 안 전체 합계(NS-20)."""
     admin_only(request)
-    sessions = runpod_sessions.list_sessions()
+    try:
+        start_dt, end_dt = runpod_sessions.parse_bound(start), runpod_sessions.parse_bound(end)
+    except ValueError:
+        raise HTTPException(400, "start/end는 ISO 시각이어야 해요")
+    sessions = runpod_sessions.list_sessions(start=start_dt, end=end_dt)
+    summary = runpod_sessions.summarize_sessions(start_dt, end_dt)
     if any(not s.get("worker_name") for s in sessions):   # 예전 기록은 지금 그 파드를 가리키는 워커로(NS-14)
         names = runpod_sync.worker_names_by_runpod_id()
         for s in sessions:
             if not s.get("worker_name"):
                 s["worker_name"] = names.get(s["runpod_pod_id"])
-    return {"sessions": sessions}
+    return {"sessions": sessions, "summary": summary}
 
 
 @app.get("/api/git-log")
