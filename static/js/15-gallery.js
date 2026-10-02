@@ -939,10 +939,9 @@ function showNextImage(){
 // 스와이프든 일단 트랜지션과 함께 원위치로 돌아온다(넘어갈 땐 그사이 다음
 // 이미지가 로딩 상태로 바뀐다).
 // ---- 라이트박스 전체 화면 (이미지·영상 공용) ----
-// 라이트박스 바깥 틀(overlay)을 브라우저 전체 화면으로 올리고, 클래스로 정보·버튼을 걷어낸다. 그 안에서도
-// 스와이프가 그대로 동작한다(터치를 overlay가 받으므로). Fullscreen API를 못 쓰면(아이폰 등) 클래스만으로
-// 창 안을 꽉 채우는 모드로 남는다.
-const lightboxFsApiUsed = new WeakMap();   // overlay -> 실제로 브라우저 전체 화면에 들어갔는지
+// 클래스만으로 overlay가 창을 꽉 채우고 정보·버튼을 걷어낸다. 브라우저 Fullscreen API는 쓰지 않는다 —
+// 쓰면 브라우저가 화면 하단에 "전체 화면 종료하려면…" 안내를 띄우고 웹 코드로는 끌 수 없다(NS-24).
+// 홈 화면에 설치한 앱(manifest display: standalone)으로 열면 주소창이 없어 사실상 전체 화면이 된다.
 function isLightboxFullscreen(overlay){ return overlay.classList.contains('lightbox-fullscreen'); }
 function setLightboxFullscreen(overlay, on){
   const btn = overlay.querySelector('.lightbox-fs-btn');
@@ -952,28 +951,8 @@ function setLightboxFullscreen(overlay, on){
     btn.title = on ? '전체 화면 끝내기 (F · Esc)' : '전체 화면 (F)';
     btn.setAttribute('aria-label', on ? '전체 화면 끝내기' : '전체 화면');
   }
-  if(on){
-    lightboxFsApiUsed.set(overlay, false);
-    const request = overlay.requestFullscreen || overlay.webkitRequestFullscreen;
-    if(request){
-      try{
-        const result = request.call(overlay);
-        if(result && result.then) result.then(() => lightboxFsApiUsed.set(overlay, true)).catch(() => {});
-        else lightboxFsApiUsed.set(overlay, true);
-      }catch(e){ /* 클래스만으로 채운다 */ }
-    }
-  }else{
-    lightboxFsApiUsed.set(overlay, false);
-    if(document.fullscreenElement === overlay && document.exitFullscreen) document.exitFullscreen().catch(() => {});
-  }
 }
 function toggleLightboxFullscreen(overlay){ setLightboxFullscreen(overlay, !isLightboxFullscreen(overlay)); }
-// 사용자가 Esc/뒤로 가기로 브라우저 전체 화면에서 나오면 클래스도 함께 끈다.
-document.addEventListener('fullscreenchange', () => {
-  document.querySelectorAll('.lightbox-overlay.lightbox-fullscreen').forEach(overlay => {
-    if(lightboxFsApiUsed.get(overlay) && document.fullscreenElement !== overlay) setLightboxFullscreen(overlay, false);
-  });
-});
 
 const DRAG_DAMPING = 0.4;
 const SWIPE_THRESHOLD = 50;
