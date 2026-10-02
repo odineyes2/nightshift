@@ -800,6 +800,8 @@ document.addEventListener('keydown', (e) => {
   if(e.target.closest && e.target.closest('input, textarea, select')) return;
   if(e.key === 'Escape'){ if(isLightboxFullscreen(videoGalleryLightbox)) setLightboxFullscreen(videoGalleryLightbox, false); else closeVideoLightbox(); }
   else if(e.key === 'f' || e.key === 'F') toggleLightboxFullscreen(videoGalleryLightbox);
+  else if(e.key === ']' && isLightboxFullscreen(videoGalleryLightbox)) rotateLightboxView(videoGalleryLightbox, 90);
+  else if(e.key === '[' && isLightboxFullscreen(videoGalleryLightbox)) rotateLightboxView(videoGalleryLightbox, -90);
   else if(e.key === 'ArrowLeft') showPrevVideo();
   else if(e.key === 'ArrowRight') showNextVideo();
   else if(e.key === 'Delete' || e.key === 'Backspace') deleteCurrentVideoLightboxItem();
