@@ -447,6 +447,7 @@ async def lifespan(app: FastAPI):
     load_danbooru_state()
     load_lora_triggers()
     pod_registry.load()
+    prune_thumb_cache()  # 축소본 캐시가 상한을 넘었으면 오래된 것부터 정리(14-output-images)
     # 재시작 전에 running/queued 상태로 남아있던 기록은 재실행되지 않으므로 상태만 정리.
     # 파드 연결을 기다리던 중이었다는 표시(waiting_for_comfy)도 함께 지운다 — 그
     # 대기는 워커 스레드 안에서만 살아 있는 상태라 재시작하면 남아 있을 이유가 없다.
