@@ -210,7 +210,8 @@
   .lightbox-spinner{
     position:absolute;
     top:50%; left:50%;
-    transform:translate(-50%,-50%);
+    /* 가운데 정렬은 margin으로 한다 — transform을 쓰면 enhance-spin 키프레임의 transform이 덮어써서 대각선으로 흔들린다. */
+    margin:-15px 0 0 -15px;
     width:30px; height:30px;
     border:3px solid rgba(255,255,255,0.3);
     border-top-color:#fff;
