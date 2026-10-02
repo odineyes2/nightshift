@@ -388,14 +388,39 @@ async def test_pod_api(pod_id: str, request: Request):
     return {"pod_id": pod_id, **health}
 
 
+_runpod_power_locks: dict[str, threading.Lock] = {}
+_runpod_power_locks_guard = threading.Lock()
+
+
+def _try_power_lock(pod_id: str) -> threading.Lock | None:
+    """워커별 RunPod 전원 잠금을 기다리지 않고 잡는다 — 잡으면 그 잠금, 이미 누가 켜거나 끄는 중이면 None(NS-21).
+    켜기 요청이 겹치면 파드가 둘 생기고 첫 파드가 기록에서 사라졌다. 서버는 프로세스 하나라 메모리 잠금으로 충분하다."""
+    with _runpod_power_locks_guard:
+        lock = _runpod_power_locks.setdefault(pod_id, threading.Lock())
+    return lock if lock.acquire(blocking=False) else None
+
+
 @app.post("/api/pods/{pod_id}/runpod/{action}")
 async def runpod_power(pod_id: str, action: str, request: Request):
     """파드 카드의 "RunPod 켜기/끄기" — 그 파드 주소에 박힌 RunPod pod를 RunPod API로 켜고 끈 뒤,
     파드 목록을 RunPod와 맞춘다(runpod_sync — 자동 등록 파드의 사용 여부·사용 내역 기록).
-    돈이 드는 동작이라 관리자만. 끌 때는 그 파드에서 도는 작업이 있으면 막는다(작업이 중간에 죽으므로)."""
+    돈이 드는 동작이라 관리자만. 끌 때는 그 파드에서 도는 작업이 있으면 막는다(작업이 중간에 죽으므로).
+    워커마다 한 번에 하나만 — 이미 켜거나 끄는 중이면 409(NS-21)."""
     user = admin_only(request)
     if action not in runpod_api.POD_ACTIONS:
         raise HTTPException(404, "알 수 없는 동작이에요.")
+    pod_or_404(user, pod_id)
+    lock = _try_power_lock(pod_id)
+    if lock is None:
+        raise HTTPException(409, "이 워커는 이미 켜거나 끄는 중이에요. 잠시 뒤 다시 확인해 주세요.")
+    try:
+        return await _runpod_power_locked(user, pod_id, action, request)
+    finally:
+        lock.release()
+
+
+async def _runpod_power_locked(user: dict, pod_id: str, action: str, request: Request) -> dict:
+    """runpod_power의 본체 — 잠금을 잡은 뒤에 워커를 다시 읽어 옛 파드 ID를 정한다(잠금 전 값은 낡았을 수 있다)."""
     pod = pod_or_404(user, pod_id)
     rp_id = runpod_api.extract_pod_id(pod.get("url") or "")
     if action == "stop" and _pod_has_running_job(pod_id):
@@ -435,6 +460,8 @@ async def _managed_runpod_power(request: Request, pod: dict, rp_id: str | None, 
         pod = pod_registry.update_pod(pod_id, {"url": "", "enabled": False, "note": "runpod:off"})
         created = None
     else:
+        # 만드는 동안 url이 비어 있으니 note로 "생성 중"을 알린다(화면·고아 청소가 알아보게)
+        pod = pod_registry.update_pod(pod_id, {"url": "", "note": "runpod:creating"})
         pod, created, err = await asyncio.to_thread(_attach_new_runpod, _public_base_url(request), pod, tier)
         if err:
             pod_registry.update_pod(pod_id, {"url": "", "enabled": False, "note": "runpod:off"})
