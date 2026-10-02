@@ -953,6 +953,19 @@ function setLightboxFullscreen(overlay, on){
   }
 }
 function toggleLightboxFullscreen(overlay){ setLightboxFullscreen(overlay, !isLightboxFullscreen(overlay)); }
+// 보기 회전(NS-24) — 각도는 overlay의 data-rot(0/90/180/270)에만 둔다. 저장하지 않으므로 새로고침하면 0이고,
+// 그 전까지는 넘김·닫았다 열기에도 남는다. CSS가 전체 화면일 때만 돌려 보여 준다(원본 파일은 그대로).
+function rotateLightboxView(overlay, delta){
+  overlay.dataset.rot = (((Number(overlay.dataset.rot) || 0) + delta) % 360 + 360) % 360;
+}
+document.querySelectorAll('.lightbox-rot-btn').forEach(btn => btn.addEventListener('click', () =>
+  rotateLightboxView(btn.closest('.lightbox-overlay'), Number(btn.dataset.rotDelta))));
+// 화면 기준 손가락 이동(dx, dy)을 돌려 보는 이미지 기준으로 바꾼다 — 기기를 돌려 들고 이미지의 좌우로 밀면 넘어가게.
+function lightboxLocalDelta(overlay, dx, dy){
+  const rad = (isLightboxFullscreen(overlay) ? Number(overlay.dataset.rot) || 0 : 0) * Math.PI / 180;
+  const c = Math.round(Math.cos(rad)), s = Math.round(Math.sin(rad));
+  return [dx * c + dy * s, -dx * s + dy * c];
+}
 
 const DRAG_DAMPING = 0.4;
 const SWIPE_THRESHOLD = 50;
@@ -969,17 +982,16 @@ function setupLightboxSwipe(overlay, mediaEl, { onNext, onPrev, ignore }){
   }, { passive: true });
   overlay.addEventListener('touchmove', (e) => {
     if(startX === null || e.touches.length !== 1) return;
-    const dx = e.touches[0].clientX - startX;
-    const dy = e.touches[0].clientY - startY;
+    const [dx, dy] = lightboxLocalDelta(overlay, e.touches[0].clientX - startX, e.touches[0].clientY - startY);
     if(Math.abs(dx) < Math.abs(dy)) return; // 세로 스크롤 의도로 보이면 따라가지 않음
+    // transform은 CSS rotate보다 안쪽에 적용되므로 translateX가 돌려 본 이미지의 가로축을 따라간다.
     mediaEl.style.transform = `translateX(${dx * DRAG_DAMPING}px)`;
   }, { passive: true });
   overlay.addEventListener('touchend', (e) => {
     settle();
     if(startX === null) return;
     const touch = e.changedTouches[0];
-    const dx = touch.clientX - startX;
-    const dy = touch.clientY - startY;
+    const [dx, dy] = lightboxLocalDelta(overlay, touch.clientX - startX, touch.clientY - startY);
     startX = startY = null;
     if(Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy)) return;
     if(dx < 0) onNext(); else onPrev();
@@ -1170,6 +1182,8 @@ document.addEventListener('keydown', (e) => {
   if(e.target.closest && e.target.closest('input, textarea, select')) return;
   if(e.key === 'Escape'){ if(isLightboxFullscreen(galleryLightbox)) setLightboxFullscreen(galleryLightbox, false); else closeLightbox(); }
   else if(e.key === 'f' || e.key === 'F') toggleLightboxFullscreen(galleryLightbox);
+  else if(e.key === ']' && isLightboxFullscreen(galleryLightbox)) rotateLightboxView(galleryLightbox, 90);
+  else if(e.key === '[' && isLightboxFullscreen(galleryLightbox)) rotateLightboxView(galleryLightbox, -90);
   else if(e.key === 'ArrowLeft') showPrevImage();
   else if(e.key === 'ArrowRight') showNextImage();
   else if(e.key === 'Delete' || e.key === 'Backspace') deleteCurrentLightboxImage();
