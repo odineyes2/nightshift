@@ -228,27 +228,64 @@ def resolve_output_image(filename: str) -> Path:
 # thumbnail 라우트를 원본 이미지 라우트보다 먼저 등록해야 한다 — 순서가 바뀌면
 # "job_id/파일.png/thumbnail" 요청도 원본 이미지 라우트(filename:path)가 먼저
 # 통째로 집어삼켜서 404가 난다(FastAPI/Starlette는 등록 순서대로 첫 매치를 씀).
+# 축소본 크기 단계 — 요청한 크기는 가까운 위 단계로 올린다. 단계를 묶어야 캐시 파일 수가
+# 크기 조합만큼 늘어나지 않는다. 1280 이상은 라이트박스 같은 화면용 사본이다.
+THUMB_SIZES = (80, 120, 200, 400, 800, 1280, 2048)
+
+
+def thumb_size_step(size: int) -> int:
+    return next((s for s in THUMB_SIZES if s >= size), THUMB_SIZES[-1])
+
+
+def _thumb_cache_prefix(path: Path) -> str:
+    # 원본 경로마다 고정된 앞부분 — 지울 때 이 앞부분으로 그 이미지의 캐시를 모두 찾는다.
+    return hashlib.sha1(str(path.resolve()).encode("utf-8")).hexdigest()[:16]
+
+
+def drop_thumb_cache(path: Path) -> None:
+    """원본 이미지 하나의 축소본 캐시를 모두 지운다(이미지를 지울 때)."""
+    for f in THUMB_CACHE_DIR.glob(_thumb_cache_prefix(path) + "-*"):
+        f.unlink(missing_ok=True)
+
+
+def prune_thumb_cache(max_bytes: int | None = None) -> None:
+    """캐시 폴더가 상한을 넘으면 오래 안 쓴(mtime이 오래된) 것부터 지운다 — 서버 시작 때 1회."""
+    limit = THUMB_CACHE_MAX_BYTES if max_bytes is None else max_bytes
+    files = sorted((f.stat().st_mtime, f.stat().st_size, f) for f in THUMB_CACHE_DIR.glob("*.jpg"))
+    total = sum(s for _, s, _ in files)
+    for _, s, f in files:
+        if total <= limit:
+            break
+        f.unlink(missing_ok=True)
+        total -= s
+
+
 @app.get("/api/output-images/{filename:path}/thumbnail")
-def get_output_image_thumbnail(filename: str, request: Request, size: int = 320, fit: str = "inside"):
-    # 갤러리 격자를 채우는 용도 — 원본을 그대로 내려받으면 느리고 대역폭을 낭비하므로,
-    # 매 요청마다 그 자리에서 축소본을 만들어 돌려준다(디스크에 캐시하지 않음 — 이
-    # 도구 규모에서는 매번 다시 만들어도 충분히 빠름). 대신 브라우저 캐시는 쓴다 —
-    # 갤러리 격자는 삭제/새로고침/선택 상태 변화 때마다 통째로 다시 그려지므로
-    # (renderGalleryGrid), 캐시 헤더가 없으면 그때마다 같은 썸네일을 다시 인코딩해서
-    # 보내게 된다. ETag는 파일 mtime+size+요청한 size로 만들어서, 파일이 바뀌면
-    # (예: "가로형 이미지 자동 회전"이 같은 파일에 덮어쓰면 mtime이 바뀜) 자동으로
-    # 무효화된다.
+def get_output_image_thumbnail(filename: str, request: Request, size: int = 320, fit: str = "inside", v: str = ""):
+    # 갤러리 격자·라이트박스용 축소본 — 원본을 그대로 내려받으면 느리고 대역폭을 낭비한다.
+    # 만든 축소본은 THUMB_CACHE_DIR에 저장해 두고 같은 요청에는 디코딩 없이 파일을 준다.
+    # 캐시 키는 ETag와 같은 값(경로 해시+mtime+size+fit)이라, 원본이 회전되거나 덮어써지면
+    # mtime이 바뀌어 새 키로 다시 만들어진다(옛 키 파일은 그때 지운다).
+    # 주소에 v=(버전)가 있으면 주소 자체가 바뀌므로 브라우저가 1년 동안 다시 묻지 않게 한다.
     # fit=cover면 긴 변이 아니라 정사각형으로 가운데를 잘라 size×size로 만든다 — 갤러리 칸이
     # 정사각형(object-fit:cover)이라 어차피 그렇게 잘려 보이는데, 긴 변 기준으로 줄이면 세로로
     # 긴 이미지의 짧은 변이 칸보다 작아져 CSS가 늘려 그리는 바람에 흐릿해졌다.
     if fit not in ("inside", "cover"):
         raise HTTPException(400, "fit은 inside 또는 cover여야 해요.")
     path = resolve_output_image(filename)
-    size = max(64, min(size, 800))
+    size = thumb_size_step(size)
     stat = path.stat()
-    etag = f'"{stat.st_mtime_ns:x}-{stat.st_size:x}-{size}-{fit}"'
+    prefix = _thumb_cache_prefix(path)
+    key = f"{stat.st_mtime_ns:x}-{stat.st_size:x}-{size}-{fit}"
+    etag = f'"{key}"'
+    cache_control = "private, max-age=31536000, immutable" if v else "private, max-age=86400"
+    headers = {"ETag": etag, "Cache-Control": cache_control}
     if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=86400"})
+        return Response(status_code=304, headers=headers)
+    cached = THUMB_CACHE_DIR / f"{prefix}-{key}.jpg"
+    if cached.is_file():
+        os.utime(cached)  # 정리(prune_thumb_cache)가 최근에 쓴 것을 남기도록
+        return FileResponse(cached, media_type="image/jpeg", headers=headers)
     try:
         with Image.open(path) as img:
             img = img.convert("RGB")
@@ -257,14 +294,18 @@ def get_output_image_thumbnail(filename: str, request: Request, size: int = 320,
             else:
                 img.thumbnail((size, size))
             buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=82)
+            img.save(buf, format="JPEG", quality=85 if size >= 1280 else 82)
     except Exception as e:
         raise HTTPException(500, f"썸네일을 만들지 못했어요: {e}")
-    return Response(
-        content=buf.getvalue(),
-        media_type="image/jpeg",
-        headers={"ETag": etag, "Cache-Control": "private, max-age=86400"},
-    )
+    # 원본이 바뀌기 전의 옛 키 파일을 지우고 새로 쓴다. 임시 이름으로 쓴 뒤 바꿔서
+    # 동시에 온 요청이 반쯤 쓴 파일을 받지 않게 한다.
+    for old in THUMB_CACHE_DIR.glob(f"{prefix}-*"):
+        if not old.name.startswith(f"{prefix}-{stat.st_mtime_ns:x}-{stat.st_size:x}-"):
+            old.unlink(missing_ok=True)
+    tmp = cached.with_suffix(f".{uuid.uuid4().hex}.tmp")
+    tmp.write_bytes(buf.getvalue())
+    os.replace(tmp, cached)
+    return Response(content=buf.getvalue(), media_type="image/jpeg", headers=headers)
 
 
 @app.get("/api/output-images/{filename:path}")
@@ -277,7 +318,9 @@ def get_output_image(filename: str):
 def delete_output_image(filename: str):
     # 갤러리에서 이미지 하나만 지우는 용도 — 되돌릴 수 없는 삭제라서, 확인 절차는
     # 프론트엔드(버튼 클릭 시 confirm 창)가 맡는다.
-    resolve_output_image(filename).unlink()
+    path = resolve_output_image(filename)
+    path.unlink()
+    drop_thumb_cache(path)
     return {"ok": True}
 
 
@@ -398,9 +441,12 @@ async def delete_images(request: Request):
     only = asset_meta.owned_paths(me(request)["id"])
     # 되돌릴 수 없는 삭제라서, 확인 절차는 프론트엔드(버튼 클릭 시 confirm 창)가 맡는다.
     try:
+        files = await asyncio.to_thread(list_output_images, OUTPUT_DIR, only)
         deleted = await asyncio.to_thread(delete_output_images, OUTPUT_DIR, only)
     except OutputFolderError as e:
         raise HTTPException(404, str(e))
+    for f in files:
+        drop_thumb_cache(f)
     return {"deleted": deleted}
 
 
@@ -423,6 +469,7 @@ async def delete_selected_images(request: Request):
         except HTTPException:
             continue
         path.unlink()
+        drop_thumb_cache(path)
         deleted += 1
     return {"deleted": deleted}
 

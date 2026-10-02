@@ -158,6 +158,10 @@ BASE_DIR = Path(__file__).parent
 REPO_ROOT = BASE_DIR.parent
 JOBS_DIR = data_dir("jobs")
 LOGS_DIR = data_dir("logs")
+# 결과 이미지 축소본 디스크 캐시(14-output-images의 thumbnail 라우트). 상한을 넘으면
+# 서버 시작 때 오래된 것부터 지운다(prune_thumb_cache).
+THUMB_CACHE_DIR = data_dir("thumb_cache")
+THUMB_CACHE_MAX_BYTES = 2 * 1024 ** 3
 TEMPLATES_DIR = REPO_ROOT / "templates"
 MANIFEST_PATH = TEMPLATES_DIR / "manifest.json"
 # 영상 생성(WAN2.2 i2v/flf2v) 템플릿이 쓰는 고정 워크플로우 — family별 프리셋과
