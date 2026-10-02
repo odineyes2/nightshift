@@ -855,23 +855,55 @@ function hideLightboxLoading(){
   document.getElementById('gallery-lightbox-img').classList.remove('lightbox-loading');
   document.getElementById('gallery-lightbox-spinner').style.display = 'none';
 }
-(() => {
-  const imgEl = document.getElementById('gallery-lightbox-img');
-  imgEl.addEventListener('load', hideLightboxLoading);
-  imgEl.addEventListener('error', hideLightboxLoading);
-})();
+// 파일명이 그대로라 URL도 그대로면 브라우저가 캐시를 그냥 쓸 수 있어서(회전
+// 등으로 파일이 바뀌어도 안 보임), mtime을 쿼리에 붙여 내용이 바뀔 때마다
+// 다른 URL이 되게 한다 — 썸네일(galleryItemHtml)도 같은 이유로 이렇게 한다.
+function lightboxOriginalUrl(img){
+  return window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}?v=${encodeURIComponent(img.mtime)}`);
+}
+function lightboxThumbUrl(img, size){
+  return window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=${size}&v=${encodeURIComponent(img.mtime)}`);
+}
+// 라이트박스는 원본(수 MB PNG) 대신 화면 크기에 맞춘 사본을 받는다. 크기는 서버 단계(1280·2048)에
+// 맞춰 골라야 미리 받은 것과 주소가 같아 브라우저 캐시를 그대로 쓴다.
+function lightboxScreenUrl(img){
+  const px = Math.max(window.innerWidth, window.innerHeight) * (window.devicePixelRatio || 1);
+  return lightboxThumbUrl(img, px <= 1280 ? 1280 : 2048);
+}
+let lightboxOriginalName = null;   // "원본 보기"를 누른 사진 이름 — 다른 사진으로 넘기면 저절로 화면용 사본으로 돌아간다
+let lightboxLoadSeq = 0;
+function preloadLightboxNeighbors(){
+  [lightboxIndex - 1, lightboxIndex + 1].forEach(i => {
+    const img = displayedGalleryImages[i];
+    if(img) new Image().src = lightboxScreenUrl(img);
+  });
+}
 
 function renderLightbox(){
   const img = displayedGalleryImages[lightboxIndex];
   if(!img) return;
   document.getElementById('gallery-lightbox-error').textContent = '';
   const imgEl = document.getElementById('gallery-lightbox-img');
-  showLightboxLoading();
-  // 파일명이 그대로라 URL도 그대로면 브라우저가 캐시를 그냥 쓸 수 있어서(회전
-  // 등으로 파일이 바뀌어도 안 보임), mtime을 쿼리에 붙여 내용이 바뀔 때마다
-  // 다른 URL이 되게 한다 — 썸네일(galleryItemHtml)도 같은 이유로 이렇게 한다.
-  imgEl.src = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}?v=${encodeURIComponent(img.mtime)}`);
+  const showOriginal = lightboxOriginalName === img.name;
+  const fullUrl = showOriginal ? lightboxOriginalUrl(img) : lightboxScreenUrl(img);
+  const seq = ++lightboxLoadSeq;
+  const hi = new Image();
+  const done = () => { if(seq !== lightboxLoadSeq) return; imgEl.src = fullUrl; hideLightboxLoading(); };
+  hi.onload = done;
+  hi.onerror = done;
+  hi.src = fullUrl;
+  if(hi.complete && hi.naturalWidth){
+    done();   // 미리 받아 둔 사본 — 바로 바꿔 끼운다
+  }else{
+    // 점진 표시: 작은 400px 사본을 먼저 늘려 보여 주고, 큰 사본이 오면 바꿔 끼운다.
+    imgEl.src = lightboxThumbUrl(img, 400);
+    showLightboxLoading();
+  }
   imgEl.alt = img.name;
+  const origBtn = document.getElementById('gallery-lightbox-original-btn');
+  origBtn.disabled = showOriginal;
+  origBtn.title = showOriginal ? `원본을 보고 있어요 (${fmtBytes(img.size)})` : `원본 보기 (${fmtBytes(img.size)})`;
+  preloadLightboxNeighbors();
   document.getElementById('gallery-lightbox-info').textContent =
     `${img.name} · ${fmtBytes(img.size)} · ${fmtGalleryDateTime(img.mtime)} (${lightboxIndex + 1}/${displayedGalleryImages.length})${img.owner_name ? ' · ' + img.owner_name : ''}`;
   imageMetaPanel.show(img);
@@ -991,6 +1023,12 @@ document.getElementById('gallery-next').addEventListener('click', showNextImage)
 document.getElementById('gallery-lightbox-download-btn').addEventListener('click', () => {
   const img = displayedGalleryImages[lightboxIndex];
   if(img) triggerAnchorDownload(`/api/output-images/${encodeURIComponent(img.name)}`, img.name);
+});
+document.getElementById('gallery-lightbox-original-btn').addEventListener('click', () => {
+  const img = displayedGalleryImages[lightboxIndex];
+  if(!img) return;
+  lightboxOriginalName = img.name;
+  renderLightbox();
 });
 document.getElementById('gallery-lightbox-send-to-pose-btn').addEventListener('click', () => {
   const img = displayedGalleryImages[lightboxIndex];
