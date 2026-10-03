@@ -369,7 +369,7 @@
   .gallery-group-select-label input{
     width:14px; height:14px;
     cursor:pointer;
-    accent-color:var(--queued);
+    accent-color:var(--accent, var(--queued));
   }
   .gallery-group-grid{
     display:grid;
@@ -423,16 +423,16 @@
     cursor:pointer;
     accent-color:var(--queued);
   }
-  .gallery-item.selected{ outline:2px solid var(--queued); outline-offset:-2px; }
+  .gallery-item.selected{ outline:2px solid var(--accent, var(--queued)); outline-offset:-2px; }
   /* 길게 눌러 삭제 — 파드 카드와 같은 동작. 터치에서는 길게 눌러도 저장 메뉴가 뜨지 않게 한다. */
   .gallery-item{ -webkit-touch-callout:none; }
   @media (hover:none){ .gallery-item{ -webkit-user-select:none; user-select:none; } }
   .gallery-item.item-pressing{
-    outline:2px solid var(--failed); outline-offset:-2px;
-    transform:scale(0.98);
-    transition:transform .38s ease, outline-color .2s ease;
+    outline:2px solid var(--accent, var(--queued)); outline-offset:-2px;
+    transition:outline-color .15s ease;
   }
-  .gallery-item.details.item-pressing{ transform:none; background:rgba(var(--failed-rgb),0.06); }
+  .gallery-item.details.item-pressing{ transform:none; border-color:var(--accent, var(--queued)); }
+  @media (prefers-reduced-motion:reduce){ .gallery-item.item-pressing{ transition:none; } }
 
   /* "📋 자세히" 보기 — 탐색기 자세히 보기처럼 썸네일은 작게, 파일명/작업/해상도/
      용량/수정 시각을 열로 나란히 보여준다. 헤더 행과 각 데이터 행이 같은
@@ -473,7 +473,7 @@
     border:1px solid transparent;
   }
   .gallery-item.details:hover{ background:rgba(var(--queued-rgb),0.05); }
-  .gallery-item.details.selected{ outline:none; background:rgba(var(--queued-rgb),0.1); border-color:rgba(var(--queued-rgb),0.3); }
+  .gallery-item.details.selected{ outline:none; background:color-mix(in srgb, var(--accent, var(--queued)) 10%, transparent); border-color:var(--accent, var(--queued)); }
   .gallery-item.details .gallery-item-select{
     position:static;
     width:18px; height:18px;

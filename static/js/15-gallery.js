@@ -340,10 +340,121 @@ function setupItemLongPressDelete(container, itemSelector, onFire){
   });
 }
 
-setupItemLongPressDelete(document.getElementById('gallery-grid'), '.gallery-item', (el) => {
-  const img = displayedGalleryImages[Number(el.dataset.index)];
-  if(img) deleteGalleryImages([img.name]);
-});
+// 터치는 비수동 touchmove로 제어한다. 롱프레스 뒤 touch-action을 바꾸면
+// 이미 시작한 터치에는 적용되지 않으므로 포인터 취소 후에도 터치 식별자를 유지한다.
+function setupGallerySelection(container){
+  let gesture = null, blockedUntil = 0;
+  const finish = () => {
+    if(!gesture) return;
+    const g = gesture;
+    gesture = null;
+    clearTimeout(g.timer);
+    clearTimeout(g.visualTimer);
+    cancelAnimationFrame(g.frame);
+    g.el.classList.remove('item-pressing');
+    if(g.active) blockedUntil = Date.now() + 900;
+    if(container.hasPointerCapture(g.pointerId)) container.releasePointerCapture(g.pointerId);
+  };
+  const cards = () => Array.from(container.querySelectorAll('.gallery-item')).map(el => ({el, rect:el.getBoundingClientRect()}));
+  const select = (items) => {
+    for(const {el} of items){
+      const img = displayedGalleryImages[Number(el.dataset.index)];
+      if(!img) continue;
+      selectedGalleryNames.add(img.name);
+      el.classList.add('selected');
+      el.querySelector('.gallery-item-select input').checked = true;
+    }
+    updateGalleryToolbar();
+    refreshAllGroupCheckboxStates();
+  };
+  const extend = () => {
+    const g = gesture;
+    if(!g?.active) return;
+    const layout = cards();
+    const start = layout.find(item => item.el === g.el);
+    if(!start){ finish(); return; }
+    const hit = layout.find(({rect:r}) => g.x >= r.left && g.x <= r.right && g.y >= r.top && g.y <= r.bottom);
+    if(!hit) return; // 간격·제목은 대상에서 제외하되 제스처를 유지한다.
+    const row = layout.filter(({rect:r}) => Math.abs(r.top - start.rect.top) < 2);
+    if(!g.locked){
+      g.right = Math.max(g.right, hit.rect.right);
+      if(hit.rect.right >= Math.max(...row.map(item => item.rect.right)) - 2) g.locked = true;
+    }
+    const left = start.rect.left;
+    select(layout.filter(({rect:r}) => r.top >= start.rect.top - 2 && r.top <= hit.rect.top + 2 &&
+      (r.left + r.right) / 2 >= left && (r.left + r.right) / 2 <= g.right));
+  };
+  const tick = () => {
+    const g = gesture;
+    if(!g?.active) return;
+    if(g.y > window.innerHeight - 48){
+      // 카드가 속한 실제 스크롤 영역부터 찾고, 없으면 문서를 스크롤한다.
+      let scroll = container.parentElement;
+      while(scroll && !(scroll.scrollHeight > scroll.clientHeight && /auto|scroll/.test(getComputedStyle(scroll).overflowY))) scroll = scroll.parentElement;
+      (scroll || document.scrollingElement).scrollBy(0, 8);
+      extend();
+    }
+    g.frame = requestAnimationFrame(tick);
+  };
+  container.addEventListener('pointerdown', e => {
+    if(gesture){ finish(); return; }
+    if(!e.isPrimary || e.button !== 0) return;
+    blockedUntil = 0; // 다음 독립적인 누름은 체크박스·버튼도 바로 사용할 수 있다.
+    const el = e.target.closest('.gallery-item');
+    if(!el || e.target.closest('button, select, a, input, label')) return;
+    const g = gesture = {el, pointerId:e.pointerId, touch:e.pointerType === 'touch', touchId:null,
+      x:e.clientX, y:e.clientY, startX:e.clientX, startY:e.clientY, active:false, locked:false};
+    g.visualTimer = setTimeout(() => el.classList.add('item-pressing'), 220);
+    g.timer = setTimeout(() => {
+      if(gesture !== g || !el.isConnected) return;
+      g.active = true;
+      select([{el}]);
+      g.right = el.getBoundingClientRect().right;
+      if(!g.touch) container.setPointerCapture(g.pointerId);
+      g.frame = requestAnimationFrame(tick);
+    }, 600);
+  });
+  const move = (x, y) => {
+    const g = gesture;
+    if(!g) return;
+    g.x = x; g.y = y;
+    if(!g.active){
+      if(Math.hypot(x - g.startX, y - g.startY) > 10) finish();
+    }else extend();
+  };
+  window.addEventListener('pointermove', e => {
+    if(gesture && !gesture.touch && e.pointerId === gesture.pointerId) move(e.clientX, e.clientY);
+  });
+  window.addEventListener('pointerup', e => { if(gesture && !gesture.touch && e.pointerId === gesture.pointerId) finish(); });
+  container.addEventListener('pointercancel', e => {
+    if(gesture && e.pointerId === gesture.pointerId && !(gesture.touch && gesture.active)) finish();
+  });
+  container.addEventListener('lostpointercapture', e => {
+    if(gesture && !gesture.touch && e.pointerId === gesture.pointerId) finish();
+  });
+  container.addEventListener('touchstart', e => {
+    if(e.touches.length !== 1){ finish(); return; }
+    if(gesture?.touch) gesture.touchId = e.changedTouches[0].identifier;
+  }, {passive:true});
+  window.addEventListener('touchmove', e => {
+    if(!gesture?.touch) return;
+    const t = Array.from(e.touches).find(t => t.identifier === gesture.touchId);
+    if(!t || e.touches.length !== 1){ finish(); return; }
+    if(gesture.active) e.preventDefault();
+    move(t.clientX, t.clientY);
+  }, {passive:false});
+  for(const type of ['touchend', 'touchcancel']) window.addEventListener(type, e => {
+    if(gesture?.touch && Array.from(e.changedTouches).some(t => t.identifier === gesture.touchId)) finish();
+  });
+  window.addEventListener('blur', finish);
+  container.addEventListener('click', e => {
+    if(gesture?.active || Date.now() < blockedUntil){ e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+  container.addEventListener('contextmenu', e => { if(e.target.closest('.gallery-item')) e.preventDefault(); });
+  container.addEventListener('dragstart', e => { if(e.target.closest('.gallery-item')) e.preventDefault(); });
+  return finish;
+}
+const cancelGallerySelection = setupGallerySelection(document.getElementById('gallery-grid'));
 
 // 그룹(작업별/날짜별 보기의 소제목) 체크박스를 그 그룹 안 이미지들의 현재 선택
 // 상태에 맞춘다 — 전부 선택돼 있으면 체크, 하나도 없으면 빈 채, 일부만 선택돼
@@ -433,6 +544,7 @@ let galleryRendered = 0;
 let galleryGroupNames = new Map();   // 묶음 키 -> 그 묶음의 이미지 이름 전부(안 그린 것 포함)
 let galleryScopeKey = '';
 function renderGalleryGrid(){
+  cancelGallerySelection();
   const grid = document.getElementById('gallery-grid');
   const isDetails = galleryDisplayMode === 'details';
   grid.classList.toggle('details-mode', isDetails);
