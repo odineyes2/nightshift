@@ -79,15 +79,26 @@ try:
 except ValueError:
     pass
 
-# GPU 고정표는 공백만 제거해 정확히 연결한다(NS-27-2).
+# GPU 고정표와 RunPod 전체 모델명은 공백만 제거해 정확히 연결한다(NS-27-2).
 assert rs.vram_for("RTX PRO 4500") == 32
 assert rs.vram_for(" RTX 4000 Ada \t") == 20
 added_models = (("RTX A4000", 16), ("RTX A4500", 20), ("RTX 5080", 16))
+runpod_models = (
+    ("NVIDIA RTX A4000", 16),
+    ("NVIDIA RTX A4500", 20),
+    ("NVIDIA GeForce RTX 5080", 16),
+    ("NVIDIA RTX 4000 Ada Generation", 20),
+    ("NVIDIA RTX PRO 4500 Blackwell", 32),
+)
+added_models += runpod_models
 for gpu, expected in added_models:
     assert rs.vram_for(gpu) == expected
     assert rs.vram_for(f" {gpu}\t") == expected
 for gpu in ("", None, "Unknown GPU", "RTX 4000 Ada SFF", "rtx 4000 ada",
-            "RTX A4000 Extra", "RTX A4500 Extra", "RTX 5080 Extra"):
+            "RTX A4000 Extra", "RTX A4500 Extra", "RTX 5080 Extra",
+            "NVIDIA RTX A4000 Extra", "NVIDIA RTX A4500 Extra",
+            "NVIDIA GeForce RTX 5080 Extra", "NVIDIA RTX 4000 Ada Generation SFF",
+            "NVIDIA RTX PRO 4500 Blackwell Extra", "nvidia rtx a4000"):
     assert rs.vram_for(gpu) is None, gpu
 
 # 과거·진행 중 기록의 NULL만 응답에서 보완하고 저장된 값(0 포함)은 유지한다.
@@ -99,6 +110,8 @@ cases = [
     ("Unknown GPU", None, None),
     ("RTX 4000 Ada SFF", None, None),
     ("", None, None),
+    ("NVIDIA RTX A4000 Extra", None, None),
+    ("NVIDIA RTX 4000 Ada Generation SFF", None, None),
 ]
 for gpu, expected in added_models:
     cases.extend(((f" {gpu}\t", None, expected), (gpu, 15, 15), (gpu, 0, 0)))
