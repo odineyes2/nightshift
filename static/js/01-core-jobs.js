@@ -174,9 +174,10 @@ async function fetchJobs(){
   // 401(API 키 없음/오류) 등으로 실패하면 목록을 비우지 않고 마지막으로 받아온
   // 상태를 그대로 둔다 — 헤더의 "🔑 API 키" 버튼이 이미 빨간색으로 문제를
   // 알려주므로, 여기서는 2초 뒤 다음 폴링 때 다시 시도하기만 하면 된다.
-  if(!res.ok) return;
+  if(!res.ok) return false;
   const data = await res.json();
   render(data.jobs, data.pending_count, data.running, data.pods || {});
+  return true;
 }
 
 // 마지막으로 그린 작업 목록. render()의 지역 변수 jobs는 그 함수 밖에서는 못 보는데,
@@ -187,6 +188,52 @@ let lastJobs = [];
 // 풀려버린다(내용이 하나도 안 바뀌었어도). 그래서 "보이는 내용이 실제로 바뀌었을
 // 때만" 다시 그린다 — 바뀐 게 없으면 이번 tick은 손대지 않고 그대로 둔다.
 let lastJobsRowsSignature = null;
+
+let clearingDoneJobs = false;
+function visibleDoneJobs(){
+  return lastJobs.filter(j => j.status === 'done' && !j.deleted
+    && (!jobPodFilter || j.pod_id === jobPodFilter)
+    && (jobProjectFilter === null || projectMatches(j.project_id, jobProjectFilter)));
+}
+function updateClearDoneJobs(){
+  const btn = document.getElementById('clear-done-jobs');
+  const count = visibleDoneJobs().length;
+  btn.disabled = clearingDoneJobs || count === 0;
+  btn.setAttribute('aria-busy', String(clearingDoneJobs));
+  btn.innerHTML = clearingDoneJobs ? `${ico('loader-circle', true)} 청소 중…` : `완료 잡 청소 (${count})`;
+}
+document.getElementById('clear-done-jobs').addEventListener('click', async () => {
+  if(clearingDoneJobs) return;
+  const count = visibleDoneJobs().length;
+  if(!count) return;
+  // 확인 당시 범위를 고정한다 — 요청 중 화면을 옮겨도 다른 범위를 지우지 않는다.
+  const params = new URLSearchParams({ done_only: 'true' });
+  const scope = [];
+  if(jobPodFilter){ params.set('pod_id', jobPodFilter); scope.push(`파드 ${podName(jobPodFilter) || jobPodFilter}`); }
+  if(jobProjectFilter !== null){
+    params.set('project_id', jobProjectFilter);
+    scope.push(jobProjectFilter === 'unassigned' ? '미분류' : `프로젝트 ${projectName(jobProjectFilter)}`);
+  }
+  const label = scope.join(' / ') || '전체';
+  if(!confirm(`${label} 범위의 완료 잡 ${count}개를 청소할까요?\n실패·중단·대기·실행 중 잡은 유지해요. 오래된 작업 설정은 영구 정리될 수 있어요.`)) return;
+  clearingDoneJobs = true;
+  updateClearDoneJobs();
+  const result = document.getElementById('clear-done-jobs-result');
+  result.textContent = '';
+  try{
+    const res = await fetch(`/api/jobs/clear-completed?${params}`, { method: 'POST' });
+    if(!res.ok) throw new Error('cleanup');
+    const data = await res.json();
+    result.textContent = `${label} 범위의 완료 잡 ${data.cleared}개를 청소했어요.`;
+    try{ if(!await fetchJobs()) throw new Error('refresh'); }
+    catch(e){ result.textContent += ' 목록을 갱신하지 못했어요. 잠시 후 다시 확인해 주세요.'; }
+  }catch(e){
+    result.textContent = '청소하지 못했어요. 연결과 로그인 상태를 확인하고 다시 시도해 주세요.';
+  }finally{
+    clearingDoneJobs = false;
+    updateClearDoneJobs();
+  }
+});
 
 // 상태를 대기/실행/완료/실패 4섹션으로 묶는다 — "중단됨"(interrupted)은 실패
 // 섹션에 같이 묶이지만 배지 자체(.badge.interrupted)는 그대로 렌더링해 색으로
@@ -206,6 +253,7 @@ function render(jobs, pendingCount, running, perPod){
   // 작업 목록은 언제나 지금 들어와 있는 파드 것만 보여준다(파드 스코프 바 참고).
   if(jobPodFilter) jobs = jobs.filter(j => j.pod_id === jobPodFilter);
   if(jobProjectFilter !== null) jobs = jobs.filter(j => projectMatches(j.project_id, jobProjectFilter));
+  updateClearDoneJobs();
   const board = document.getElementById('job-board');
 
   // 상세 모달이 열려 있는 작업이 이번 목록에서 사라졌으면(삭제됐거나 필터로

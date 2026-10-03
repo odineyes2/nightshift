@@ -328,8 +328,10 @@
         <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
         <div class="section-label">Job Queue</div>
       </div>
+      <button type="button" id="clear-done-jobs" disabled>완료 잡 청소 (0)</button>
     </div>
     <div class="panel-body">
+      <div id="clear-done-jobs-result" class="job-cleanup-result" role="status" aria-live="polite"></div>
       <div class="job-board" id="job-board"></div>
     </div>
   </div>

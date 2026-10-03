@@ -7,6 +7,18 @@
      상세/로그)는 전부 상세 모달(job-detail-*)에서만 보여준다. ---- */
   /* 4단계(대기/실행/완료/실패)를 칸반처럼 좌→우로 나란히 둔다 — 칸이 좁아지면
      .job-board-grid의 auto-fill이 자연히 칸 하나짜리 세로 목록으로 줄어든다. */
+  #tab-jobs .panel-header{ flex-wrap:wrap; gap:8px; }
+  #clear-done-jobs{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    color:var(--failed); background:transparent; border:1px solid var(--border);
+    border-radius:6px; padding:8px 12px; font:inherit; font-size:13px; font-weight:500;
+    min-height:40px; margin-left:auto; cursor:pointer;
+  }
+  #clear-done-jobs:hover:not(:disabled){ background:var(--panel-2); border-color:var(--failed); }
+  #clear-done-jobs:disabled{ color:var(--text-dim); cursor:not-allowed; }
+  #clear-done-jobs:focus-visible{ outline:2px solid var(--accent); outline-offset:4px; }
+  .job-cleanup-result{ font-size:13px; color:var(--text-dim); overflow-wrap:anywhere; }
+  .job-cleanup-result:not(:empty){ margin-bottom:12px; }
   .job-board{ display:flex; flex-direction:row; align-items:flex-start; gap:16px; overflow-x:auto; }
   .job-section{ flex:1 1 0; min-width:220px; display:flex; flex-direction:column; }
   .job-section-header{
