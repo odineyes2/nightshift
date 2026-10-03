@@ -378,12 +378,6 @@
   }
   .tab-btn:hover{ color:var(--text); }
   .tab-btn.active{ color:var(--queued); border-bottom-color:var(--queued); }
-  /* Danbooru는 독립 탭에서 New Job 세부 설정의 프롬프트 도우미(모달)로 옮겼다 —
-     지우지는 않는다: #danbooru 해시/showTab('danbooru')는 그대로 동작해야
-     openDanbooruModal()이 그 마크업/상태를 그대로 재사용할 수 있다.
-     #global-tab-bar .tab-btn{display:inline-flex}(389행)보다 더 구체적이어야
-     실제로 감춰진다. */
-  #global-tab-bar .tab-btn[data-tab="danbooru"]{ display:none; }
   /* 상단 내비는 평소 아이콘만 보이고, 마우스를 올리면 오른쪽으로 제목이 펼쳐진다. 호버가 없는
      기기(폰·태블릿)에서는 늘 아이콘만 — 제목은 title로 남는다. */
   #global-tab-bar .tab-btn{ display:inline-flex; align-items:center; padding:12px 10px; }

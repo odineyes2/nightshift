@@ -153,7 +153,7 @@ function formPodId(){
   return resolvePodId(currentPodId || formPodChoice);
 }
 
-// 전역 탭의 "보드"(NS-12)가 열 프로젝트 — 마지막에 연 보드, 없으면 마지막에 보던 프로젝트, 없으면 보관 안 된 첫 프로젝트.
+// 옛 #board 링크가 열 프로젝트 — 마지막에 연 보드, 없으면 마지막에 보던 프로젝트, 없으면 보관 안 된 첫 프로젝트.
 const LAST_BOARD_KEY = 'nightshift-last-board-project';
 function boardTargetProject(){
   const ok = (id) => typeof id === 'number' && id > 0 && projectsById[id] && !projectsById[id].archived;   // 미분류(unassigned)는 보드가 없다
@@ -216,8 +216,9 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   jobPodFilter = (tab === 'jobs') ? scopedPodId : null;
   jobProjectFilter = (tab === 'jobs') ? scopedProjectId : null;
 
-  // 파드 안에 있을 때는 상단 내비게이션의 PODS를 켜 둔다(파드 화면은 PODS 아래 층이다).
-  document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab || (!!scopedPodId && b.dataset.tab === 'pods') || (tab === 'prboard' && b.dataset.tab === 'board')));
+  // 범위 안에서는 상단 내비게이션의 Project 또는 Workers를 켜 둔다.
+  const globalTab = scopedProjectId !== null ? 'dashboard' : (scopedPodId ? 'pods' : tab);
+  document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === globalTab));
   const targetMain = TAB_MAINS[tab];
   for(const el of new Set(Object.values(TAB_MAINS))){
     el.style.display = (el === targetMain) ? '' : 'none';
