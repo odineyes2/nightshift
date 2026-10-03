@@ -32,7 +32,8 @@ GPU_VRAM_GB = {
     "H100 PCIe": 80, "H100 SXM": 80, "A100 PCIe": 80, "A100 SXM": 80,
     "L40S": 48, "RTX 6000 Ada": 48, "A40": 48, "L40": 48, "RTX A6000": 48,
     "RTX PRO 4500": 32, "RTX 5090": 32, "L4": 24, "RTX 3090": 24, "RTX 4090": 24,
-    "RTX A5000": 24, "RTX 4000 Ada": 20, "RTX 2000 Ada": 16,
+    "RTX A5000": 24, "RTX 4000 Ada": 20, "RTX A4500": 20,
+    "RTX A4000": 16, "RTX 5080": 16, "RTX 2000 Ada": 16,
 }
 
 _STATUS_CHANGE_DATE_RE = re.compile(r"(\w{3} \w{3} \d{1,2} \d{4} \d{2}:\d{2}:\d{2} GMT[+-]\d{4})")
