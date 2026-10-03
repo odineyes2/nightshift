@@ -36,11 +36,21 @@ GPU_VRAM_GB = {
     "RTX A4000": 16, "RTX 5080": 16, "RTX 2000 Ada": 16,
 }
 
+# RunPod에서 사용하는 전체 모델명도 명시적으로 연결한다. 부분 문자열로 추정하지 않는다.
+GPU_MODEL_ALIASES = {
+    "NVIDIA RTX A4000": "RTX A4000",
+    "NVIDIA RTX A4500": "RTX A4500",
+    "NVIDIA GeForce RTX 5080": "RTX 5080",
+    "NVIDIA RTX 4000 Ada Generation": "RTX 4000 Ada",
+    "NVIDIA RTX PRO 4500 Blackwell": "RTX PRO 4500",
+}
+
 _STATUS_CHANGE_DATE_RE = re.compile(r"(\w{3} \w{3} \d{1,2} \d{4} \d{2}:\d{2}:\d{2} GMT[+-]\d{4})")
 
 
 def vram_for(gpu_type: str) -> int | None:
-    return GPU_VRAM_GB.get((gpu_type or "").strip())
+    model = (gpu_type or "").strip()
+    return GPU_VRAM_GB.get(GPU_MODEL_ALIASES.get(model, model))
 
 
 def _parse_runpod_dt(raw: str | None) -> str | None:
