@@ -90,6 +90,11 @@
   .db-cell-num{ font-family:var(--mono); color:var(--text-dim); }
   .db-cell-dim{ color:var(--text-dim); }
   .db-cell-open{ color:var(--queued); font-weight:600; }
+  .db-sessions .db-cell-name{ min-width:0; font-size:13px; line-height:1.4; }
+  .db-sessions .db-cell-pod, .db-sessions .db-cell-worker{
+    display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .db-sessions .db-cell-worker{ font-size:12px; font-weight:400; color:var(--text-dim); }
   /* RunPod 사용 내역은 좁은 화면에서 열을 숨기지 않고, 한 세션을 두 칸짜리 작은 카드로 접는다 —
      파드 이름을 맨 위 한 줄에, 나머지는 항목 이름(data-label)을 앞에 붙여 두 칸씩. 시작·종료·시간·비용이
      전부 보여야 쓸모 있는 표라서다. */
@@ -99,7 +104,6 @@
     .db-sessions .db-cols > *{ display:block !important; min-width:0; overflow-wrap:anywhere; }
     .db-sessions .db-cell-num{ display:none !important; }
     .db-sessions .db-cell-name{ grid-column:1 / -1; font-weight:600; }
-    .db-cell-worker{ font-weight:400; color:var(--text-dim); }
     .db-sessions [data-label]::before{ content:attr(data-label); margin-right:6px; font-size:10px; font-family:var(--mono);
                                        color:var(--text-dim); text-transform:uppercase; letter-spacing:0.04em; }
     .db-sessions .db-row{ border-bottom:1px solid var(--border); }
