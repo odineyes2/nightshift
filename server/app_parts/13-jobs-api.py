@@ -83,10 +83,12 @@ def stop_pod_queue(pod_id: str, request: Request):
 
 
 @app.post("/api/jobs/clear-completed")
-def clear_completed_jobs(request: Request, pod_id: str | None = None, project_id: str | None = None):
+def clear_completed_jobs(request: Request, pod_id: str | None = None, project_id: str | None = None,
+                         done_only: bool = False):
     # 다 끝난 작업(성공/실패/중단)을 목록에서 한꺼번에 치우고 싶을 때 쓴다 —
-    # delete_job()과 같은 소프트 삭제라 "삭제된 작업 설정 불러오기"로 실수로
-    # 지운 작업도 되돌릴 수 있다. pending/queued/running은 여기서 건드리지
+    # delete_job()과 같은 소프트 삭제다. 보관 한도를 넘는 오래된 설정은 영구 정리된다.
+    # done_only는 완료 칸만 청소한다. 생략한 기존 호출은 실패/중단도 정리한다.
+    # pending/queued/running은 여기서 건드리지
     # 않는다 — 아직 시작 안 했거나 진행 중인 작업까지 같이 지우면 안 되므로.
     #
     # pod_id를 주면 그 파드의 작업만 치운다. 화면의 작업 목록이 파드 하나 것만
@@ -99,7 +101,7 @@ def clear_completed_jobs(request: Request, pod_id: str | None = None, project_id
         wanted_project = "unassigned" if project_id == "unassigned" else parse_project_id(project_id)
     with lock:
         completed = [j for j in jobs.values()
-                     if j["status"] in ("done", "failed", "interrupted") and not j.get("deleted")
+                     if j["status"] in (("done",) if done_only else ("done", "failed", "interrupted")) and not j.get("deleted")
                      and owned(j, scope)
                      and (pod_id is None or j.get("pod_id") == pod_id)
                      and (wanted_project is None
