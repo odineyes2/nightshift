@@ -32,7 +32,7 @@ GPU_VRAM_GB = {
     "H100 PCIe": 80, "H100 SXM": 80, "A100 PCIe": 80, "A100 SXM": 80,
     "L40S": 48, "RTX 6000 Ada": 48, "A40": 48, "L40": 48, "RTX A6000": 48,
     "RTX PRO 4500": 32, "RTX 5090": 32, "L4": 24, "RTX 3090": 24, "RTX 4090": 24,
-    "RTX A5000": 24, "RTX 2000 Ada": 16,
+    "RTX A5000": 24, "RTX 4000 Ada": 20, "RTX 2000 Ada": 16,
 }
 
 _STATUS_CHANGE_DATE_RE = re.compile(r"(\w{3} \w{3} \d{1,2} \d{4} \d{2}:\d{2}:\d{2} GMT[+-]\d{4})")
@@ -74,7 +74,9 @@ def _parse_status_change_dt(raw: str | None) -> str | None:
 def _row_to_entry(row) -> dict:
     return {
         "id": row["id"], "runpod_pod_id": row["runpod_pod_id"], "pod_name": row["pod_name"],
-        "gpu_type": row["gpu_type"], "vram_gb": row["vram_gb"], "cost_per_hr": row["cost_per_hr"],
+        "gpu_type": row["gpu_type"],
+        "vram_gb": row["vram_gb"] if row["vram_gb"] is not None else vram_for(row["gpu_type"]),
+        "cost_per_hr": row["cost_per_hr"],
         "started_at": row["started_at"], "ended_at": row["ended_at"],
         "duration_sec": row["duration_sec"], "cost_total": row["cost_total"],
         "worker_name": row["worker_name"],

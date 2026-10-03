@@ -79,4 +79,52 @@ try:
 except ValueError:
     pass
 
-print("ok")
+# GPU 고정표는 공백만 제거해 정확히 연결한다(NS-27-2).
+assert rs.vram_for("RTX PRO 4500") == 32
+assert rs.vram_for(" RTX 4000 Ada \t") == 20
+for gpu in ("", None, "Unknown GPU", "RTX 4000 Ada SFF", "rtx 4000 ada"):
+    assert rs.vram_for(gpu) is None, gpu
+
+# 과거·진행 중 기록의 NULL만 응답에서 보완하고 저장된 값(0 포함)은 유지한다.
+cases = [
+    ("RTX PRO 4500", None, 32),
+    (" RTX 4000 Ada \t", None, 20),
+    ("RTX 4000 Ada", 19, 19),
+    ("RTX PRO 4500", 0, 0),
+    ("Unknown GPU", None, None),
+    ("RTX 4000 Ada SFF", None, None),
+    ("", None, None),
+]
+with db.connect() as conn:
+    for i, (gpu, stored, expected) in enumerate(cases):
+        for opened in (False, True):
+            conn.execute(
+                "INSERT INTO runpod_sessions(runpod_pod_id, pod_name, gpu_type, vram_gb, started_at, ended_at) "
+                "VALUES(?,?,?,?,?,?)",
+                (f"vram-{i}-{opened}", "n", gpu, stored, base.isoformat(),
+                 None if opened else (base + timedelta(hours=1)).isoformat()),
+            )
+    before = [tuple(r) for r in conn.execute("SELECT * FROM runpod_sessions ORDER BY id")]
+
+entries = {s["runpod_pod_id"]: s for s in rs.list_sessions(limit=None)}
+for i, (gpu, stored, expected) in enumerate(cases):
+    for opened in (False, True):
+        entry = entries[f"vram-{i}-{opened}"]
+        assert entry["vram_gb"] == expected, entry
+        assert entry["gpu_type"] == gpu
+        assert entry["estimated"] == opened
+rs.summarize_sessions()
+with db.connect() as conn:
+    after = [tuple(r) for r in conn.execute("SELECT * FROM runpod_sessions ORDER BY id")]
+assert after == before, "조회가 저장된 세션을 변경했다"
+
+# 신규 세션은 기존 동기화 흐름에서 두 모델의 용량을 저장한다.
+for i, gpu in enumerate(("RTX PRO 4500", " RTX 4000 Ada ")):
+    rs.sync_pod_session(f"new-vram-{i}", "n", gpu, 0.5, True,
+                        "2026-09-01 00:00:00.000 +0000 UTC", None)
+    with db.connect() as conn:
+        row = conn.execute("SELECT vram_gb FROM runpod_sessions WHERE runpod_pod_id=?",
+                           (f"new-vram-{i}",)).fetchone()
+    assert row["vram_gb"] == (32, 20)[i]
+
+print("ok: 기간·합계 및 VRAM 회귀 검사")
