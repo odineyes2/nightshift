@@ -268,7 +268,7 @@
   .lightbox-overlay.lightbox-fullscreen .lightbox-rot-btn{ z-index:3; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
   .lightbox-fs-btn .ico, .lightbox-rot-btn .ico{ width:24px; height:24px; }
   /* 전체 화면 — 여백·정보·버튼 줄을 걷어내고 이미지/영상이 화면을 꽉 채운다(닫기 ×와 전체 화면 해제 버튼만 남는다).
-     브라우저 Fullscreen API 없이 이 클래스만으로 창을 채운다(브라우저의 하단 종료 안내가 안 나오게). */
+     브라우저 전체 화면에서도 같은 배치를 사용하고, 미지원 환경은 창 안을 채운다. */
   .lightbox-overlay.lightbox-fullscreen{ padding:0; background:#000; }
   .lightbox-overlay.lightbox-fullscreen .lightbox-img-wrap{ width:100%; height:100%; max-width:none; max-height:none; gap:0; }
   .lightbox-overlay.lightbox-fullscreen .lightbox-img-wrap .lightbox-img{

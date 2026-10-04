@@ -1051,11 +1051,13 @@ function showNextImage(){
 // 스와이프든 일단 트랜지션과 함께 원위치로 돌아온다(넘어갈 땐 그사이 다음
 // 이미지가 로딩 상태로 바뀐다).
 // ---- 라이트박스 전체 화면 (이미지·영상 공용) ----
-// 클래스만으로 overlay가 창을 꽉 채우고 정보·버튼을 걷어낸다. 브라우저 Fullscreen API는 쓰지 않는다 —
-// 쓰면 브라우저가 화면 하단에 "전체 화면 종료하려면…" 안내를 띄우고 웹 코드로는 끌 수 없다(NS-24).
-// 홈 화면에 설치한 앱(manifest display: standalone)으로 열면 주소창이 없어 사실상 전체 화면이 된다.
+// 상태표시줄 숨김을 우선해 브라우저 전체 화면을 요청한다(NS-29). 종료 안내는 브라우저가 관리한다.
+// 지원하지 않거나 거절한 환경에서는 기존 창 채우기를 유지하고 한계를 알린다.
+let lightboxNativeFullscreen = null;
+const lightboxFullscreenPending = new WeakSet();
+function lightboxFullscreenElement(){ return document.fullscreenElement || document.webkitFullscreenElement; }
 function isLightboxFullscreen(overlay){ return overlay.classList.contains('lightbox-fullscreen'); }
-function setLightboxFullscreen(overlay, on){
+function paintLightboxFullscreen(overlay, on){
   const btn = overlay.querySelector('.lightbox-fs-btn');
   overlay.classList.toggle('lightbox-fullscreen', on);
   if(btn){
@@ -1064,6 +1066,51 @@ function setLightboxFullscreen(overlay, on){
     btn.setAttribute('aria-label', on ? '전체 화면 끝내기' : '전체 화면');
   }
 }
+async function exitLightboxFullscreen(overlay){
+  if(lightboxFullscreenElement() !== overlay) return; // 영상 controls나 다른 요소의 전체 화면은 건드리지 않는다.
+  const exit = document.exitFullscreen || document.webkitExitFullscreen;
+  if(exit) await exit.call(document);
+}
+async function setLightboxFullscreen(overlay, on){
+  if(on && lightboxFullscreenPending.has(overlay)) return;
+  paintLightboxFullscreen(overlay, on);
+  if(!on){
+    try{ await exitLightboxFullscreen(overlay); }
+    catch(e){ alert('전체 화면을 끝내지 못했어요 — 기기의 뒤로가기나 Esc로 나가 주세요.'); }
+    return;
+  }
+  if(lightboxFullscreenElement() === overlay) return;
+  const request = overlay.requestFullscreen || overlay.webkitRequestFullscreen;
+  if(!request){
+    alert('이 브라우저에서는 상태표시줄을 숨길 수 없어요. 화면 안에서 이미지를 크게 보여 드려요.');
+    return;
+  }
+  lightboxFullscreenPending.add(overlay);
+  try{
+    // 사용자 클릭·F 입력 안에서 바로 호출해야 전체 화면 요청이 허용된다.
+    await request.call(overlay, { navigationUI: 'hide' });
+    if(!isLightboxFullscreen(overlay) || overlay.style.display === 'none'){
+      await exitLightboxFullscreen(overlay); // 요청 중 닫힌 뷰어의 늦은 진입을 취소한다.
+    }
+  }catch(e){
+    if(isLightboxFullscreen(overlay) && overlay.style.display !== 'none')
+      alert('상태표시줄 숨김 요청을 브라우저가 허용하지 않았어요. 전체 화면을 끝낸 뒤 다시 시도해 주세요.');
+  }finally{
+    lightboxFullscreenPending.delete(overlay);
+  }
+}
+function syncLightboxFullscreen(){
+  const active = lightboxFullscreenElement();
+  if(lightboxNativeFullscreen && active !== lightboxNativeFullscreen && !lightboxNativeFullscreen.contains(active)){
+    paintLightboxFullscreen(lightboxNativeFullscreen, false);
+    lightboxNativeFullscreen = null;
+  }
+  if(active && active.matches('.lightbox-overlay') && isLightboxFullscreen(active)){
+    lightboxNativeFullscreen = active;
+  }
+}
+document.addEventListener('fullscreenchange', syncLightboxFullscreen);
+document.addEventListener('webkitfullscreenchange', syncLightboxFullscreen);
 function toggleLightboxFullscreen(overlay){ setLightboxFullscreen(overlay, !isLightboxFullscreen(overlay)); }
 // 보기 회전(NS-24) — 각도는 overlay의 data-rot(0/90/180/270)에만 둔다. 저장하지 않으므로 새로고침하면 0이고,
 // 그 전까지는 넘김·닫았다 열기에도 남는다. CSS가 전체 화면일 때만 돌려 보여 준다(원본 파일은 그대로).
