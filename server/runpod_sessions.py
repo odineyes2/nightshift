@@ -2,18 +2,14 @@
 남긴다. server/runpod_sync.py의 sync_runpod_pods()가 RunPod 계정의 pod마다
 sync_pod_session()을 불러 채운다(DB 탭이 이 기록을 보여준다).
 
-## 시작/종료 시각을 어떻게 정확하게 아는가
+## 시작/종료 시각을 어떻게 아는가
 
-nightshift가 sync를 늦게 불러도 시각이 부정확해지지 않는다 — RunPod REST API
-(`GET /v1/pods`)가 그 pod에 실제로 일어난 시각을 자기 쪽에 남겨 두기 때문이다
-(2026-09-24 실측 확인):
-    lastStartedAt    = "2026-09-23 03:38:26.551 +0000 UTC"
-    lastStatusChange = "Exited by user: Wed Sep 23 2026 10:00:19 GMT+0000 (Coordinated Universal Time)"
-언제 물어보든 이 두 값을 그대로 가져오면 되므로, 사람이 MCP로 sync를 부르는 지금
-방식 그대로도(주기적 자동 동기화 없이도) 정확하다. 다만 **sync를 아예 한 번도 안
-부른 사이에 같은 pod가 두 번 이상 껐다 켜졌다 하면** RunPod 쪽에서도 최신 전환만
-남기 때문에 중간 기록은 잃는다 — 시작/정지할 때마다(또는 그 근처에) sync를 부르는
-정상적인 사용 패턴에서는 문제가 안 된다.
+시작 시각은 RunPod REST v2(`GET /v2/pods`)의 `startedAt`(RFC 3339)을 그대로 쓴다.
+켜짐 판정은 `runpod_api.is_on`(PROVISIONING/STARTING/RUNNING = 과금 중)이다. 아직
+startedAt이 없는 켜지는 중 파드는 처음 본 동기화 시각으로 세션을 연다.
+v2에는 종료 시각(v1의 `lastStatusChange`)이 없어서, **종료 시각은 꺼짐을 처음 본
+동기화 시각**이다(오차는 최대 RUNPOD_SESSION_LOG_SEC). 동기화 사이에 켜졌다 꺼진
+세션은 남지 않을 수 있다. v1 형태의 값이 오면 예전처럼 그 시각을 쓴다.
 
 ## VRAM
 
@@ -54,10 +50,16 @@ def vram_for(gpu_type: str) -> int | None:
 
 
 def _parse_runpod_dt(raw: str | None) -> str | None:
-    """"2026-09-23 03:38:26.551 +0000 UTC" 형태(RunPod REST의 lastStartedAt/createdAt)를
-    ISO로. 알아볼 수 없으면 None(호출부가 "지금"으로 대신한다)."""
+    """RunPod 시각을 ISO로 — v2 startedAt의 RFC 3339("2026-03-13T20:00:00Z")와 v1 형태
+    ("2026-09-23 03:38:26.551 +0000 UTC")를 모두 받는다. 알아볼 수 없으면 None(호출부가 "지금"으로 대신한다)."""
     if not raw:
         return None
+    try:
+        dt = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc).isoformat()
+    except ValueError:
+        pass
     cleaned = raw.strip().removesuffix(" UTC").strip()
     for fmt in ("%Y-%m-%d %H:%M:%S.%f %z", "%Y-%m-%d %H:%M:%S %z"):
         try:
@@ -111,7 +113,8 @@ def sync_pod_session(
 
         if running:
             started_at = _parse_runpod_dt(last_started_at_raw) or now
-            if open_row is not None and open_row["started_at"] == started_at:
+            # startedAt이 아직 없으면(STARTING 등) 이미 연 세션을 그대로 둔다
+            if open_row is not None and (open_row["started_at"] == started_at or not last_started_at_raw):
                 if worker_name and not open_row["worker_name"]:   # 켜진 뒤에 워커가 연결됐으면 채운다
                     conn.execute("UPDATE runpod_sessions SET worker_name=? WHERE id=?", (worker_name, open_row["id"]))
                 return  # 이미 이 시작을 기록해 뒀다 — 할 일 없음

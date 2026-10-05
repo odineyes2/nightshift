@@ -132,6 +132,7 @@ function runpodPowerState(p){
   const cost = rp.cost_per_hr != null ? ` · $${Number(rp.cost_per_hr).toFixed(2)}/hr` : '';
   if(rp.status === 'RUNNING') return { on: true, busy: false, label: `켜져 있어요 — 과금 중${cost}${tier ? ' · 끄면 파드를 지워요(워커는 남음)' : ''}` };
   if(rp.status === 'EXITED' || rp.status === 'ERROR') return { on: false, busy: false, label: `꺼져 있어요 — 과금 없음${rp.status === 'ERROR' ? ' (오류로 멈춤)' : ''}` };
+  if(rp.status === 'PROVISIONING' || rp.status === 'STARTING') return { on: true, busy: true, label: `켜지는 중이에요 — 과금 중${cost}` };
   return { on: false, busy: true, label: `RunPod 상태: ${rp.status}` };
 }
 

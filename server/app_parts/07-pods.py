@@ -307,7 +307,7 @@ def _boot_info(pod: dict, connected: bool, card: dict) -> dict | None:
         return {"failed": True}
     rp = card.get("runpod") or {}
     since = runpod_sessions._parse_runpod_dt(rp.get("last_started_at"))
-    if rp.get("status") != "RUNNING" or connected or not since:
+    if not runpod_api.is_on(rp.get("status")) or connected or not since:
         return None
     return {"since": since, "retry": note.endswith(":boot_retry")}
 
@@ -493,7 +493,7 @@ async def runpod_dashboard_api(request: Request):
     """워커 탭 "내 Runpod 대시보드"(NS-31, 관리자만) — 구동 중인 파드·네트워크 볼륨·남은 충전 금액을 따로따로 조회한다.
     하나가 실패해도 나머지는 보여 주고, 실패한 항목은 error만 채운다(빈 목록·0달러로 바꾸지 않는다).
     fetched_at은 셋 다 성공했을 때만 채운다. 조회만 한다 — 워커 자동 등록·세션 기록·파드 켜기는 하지 않는다.
-    "구동 중"은 desiredStatus == RUNNING(시작 중 포함) — REST v2로 옮길 때 실제 status로 바꾼다."""
+    "구동 중"은 runpod_api.is_on(status) — PROVISIONING·STARTING·RUNNING(과금 중)."""
     admin_only(request)
     (pods, pods_err), (vols, vols_err), (bal, bal_err) = await asyncio.gather(
         asyncio.to_thread(runpod_api.list_runpod_pods_verbose), asyncio.to_thread(runpod_api.list_network_volumes),
@@ -504,7 +504,7 @@ async def runpod_dashboard_api(request: Request):
             v["pods"] = None if pods is None else [p["name"] or p["id"] for p in pods if p.get("network_volume_id") == v["id"]]
     running = None if pods is None else [
         {k: p.get(k) for k in ("id", "name", "status", "image", "cost_per_hr", "last_started_at", "network_volume_id")}
-        for p in pods if p.get("status") == "RUNNING"]
+        for p in pods if runpod_api.is_on(p.get("status"))]
     part = lambda err, **kw: {**kw, "error": err, "fetched_at": None if err else now}
     return {"api_key": bool(runpod_api.RUNPOD_API_KEY),
             "pods": part(pods_err, items=running),
@@ -663,7 +663,7 @@ def _auto_power_off_check(now: datetime | None = None) -> list[str]:
         if not pod.get("auto_power_off") or not runpod_api.extract_pod_id(pod.get("url") or ""):
             continue
         info = runpod_api.get_runpod_info(pod["url"]) or {}
-        if info.get("status") != "RUNNING":
+        if not runpod_api.is_on(info.get("status")):
             continue
         with lock:
             mine = [j for j in jobs.values() if not j.get("deleted") and j.get("pod_id") == pod["id"]]
@@ -713,7 +713,7 @@ def _boot_watch_check(now: datetime | None = None) -> dict[str, str]:
         if not tier:
             continue
         info = runpod_api.get_runpod_info(pod["url"]) or {}
-        if info.get("status") != "RUNNING":
+        if not runpod_api.is_on(info.get("status")):
             continue
         started = runpod_sessions._parse_runpod_dt(info.get("last_started_at")) or pod.get("updated_at")   # 모르면 파드를 붙인 시각
         if not started:
