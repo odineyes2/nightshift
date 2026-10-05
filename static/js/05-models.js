@@ -478,11 +478,11 @@ document.getElementById('lora-tab-filter').addEventListener('input', renderModel
 //            중 배타적 — 둘 다 "첫 latent를 어디서 만드는지"를 정하는 서로 다른
 //            방식이라 동시에 쓸 수 없다).
 //   post   — base 뒤에 이어 붙이는 후처리, 0개 이상 동시에 고를 수 있다(체이닝
-//            가능 — 예: txt2img+hires_fix+usdu). {hires_fix, usdu} 불리언 두 개.
+//            가능 — 예: txt2img+hires_fix+face_detailer+usdu). {hires_fix, face_detailer, usdu} 불리언.
 //   preset — ControlNet/IPAdapter처럼 체크포인트마다 배선이 달라 이 서버가 자동
 //            조립하지 못하는, family별 완성된 워크플로우. base/post와 동시에
 //            쓸 수 없다(하나를 고르면 다른 그룹은 자동으로 비워짐).
-function freshWizardPost(){ return { hires_fix: false, usdu: false, hiresScale: 1.5, prompt_enhance: false }; }
+function freshWizardPost(){ return { hires_fix: false, face_detailer: false, usdu: false, hiresScale: 1.5, prompt_enhance: false }; }
 let wizard = {
   familyId: null, checkpoint: null,
   base: null, post: freshWizardPost(), preset: null,
@@ -523,6 +523,12 @@ function wizardStale(){
 
 function wizardBaseMeta(baseId){
   return ((workflowTypesCache || {}).base || []).find(t => t.id === baseId);
+}
+// 후처리 id가 지금 고른 base에 붙는지 — 화면에 안 보이는 후처리(예: face_detailer 유형에서의 usdu)가
+// 켜진 채 남아 있어도 spec에 넣지 않게 한다.
+function wizardPostApplies(postId){
+  const t = ((workflowTypesCache || {}).post || []).find(p => p.id === postId);
+  return !!(wizard.post[postId] && t && (!t.applies_to_base || t.applies_to_base.includes(wizard.base)));
 }
 function wizardPresetMeta(presetId){
   return ((workflowTypesCache || {}).preset || []).find(t => t.id === presetId);
