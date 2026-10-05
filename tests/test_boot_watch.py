@@ -11,6 +11,7 @@ for k in ("DATA", "OUTPUT", "ASSETS"):
 os.environ.setdefault("NIGHTSHIFT_ADMIN_USER", "admin")
 os.environ.setdefault("NIGHTSHIFT_ADMIN_PASSWORD", "Test-Passw0rd-xyz!")
 os.environ.pop("NIGHTSHIFT_PUBLIC_URL", None)
+os.environ["RUNPOD_BOOT_TIMEOUT_MIN"] = "15"   # 아래 시각들은 15분 기준이다(기본값은 30분, NS-34)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
 os.chdir(Path(__file__).resolve().parent.parent / "server")
 
