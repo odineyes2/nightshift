@@ -253,6 +253,8 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
         else:
             require_installed(str(spec.get("checkpoint") or "").strip(), checkpoint_kind, "체크포인트")
         require_installed(str(spec.get("vae") or "").strip(), "vae", "VAE")
+        if architecture == "unet":
+            require_installed(str(spec.get("clip") or "").strip(), "text_encoders", "텍스트 인코더")
         for lora in (spec.get("loras") or []):
             if isinstance(lora, dict):
                 require_installed(str(lora.get("name") or "").strip(), "loras", "LoRA")
@@ -266,6 +268,8 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
     try:
         if architecture == "sdxl":
             workflow = build_workflow(spec)
+        elif architecture == "unet":
+            workflow = workflow_builder_unet.build_workflow(spec)
         elif architecture == "krea2":
             workflow = workflow_builder_krea2.build_workflow(spec)
         elif architecture == "minimax_h3_i2v":

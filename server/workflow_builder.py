@@ -109,18 +109,27 @@ def _float(value, name, default=None, minimum=None, maximum=None):
     return result
 
 
-def build_workflow(spec: dict) -> dict:
-    """스펙(dict)으로 ComfyUI API 형식 워크플로우(dict)를 만든다."""
+def _checkpoint_loader(spec: dict, add) -> tuple[list, list, list]:
+    """CheckpointLoaderSimple(+선택 VAELoader)을 넣고 (model, clip, vae) 링크를 돌려준다."""
+    checkpoint = str(spec.get("checkpoint") or "").strip()
+    if not checkpoint:
+        raise WorkflowBuildError("체크포인트를 골라야 해요.")
+    ckpt_id = add("CheckpointLoaderSimple", {"ckpt_name": checkpoint}, "체크포인트 로드")
+    vae = str(spec.get("vae") or "").strip()
+    vae_src = [add("VAELoader", {"vae_name": vae}, "VAE 로드"), 0] if vae else [ckpt_id, CHECKPOINT_VAE]
+    return [ckpt_id, CHECKPOINT_MODEL], [ckpt_id, CHECKPOINT_CLIP], vae_src
+
+
+def build_workflow(spec: dict, loader=_checkpoint_loader) -> dict:
+    """스펙(dict)으로 ComfyUI API 형식 워크플로우(dict)를 만든다. loader는 모델 로더 노드를
+    넣고 (model, clip, vae) 링크를 돌려준다 — 그 뒤 조립은 로더 형태와 상관없이 같다
+    (UNet+CLIP+VAE형은 workflow_builder_unet.py가 자기 로더를 넘긴다)."""
     if not isinstance(spec, dict):
         raise WorkflowBuildError("스펙이 JSON 객체가 아니에요.")
 
     base = str(spec.get("base") or "txt2img").strip()
     if base not in ("txt2img", "img2img"):
         raise WorkflowBuildError(f"base 값 '{base}'은(는) txt2img/img2img 중 하나여야 해요.")
-
-    checkpoint = str(spec.get("checkpoint") or "").strip()
-    if not checkpoint:
-        raise WorkflowBuildError("체크포인트를 골라야 해요.")
 
     positive = str(spec.get("positive") or "").strip()
     if not positive:
@@ -132,7 +141,6 @@ def build_workflow(spec: dict) -> dict:
     cfg = _float(spec.get("cfg"), "CFG", default=6.0, minimum=0)
     sampler_name = str(spec.get("sampler_name") or "dpmpp_2m").strip()
     scheduler = str(spec.get("scheduler") or "karras").strip()
-    vae = str(spec.get("vae") or "").strip()
     filename_prefix = str(spec.get("filename_prefix") or "nightshift")
 
     workflow: dict = {}
@@ -144,11 +152,10 @@ def build_workflow(spec: dict) -> dict:
         workflow[node_id] = {"inputs": inputs, "class_type": class_type, "_meta": {"title": title}}
         return node_id
 
-    ckpt_id = add("CheckpointLoaderSimple", {"ckpt_name": checkpoint}, "체크포인트 로드")
+    # VAE는 인코드/디코드/USDU 내부 어디서든 필요해서 로더와 함께 미리 만든다.
+    model_src, clip_src, vae_src = loader(spec, add)
 
     # LoRA 체인 — 각 로더의 model/clip 출력을 다음 로더로 이어 붙인다.
-    model_src = [ckpt_id, CHECKPOINT_MODEL]
-    clip_src = [ckpt_id, CHECKPOINT_CLIP]
     loras = spec.get("loras") or []
     if not isinstance(loras, list):
         raise WorkflowBuildError("loras는 목록이어야 해요.")
@@ -175,12 +182,6 @@ def build_workflow(spec: dict) -> dict:
     # 프롬프트 — 긍정 노드 제목은 반드시 "main_prompt"를 포함해야 한다(위 모듈 설명 참고).
     positive_id = add("CLIPTextEncode", {"text": positive, "clip": clip_src}, "main_prompt")
     negative_id = add("CLIPTextEncode", {"text": negative, "clip": clip_src}, "negative_prompt")
-
-    # VAE는 인코드/디코드/USDU 내부 어디서든 필요해서 분기 전에 미리 만든다.
-    if vae:
-        vae_src = [add("VAELoader", {"vae_name": vae}, "VAE 로드"), 0]
-    else:
-        vae_src = [ckpt_id, CHECKPOINT_VAE]
 
     if base == "img2img":
         # 실제 파일명은 templates/input_image_*.py가 실행 시점에 덮어쓴다(위
