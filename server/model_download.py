@@ -18,6 +18,7 @@ import hmac
 import json
 import re
 import secrets
+import shlex
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -74,13 +75,16 @@ def bootstrap_token(pod_id: str) -> str:
 # 깔고 원래 시작 스크립트로 넘긴다. /opt/comfyui-baked에 깔면 첫 시작 때 /workspace/runpod-slim/ComfyUI로 통째로 복사되고,
 # 이미 복사된 뒤(다시 켤 때)면 그쪽에도 깐다. 무엇이 실패해도 파드는 그대로 시작한다(다운로더 없이).
 # 받기·설치에 시간 상한을 둔다 — nightshift 주소가 연결만 받고 응답을 안 주면 /start.sh까지 못 가서 ComfyUI가 영영 안 뜬다(NS-18).
+# 설치에는 등록된 노드팩의 clone·pip 설치가 들어가 오래 걸릴 수 있다(NS-34). 폴더 두 곳 × 이 상한 + 받기 60초가
+# 부팅 감시(RUNPOD_BOOT_TIMEOUT_MIN)보다 짧아야 감시가 설치 중인 파드를 다시 만들지 않는다.
+BOOTSTRAP_TIMEOUT_SEC = 600
 BOOTSTRAP_ENTRYPOINT = [
     "bash", "-c",
     'if [ -n "$NIGHTSHIFT_BOOTSTRAP" ]; then'
     ' curl -fsSL --connect-timeout 10 --max-time 60 -A "Mozilla/5.0 nightshift-bootstrap" "$NIGHTSHIFT_BOOTSTRAP"'
     ' -o /tmp/nightshift_bootstrap.sh'
     ' && for d in /opt/comfyui-baked /workspace/runpod-slim/ComfyUI; do'
-    ' if [ -d "$d/custom_nodes" ]; then COMFY_DIR="$d" timeout 120 bash /tmp/nightshift_bootstrap.sh; fi; done'
+    f' if [ -d "$d/custom_nodes" ]; then COMFY_DIR="$d" timeout {BOOTSTRAP_TIMEOUT_SEC} bash /tmp/nightshift_bootstrap.sh; fi; done'
     ' || echo "[nightshift] 다운로더 설치 실패 — 그대로 시작해요";'
     ' fi; exec /start.sh',
 ]
@@ -111,8 +115,38 @@ NIGHTSHIFT_B64
 printf '%s' '{pod_token(pod_id)}' > "$DEST/token"
 chmod 600 "$DEST/token"
 echo "설치 완료: $DEST"
-echo "ComfyUI를 다시 시작해야 적용돼요."
+{_nodepack_script()}echo "ComfyUI를 다시 시작해야 적용돼요."
 """
+
+
+def _nodepack_script() -> str:
+    """등록부의 노드팩(custom_nodes 종류)을 설치하는 셸 조각(NS-34) — 폴더가 있으면 clone을, 설치 표시 파일이 있으면
+    pip를 건너뛴다. 노드팩 하나가 실패해도 나머지와 ComfyUI 시작은 막지 않는다. 등록부가 이미 주소·폴더 형식을
+    검사하지만 셸에 들어가는 값이라 여기서도 다시 거르고 shlex로 따옴표 처리한다."""
+    import model_registry
+    packs = [(e["filename"], e["download_url"]) for e in model_registry.list_entries()
+             if e["kind"] == model_registry.NODEPACK_KIND
+             and model_registry.NODEPACK_DIR_RE.match(e["filename"])
+             and model_registry.GITHUB_REPO_RE.match(e["download_url"] or "")]
+    if not packs:
+        return ""
+    calls = "".join(f"nightshift_nodepack {shlex.quote(name)} {shlex.quote(url)}\n" for name, url in packs)
+    # 이미지의 ComfyUI venv(.venv-cu128 등, --system-site-packages)가 있으면 그 python, 없으면 시스템 python3.
+    # clone은 임시 폴더에 받은 뒤 옮긴다 — 시간 상한에 걸려 반쯤 받은 폴더를 "이미 있음"으로 건너뛰지 않게.
+    return f"""PY="$(ls -d "$COMFY_DIR"/.venv*/bin/python 2>/dev/null | head -n 1)"
+[ -n "$PY" ] || PY=python3
+nightshift_nodepack() {{
+  local dir="$COMFY_DIR/custom_nodes/$1"
+  if [ ! -d "$dir" ]; then
+    rm -rf "$dir.nstmp"
+    git clone --depth 1 "$2" "$dir.nstmp" && mv "$dir.nstmp" "$dir" || {{ echo "[nightshift] 노드팩 받기 실패: $1"; return 0; }}
+  fi
+  if [ -f "$dir/requirements.txt" ] && [ ! -f "$dir/.nightshift_pip_ok" ]; then
+    "$PY" -m pip install -r "$dir/requirements.txt" && touch "$dir/.nightshift_pip_ok" || echo "[nightshift] 노드팩 패키지 설치 실패: $1"
+  fi
+  return 0
+}}
+{calls}"""
 
 
 # ---- 주소 풀기 ------------------------------------------------------------------

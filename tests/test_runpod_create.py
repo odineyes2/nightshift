@@ -16,7 +16,7 @@ assert seen[0]["gpu"]["allowedCudaVersions"] == ["13.0"], seen[0]
 assert seen[0]["args"] == {"entrypoint": model_download.BOOTSTRAP_ENTRYPOINT} and "mounts" not in seen[0], seen[0]
 
 script = model_download.BOOTSTRAP_ENTRYPOINT[2]
-assert "--max-time 60" in script and "timeout 120 bash" in script and script.endswith("exec /start.sh")
+assert "--max-time 60" in script and f"timeout {model_download.BOOTSTRAP_TIMEOUT_SEC} bash" in script and script.endswith("exec /start.sh")
 if shutil.which("bash"):
     r = subprocess.run(["bash", "-n", "-c", script], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
