@@ -480,7 +480,7 @@ document.getElementById('lora-tab-filter').addEventListener('input', renderModel
 //   preset — ControlNet/IPAdapter처럼 체크포인트마다 배선이 달라 이 서버가 자동
 //            조립하지 못하는, family별 완성된 워크플로우. base/post와 동시에
 //            쓸 수 없다(하나를 고르면 다른 그룹은 자동으로 비워짐).
-function freshWizardPost(){ return { hires_fix: false, usdu: false, hiresScale: 1.5 }; }
+function freshWizardPost(){ return { hires_fix: false, usdu: false, hiresScale: 1.5, prompt_enhance: false }; }
 let wizard = {
   familyId: null, checkpoint: null,
   base: null, post: freshWizardPost(), preset: null,
@@ -504,6 +504,12 @@ const DANBOORU_TAG_FAMILIES = ['Illustrious', 'Pony', 'NoobAI'];
 function currentFamilySupportsDanbooru(){
   const fam = wizard.familyId ? baseModelFamilies[wizard.familyId] : null;
   return !!(fam && DANBOORU_TAG_FAMILIES.includes(fam.label));
+}
+
+// 전처리(Prompt Enhance)의 모드는 고른 family의 prompt_style(danbooru/natural)로 정한다 — 모르면 자연어.
+function wizardEnhanceMode(){
+  const fam = wizard.familyId ? baseModelFamilies[wizard.familyId] : null;
+  return (fam && fam.prompt_style) === 'danbooru' ? 'danbooru' : 'natural';
 }
 
 function wizardComplete(){
@@ -540,6 +546,7 @@ function wizardTypeSummary(){
   const parts = [(wizardBaseMeta(wizard.base) || {}).label || wizard.base];
   if(wizard.post.hires_fix) parts.push(`Hires Fix(${wizard.post.hiresScale}x)`);
   if(wizard.post.usdu) parts.push('USDU');
+  if(wizard.post.prompt_enhance) parts.push('Prompt Enhance');
   return parts.join(' + ');
 }
 
