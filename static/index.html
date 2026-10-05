@@ -471,6 +471,27 @@
 
         <div class="options-fields" id="options-fields"></div>
 
+        <!-- Face Detailer 수치(04-newjob-tools.js renderFaceDetailerPanel) — 붙은 워크플로우에 FaceDetailer가 있을 때만 보인다.
+             수정: 이 작업의 워크플로우만 고친다. 셋팅: 베이스 모델별 기본값을 저장한다(관리자). -->
+        <div class="field fd-panel" id="fd-panel" hidden>
+          <div class="field-label-row">
+            <label class="field-label">Face Detailer 수치</label>
+            <div class="fd-tabs">
+              <button type="button" class="modal-btn-secondary active" data-fd-tab="edit">수정</button>
+              <button type="button" class="modal-btn-secondary" data-fd-tab="setting">셋팅</button>
+            </div>
+          </div>
+          <div data-fd-pane="edit">
+            <div class="fd-grid" id="fd-edit-grid"></div>
+            <div class="email-hint" id="fd-edit-hint">값을 바꾸면 이 작업의 워크플로우에만 반영돼요.</div>
+          </div>
+          <div data-fd-pane="setting" hidden>
+            <div class="fd-grid" id="fd-setting-grid"></div>
+            <div class="email-hint" id="fd-setting-hint"></div>
+            <button type="button" class="modal-btn-secondary" id="fd-setting-save">이 베이스 모델 기본값으로 저장</button>
+          </div>
+        </div>
+
         <div class="field" id="video-workflow-field" style="display:none;">
           <div class="field-label-row">
             <label class="field-label">영상 생성 워크플로우 (.json) <span class="opt">— 선택</span></label>

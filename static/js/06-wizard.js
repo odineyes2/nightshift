@@ -539,8 +539,12 @@ async function wizardApply(){
       if(architecture === 'sdxl' || architecture === 'unet'){
         if(architecture === 'unet'){ spec.clip = unetImage.clip; spec.vae = unetImage.vae; }
         if(wizardPostApplies('hires_fix')) spec.hires_fix = { enabled: true, scale_by: wizard.post.hiresScale };
-        // 얼굴 프롬프트·시드는 실행 시점에 템플릿이 넣는다(face_prompt/face_negative_prompt 옵션) — 여기선 켜기만 한다.
-        if(wizardPostApplies('face_detailer')) spec.face_detailer = { enabled: true };
+        // 얼굴 프롬프트·시드는 실행 시점에 템플릿이 넣는다(face_prompt/face_negative_prompt 옵션).
+        // 수치는 이 베이스 모델에 저장된 기본값("셋팅" 탭)을 쓴다 — 못 불러오면 빌더 기본값.
+        if(wizardPostApplies('face_detailer') || wizard.base === 'face_detailer'){
+          spec.face_detailer = await faceDetailerSpec(wizard.familyId, architecture);
+          if(wizard.base !== 'face_detailer') spec.face_detailer.enabled = true;
+        }
         if(wizardPostApplies('usdu')) spec.usdu = { enabled: true, upscale_by: 2.0 };
       }else if(architecture === 'krea2'){
         spec.refine_prompt = wizard.refinePrompt;
@@ -714,6 +718,15 @@ document.getElementById('new-job-tab-select').addEventListener('click', () => {
 document.getElementById('new-job-tab-details').addEventListener('click', goToNewJobDetails);
 document.getElementById('new-job-next-btn').addEventListener('click', goToNewJobDetails);
 
+// 베이스 모델별 Face Detailer 기본값(GET /api/face-detailer-defaults)으로 spec.face_detailer를 만든다.
+async function faceDetailerSpec(familyId, architecture){
+  if(!familyId) return {};
+  try{
+    const res = await fetch(`/api/face-detailer-defaults/${encodeURIComponent(familyId)}?architecture=${encodeURIComponent(architecture)}`);
+    return res.ok ? { ...(await res.json()).values } : {};
+  }catch(e){ return {}; }
+}
+
 // 워크플로우(API 형식)에 FaceDetailer 노드가 있는지 — 있을 때만 얼굴 프롬프트 칸을 보인다.
 function workflowHasFaceDetailer(workflow){
   if(!workflow || typeof workflow !== 'object') return false;
@@ -730,6 +743,7 @@ async function checkWorkflowCompatibility(file){
   const token = ++workflowCheckToken;
   updateNewJobTabs();
   setFaceDetailerFieldsVisible(false);
+  renderFaceDetailerPanel(null);
   if(!file){
     el.hidden = true;
     el.textContent = '';
@@ -745,7 +759,10 @@ async function checkWorkflowCompatibility(file){
   }
   try{
     const parsed = JSON.parse(text);
-    if(token === workflowCheckToken) setFaceDetailerFieldsVisible(workflowHasFaceDetailer(parsed));
+    if(token === workflowCheckToken){
+      setFaceDetailerFieldsVisible(workflowHasFaceDetailer(parsed));
+      renderFaceDetailerPanel(parsed);
+    }
   }catch(e){
     if(token === workflowCheckToken) renderWorkflowCheck('warn', 'JSON 형식이 아니에요 — ComfyUI에서 "API 형식으로 저장"한 파일인지 확인해 주세요.');
     return;

@@ -23,7 +23,7 @@ def main():
     m = re.search(r"function workflowHasFaceDetailer[\s\S]*?\n}\n", src)
     assert m, "workflowHasFaceDetailer가 없다"
     assert "setFaceDetailerFieldsVisible(workflowHasFaceDetailer(parsed))" in src
-    assert "spec.face_detailer = { enabled: true }" in src
+    assert "spec.face_detailer.enabled = true" in src
     assert "face_detailer: false" in MODELS.read_text(encoding="utf-8")
 
     css = CSS.read_text(encoding="utf-8")

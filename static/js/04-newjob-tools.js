@@ -615,3 +615,82 @@ async function fetchInputImages(force){
   return inputImagesCache;
 }
 
+// Face Detailer 수치 패널 — "수정" 탭은 붙은 워크플로우의 FaceDetailer 노드를 이 작업만 고치고
+// (POST /api/face-detailer/apply), "셋팅" 탭은 베이스 모델별 기본값을 저장한다(관리자, PUT /api/face-detailer-defaults).
+const FD_FIELDS = ['steps', 'cfg', 'sampler_name', 'scheduler', 'denoise', 'guide_size', 'max_size', 'feather',
+  'bbox_threshold', 'bbox_dilation', 'bbox_crop_factor', 'drop_size', 'cycle', 'noise_mask_feather'];
+const fdEditGrid = document.getElementById('fd-edit-grid');
+const fdSettingGrid = document.getElementById('fd-setting-grid');
+for(const grid of [fdEditGrid, fdSettingGrid]){
+  grid.innerHTML = FD_FIELDS.map(k => `<label>${k}<input class="option-input" data-fd="${k}" autocomplete="off" spellcheck="false"
+    ${k === 'sampler_name' || k === 'scheduler' ? 'type="text"' : 'type="number" step="any"'}></label>`).join('');
+}
+function fdRead(grid){
+  const values = {};
+  grid.querySelectorAll('[data-fd]').forEach(i => { if(i.value.trim() !== '') values[i.dataset.fd] = i.value.trim(); });
+  return values;
+}
+function fdFill(grid, values){
+  grid.querySelectorAll('[data-fd]').forEach(i => { i.value = values[i.dataset.fd] ?? ''; });
+}
+let fdArchitecture = 'sdxl';
+
+// checkWorkflowCompatibility가 워크플로우를 읽을 때마다 부른다 — 첫 FaceDetailer 노드 값을 수정 탭에 채운다.
+function renderFaceDetailerPanel(workflow){
+  const nodes = workflow && typeof workflow === 'object' ? Object.values(workflow) : [];
+  const fd = nodes.find(n => n && n.class_type === 'FaceDetailer');
+  document.getElementById('fd-panel').hidden = !fd;
+  if(!fd) return;
+  fdArchitecture = nodes.some(n => n && n.class_type === 'UNETLoader') ? 'unet' : 'sdxl';
+  fdFill(fdEditGrid, fd.inputs || {});
+}
+
+async function fdPost(url, body, method = 'POST'){
+  const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'nightshift' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok) throw new Error(data.detail || `요청이 실패했어요 (${res.status}).`);
+  return data;
+}
+
+fdEditGrid.addEventListener('change', async () => {
+  const hint = document.getElementById('fd-edit-hint');
+  const file = selectedFiles.workflow;
+  if(!file) return;
+  try{
+    const data = await fdPost('/api/face-detailer/apply', { workflow: JSON.parse(await file.text()), values: fdRead(fdEditGrid) });
+    setWorkflowFile(new File([JSON.stringify(data.workflow)], file.name, { type: 'application/json' }));
+    hint.textContent = '이 작업의 워크플로우에 반영했어요.';
+  }catch(e){ hint.textContent = e.message; }
+});
+
+async function loadFaceDetailerSetting(){
+  const hint = document.getElementById('fd-setting-hint');
+  const save = document.getElementById('fd-setting-save');
+  const family = wizard.familyId;
+  save.hidden = !family || !isAdminUser();
+  fdFill(fdSettingGrid, {});
+  if(!family){ hint.textContent = '마법사에서 베이스 모델을 고르면 그 모델의 기본값을 볼 수 있어요.'; return; }
+  try{
+    const res = await fetch(`/api/face-detailer-defaults/${encodeURIComponent(family)}?architecture=${fdArchitecture}`);
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || '기본값을 불러오지 못했어요.');
+    fdFill(fdSettingGrid, data.values);
+    hint.textContent = `${family}의 기본값이에요. 마법사로 새로 만드는 워크플로우에 쓰여요.` + (isAdminUser() ? '' : ' 저장은 관리자만 할 수 있어요.');
+  }catch(e){ hint.textContent = e.message; }
+}
+
+document.querySelectorAll('[data-fd-tab]').forEach(btn => btn.addEventListener('click', () => {
+  const tab = btn.dataset.fdTab;
+  document.querySelectorAll('[data-fd-tab]').forEach(b => b.classList.toggle('active', b === btn));
+  document.querySelectorAll('[data-fd-pane]').forEach(p => { p.hidden = p.dataset.fdPane !== tab; });
+  if(tab === 'setting') loadFaceDetailerSetting();
+}));
+
+document.getElementById('fd-setting-save').addEventListener('click', async () => {
+  const hint = document.getElementById('fd-setting-hint');
+  try{
+    await fdPost(`/api/face-detailer-defaults/${encodeURIComponent(wizard.familyId)}`, { values: fdRead(fdSettingGrid) }, 'PUT');
+    hint.textContent = `${wizard.familyId}의 기본값으로 저장했어요.`;
+  }catch(e){ hint.textContent = e.message; }
+});
+

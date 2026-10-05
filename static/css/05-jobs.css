@@ -326,3 +326,9 @@
 
   /* 얼굴 프롬프트 칸은 붙은 워크플로우에 FaceDetailer가 있을 때만 보인다(06-wizard.js setFaceDetailerFieldsVisible). */
   #options-fields:not(.has-face-detailer) .field:has([data-name="face_prompt"], [data-name="face_negative_prompt"]){ display:none; }
+  /* Face Detailer 수치 패널(수정·셋팅 탭). */
+  .fd-tabs{ display:flex; gap:6px; }
+  .fd-tabs .active{ border-color:var(--text); color:var(--text); }
+  .fd-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:8px 12px; margin:8px 0; }
+  .fd-grid label{ display:grid; gap:4px; font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
+  .fd-grid .option-input{ max-width:none; }
