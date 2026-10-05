@@ -323,7 +323,9 @@ function buildSelectControl(opt){
 function buildPromptEnhanceControl(opt){
   const wrap = document.createElement('div');
   wrap.className = 'prompt-enhance';
-  let mode = 'natural';
+  // 모드(자연어/Danbooru)는 마법사에서 고른 모델 계열이 정한다.
+  const mode = wizardEnhanceMode();
+  let applied = false; // "적용"을 눌러야 개선 결과가 제출 프롬프트가 된다
 
   const rawCol = document.createElement('div');
   rawCol.className = 'prompt-enhance-col';
@@ -476,30 +478,12 @@ function buildPromptEnhanceControl(opt){
   const details = document.createElement('details');
   details.className = 'prompt-enhance-details';
   const summary = document.createElement('summary');
-  summary.textContent = 'Prompt Enhance — AI로 다시 써보기 (선택)';
+  details.open = true;
+  summary.textContent = 'Prompt Enhance — 결과를 확인하고 적용해요';
   details.appendChild(summary);
 
   const middle = document.createElement('div');
   middle.className = 'prompt-enhance-middle';
-
-  const modeToggle = document.createElement('div');
-  modeToggle.className = 'enhance-mode';
-  const modeBtns = [
-    { value: 'natural', label: '자연어' },
-    { value: 'danbooru', label: 'Danbooru' },
-  ].map(({ value, label }) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'enhance-mode-btn' + (value === mode ? ' active' : '');
-    btn.textContent = label;
-    btn.dataset.mode = value;
-    btn.addEventListener('click', () => {
-      mode = value;
-      modeToggle.querySelectorAll('.enhance-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-    });
-    modeToggle.appendChild(btn);
-    return btn;
-  });
 
   const enhanceBtn = document.createElement('button');
   enhanceBtn.type = 'button';
@@ -508,13 +492,13 @@ function buildPromptEnhanceControl(opt){
   enhanceSpinner.className = 'enhance-spinner';
   enhanceSpinner.hidden = true;
   const enhanceLabel = document.createElement('span');
-  enhanceLabel.innerHTML = ico('sparkles') + ' Enhance';
+  const idleLabel = ico('sparkles') + ' 미리보기 (' + (mode === 'danbooru' ? 'Danbooru' : '자연어') + ')';
+  enhanceLabel.innerHTML = idleLabel;
   enhanceBtn.appendChild(enhanceSpinner);
   enhanceBtn.appendChild(enhanceLabel);
 
   const status = document.createElement('div');
   status.className = 'enhance-status';
-  middle.appendChild(modeToggle);
   middle.appendChild(enhanceBtn);
   middle.appendChild(status);
 
@@ -528,7 +512,20 @@ function buildPromptEnhanceControl(opt){
   const resultTextarea = document.createElement('textarea');
   resultTextarea.className = 'enhance-textarea enhance-result';
   resultTextarea.rows = 4;
-  resultTextarea.placeholder = 'Prompt Enhance를 누르면 여기에 개선된 프롬프트가 표시돼요 (직접 수정 가능)';
+  resultTextarea.placeholder = '미리보기를 누르면 여기에 개선된 프롬프트가 표시돼요 (직접 수정 가능)';
+  const decide = document.createElement('div');
+  decide.className = 'prompt-enhance-quick';
+  decide.hidden = true;
+  const applyBtn = document.createElement('button');
+  applyBtn.type = 'button';
+  applyBtn.className = 'load-btn';
+  applyBtn.textContent = '적용';
+  const keepBtn = document.createElement('button');
+  keepBtn.type = 'button';
+  keepBtn.className = 'load-btn';
+  keepBtn.textContent = '원문 유지';
+  decide.appendChild(applyBtn);
+  decide.appendChild(keepBtn);
   const resultActions = document.createElement('div');
   resultActions.className = 'prompt-enhance-actions';
   resultActions.appendChild(createCopyButton(() => resultTextarea.value.trim()));
@@ -544,11 +541,13 @@ function buildPromptEnhanceControl(opt){
   hidden.dataset.name = opt.name;
 
   function sync(){
-    const enhancedVal = resultTextarea.value.trim();
-    hidden.value = enhancedVal ? resultTextarea.value : rawTextarea.value;
+    hidden.value = (applied && resultTextarea.value.trim()) ? resultTextarea.value : rawTextarea.value;
   }
-  rawTextarea.addEventListener('input', sync);
+  function say(text, cls){ status.textContent = text; status.className = 'enhance-status' + (cls ? ' ' + cls : ''); }
+  rawTextarea.addEventListener('input', () => { applied = false; sync(); });
   resultTextarea.addEventListener('input', sync);
+  applyBtn.addEventListener('click', () => { applied = true; sync(); say('적용했어요 — 제출할 때 이 프롬프트를 써요', 'success'); });
+  keepBtn.addEventListener('click', () => { applied = false; resultTextarea.value = ''; decide.hidden = true; sync(); say('원문을 그대로 써요'); });
   sync();
 
   enhanceBtn.addEventListener('click', async () => {
@@ -561,7 +560,6 @@ function buildPromptEnhanceControl(opt){
       return;
     }
     enhanceBtn.disabled = true;
-    modeBtns.forEach(b => { b.disabled = true; });
     enhanceSpinner.hidden = false;
     enhanceLabel.textContent = '개선하는 중…';
     status.textContent = 'ComfyUI로 요청 중…';
@@ -578,26 +576,27 @@ function buildPromptEnhanceControl(opt){
         return;
       }
       resultTextarea.value = data.enhanced || '';
+      applied = false;
+      decide.hidden = false;
       sync();
-      status.textContent = '완료';
-      status.classList.add('success');
+      say('결과를 확인하고 적용할지 골라 주세요');
     }catch(e){
       status.textContent = '프롬프트 개선에 실패했어요.';
       status.classList.add('error');
     }finally{
       enhanceBtn.disabled = false;
-      modeBtns.forEach(b => { b.disabled = false; });
       enhanceSpinner.hidden = true;
-      enhanceLabel.innerHTML = ico('sparkles') + ' Enhance';
+      enhanceLabel.innerHTML = idleLabel;
     }
   });
 
   details.appendChild(middle);
   details.appendChild(resultCol);
+  details.appendChild(decide);
 
   wrap.appendChild(rawCol);
   wrap.appendChild(quickRow);
-  wrap.appendChild(details);
+  if(wizard.post.prompt_enhance) wrap.appendChild(details); // 마법사 전처리에서 켠 경우만
   wrap.appendChild(hidden);
   return wrap;
 }

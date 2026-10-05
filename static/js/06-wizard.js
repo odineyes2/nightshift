@@ -247,6 +247,15 @@ function renderWizardTypeModal(){
       </div>`;
   }).join('');
 
+  const pres = catalog.pre || [];
+  const preSection = pres.length === 0 ? '' : `
+    <div class="wizard-pick-section-title">전처리 <span class="wizard-pick-row-hint">— 프롬프트를 생성 전에 다듬어요. 모드(자연어/Danbooru)는 고른 모델 계열로 자동 정해져요</span></div>
+    <div class="wizard-pick-list">${pres.map(t => `
+      <div class="wizard-pick-row${wizard.post[t.id] ? ' selected' : ''}" data-group="pre" data-type-id="${escapeHtml(t.id)}">
+        <div class="wizard-pick-row-label">${escapeHtml(t.label)}</div>
+        <span class="wizard-pick-row-hint">${wizardEnhanceMode() === 'danbooru' ? 'Danbooru 태그' : '자연어'}</span>
+      </div>`).join('')}</div>`;
+
   const presetSection = presets.length === 0 ? '' : `
     <div class="wizard-pick-section-title">ControlNet / IPAdapter <span class="wizard-pick-row-hint">— 베이스/후처리와 동시에 쓸 수 없어요(family별로 미리 만들어둔 워크플로우를 그대로 씀)</span></div>
     <div class="wizard-pick-list">${presets.map(t => `
@@ -263,6 +272,7 @@ function renderWizardTypeModal(){
     <div class="wizard-pick-list">${baseRows}</div>
     <div class="wizard-pick-section-title">후처리 <span class="wizard-pick-row-hint">— 여러 개 함께 켤 수 있어요(베이스를 먼저 고르세요)</span></div>
     <div class="wizard-pick-list">${postRows}</div>
+    ${preSection}
     ${presetSection}
   `;
 }
@@ -303,6 +313,8 @@ document.getElementById('wizard-type-modal-body').addEventListener('click', (e) 
   }else if(group === 'post'){
     if(!wizard.base) return; // 베이스가 없으면 후처리도 의미 없음
     wizard.post[typeId] = !wizard.post[typeId];
+  }else if(group === 'pre'){
+    wizard.post[typeId] = !wizard.post[typeId];
   }else if(group === 'preset'){
     if(wizard.preset !== typeId){
       wizard.loras = [];
@@ -310,7 +322,9 @@ document.getElementById('wizard-type-modal-body').addEventListener('click', (e) 
     }
     wizard.preset = typeId;
     wizard.base = null; // 프리셋을 고르면 베이스/후처리(배타적 그룹)는 해제
+    const keepEnhance = wizard.post.prompt_enhance; // 전처리는 프리셋과도 함께 쓴다
     wizard.post = freshWizardPost();
+    wizard.post.prompt_enhance = keepEnhance;
   }
   wizardUpdateStepButtons();
   renderWizardTypeModal();
