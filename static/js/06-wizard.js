@@ -184,7 +184,8 @@ function renderWizardTypeModal(){
     // 파일 이름이나 등록부 태그로 계열을 알 수 없으면 막지 않고 전부 보여 준다(아래 안내 문구).
     if(t.checkpoint_match && !variant.unknown && !variant.has(t.checkpoint_match)) return false;
     if(t.family_id) return true;
-    return !currentFamily || currentFamily.kind !== 'diffusion_models';
+    // 단, 서버가 unet_image(텍스트 인코더·VAE)를 붙여 준 family(예: Anima)는 범용 UNet 빌더로 돈다.
+    return !currentFamily || currentFamily.kind !== 'diffusion_models' || !!currentFamily.unet_image;
   });
   const posts = (catalog.post || []).filter(t => !t.applies_to_base || t.applies_to_base.includes(wizard.base));
   // preset 유형(ControlNet/IPAdapter)은 이 family용 프리셋이 없으면 골라봤자 실행할
@@ -507,7 +508,9 @@ async function wizardApply(){
   const isPreset = wizardIsPreset();
   // architecture가 없으면(txt2img/img2img) 기본 SDXL 빌더(workflow_builder.py)로 간다 —
   // krea2_t2i/minimax_h3_i2v/minimax_h3_r2v는 각각 전용 빌더로 분기한다(app.py 참고).
-  const architecture = (wizardBaseMeta(wizard.base) || {}).architecture || 'sdxl';
+  // 범용 txt2img/img2img도 UNet+CLIP+VAE family(unet_image)면 workflow_builder_unet.py로 보낸다.
+  const unetImage = (baseModelFamilies[wizard.familyId] || {}).unet_image;
+  const architecture = (wizardBaseMeta(wizard.base) || {}).architecture || (unetImage ? 'unet' : 'sdxl');
   let workflow;
   try{
     if(isPreset){
@@ -526,7 +529,8 @@ async function wizardApply(){
         positive: '(prompt)',
         loras: wizard.loras.map(l => ({ name: l.name, strength_model: l.strength, strength_clip: l.strength })),
       };
-      if(architecture === 'sdxl'){
+      if(architecture === 'sdxl' || architecture === 'unet'){
+        if(architecture === 'unet'){ spec.clip = unetImage.clip; spec.vae = unetImage.vae; }
         if(wizard.post.hires_fix) spec.hires_fix = { enabled: true, scale_by: wizard.post.hiresScale };
         if(wizard.post.usdu) spec.usdu = { enabled: true, upscale_by: 2.0 };
       }else if(architecture === 'krea2'){
@@ -599,7 +603,7 @@ async function wizardApply(){
   setQualityPromptField((baseModelFamilies[wizard.familyId] || {}).label);
   lastWizardModels = { checkpoint: wizard.checkpoint, loras: wizard.loras.map(l => l.name) };
 
-  const typeSlug = isPreset ? wizard.preset : [wizard.base, architecture === 'sdxl' && wizard.post.hires_fix && 'hires', architecture === 'sdxl' && wizard.post.usdu && 'usdu'].filter(Boolean).join('_');
+  const typeSlug = isPreset ? wizard.preset : [wizard.base, architecture === 'unet' && 'unet', ['sdxl', 'unet'].includes(architecture) && wizard.post.hires_fix && 'hires', ['sdxl', 'unet'].includes(architecture) && wizard.post.usdu && 'usdu'].filter(Boolean).join('_');
   setWorkflowFile(new File([JSON.stringify(workflow)], `wizard_${typeSlug}_workflow.json`, { type: 'application/json' }));
 
   document.getElementById('load-notice').textContent =

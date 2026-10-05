@@ -83,6 +83,7 @@ import runpod_sync
 from email_sender import EmailSendError, find_image_files, send_output_images
 from workflow_builder import WorkflowBuildError, build_workflow
 import workflow_builder_krea2
+import workflow_builder_unet
 import workflow_builder_minimax_h3
 from output_images import (
     IMAGE_EXTENSIONS,

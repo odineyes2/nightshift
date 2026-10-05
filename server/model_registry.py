@@ -122,6 +122,24 @@ def lora_triggers() -> dict[str, dict]:
     return out
 
 
+# 전용 빌더를 쓰거나(krea.2·MiniMax-H3) 영상 모델(Wan)이라 범용 UNet 이미지 빌더 대상이 아닌 family.
+UNET_IMAGE_EXCLUDED = ("krea.2", "minimax-h3")
+UNET_IMAGE_EXCLUDED_PREFIXES = ("wan",)
+
+
+def unet_image_parts(gid: str) -> dict | None:
+    """diffusion_models family가 범용 UNet+CLIP+VAE 이미지 빌더(workflow_builder_unet.py)로 돌 수 있으면
+    {clip, vae}(같은 베이스 모델로 등록된 텍스트 인코더·VAE 파일 하나씩)를, 아니면 None을 돌려준다.
+    제외 family이거나 텍스트 인코더·VAE 중 하나라도 등록돼 있지 않으면 None이다."""
+    if not gid or gid in UNET_IMAGE_EXCLUDED or gid.startswith(UNET_IMAGE_EXCLUDED_PREFIXES):
+        return None
+    found: dict[str, str] = {}
+    for e in list_entries():
+        if e["kind"] in ("text_encoders", "vae") and base_id(e["base_model"]) == gid:
+            found.setdefault("clip" if e["kind"] == "text_encoders" else "vae", e["filename"])
+    return found if len(found) == 2 else None
+
+
 def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
     """마법사 1단계용 — base_model이 있는 체크포인트/디퓨전 모델(UNet)을 그 값으로 묶는다:
     {id: {label, kind, checkpoints}}. kind는 "checkpoints"(CheckpointLoaderSimple 조립) 또는
@@ -141,6 +159,10 @@ def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
         g = groups.setdefault(gid, {"label": e["base_model"], "kind": e["kind"], "checkpoints": [],
                                     "prompt_style": "danbooru" if e["kind"] == "checkpoints" else "natural"})
         g["checkpoints"].append(e["filename"])
+    for gid, g in groups.items():
+        parts = unet_image_parts(gid)
+        if g["kind"] == "diffusion_models" and parts:
+            g["unet_image"] = parts
     return dict(sorted(groups.items(), key=lambda kv: kv[1]["label"].lower()))
 
 
