@@ -10,6 +10,8 @@ from workflow_builder import WorkflowBuildError, build_workflow as _build_workfl
 DEFAULT_CLIP_TYPE = "stable_diffusion"  # 첨부 Anima 워크플로우 값 — 다른 UNet 계열은 맞지 않을 수 있다
 # 스펙에 값이 없을 때 쓰는 샘플링 기본값(첨부 Anima 워크플로우 값).
 DEFAULTS = {"steps": 30, "cfg": 4.0, "sampler_name": "er_sde", "scheduler": "simple"}
+# UNet+CLIP+VAE형 FaceDetailer 수치 기본값(NS-34 본문의 Anima 값).
+FACE_DETAILER_DEFAULTS = {"steps": 30, "cfg": 4.0, "sampler_name": "er_sde", "scheduler": "simple", "denoise": 0.5}
 
 
 def _unet_loader(spec: dict, add) -> tuple[list, list, list]:
@@ -30,4 +32,4 @@ def build_workflow(spec: dict) -> dict:
     if not isinstance(spec, dict):
         raise WorkflowBuildError("스펙이 JSON 객체가 아니에요.")
     spec = {**spec, **{k: v for k, v in DEFAULTS.items() if spec.get(k) in (None, "")}}
-    return _build_workflow(spec, loader=_unet_loader)
+    return _build_workflow(spec, loader=_unet_loader, face_defaults=FACE_DETAILER_DEFAULTS)
