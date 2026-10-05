@@ -24,11 +24,12 @@ R = A.runpod_api
 KEY = "secret-key-xyz"
 R.RUNPOD_API_KEY = KEY
 
-PODS = [{"id": "p1", "name": "run", "desiredStatus": "RUNNING", "imageName": "img", "costPerHr": 0.3,
-         "networkVolumeId": "v1", "env": {"JUPYTER_PASSWORD": "leak"}},
-        {"id": "p2", "name": "off", "desiredStatus": "EXITED", "networkVolumeId": "v2"}]
-VOLS = [{"id": "v1", "name": "used", "size": 100, "dataCenterId": "AP-JP-1"},
-        {"id": "v2", "name": "stopped-pod", "size": 10}, {"id": "v3", "name": "lonely", "size": 50}]
+PODS = {"pods": [{"id": "p1", "name": "run", "status": "RUNNING", "image": "img", "cost": 0.3,
+                  "mounts": {"network": [{"volumeId": "v1"}]}, "env": {"JUPYTER_PASSWORD": "leak"}},
+                 {"id": "p2", "name": "off", "status": "EXITED", "cost": 0.0, "mounts": {"network": [{"volumeId": "v2"}]}}],
+        "pagination": {"nextCursor": None, "hasNextPage": False}}
+VOLS = {"networkVolumes": [{"id": "v1", "name": "used", "size": 100, "dataCenter": "AP-JP-1"},
+                           {"id": "v2", "name": "stopped-pod", "size": 10}, {"id": "v3", "name": "lonely", "size": 50}]}
 BAL = {"data": {"myself": {"clientBalance": 12.5}}}
 
 calls = []   # (method, url)
@@ -61,7 +62,7 @@ R.urllib.request.urlopen = fake_urlopen
 
 def set_replies(pods=PODS, vols=VOLS, bal=BAL):
     replies.clear()
-    replies.update({"/pods": pods, "/networkvolumes": vols, "graphql": bal})
+    replies.update({"/v2/pods": pods, "/v2/network-volumes": vols, "graphql": bal})
 
 
 def req(role):
@@ -91,10 +92,10 @@ assert "leak" not in dumped and KEY not in dumped and "env" not in dumped
 
 # 조회는 GET(목록)과 GraphQL 조회 POST 하나뿐 — 만들기·지우기·켜기·끄기를 부르지 않는다
 assert sorted(m for m, _ in calls) == ["GET", "GET", "POST"], calls
-assert all(u.endswith(("/pods", "/networkvolumes")) or u == R.RUNPOD_GRAPHQL_URL for _, u in calls), calls
+assert all(u.split("?")[0].endswith(("/v2/pods", "/v2/network-volumes")) or u == R.RUNPOD_GRAPHQL_URL for _, u in calls), calls
 
 # 0달러·빈 목록은 실패가 아니다
-set_replies(pods=[], vols=[], bal={"data": {"myself": {"clientBalance": 0}}})
+set_replies(pods={"pods": []}, vols={"networkVolumes": []}, bal={"data": {"myself": {"clientBalance": 0}}})
 code, d = dash()
 assert d["balance"]["usd"] == 0.0 and d["balance"]["error"] is None
 assert d["pods"]["items"] == [] and d["volumes"]["items"] == [] and d["fetched_at"]
