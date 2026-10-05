@@ -211,6 +211,112 @@ def delete_workflow_preset(family_id: str, type_id: str, request: Request):
     return {"ok": True}
 
 
+# Face Detailer 수치 — 세부설정의 "수정" 탭(작업별)과 "셋팅" 탭(베이스 모델별 기본값)이 쓴다.
+# 이름 → (형, 최솟값, 최댓값). sampler_name·scheduler는 문자열이다.
+FACE_DETAILER_FIELDS = {
+    "steps": (int, 1, None), "cfg": (float, 0.0, None), "denoise": (float, 0.0, 1.0),
+    "guide_size": (int, 64, None), "max_size": (int, 64, None), "feather": (int, 0, None),
+    "bbox_threshold": (float, 0.0, 1.0), "bbox_dilation": (int, None, None), "bbox_crop_factor": (float, 1.0, None),
+    "drop_size": (int, 1, None), "cycle": (int, 1, None), "noise_mask_feather": (int, 0, None),
+    "sampler_name": (str, None, None), "scheduler": (str, None, None),
+}
+FACE_DETAILER_DEFAULTS_FILE = data_path("face_detailer_defaults.json")
+
+
+def clean_face_detailer_values(raw) -> dict:
+    """사용자가 보낸 Face Detailer 수치를 검사해 알려진 칸만 형을 맞춰 돌려준다(빈 값은 뺀다)."""
+    if not isinstance(raw, dict):
+        raise HTTPException(400, "Face Detailer 값은 객체여야 해요.")
+    out = {}
+    for key, value in raw.items():
+        if key not in FACE_DETAILER_FIELDS:
+            raise HTTPException(400, f"알 수 없는 Face Detailer 항목이에요: {key}")
+        kind, lo, hi = FACE_DETAILER_FIELDS[key]
+        if value is None or value == "":
+            continue
+        if kind is str:
+            value = str(value).strip()
+            if not re.fullmatch(r"[A-Za-z0-9_.+-]{1,64}", value):
+                raise HTTPException(400, f"{key} 값 '{value}'이(가) 올바르지 않아요.")
+        else:
+            try:
+                value = kind(float(value)) if kind is int else float(value)
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"{key} 값 '{value}'은(는) 숫자가 아니에요.")
+            if (lo is not None and value < lo) or (hi is not None and value > hi):
+                raise HTTPException(400, f"{key} 값은 {lo if lo is not None else ''}~{hi if hi is not None else ''} 범위여야 해요.")
+        out[key] = value
+    return out
+
+
+def load_face_detailer_defaults() -> dict:
+    try:
+        data = json.loads(FACE_DETAILER_DEFAULTS_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def face_detailer_defaults_for(family_id: str, architecture: str = "sdxl") -> dict:
+    """빌더 기본값(로더 형태별) 위에 이 베이스 모델에 저장된 값을 덮은 전체 수치."""
+    import workflow_builder
+    builtin = workflow_builder_unet.FACE_DETAILER_DEFAULTS if architecture == "unet" else workflow_builder.FACE_DETAILER_DEFAULTS
+    saved = load_face_detailer_defaults().get(family_id) or {}
+    return {**workflow_builder.FACE_DETAILER_COMMON, **builtin, **saved}
+
+
+@app.get("/api/face-detailer-defaults/{family_id}")
+def get_face_detailer_defaults(family_id: str, architecture: str = "sdxl"):
+    preset_filename(family_id, "x")  # family_id 형식 검사
+    return {"family_id": family_id, "values": face_detailer_defaults_for(family_id, architecture),
+            "saved": load_face_detailer_defaults().get(family_id) or {}}
+
+
+@app.put("/api/face-detailer-defaults/{family_id}")
+async def put_face_detailer_defaults(family_id: str, request: Request):
+    # 베이스 모델마다 적정값이 달라 관리자가 모델별로 저장한다(프리셋 저장과 같은 권한).
+    admin_only(request)
+    preset_filename(family_id, "x")
+    try:
+        body = await request.json()
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    values = clean_face_detailer_values(body.get("values") if isinstance(body, dict) else None)
+    data = load_face_detailer_defaults()
+    if values:
+        data[family_id] = values
+    else:
+        data.pop(family_id, None)  # 빈 값을 보내면 빌더 기본값으로 되돌린다
+    FACE_DETAILER_DEFAULTS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "family_id": family_id, "saved": values}
+
+
+def apply_face_detailer_values(workflow: dict, values: dict) -> int:
+    """워크플로우의 모든 FaceDetailer 노드 입력을 values로 고치고 고친 노드 수를 돌려준다."""
+    count = 0
+    for node in workflow.values():
+        if isinstance(node, dict) and node.get("class_type") == "FaceDetailer":
+            node.setdefault("inputs", {}).update(values)
+            count += 1
+    return count
+
+
+@app.post("/api/face-detailer/apply")
+async def apply_face_detailer_api(request: Request):
+    # "수정" 탭 — 붙어 있는 워크플로우의 FaceDetailer 수치를 이 작업만 바꾼다(저장된 기본값은 그대로).
+    try:
+        body = await request.json()
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    workflow = body.get("workflow") if isinstance(body, dict) else None
+    if not isinstance(workflow, dict):
+        raise HTTPException(400, "워크플로우 JSON(노드 id → 노드) 형식이 아니에요.")
+    values = clean_face_detailer_values(body.get("values"))
+    if not apply_face_detailer_values(workflow, values):
+        raise HTTPException(400, "워크플로우에 FaceDetailer 노드가 없어요.")
+    return {"workflow": workflow}
+
+
 @app.post("/api/build-workflow")
 async def build_workflow_api(request: Request, pod_id: str | None = None):
     # "워크플로우 빌더" 탭 — 업로드 없이 스펙(체크포인트/LoRA/프롬프트/샘플러/해상도)
