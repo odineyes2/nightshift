@@ -304,15 +304,25 @@
   <div class="card-canvas" id="dash-canvas"></div>
   <div class="empty" id="dash-empty" style="display:none;">등록된 워커가 없어요</div>
 
-  <!-- RunPod 네트워크 볼륨 — 파드를 지워도 남아 매달 요금이 나간다. 보고 안 쓰는 것을 지운다(관리자만, 08-pods.js) -->
-  <section class="panel rp-volumes" id="rp-volumes" style="display:none;">
+  <!-- 내 RunPod 대시보드 — 구동 중인 파드·네트워크 볼륨·남은 충전 금액·최근 불러온 일시(관리자만, 08-pods.js).
+       볼륨은 파드를 지워도 남아 매달 요금이 나가서, 보고 안 쓰는 것을 여기서 지운다. -->
+  <section class="panel rp-dash" id="rp-dash" style="display:none;">
     <div class="panel-header">
-      <div class="section-label"><svg class="ico"><use href="#i-database"/></svg> RunPod 네트워크 볼륨 <span class="wm-count" id="rp-volumes-count"></span></div>
+      <div class="section-label"><svg class="ico"><use href="#i-cloud"/></svg> 내 RunPod 대시보드</div>
       <div class="panel-header-actions">
-        <button class="load-btn" id="rp-volumes-refresh" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
+        <button class="load-btn" id="rp-dash-refresh" type="button"><svg class="ico"><use href="#i-refresh-cw"/></svg> 불러오기</button>
       </div>
     </div>
     <div class="panel-body">
+      <div class="rp-dash-meta">
+        <div class="rp-dash-stat"><span class="rp-dash-label">남은 충전 금액</span><b id="rp-dash-balance">—</b></div>
+        <div class="rp-dash-stat"><span class="rp-dash-label">최근 불러온 일시</span><b id="rp-dash-time">아직 불러오지 않았어요</b></div>
+      </div>
+      <div class="upload-error" id="rp-dash-error" role="status"></div>
+      <h3 class="rp-dash-sub"><svg class="ico"><use href="#i-server"/></svg> 구동 중인 Pod <span class="wm-count" id="rp-pods-count"></span></h3>
+      <div class="upload-error" id="rp-pods-error"></div>
+      <div id="rp-pods-list"></div>
+      <h3 class="rp-dash-sub"><svg class="ico"><use href="#i-database"/></svg> 유지 중인 네트워크 볼륨 <span class="wm-count" id="rp-volumes-count"></span></h3>
       <div class="email-hint">파드를 지워도 볼륨은 남아 매달 요금이 나가요(GB당 월 약 $0.07). 쓰는 파드가 없는 볼륨만 지울 수 있고, 지우면 되돌릴 수 없어요.</div>
       <div class="upload-error" id="rp-volumes-error"></div>
       <div id="rp-volumes-list"></div>

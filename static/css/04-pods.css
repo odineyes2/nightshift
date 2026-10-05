@@ -223,8 +223,16 @@
   .wm-group[open] > summary{ border-bottom:1px solid var(--border); }
   .wm-group .wm-row:last-child{ border-bottom:none; }
 
-  /* 워커 탭 아래 RunPod 네트워크 볼륨 */
-  .rp-volumes{ margin-top:28px; }
+  /* 워커 탭 아래 내 RunPod 대시보드 — 잔액·불러온 일시 두 칸, 그 아래 구동 중인 Pod·네트워크 볼륨 목록 */
+  .rp-dash{ margin-top:28px; }
+  .rp-dash-meta{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+  @media (max-width:640px){ .rp-dash-meta{ grid-template-columns:1fr; } }
+  .rp-dash-stat{ display:flex; flex-direction:column; gap:4px; min-width:0; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); }
+  .rp-dash-stat b{ font-size:16px; color:var(--text); overflow-wrap:anywhere; }
+  .rp-dash-label{ font-size:11.5px; color:var(--text-dim); }
+  .rp-dash-sub{ display:flex; align-items:center; gap:6px; margin:16px 0 8px; font-size:13px; font-weight:600; color:var(--text); }
+  .rp-dash-sub .wm-count{ margin-left:2px; }
+  .rp-dash .load-btn:disabled{ opacity:.6; cursor:wait; }
 
   /* 워커 추가 = RunPod 파드 만들기 — 추가 창(create-mode)에서만 등급 카드, 주소 입력 칸들은 "고급"을 펼쳤을 때만 */
   #pod-edit-modal:not(.create-mode) .create-only{ display:none; }
