@@ -261,7 +261,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'results') renderResultsList();
   if(tab === 'pmodels') openWorkerModels(scopedPodId); else closeWorkerModels();
   if(tab === 'psettings') openPodSettingsPage(scopedPodId); else closePodSettingsPage();
-  if(tab === 'pods') fetchRunpodVolumes();
+  if(tab === 'pods') fetchRunpodDashboard();
   if(tab === 'admin') fetchAdminUsers();
   if(tab === 'db'){ renderDbPanelTabs(); fetchRunpodSessions(); fetchGitLog(); fetchGenerationLog(); }
   if(tab === 'prboard'){ initBoardCanvas(); resizeBoardViewport(); fetchBoard({ fit: true }); }

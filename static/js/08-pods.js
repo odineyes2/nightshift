@@ -861,42 +861,82 @@ document.getElementById('pod-edit-delete').addEventListener('click', async () =>
   deletePodWithConfirm(id);   // 카드 길게 누르기와 같은 확인(RunPod 파드도 지울지 포함)
 });
 
-// ---- RunPod 네트워크 볼륨(워커 탭 아래, 관리자만) ----
-// 파드를 지워도 볼륨은 남아 매달 요금이 나간다. 목록과 그 볼륨을 붙여 쓰는 파드를 보여 주고, 쓰는 파드가 없는 것만
-// 지울 수 있다 — 되돌릴 수 없으니 볼륨 이름을 그대로 입력해야 지운다(서버도 같은 이름인지 다시 본다).
-async function fetchRunpodVolumes(){
-  const box = document.getElementById('rp-volumes');
-  box.style.display = isAdminUser() ? '' : 'none';
-  if(!isAdminUser()) return;
-  const errorEl = document.getElementById('rp-volumes-error');
+// ---- 내 RunPod 대시보드(워커 탭 아래, 관리자만, NS-31) ----
+// /api/runpod/dashboard가 파드·볼륨·잔액을 따로 돌려준다. 실패한 항목은 "조회하지 못했어요"만 띄우고 직전에 받은 값은
+// 그대로 둔다(빈 목록·0달러로 바꾸지 않는다). "최근 불러온 일시"는 셋 다 성공했을 때만 바뀐다. 값은 이 페이지에만 둔다.
+// 볼륨은 쓰는 파드가 없는 것만 지울 수 있다 — 되돌릴 수 없으니 볼륨 이름을 그대로 입력해야 지운다(서버도 다시 본다).
+const rpDash = { pods: null, volumes: null, balance: null, fetchedAt: null, busy: false };
+
+function renderRunpodDashboard(data){
+  const err = (id, part) => { document.getElementById(id).textContent = part && part.error ? `조회하지 못했어요 — ${part.error}` : ''; };
+  err('rp-pods-error', data && data.pods);
+  err('rp-volumes-error', data && data.volumes);
+  const balErr = data && data.balance && data.balance.error;
+  const balEl = document.getElementById('rp-dash-balance');
+  balEl.textContent = rpDash.balance != null ? `$${rpDash.balance.toFixed(2)}` : (balErr ? '조회하지 못했어요' : '—');
+  balEl.title = balErr || '';
+  const partial = data && !data.fetched_at && !data.error;
+  document.getElementById('rp-dash-time').textContent =
+    (rpDash.fetchedAt ? new Date(rpDash.fetchedAt).toLocaleString() : '아직 불러오지 않았어요') + (partial ? ' (이번엔 일부만 새로 불러왔어요)' : '');
+
+  const podsEl = document.getElementById('rp-pods-list');
+  const pods = rpDash.pods;
+  document.getElementById('rp-pods-count').textContent = pods && pods.length
+    ? `${pods.length}개 · 시간당 $${pods.reduce((s, p) => s + (p.cost_per_hr || 0), 0).toFixed(2)}` : '';
+  podsEl.innerHTML = pods == null ? '' : pods.length ? pods.map(p => `<div class="wm-row">
+      <span class="wm-name" title="${escapeHtml(p.id)}">${escapeHtml(p.name || p.id)}</span>
+      <span class="wm-kind">${p.cost_per_hr != null ? `시간당 $${Number(p.cost_per_hr).toFixed(2)}` : ''}${p.image ? ` · ${escapeHtml(p.image)}` : ''}</span>
+      <span class="wm-tag ok" title="RunPod에서 켜 둔 상태(시작 중 포함)">구동 중</span></div>`).join('')
+    : '<div class="comfy-model-empty">구동 중인 Pod가 없어요.</div>';
+
   const listEl = document.getElementById('rp-volumes-list');
-  errorEl.textContent = '';
-  listEl.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
-  let data;
-  try{
-    const res = await fetch('/api/runpod/network-volumes');
-    data = await res.json().catch(() => ({}));
-    if(!res.ok) throw new Error(data.detail || '불러오지 못했어요.');
-  }catch(e){
-    listEl.innerHTML = '';
-    errorEl.textContent = e.message;
-    return;
-  }
-  const vols = data.volumes || [];
-  const total = vols.reduce((s, v) => s + (v.monthly_usd || 0), 0);
-  document.getElementById('rp-volumes-count').textContent = vols.length ? `${vols.length}개 · 월 약 $${total.toFixed(2)}` : '';
-  listEl.innerHTML = vols.length ? vols.map(v => {
-    const inUse = (v.pods || []).length > 0;
-    const used = inUse ? `<span class="wm-tag" title="이 볼륨을 붙여 쓰는 RunPod 파드">쓰는 파드: ${escapeHtml(v.pods.join(', '))}</span>`
+  const vols = rpDash.volumes;
+  const total = (vols || []).reduce((s, v) => s + (v.monthly_usd || 0), 0);
+  document.getElementById('rp-volumes-count').textContent = vols && vols.length ? `${vols.length}개 · 월 약 $${total.toFixed(2)}` : '';
+  listEl.innerHTML = vols == null ? '' : vols.length ? vols.map(v => {
+    const known = Array.isArray(v.pods);   // 파드 목록을 못 받았으면 null — "쓰는 파드 없음"으로 보지 않는다
+    const inUse = !known || v.pods.length > 0;
+    const used = !known ? `<span class="wm-tag" title="파드 목록을 받지 못해 확인할 수 없어요">쓰는 파드 확인 못 함</span>`
+      : v.pods.length ? `<span class="wm-tag" title="이 볼륨을 붙여 쓰는 RunPod 파드">쓰는 파드: ${escapeHtml(v.pods.join(', '))}</span>`
       : `<span class="wm-tag warn" title="붙여 쓰는 파드가 없어요 — 요금만 나가고 있을 수 있어요">쓰는 파드 없음</span>`;
     return `<div class="wm-row"><span class="wm-name" title="${escapeHtml(v.id)}">${escapeHtml(v.name || v.id)}</span>
       <span class="wm-kind">${v.size_gb != null ? `${v.size_gb}GB` : '?'} · ${escapeHtml(v.data_center || '?')}${v.monthly_usd != null ? ` · 월 약 $${v.monthly_usd.toFixed(2)}` : ''}</span>
       ${used}
-      <button type="button" class="del-btn rp-volume-del" data-vol-id="${escapeHtml(v.id)}" data-vol-name="${escapeHtml(v.name)}"${inUse ? ' disabled title="쓰는 파드를 먼저 지워야 해요"' : ' title="볼륨 지우기(되돌릴 수 없어요)"'}>${ico('trash-2')} 지우기</button></div>`;
+      <button type="button" class="del-btn rp-volume-del" data-vol-id="${escapeHtml(v.id)}" data-vol-name="${escapeHtml(v.name)}"${inUse ? ` disabled title="${known ? '쓰는 파드를 먼저 지워야 해요' : '쓰는 파드를 확인한 뒤 지울 수 있어요'}"` : ' title="볼륨 지우기(되돌릴 수 없어요)"'}>${ico('trash-2')} 지우기</button></div>`;
   }).join('') : '<div class="comfy-model-empty">네트워크 볼륨이 없어요.</div>';
 }
 
-document.getElementById('rp-volumes-refresh').addEventListener('click', fetchRunpodVolumes);
+async function fetchRunpodDashboard(){
+  const box = document.getElementById('rp-dash');
+  box.style.display = isAdminUser() ? '' : 'none';
+  if(!isAdminUser() || rpDash.busy) return;   // 조회 중에 또 누르면 무시한다
+  rpDash.busy = true;
+  const btn = document.getElementById('rp-dash-refresh');
+  const errorEl = document.getElementById('rp-dash-error');
+  btn.disabled = true;
+  btn.lastChild.textContent = ' 불러오는 중…';
+  errorEl.textContent = '';
+  let data;
+  try{
+    const res = await fetch('/api/runpod/dashboard');
+    data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '불러오지 못했어요.');
+    if(!data.pods.error) rpDash.pods = data.pods.items;
+    if(!data.volumes.error) rpDash.volumes = data.volumes.items;
+    if(!data.balance.error) rpDash.balance = data.balance.usd;
+    if(data.fetched_at) rpDash.fetchedAt = data.fetched_at;
+  }catch(e){
+    errorEl.textContent = `조회하지 못했어요 — ${e.message}`;
+    data = { error: true };
+  }finally{
+    rpDash.busy = false;
+    btn.disabled = false;
+    btn.lastChild.textContent = ' 불러오기';
+  }
+  renderRunpodDashboard(data);
+}
+
+document.getElementById('rp-dash-refresh').addEventListener('click', fetchRunpodDashboard);
 document.getElementById('rp-volumes-list').addEventListener('click', async (e) => {
   const btn = e.target.closest('.rp-volume-del');
   if(!btn || btn.disabled) return;
@@ -917,7 +957,9 @@ document.getElementById('rp-volumes-list').addEventListener('click', async (e) =
     if(!res.ok) throw new Error(data.detail || '지우지 못했어요.');
     flashNotice(`볼륨 '${name}'을(를) 지웠어요`);
   }catch(err){
-    errorEl.textContent = err.message;
+    errorEl.textContent = err.message;   // 다시 불러오면 이 문구가 지워지므로 실패 때는 목록을 그대로 둔다
+    btn.disabled = false;
+    return;
   }
-  fetchRunpodVolumes();
+  fetchRunpodDashboard();
 });
