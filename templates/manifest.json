@@ -9,7 +9,9 @@
       { "name": "seed_mode", "label": "시드 방식", "type": "select", "choices": ["random", "sequential"], "default": "random" },
       { "name": "main_prompt", "label": "메인 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 업로드한 워크플로우의 프롬프트를 그대로 사용해요" },
       { "name": "negative_prompt", "label": "네거티브 프롬프트 (기본값 적용됨 — 필요하면 고쳐 쓰세요)", "type": "textarea", "default": "worst quality, low quality, bad anatomy, bad hands, text, watermark, signature", "placeholder": "비워두면 업로드한 워크플로우의 값을 그대로 사용해요" },
-      { "name": "danbooru_seed_prompts", "label": "시드별 Danbooru 프롬프트 (내부용)", "type": "textarea", "default": "" },
+      { "name": "face_prompt", "label": "Face Detailer 얼굴 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 메인 프롬프트를 사용해요" },
+      { "name": "face_negative_prompt", "label": "Face Detailer 얼굴 네거티브", "type": "textarea", "default": "", "placeholder": "비워두면 메인 네거티브 프롬프트를 사용해요" },
+      { "name": "danbooru_seed_prompts","label": "시드별 Danbooru 프롬프트 (내부용)", "type": "textarea", "default": "" },
       { "name": "width", "label": "너비(width)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
       { "name": "height", "label": "높이(height)", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" },
       { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
@@ -36,6 +38,8 @@
     ],
     "options": [
       { "name": "seeds_per_case", "label": "케이스당 시드 개수", "type": "number", "default": 1 },
+      { "name": "face_prompt", "label": "Face Detailer 얼굴 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 행의 메인 프롬프트를 사용해요" },
+      { "name": "face_negative_prompt", "label": "Face Detailer 얼굴 네거티브", "type": "textarea", "default": "", "placeholder": "비워두면 행의 네거티브 프롬프트를 사용해요" },
       { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
       { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
@@ -199,6 +203,8 @@
     "options": [
       { "name": "image_count", "label": "생성 개수", "type": "number", "default": 5 },
       { "name": "input_image", "label": "입력 이미지", "type": "input_image", "default": "" },
+      { "name": "face_prompt", "label": "Face Detailer 얼굴 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 메인 프롬프트를 사용해요" },
+      { "name": "face_negative_prompt", "label": "Face Detailer 얼굴 네거티브", "type": "textarea", "default": "", "placeholder": "비워두면 메인 네거티브 프롬프트를 사용해요" },
       { "name": "main_prompt", "label": "메인 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 업로드한 워크플로우의 프롬프트를 그대로 사용해요" },
       { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
@@ -220,6 +226,8 @@
       { "name": "input_image", "label": "입력 이미지", "required": true, "note": "입력 이미지 풀(NIGHTSHIFT_INPUT_IMAGES_DIR)에 있는 파일명 — 모든 행에 필수" }
     ],
     "options": [
+      { "name": "face_prompt", "label": "Face Detailer 얼굴 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 행의 메인 프롬프트를 사용해요" },
+      { "name": "face_negative_prompt", "label": "Face Detailer 얼굴 네거티브", "type": "textarea", "default": "", "placeholder": "비워두면 행의 네거티브 프롬프트를 사용해요" },
       { "name": "checkpoint", "label": "체크포인트", "type": "comfy_model", "model_kind": "checkpoints", "default": "" },
       { "name": "lora_name", "label": "LoRA", "type": "comfy_model", "model_kind": "loras", "default": "" },
       { "name": "lora_strength", "label": "LoRA 강도", "type": "number_optional", "default": "", "placeholder": "비워두면 워크플로우의 값을 그대로 사용해요" }
