@@ -1271,42 +1271,8 @@ document.getElementById('gallery-lightbox-move-btn').addEventListener('click', m
 // 붙일 때 하는 호환성 검사(checkWorkflowCompatibility)가 알려 준다.
 const I2V_TEMPLATE_ID = 'wan22_i2v_batch';
 async function startI2vFromImage(img){
-  const errorEl = document.getElementById('gallery-lightbox-error');
-  errorEl.textContent = '';
-  const btn = document.getElementById('gallery-lightbox-i2v-btn');
-  btn.disabled = true;
-  let stored;
-  try{
-    const res = await fetch('/api/input-images/import-from-output', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ names: [img.name] }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if(!res.ok || !(data.added || []).length){
-      throw new Error(data.detail || (data.skipped && data.skipped[0] && data.skipped[0].reason) || '시작 이미지를 준비하지 못했어요.');
-    }
-    stored = data.added[0];
-    await fetchInputImages(true);
-  }catch(e){
-    errorEl.textContent = e.message || '시작 이미지를 준비하지 못했어요.';
-    return;
-  }finally{
-    btn.disabled = false;
-  }
-
-  closeLightbox();
-  // 결과 영상이 이 이미지와 같은 프로젝트에 쌓이도록 그 프로젝트의 작업 화면으로 간다. 파드 갤러리에서
-  // 보고 있었다면 그 파드에 그대로 머물고, 프로젝트만 폼의 선택값으로 맞춘다.
-  const projectScope = img.project_id == null ? 'unassigned' : (resolveProjectId(img.project_id) ?? 'unassigned');
-  if(currentPodId){
-    showTab('jobs', { podId: currentPodId });
-    try{ localStorage.setItem(FORM_PROJECT_KEY, projectScope === 'unassigned' ? '' : String(projectScope)); }catch(e){ /* 무시 */ }
-    updateJobTargetRow();
-  }else{
-    showTab('jobs', { projectId: projectScope });
-  }
-
+  const stored = await importLightboxImageForJob(img, document.getElementById('gallery-lightbox-i2v-btn'));
+  if(!stored) return;
   const loadError = document.getElementById('load-error');
   const loadNotice = document.getElementById('load-notice');
   loadError.textContent = '';
@@ -1326,9 +1292,58 @@ async function startI2vFromImage(img){
   const promptEl = optionsFields.querySelector('[data-name="user_prompt"]');
   if(promptEl) promptEl.focus({ preventScroll: true });
 }
+
+// 라이트박스 이미지를 입력 이미지 풀에 사본으로 두고, 라이트박스를 닫고 그 이미지의 프로젝트 작업 화면으로
+// 간다("영상 만들기"·"Face Detailer" 공통). 사본 파일명을 돌려주고, 실패하면 라이트박스에 안내하고 null.
+async function importLightboxImageForJob(img, btn){
+  const errorEl = document.getElementById('gallery-lightbox-error');
+  errorEl.textContent = '';
+  btn.disabled = true;
+  let stored;
+  try{
+    const res = await fetch('/api/input-images/import-from-output', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names: [img.name] }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !(data.added || []).length){
+      throw new Error(data.detail || (data.skipped && data.skipped[0] && data.skipped[0].reason) || '이미지를 준비하지 못했어요.');
+    }
+    stored = data.added[0];
+    await fetchInputImages(true);
+  }catch(e){
+    errorEl.textContent = e.message || '이미지를 준비하지 못했어요.';
+    return null;
+  }finally{
+    btn.disabled = false;
+  }
+
+  closeLightbox();
+  // 결과 영상이 이 이미지와 같은 프로젝트에 쌓이도록 그 프로젝트의 작업 화면으로 간다. 파드 갤러리에서
+  // 보고 있었다면 그 파드에 그대로 머물고, 프로젝트만 폼의 선택값으로 맞춘다.
+  const projectScope = img.project_id == null ? 'unassigned' : (resolveProjectId(img.project_id) ?? 'unassigned');
+  if(currentPodId){
+    showTab('jobs', { podId: currentPodId });
+    try{ localStorage.setItem(FORM_PROJECT_KEY, projectScope === 'unassigned' ? '' : String(projectScope)); }catch(e){ /* 무시 */ }
+    updateJobTargetRow();
+  }else{
+    showTab('jobs', { projectId: projectScope });
+  }
+  return stored;
+}
 document.getElementById('gallery-lightbox-i2v-btn').addEventListener('click', () => {
   const img = displayedGalleryImages[lightboxIndex];
   if(img) startI2vFromImage(img);
+});
+
+// 이 이미지의 얼굴을 보정하는 Face Detailer 유형 작업을 준비한다 — 사본을 참조 이미지로 두고 마법사를
+// Face Detailer 유형으로 연다(베이스 모델은 사용자가 1단계에서 고른다). 큐에 넣는 것은 사용자가 한다.
+document.getElementById('gallery-lightbox-face-btn').addEventListener('click', async () => {
+  const img = displayedGalleryImages[lightboxIndex];
+  if(!img) return;
+  const stored = await importLightboxImageForJob(img, document.getElementById('gallery-lightbox-face-btn'));
+  if(stored) await startFaceDetailerWizard(stored);
 });
 document.getElementById('gallery-lightbox-rotate-btn').addEventListener('click', rotateCurrentLightboxImage);
 document.getElementById('gallery-lightbox-delete-btn').addEventListener('click', deleteCurrentLightboxImage);
