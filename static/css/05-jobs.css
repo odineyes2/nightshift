@@ -323,3 +323,6 @@
   .model-pod-row .inv-cell, .model-pod-row .inv-off{ white-space:nowrap; }
   .model-pod-name{ min-width:120px; font-family:var(--mono); }
   .model-editor{ display:grid; gap:10px 16px; padding:8px 12px 14px 62px; border-top:1px solid var(--border); }
+
+  /* 얼굴 프롬프트 칸은 붙은 워크플로우에 FaceDetailer가 있을 때만 보인다(06-wizard.js setFaceDetailerFieldsVisible). */
+  #options-fields:not(.has-face-detailer) .field:has([data-name="face_prompt"], [data-name="face_negative_prompt"]){ display:none; }

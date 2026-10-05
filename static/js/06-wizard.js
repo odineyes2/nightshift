@@ -36,7 +36,11 @@ async function tryPopulateWizardFromWorkflow(workflow){
 
   const hasEmptyLatent = nodes.some(n => n.class_type === 'EmptyLatentImage');
   const hasInputImage = nodes.some(n => n.class_type === 'LoadImage' && n._meta && n._meta.title === 'input_image');
-  const base = hasEmptyLatent ? 'txt2img' : (hasInputImage ? 'img2img' : null);
+  // KSampler 없이 입력 이미지가 FaceDetailer로만 가면 Face Detailer 유형(base="face_detailer")이다.
+  const hasKSampler = nodes.some(n => n.class_type === 'KSampler');
+  const base = hasEmptyLatent ? 'txt2img'
+    : !hasInputImage ? null
+    : (hasKSampler || !workflowHasFaceDetailer(workflow)) ? 'img2img' : 'face_detailer';
   if(!base) return; // 베이스 패스를 못 알아보면(워크플로우 빌더가 만드는 모양이 아니면) 멈춘다
 
   const loras = nodes
@@ -49,6 +53,7 @@ async function tryPopulateWizardFromWorkflow(workflow){
   const hiresNode = nodes.find(n => n.class_type === 'KSampler' && n._meta && n._meta.title === 'KSampler (hires-fix)');
   const upscaleNode = nodes.find(n => n.class_type === 'LatentUpscaleBy');
   const hasUsdu = nodes.some(n => n.class_type === 'UltimateSDUpscaleNoUpscale');
+  const hasFaceDetailer = workflowHasFaceDetailer(workflow);
 
   wizard.familyId = matchFamilyId;
   wizard.checkpoint = ckptName;
@@ -60,6 +65,8 @@ async function tryPopulateWizardFromWorkflow(workflow){
     if(upscaleNode && typeof (upscaleNode.inputs || {}).scale_by === 'number') wizard.post.hiresScale = upscaleNode.inputs.scale_by;
   }
   wizard.post.usdu = hasUsdu;
+  // base가 face_detailer면 FaceDetailer는 베이스 자체라 후처리로 켜지 않는다.
+  wizard.post.face_detailer = hasFaceDetailer && base !== 'face_detailer';
   wizard.loras = loras;
   // 실행 방식(시드 반복/CSV 순회)은 워크플로우만 봐서는 알 수 없다 — 건드리지 않고 4단계에서 직접 고르게 둔다.
 
@@ -531,8 +538,10 @@ async function wizardApply(){
       };
       if(architecture === 'sdxl' || architecture === 'unet'){
         if(architecture === 'unet'){ spec.clip = unetImage.clip; spec.vae = unetImage.vae; }
-        if(wizard.post.hires_fix) spec.hires_fix = { enabled: true, scale_by: wizard.post.hiresScale };
-        if(wizard.post.usdu) spec.usdu = { enabled: true, upscale_by: 2.0 };
+        if(wizardPostApplies('hires_fix')) spec.hires_fix = { enabled: true, scale_by: wizard.post.hiresScale };
+        // 얼굴 프롬프트·시드는 실행 시점에 템플릿이 넣는다(face_prompt/face_negative_prompt 옵션) — 여기선 켜기만 한다.
+        if(wizardPostApplies('face_detailer')) spec.face_detailer = { enabled: true };
+        if(wizardPostApplies('usdu')) spec.usdu = { enabled: true, upscale_by: 2.0 };
       }else if(architecture === 'krea2'){
         spec.refine_prompt = wizard.refinePrompt;
       }else if(architecture === 'minimax_h3_i2v'){
@@ -603,7 +612,8 @@ async function wizardApply(){
   setQualityPromptField((baseModelFamilies[wizard.familyId] || {}).label);
   lastWizardModels = { checkpoint: wizard.checkpoint, loras: wizard.loras.map(l => l.name) };
 
-  const typeSlug = isPreset ? wizard.preset : [wizard.base, architecture === 'unet' && 'unet', ['sdxl', 'unet'].includes(architecture) && wizard.post.hires_fix && 'hires', ['sdxl', 'unet'].includes(architecture) && wizard.post.usdu && 'usdu'].filter(Boolean).join('_');
+  const builtIn = ['sdxl', 'unet'].includes(architecture);
+  const typeSlug = isPreset ? wizard.preset : [wizard.base, architecture === 'unet' && 'unet', builtIn && wizardPostApplies('hires_fix') && 'hires', builtIn && wizardPostApplies('face_detailer') && 'fd', builtIn && wizardPostApplies('usdu') && 'usdu'].filter(Boolean).join('_');
   setWorkflowFile(new File([JSON.stringify(workflow)], `wizard_${typeSlug}_workflow.json`, { type: 'application/json' }));
 
   document.getElementById('load-notice').textContent =
@@ -704,10 +714,22 @@ document.getElementById('new-job-tab-select').addEventListener('click', () => {
 document.getElementById('new-job-tab-details').addEventListener('click', goToNewJobDetails);
 document.getElementById('new-job-next-btn').addEventListener('click', goToNewJobDetails);
 
+// 워크플로우(API 형식)에 FaceDetailer 노드가 있는지 — 있을 때만 얼굴 프롬프트 칸을 보인다.
+function workflowHasFaceDetailer(workflow){
+  if(!workflow || typeof workflow !== 'object') return false;
+  return Object.values(workflow).some(n => n && typeof n === 'object' && n.class_type === 'FaceDetailer');
+}
+
+// 옵션 폼 컨테이너에 클래스만 붙인다 — 템플릿을 바꿔 칸을 다시 그려도 CSS(05-jobs.css)가 그대로 숨긴다.
+function setFaceDetailerFieldsVisible(visible){
+  optionsFields.classList.toggle('has-face-detailer', !!visible);
+}
+
 async function checkWorkflowCompatibility(file){
   const el = document.getElementById('workflow-check');
   const token = ++workflowCheckToken;
   updateNewJobTabs();
+  setFaceDetailerFieldsVisible(false);
   if(!file){
     el.hidden = true;
     el.textContent = '';
@@ -722,7 +744,8 @@ async function checkWorkflowCompatibility(file){
     return;
   }
   try{
-    JSON.parse(text);
+    const parsed = JSON.parse(text);
+    if(token === workflowCheckToken) setFaceDetailerFieldsVisible(workflowHasFaceDetailer(parsed));
   }catch(e){
     if(token === workflowCheckToken) renderWorkflowCheck('warn', 'JSON 형식이 아니에요 — ComfyUI에서 "API 형식으로 저장"한 파일인지 확인해 주세요.');
     return;
