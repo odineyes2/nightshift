@@ -195,6 +195,37 @@ def list_network_volumes() -> tuple[list[dict] | None, str | None]:
     return vols, None
 
 
+# ---- 충전 잔액(NS-31) ----
+# REST(v1·v2)에는 잔액이 없어 GraphQL `myself.clientBalance`(남은 충전 금액, USD 숫자)만 쓴다 — NS-31-1에서 공식 스펙과
+# 실측으로 확인했다. GraphQL은 2027년 초 종료 예정이라 그때 대체 경로로 옮겨야 한다.
+_BALANCE_QUERY = "query { myself { clientBalance } }"
+
+
+def get_client_balance() -> tuple[float | None, str | None]:
+    """(남은 충전 금액 USD, None) 또는 (None, 에러 문구). 0달러는 성공이다 — 실패를 0으로 바꾸지 않는다."""
+    if not RUNPOD_API_KEY:
+        return None, "RUNPOD_API_KEY가 설정되지 않았어요."
+    req = urllib.request.Request(
+        RUNPOD_GRAPHQL_URL, data=json.dumps({"query": _BALANCE_QUERY}).encode("utf-8"), method="POST",
+        headers={"Authorization": f"Bearer {RUNPOD_API_KEY}", "Content-Type": "application/json",
+                 "User-Agent": RUNPOD_USER_AGENT, "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SEC) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return None, f"RunPod가 거절했어요(HTTP {e.code})."
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
+        return None, f"RunPod에 요청하지 못했어요: {type(e).__name__}."
+    if isinstance(raw, dict) and raw.get("errors"):
+        return None, "RunPod가 잔액 조회를 거절했어요(키 권한을 확인해 주세요)."
+    me = ((raw.get("data") if isinstance(raw, dict) else None) or {}).get("myself")
+    bal = me.get("clientBalance") if isinstance(me, dict) else None
+    if not isinstance(bal, (int, float)) or isinstance(bal, bool):
+        return None, "RunPod 응답 형식이 예상과 달라요."
+    return float(bal), None
+
+
 def delete_network_volume(volume_id: str) -> str | None:
     """지우고 None, 실패하면 에러 문구. 되돌릴 수 없다 — 확인은 부르는 쪽(API)이 한다."""
     _body, err = _rest("DELETE", f"/networkvolumes/{urllib.parse.quote(volume_id, safe='')}", timeout=30)
