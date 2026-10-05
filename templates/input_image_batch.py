@@ -277,6 +277,37 @@ def apply_seed(workflow, seed):
     node.setdefault("inputs", {})["seed"] = seed
 
 
+def _node_text(workflow, title_substring):
+    node_id, node = find_node(workflow, title_substring=title_substring, allow_class_fallback=False)
+    field = primitive_value_field(node) if node is not None else None
+    value = node.get("inputs", {}).get(field) if field else None
+    return value.strip() if isinstance(value, str) else ""
+
+
+def apply_face_detailer(workflow, seed, main_prompt="", negative_prompt=""):
+    """FaceDetailer 노드(workflow_builder.py의 face_detailer)에 이미지별 시드와 얼굴 프롬프트를 넣는다.
+    얼굴 긍정/부정은 FACE_PROMPT/FACE_NEGATIVE_PROMPT를 쓰고, 비면 메인 긍정/부정(넘겨받은 값 →
+    이미 주입된 main_prompt/negative_prompt 노드 순)으로 대체한다. 모두 비면 빌드 시점 값을 그대로
+    둔다. apply_main_prompt 뒤에 부른다."""
+    detailers = [n for n in workflow.values() if isinstance(n, dict) and n.get("class_type") == "FaceDetailer"]
+    if not detailers:
+        return
+    for node in detailers:
+        node.setdefault("inputs", {})["seed"] = int(seed)
+    positive = (env("FACE_PROMPT") or "").strip() or (main_prompt or "").strip() or _node_text(workflow, "main_prompt")
+    negative = ((env("FACE_NEGATIVE_PROMPT") or "").strip() or (negative_prompt or "").strip()
+                or _node_text(workflow, "negative_prompt"))
+    for title, value in (("face detailer 긍정", positive), ("face detailer 부정", negative)):
+        if not value:
+            continue
+        node_id, node = find_node(workflow, title_substring=title, allow_class_fallback=False)
+        field = primitive_value_field(node) if node is not None else None
+        if field is None:
+            print(f"[input_image_batch] 경고: '{title}' 노드를 찾지 못해 얼굴 프롬프트를 넣지 못했습니다", file=sys.stderr)
+            continue
+        node.setdefault("inputs", {})[field] = value
+
+
 def apply_main_prompt(workflow, main_prompt):
     main_prompt = (main_prompt or "").strip()
     if not main_prompt:
@@ -492,6 +523,7 @@ def run_once(base_workflow, comfy_url, seed, image_path, index, job_id, output_d
     apply_checkpoint(workflow)
     apply_lora(workflow)
     apply_main_prompt(workflow, main_prompt)
+    apply_face_detailer(workflow, seed, main_prompt)
     apply_input_image(workflow, comfy_url, image_path)
     apply_filename_prefix(workflow, index, seed, image_path)
 
