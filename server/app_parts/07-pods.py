@@ -488,6 +488,31 @@ async def runpod_network_volumes_api(request: Request):
     return {"volumes": vols, "usd_per_gb_month": runpod_api.NETWORK_VOLUME_USD_PER_GB_MONTH, "pods_known": pods is not None}
 
 
+@app.get("/api/runpod/dashboard")
+async def runpod_dashboard_api(request: Request):
+    """워커 탭 "내 Runpod 대시보드"(NS-31, 관리자만) — 구동 중인 파드·네트워크 볼륨·남은 충전 금액을 따로따로 조회한다.
+    하나가 실패해도 나머지는 보여 주고, 실패한 항목은 error만 채운다(빈 목록·0달러로 바꾸지 않는다).
+    fetched_at은 셋 다 성공했을 때만 채운다. 조회만 한다 — 워커 자동 등록·세션 기록·파드 켜기는 하지 않는다.
+    "구동 중"은 desiredStatus == RUNNING(시작 중 포함) — REST v2로 옮길 때 실제 status로 바꾼다."""
+    admin_only(request)
+    (pods, pods_err), (vols, vols_err), (bal, bal_err) = await asyncio.gather(
+        asyncio.to_thread(runpod_api.list_runpod_pods_verbose), asyncio.to_thread(runpod_api.list_network_volumes),
+        asyncio.to_thread(runpod_api.get_client_balance))
+    now = datetime.now(timezone.utc).isoformat()
+    if vols is not None:
+        for v in vols:   # 파드 목록을 못 받았으면 None — "붙인 파드 없음"과 구별한다
+            v["pods"] = None if pods is None else [p["name"] or p["id"] for p in pods if p.get("network_volume_id") == v["id"]]
+    running = None if pods is None else [
+        {k: p.get(k) for k in ("id", "name", "status", "image", "cost_per_hr", "last_started_at", "network_volume_id")}
+        for p in pods if p.get("status") == "RUNNING"]
+    part = lambda err, **kw: {**kw, "error": err, "fetched_at": None if err else now}
+    return {"api_key": bool(runpod_api.RUNPOD_API_KEY),
+            "pods": part(pods_err, items=running),
+            "volumes": part(vols_err, items=vols, usd_per_gb_month=runpod_api.NETWORK_VOLUME_USD_PER_GB_MONTH),
+            "balance": part(bal_err, usd=bal),
+            "fetched_at": None if (pods_err or vols_err or bal_err) else now}
+
+
 @app.delete("/api/runpod/network-volumes/{volume_id}")
 async def delete_runpod_network_volume_api(volume_id: str, request: Request):
     """볼륨 지우기 — 되돌릴 수 없어서 본문의 confirm_name이 볼륨 이름과 똑같아야 하고, 붙여 쓰는 파드가 있으면 거절한다."""
