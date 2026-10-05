@@ -32,7 +32,7 @@ from aiohttp import web
 import folder_paths
 from server import PromptServer
 
-VERSION = 1
+VERSION = 2
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # nightshift의 종류 이름 -> ComfyUI folder_paths 이름 후보(버전마다 이름이 달랐다).
@@ -45,7 +45,10 @@ FOLDER_ALIASES = {
     "clip_vision": ["clip_vision"],
     "controlnet": ["controlnet"],
     "upscale_models": ["upscale_models"],
+    "ultralytics": ["ultralytics"],
 }
+# Impact-Subpack이 아직 안 깔린 ComfyUI에는 folder_paths에 없는 폴더 — models/ 아래 기본 위치로 받는다.
+FALLBACK_DIRS = {"ultralytics": "ultralytics"}
 ALLOWED_EXT = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf")
 SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ ()+\[\]-]*$")
 ALLOWED_HEADERS = {"authorization"}
@@ -79,6 +82,8 @@ def _folder_base(kind):
             continue
         if paths:
             return paths[0]
+    if kind in FALLBACK_DIRS:
+        return os.path.join(folder_paths.models_dir, FALLBACK_DIRS[kind])
     return None
 
 

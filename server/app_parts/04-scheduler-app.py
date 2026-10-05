@@ -80,7 +80,7 @@ def job_missing_on_pod(job: dict, pod: dict) -> list[str] | None:
         if not isinstance(workflow, dict):
             continue
         nodes, values, _ = workflow_missing(info, workflow)
-        problems.extend(f"노드 {n}" for n in nodes)
+        problems.extend(missing_node_label(n) for n in nodes)
         for v in values:
             if (v["class_type"], v["field"]) in overridden:
                 continue

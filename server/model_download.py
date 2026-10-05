@@ -27,7 +27,7 @@ import db
 from drivers.comfyui import COMFY_USER_AGENT, ComfyUIDriver
 
 NODE_DIR = Path(__file__).resolve().parent.parent / "templates" / "comfy_nodes" / "nightshift_downloader"
-NODE_VERSION = 1
+NODE_VERSION = 2   # 2: ultralytics 폴더
 FETCH_TIMEOUT = 15
 MODEL_EXT = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf")
 # Civitai는 civitai.red 같은 다른 도메인도 같은 계정·API 토큰으로 쓴다 — 등록부에 그 주소가 적혀 있으면

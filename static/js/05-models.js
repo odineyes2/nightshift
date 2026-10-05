@@ -191,7 +191,7 @@ function modelRowHtml(kind, name, isAdmin){
   const tagsHtml = tagList.length ? `<div class="gallery-details-col model-cell-tags">${tagList.map(t => `<span class="model-badge">${escapeHtml(t)}</span>`).join('')}</div>`
     : '<div class="gallery-details-col dim">-</div>';
   const links = e.download_url
-    ? (isAdmin
+    ? (isAdmin && kind !== 'custom_nodes'   // 노드팩은 파드를 시작할 때 설치된다 — 받기 명령이 없다
         ? `<button type="button" class="icon-btn icon-btn-neutral model-dlcmd-btn" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}" title="다운로드 명령 복사(RunPod 터미널용)">${ico('download')}</button>`
         : `<span title="다운로드 주소 등록됨">${ico('download')}</span>`)
     : '';
@@ -220,8 +220,10 @@ function modelRowHtml(kind, name, isAdmin){
       ${usageHtml(kind, name)}
       <label class="model-field"><span>종류</span>
         <select class="option-input" data-field="kind" ${dis}>${kindOptions}</select></label>
-      <label class="model-field"><span>파일명 <span style="opacity:.6">(하위 폴더는 "폴더/이름.safetensors")</span></span>
-        <input type="text" class="option-input" data-field="filename" ${dis} placeholder="예: mmh3/my_style_v2.safetensors" value="${escapeHtml(d.filename)}"></label>
+      ${d.kind === 'custom_nodes' ? `<label class="model-field"><span>폴더 이름 <span style="opacity:.6">(custom_nodes 아래, 받을 주소는 https://github.com/소유자/저장소 — 파드를 시작할 때 설치돼요)</span></span>
+        <input type="text" class="option-input" data-field="filename" ${dis} placeholder="예: ComfyUI-Impact-Pack" value="${escapeHtml(d.filename)}"></label>`
+      : `<label class="model-field"><span>파일명 <span style="opacity:.6">(하위 폴더는 "폴더/이름.safetensors")</span></span>
+        <input type="text" class="option-input" data-field="filename" ${dis} placeholder="${d.kind === 'ultralytics' ? '예: bbox/face_yolov8m.pt' : '예: mmh3/my_style_v2.safetensors'}" value="${escapeHtml(d.filename)}"></label>`}
       <label class="model-field"><span>베이스 모델</span>
         <select class="option-input" data-field="base_model" ${dis}>${baseModelSelectOptions(d.base_model)}</select></label>
       ${isLora ? `<label class="model-field"><span>트리거 키워드</span>
