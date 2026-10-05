@@ -12,7 +12,8 @@ seen = []
 runpod_api._rest = lambda method, path, timeout=0, body=None: (seen.append(body), ({"id": "x"}, None))[1]
 pod, err = runpod_api.create_pod("t", "image", entrypoint=model_download.BOOTSTRAP_ENTRYPOINT)
 assert err is None and pod["id"] == "x", err
-assert seen[0]["allowedCudaVersions"] == ["13.0"], seen[0]
+assert seen[0]["gpu"]["allowedCudaVersions"] == ["13.0"], seen[0]
+assert seen[0]["args"] == {"entrypoint": model_download.BOOTSTRAP_ENTRYPOINT} and "mounts" not in seen[0], seen[0]
 
 script = model_download.BOOTSTRAP_ENTRYPOINT[2]
 assert "--max-time 60" in script and "timeout 120 bash" in script and script.endswith("exec /start.sh")

@@ -17,13 +17,18 @@ RUNPOD_API_KEY 환경변수가 없으면 이 기능은 통째로 꺼진다(조�
 거기서 뽑아 쓴다. url이 그 형태가 아니면(로컬 ComfyUI, 다른 클라우드 등) 이 기능은
 그냥 아무것도 하지 않는다.
 
-## GPU 모델명이 REST API에는 안 실려 온다 (실측 확인됨)
+## REST v2 (NS-33)
 
-`GET /v1/pods/{id}`의 실제 응답을 사용자가 "RunPod 정보 테스트" 버튼으로 찍어봐
-확인한 결과, `machine` 필드가 빈 객체(`{}`)로 온다 — `gpuCount`(GPU 개수)만 있고
-어떤 GPU인지(모델명)는 REST 쪽에 없다. 반면 레거시 GraphQL API
-(`https://api.runpod.io/graphql`)의 `pod.machine.gpuDisplayName`에는 있다고 알려져
-있어서, REST 응답에 GPU 모델명이 비어 있을 때만 그쪽으로 한 번 더 물어본다
+REST v1이 2026-11-15에 종료되어 v2(`api.runpod.io/v2`)를 쓴다 — 출처는 RunPod 이전 안내
+(docs.runpod.io/api-reference-v2/migrate-from-v1)와 OpenAPI. v2 Pod는 `status`가 실제 수명주기
+(PROVISIONING/STARTING/RUNNING/EXITED/ERROR/TERMINATED)라 "켜짐(과금 중)" 판정은 `is_on()` 하나로 한다.
+필드는 `_pod_from_v2()`가 내부 키로 바꾼다. v2에는 종료 시각(`lastStatusChange`)이 없어 `last_status_change`는
+항상 None이다. 오류는 RFC 9457 `{title, status, detail}` 형식이다.
+
+## GPU 모델명
+
+v2 Pod의 `gpu.id`가 표시 이름이다(예: "NVIDIA GeForce RTX 4090"). 비어 있을 때만 레거시 GraphQL API
+(`https://api.runpod.io/graphql`)의 `pod.machine.gpuDisplayName`으로 한 번 더 물어본다
 (`_fetch_gpu_display_name`). 이것도 실패하면 조용히 빈 채로 둔다 — GPU 이름 하나
 때문에 카드의 나머지 정보(이름/비용/일시)까지 못 뜨면 안 되므로.
 
@@ -40,7 +45,7 @@ import urllib.request
 import re
 
 RUNPOD_API_KEY = (os.environ.get("RUNPOD_API_KEY") or "").strip()
-RUNPOD_API_BASE = "https://rest.runpod.io/v1"
+RUNPOD_API_BASE = "https://api.runpod.io/v2"
 RUNPOD_GRAPHQL_URL = "https://api.runpod.io/graphql"
 
 # REST 응답에 GPU 모델명이 없을 때만 여기로 한 번 더 물어본다(모듈 docstring 참고).
@@ -83,74 +88,80 @@ def extract_pod_id(url: str) -> str | None:
     return m.group(1) if m else None
 
 
+ON_STATUSES = ("PROVISIONING", "STARTING", "RUNNING")
+
+
+def is_on(status: str | None) -> bool:
+    """v2 status가 "켜 둔 상태(시작 중 포함) = 과금 중"인지 — v1의 "원하는 상태 RUNNING"과 같은 뜻."""
+    return status in ON_STATUSES
+
+
+def _pod_from_v2(p: dict) -> dict:
+    """v2 Pod 객체를 내부 키로 바꾼다. **env 필드는 절대 읽지 않는다** — 그 pod에 설정된 다른 환경변수
+    (Jupyter 비밀번호 등)가 평문으로 들어 있다. 꺼진 파드의 cost는 0.0으로 오므로 None으로 둔다
+    ("$0.00/hr"이나 0원 세션으로 남기지 않게)."""
+    status = p.get("status") or ""
+    cost = p.get("cost")
+    if not is_on(status) and not cost:
+        cost = None
+    mounts = p.get("mounts") if isinstance(p.get("mounts"), dict) else {}
+    persistent = mounts.get("persistent") if isinstance(mounts.get("persistent"), dict) else {}
+    network = [m.get("volumeId") for m in (mounts.get("network") or []) if isinstance(m, dict) and m.get("volumeId")]
+    gpu = p.get("gpu") if isinstance(p.get("gpu"), dict) else {}
+    ports = p.get("ports")
+    return {
+        "id": p.get("id"),
+        "name": p.get("name") or "",
+        "status": status,
+        "ports": [x for x in ports if isinstance(x, str)] if isinstance(ports, list) else [],
+        "image": p.get("image") or "",
+        "cost_per_hr": cost,
+        # RFC 3339 원본 문자열(파싱은 runpod_sessions.py가 한다). v2에는 종료 시각 필드가 없다.
+        "last_started_at": p.get("startedAt"),
+        "last_status_change": None,
+        "network_volume_id": network[0] if network else None,
+        "gpu_type": gpu.get("id") or None,
+        "created_at": p.get("createdAt"),
+        "container_disk_gb": p.get("disk"),
+        "volume_gb": persistent.get("size"),
+        "data_center": p.get("dataCenterId") or "",
+    }
+
+
 def _fetch_pod_raw(pod_id: str) -> dict | None:
-    req = urllib.request.Request(
-        f"{RUNPOD_API_BASE}/pods/{pod_id}",
-        headers={
-            "Authorization": f"Bearer {RUNPOD_API_KEY}",
-            "User-Agent": RUNPOD_USER_AGENT,
-            "Accept": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SEC) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
-        return None
+    raw, err = _rest("GET", f"/pods/{urllib.parse.quote(pod_id, safe='')}")
+    return raw if not err and isinstance(raw, dict) else None
+
+
+LIST_PAGE_LIMIT = 1000
+LIST_MAX_PAGES = 20   # 커서가 끝나지 않는 이상 응답에 묶이지 않게
 
 
 def list_runpod_pods_verbose() -> tuple[list[dict] | None, str | None]:
     """계정의 모든 pod를 훑어 (정규화된 목록, None) 또는 (None, 에러 문구)를 돌려준다 —
     runpod_sync.py(자동 등록)가 "실패 이유를 사람이 알 수 있어야" 해서 get_runpod_info와
-    달리 에러를 삼키지 않는다. 실측(2026-09-23) 응답 필드: id/name/desiredStatus/
-    ports(["8188/http", ...] 형태)/imageName/costPerHr, machine은 빈 객체.
-
-    **env 필드는 절대 읽지 않는다** — 실측해 보니 그 pod에 설정된 다른 환경변수
-    (Jupyter 비밀번호 등)가 평문으로 그대로 들어 있었다. 정규화 결과에도, 이 함수가
-    실패했을 때의 에러 문구에도 raw 응답을 절대 포함하지 않는다."""
-    if not RUNPOD_API_KEY:
-        return None, "RUNPOD_API_KEY가 설정되지 않았어요."
-    req = urllib.request.Request(
-        f"{RUNPOD_API_BASE}/pods",
-        headers={
-            "Authorization": f"Bearer {RUNPOD_API_KEY}",
-            "User-Agent": RUNPOD_USER_AGENT,
-            "Accept": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SEC) as resp:
-            raw = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        return None, f"RunPod 목록을 못 받아왔어요(HTTP {e.code})."
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
-        return None, f"RunPod 목록을 못 받아왔어요: {type(e).__name__}."
-    if not isinstance(raw, list):
-        return None, "RunPod 응답 형식이 예상과 달라요."
-    pods = [
-        {
-            "id": p.get("id"),
-            "name": p.get("name") or "",
-            "status": p.get("desiredStatus") or "",
-            "ports": p.get("ports") or [],
-            "image": p.get("imageName") or "",
-            "cost_per_hr": p.get("costPerHr"),
-            # 둘 다 RunPod가 실제로 발생한 시각을 담고 있는 원본 문자열이다(파싱은
-            # runpod_sessions.py가 한다) — last_status_change는 사람이 읽는 문장
-            # 형태(예: "Exited by user: Wed Sep 23 2026 10:00:19 GMT+0000 (...)").
-            "last_started_at": p.get("lastStartedAt"),
-            "last_status_change": p.get("lastStatusChange"),
-            "network_volume_id": p.get("networkVolumeId") or None,
-        }
-        for p in raw if isinstance(p, dict) and p.get("id")
-    ]
-    return pods, None
+    달리 에러를 삼키지 않는다. v2 응답은 `{"pods": [...], "pagination": {"nextCursor", "hasNextPage"}}`라
+    다음 쪽이 있으면 cursor로 이어 받는다. 에러 문구에 raw 응답(env 비밀값)은 넣지 않는다."""
+    pods, cursor = [], None
+    for _ in range(LIST_MAX_PAGES):
+        query = {"limit": LIST_PAGE_LIMIT, **({"cursor": cursor} if cursor else {})}
+        raw, err = _rest("GET", "/pods?" + urllib.parse.urlencode(query))
+        if err:
+            return None, err
+        if not isinstance(raw, dict) or not isinstance(raw.get("pods"), list):
+            return None, "RunPod 응답 형식이 예상과 달라요."
+        pods += [_pod_from_v2(p) for p in raw["pods"] if isinstance(p, dict) and p.get("id")]
+        page = raw.get("pagination") if isinstance(raw.get("pagination"), dict) else {}
+        cursor = page.get("nextCursor") if page.get("hasNextPage") else None
+        if not cursor:
+            return pods, None
+    return None, "RunPod 목록이 너무 길어요(쪽 수 상한)."
 
 
 # ---- 네트워크 볼륨 ----
 # RunPod 네트워크 볼륨은 파드를 지워도 남아 매달 요금이 나간다(1TB 미만 GB당 월 $0.07 — RunPod 요금표, 2026-09).
-# 목록을 보고 안 쓰는 것을 지우는 화면(워커 탭)이 쓴다. 응답 형식은 RunPod REST 문서 기준:
-# GET /networkvolumes → [{id, name, size(GB), dataCenterId}], DELETE /networkvolumes/{id}.
+# 목록을 보고 안 쓰는 것을 지우는 화면(워커 탭)이 쓴다. 응답 형식은 RunPod REST v2 OpenAPI 기준:
+# GET /network-volumes → {"networkVolumes": [{id, name, size(GB), dataCenter, type}]}, DELETE /network-volumes/{id}.
 NETWORK_VOLUME_USD_PER_GB_MONTH = 0.07
 
 
@@ -171,7 +182,9 @@ def _rest(method: str, path: str, timeout: float = REQUEST_TIMEOUT_SEC, body: di
     except urllib.error.HTTPError as e:
         try:
             err = json.loads(e.read().decode("utf-8") or "{}")
-            reason = str(err.get("error") or err.get("message") or "")[:300] if isinstance(err, dict) else ""
+            # v2는 RFC 9457 {title, status, detail}
+            reason = str(err.get("detail") or err.get("title") or err.get("error") or err.get("message") or "")[:300] \
+                if isinstance(err, dict) else ""
         except (json.JSONDecodeError, OSError):
             reason = ""
         return None, f"RunPod가 거절했어요(HTTP {e.code}){': ' + reason if reason else ''}"
@@ -180,17 +193,17 @@ def _rest(method: str, path: str, timeout: float = REQUEST_TIMEOUT_SEC, body: di
 
 
 def list_network_volumes() -> tuple[list[dict] | None, str | None]:
-    raw, err = _rest("GET", "/networkvolumes")
+    raw, err = _rest("GET", "/network-volumes")
     if err:
         return None, err
-    if not isinstance(raw, list):
+    if not isinstance(raw, dict) or not isinstance(raw.get("networkVolumes"), list):
         return None, "RunPod 응답 형식이 예상과 달라요."
     vols = []
-    for v in raw:
+    for v in raw["networkVolumes"]:
         if not isinstance(v, dict) or not v.get("id"):
             continue
         size = v.get("size") if isinstance(v.get("size"), (int, float)) else None
-        vols.append({"id": v["id"], "name": v.get("name") or "", "size_gb": size, "data_center": v.get("dataCenterId") or "",
+        vols.append({"id": v["id"], "name": v.get("name") or "", "size_gb": size, "data_center": v.get("dataCenter") or "",
                      "monthly_usd": round(size * NETWORK_VOLUME_USD_PER_GB_MONTH, 2) if size is not None else None})
     return vols, None
 
@@ -228,14 +241,14 @@ def get_client_balance() -> tuple[float | None, str | None]:
 
 def delete_network_volume(volume_id: str) -> str | None:
     """지우고 None, 실패하면 에러 문구. 되돌릴 수 없다 — 확인은 부르는 쪽(API)이 한다."""
-    _body, err = _rest("DELETE", f"/networkvolumes/{urllib.parse.quote(volume_id, safe='')}", timeout=30)
+    _body, err = _rest("DELETE", f"/network-volumes/{urllib.parse.quote(volume_id, safe='')}", timeout=30)
     return err
 
 
 # ---- 파드 만들기·지우기(워커 추가 #12) ----
 # 계획서 ~/.claude/plans/worker-runpod-create.md. 등급마다 GPU 후보를 싼·안정적인 순으로 두고, 지역은 서울에서 가까운
-# AP-JP-1을 먼저 — RunPod 재고가 수시로 바뀌므로 후보를 한꺼번에 넘겨 되는 곳에 만들게 하고, 안 되면
-# Secure(일본) → Secure(아무 곳) → Community(일본) → Community(아무 곳) 순으로 다시 시도한다.
+# AP-JP-1을 먼저 — Secure(일본) → Secure(아무 곳) → Community(일본) → Community(아무 곳) 순으로, 단계마다
+# GPU 후보를 차례로 시도한다.
 RUNPOD_COMFY_IMAGE = "runpod/comfyui:1.4.7-cuda13.0"   # 지금까지 손으로 만들어 쓰던 이미지
 # 이미지가 CUDA 13을 쓰므로 드라이버가 받쳐 주는 호스트에만 만든다(아니면 ComfyUI가 시작하지 못한다 — NS-18).
 # 이미지를 바꾸면 같이 바꾼다.
@@ -257,33 +270,34 @@ def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[s
     spec = RUNPOD_TIERS.get(tier)
     if spec is None:
         return None, "알 수 없는 등급이에요."
+    # v2는 gpu.id 하나만 받고 다른 GPU로 대체하지 않으므로 단계마다 후보를 하나씩 요청한다(실패 요청은 과금되지 않는다).
+    # 400(자리 없음)·403(그 풀 권한 없음)·5xx는 다음 후보로, 401(키)·402(잔액)·422(요청 형식)·429(요청 제한)는
+    # 어디서 해도 똑같이 실패하니 바로 멈춘다.
     errors = []
     for cloud, dcs in (("SECURE", RUNPOD_PREFERRED_DATA_CENTERS), ("SECURE", None),
                        ("COMMUNITY", RUNPOD_PREFERRED_DATA_CENTERS), ("COMMUNITY", None)):
-        body = {"name": name, "imageName": RUNPOD_COMFY_IMAGE, "cloudType": cloud, "gpuCount": 1,
-                "gpuTypeIds": spec["gpus"], "gpuTypePriority": "custom",
-                "containerDiskInGb": spec["disk_gb"], "volumeInGb": 0, "ports": RUNPOD_PORTS,
-                "allowedCudaVersions": RUNPOD_CUDA_VERSIONS}
-        if dcs:
-            body["dataCenterIds"] = dcs
-            body["dataCenterPriority"] = "custom"
-        if env:
-            body["env"] = env
-        if entrypoint:
-            body["dockerEntrypoint"] = entrypoint   # 이미지의 ENTRYPOINT를 바꾼다(CMD가 아니라 — runpod/comfyui는 CMD가 없다)
-        raw, err = _rest("POST", "/pods", timeout=60, body=body)
-        if err:
-            errors.append(f"{cloud}{'·' + dcs[0] if dcs else ''}: {err}")
-            if "HTTP 401" in err or "HTTP 403" in err:
-                break   # 키 문제는 다른 곳에 만들어도 똑같이 실패한다
-            continue
-        if not isinstance(raw, dict) or not raw.get("id"):
-            errors.append(f"{cloud}: 응답 형식이 예상과 달라요")
-            continue
-        machine = raw.get("machine") if isinstance(raw.get("machine"), dict) else {}
-        return {"id": raw["id"], "name": raw.get("name") or name, "cloud": cloud, "cost_per_hr": raw.get("costPerHr"),
-                "gpu": machine.get("gpuDisplayName") or machine.get("gpuTypeId") or raw.get("gpuTypeId") or "",
-                "data_center": machine.get("dataCenterId") or raw.get("dataCenterId") or ""}, None
+        for gpu_id in spec["gpus"]:
+            body = {"name": name, "image": RUNPOD_COMFY_IMAGE, "cloud": cloud,
+                    "gpu": {"id": gpu_id, "count": 1, "allowedCudaVersions": RUNPOD_CUDA_VERSIONS},
+                    "disk": spec["disk_gb"], "ports": RUNPOD_PORTS}   # mounts가 없으면 볼륨 없음
+            if dcs:
+                body["dataCenterIds"] = dcs
+            if env:
+                body["env"] = env
+            if entrypoint:
+                body["args"] = {"entrypoint": entrypoint}   # 이미지의 ENTRYPOINT를 바꾼다(CMD가 아니라 — runpod/comfyui는 CMD가 없다)
+            raw, err = _rest("POST", "/pods", timeout=60, body=body)
+            if err:
+                errors.append(f"{cloud}{'·' + dcs[0] if dcs else ''}·{gpu_id}: {err}")
+                if any(f"HTTP {c}" in err for c in (401, 402, 422, 429)):
+                    return None, "파드를 만들지 못했어요 — " + " / ".join(errors)
+                continue
+            if not isinstance(raw, dict) or not raw.get("id"):
+                errors.append(f"{cloud}·{gpu_id}: 응답 형식이 예상과 달라요")
+                continue
+            pod = _pod_from_v2(raw)
+            return {"id": pod["id"], "name": pod["name"] or name, "cloud": cloud, "cost_per_hr": raw.get("cost"),
+                    "gpu": pod["gpu_type"] or gpu_id, "data_center": pod["data_center"]}, None
     return None, "파드를 만들지 못했어요 — " + " / ".join(errors)
 
 
@@ -344,38 +358,13 @@ def get_gpu_type_cached(pod_id: str) -> str | None:
     return _gpu_type_cache[pod_id] or None
 
 
-def _first(d: dict, *paths):
-    """paths 중 첫 번째로 값이 있는 걸 돌려준다. path는 "a.b" 형태의 점 표기.
-    REST API 필드가 정확히 뭔지 확신이 없어서(모듈 docstring 참고) 후보를 여러 개
-    시도하도록 이렇게 짰다."""
-    for path in paths:
-        cur = d
-        for key in path.split("."):
-            if not isinstance(cur, dict) or key not in cur:
-                cur = None
-                break
-            cur = cur[key]
-        if cur is not None:
-            return cur
-    return None
-
-
 def _normalize(raw: dict) -> dict:
-    info = {
-        "pod_name": _first(raw, "name"),
-        "status": _first(raw, "desiredStatus"),
-        "gpu_type": _first(raw, "machine.gpuDisplayName", "gpuDisplayName", "gpuTypeId", "gpu.displayName"),
-        "cost_per_hr": _first(raw, "costPerHr", "costPerHour", "adjustedCostPerHr"),
-        "created_at": _first(raw, "createdAt", "created_at"),
-        "last_started_at": _first(raw, "lastStartedAt", "last_started_at", "lastStartAt"),
-        # 디스크(NS-9) — 컨테이너 디스크는 끄거나 지우면 사라지고, 볼륨은 끄면 남고, 네트워크 볼륨은 지워도 남는다.
-        "container_disk_gb": _first(raw, "containerDiskInGb"),
-        "volume_gb": _first(raw, "volumeInGb"),
-        "network_volume_id": _first(raw, "networkVolumeId", "networkVolume.id") or None,
-    }
-    ports = raw.get("ports")
-    if isinstance(ports, list):
-        info["ports"] = [p for p in ports if isinstance(p, str)]
+    """카드용 — _pod_from_v2의 키 중 카드가 쓰는 것만, 값이 있는 것만. 디스크(NS-9): 컨테이너 디스크는 끄거나
+    지우면 사라지고, 볼륨은 끄면 남고, 네트워크 볼륨은 지워도 남는다."""
+    p = _pod_from_v2(raw)
+    info = {"pod_name": p["name"] or None, "status": p["status"] or None, "ports": p["ports"] if isinstance(raw.get("ports"), list) else None,
+            **{k: p[k] for k in ("gpu_type", "cost_per_hr", "created_at", "last_started_at",
+                                 "container_disk_gb", "volume_gb", "network_volume_id")}}
     return {k: v for k, v in info.items() if v is not None}
 
 
@@ -388,35 +377,17 @@ POD_ACTIONS = ("start", "stop")
 
 
 def pod_action(pod_id: str, action: str) -> tuple[str | None, str | None]:
-    """RunPod 파드를 켜거나(start) 끈다(stop). (바뀐 desiredStatus, None) 또는 (None, 에러 문구).
-    성공 응답에는 그 파드의 env(Jupyter 비밀번호 등)가 평문으로 들어 있으므로 상태 값 하나만
-    꺼내고 나머지는 버린다. 실패 문구는 RunPod가 준 이유를 그대로 옮긴다 — "GPU가 모자라서
-    못 켠다" 같은 이유를 사람이 봐야 다음 행동(새 파드 만들기 등)을 정할 수 있어서다."""
+    """RunPod 파드를 켜거나(start) 끈다(stop) — v2 `POST /pods/{id}/action` {"action": ...}.
+    (목표 상태 "RUNNING"/"EXITED", None) 또는 (None, 에러 문구). v2 응답 status는 STARTING일 수 있지만 화면은
+    v1처럼 목표 상태를 기대하므로 그것을 돌려주고, env(비밀값)가 든 응답 본문은 버린다. 실패 문구는 RunPod가 준
+    이유를 그대로 옮긴다 — "GPU가 모자라서 못 켠다" 같은 이유를 사람이 봐야 다음 행동을 정할 수 있어서다."""
     if action not in POD_ACTIONS:
         return None, "알 수 없는 동작이에요."
-    if not RUNPOD_API_KEY:
-        return None, "RUNPOD_API_KEY가 설정되지 않았어요."
-    req = urllib.request.Request(
-        f"{RUNPOD_API_BASE}/pods/{pod_id}/{action}", data=b"", method="POST",
-        headers={"Authorization": f"Bearer {RUNPOD_API_KEY}", "User-Agent": RUNPOD_USER_AGENT,
-                 "Accept": "application/json"},
-    )
     _cache.pop(pod_id, None)   # 켜고 끈 직후 카드가 옛 상태를 보여주지 않게
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = json.loads(resp.read().decode("utf-8") or "{}")
-    except urllib.error.HTTPError as e:
-        try:
-            err = json.loads(e.read().decode("utf-8") or "{}")
-            reason = err.get("error") or err.get("detail") or err.get("message") or ""
-        except (json.JSONDecodeError, OSError, AttributeError):
-            reason = ""
-        reason = str(reason)[:300]
-        return None, f"RunPod가 거절했어요(HTTP {e.code}){': ' + reason if reason else ''}"
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
-        return None, f"RunPod에 요청하지 못했어요: {type(e).__name__}."
-    status = body.get("desiredStatus") if isinstance(body, dict) else None
-    return status or ("RUNNING" if action == "start" else "EXITED"), None
+    _body, err = _rest("POST", f"/pods/{urllib.parse.quote(pod_id, safe='')}/action", timeout=30, body={"action": action})
+    if err:
+        return None, err
+    return ("RUNNING" if action == "start" else "EXITED"), None
 
 
 def proxy_links(pod_id: str, ports: list[str]) -> list[dict]:
@@ -518,4 +489,4 @@ def get_runpod_info(url: str) -> dict | None:
 
 
 __all__ = ["get_runpod_info", "debug_probe", "extract_pod_id", "proxy_links", "pod_action", "RUNPOD_API_KEY",
-           "list_runpod_pods", "list_runpod_pods_verbose", "get_gpu_type_cached"]
+           "list_runpod_pods", "list_runpod_pods_verbose", "get_gpu_type_cached", "is_on"]
