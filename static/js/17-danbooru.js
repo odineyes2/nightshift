@@ -674,3 +674,71 @@ async function danbooruDeleteHistoryEntry(id){
   danbooruRenderHistoryList();
 }
 
+// ---- Enhance 실험(NS-32) ----
+// 조립된 프롬프트를 /api/enhance-prompt(mode=danbooru)로 바로 돌려 탭 안에 보여 준다.
+// 작업 큐를 거치지 않으므로 jobs 목록에 작업이 생기지 않는다. 버튼과 결과 칸은
+// index.html을 건드리지 않고 여기서 조립된 프롬프트 상자에 덧붙인다.
+function danbooruBuildEnhanceDOM(){
+  const actions = document.querySelector('.danbooru-prompt-row-actions');
+  const sendStatus = document.getElementById('danbooru-send-status');
+  if(!actions || !sendStatus) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'load-btn';
+  btn.id = 'danbooru-enhance-btn';
+  btn.title = '작업 대기열 없이 바로 Prompt Enhance를 돌려 봐요';
+  btn.innerHTML = ico('sparkles') + ' Enhance 실험';
+  actions.insertBefore(btn, actions.firstChild);
+
+  const status = document.createElement('div');
+  status.className = 'enhance-status';
+  const box = document.createElement('div');
+  box.className = 'danbooru-enhance-box';
+  box.hidden = true;
+  box.innerHTML = `<div class="danbooru-prompt-row">
+      <div class="danbooru-prompt-label">Enhance 결과</div>
+      <div class="danbooru-prompt-row-actions"></div>
+    </div>
+    <div class="danbooru-prompt-text" id="danbooru-enhance-text"></div>`;
+  const text = box.querySelector('#danbooru-enhance-text');
+  box.querySelector('.danbooru-prompt-row-actions').appendChild(createCopyButton(() => text.textContent));
+  sendStatus.after(status, box);
+
+  btn.addEventListener('click', async () => {
+    const prompt = danbooruAssemblePrompt().trim();
+    status.className = 'enhance-status';
+    if(!prompt){
+      status.textContent = '먼저 태그를 골라 주세요.';
+      status.classList.add('error');
+      return;
+    }
+    btn.disabled = true;
+    btn.innerHTML = ico('loader-circle', true) + ' 개선하는 중…';
+    status.textContent = 'ComfyUI로 요청 중…';
+    try{
+      const res = await fetch('/api/enhance-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, mode: 'danbooru' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok){
+        status.textContent = data.detail || '프롬프트 개선에 실패했어요.';
+        status.classList.add('error');
+        return;
+      }
+      text.textContent = data.enhanced || '';
+      box.hidden = false;
+      status.textContent = '완료 — 조립된 프롬프트는 그대로 두었어요.';
+      status.classList.add('success');
+    }catch(e){
+      status.textContent = '프롬프트 개선에 실패했어요.';
+      status.classList.add('error');
+    }finally{
+      btn.disabled = false;
+      btn.innerHTML = ico('sparkles') + ' Enhance 실험';
+    }
+  });
+}
+danbooruBuildEnhanceDOM();
+
