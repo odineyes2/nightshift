@@ -463,8 +463,8 @@ async def _start_model_downloads(user: dict, pod: dict, names: list[str]) -> tup
         token = None   # 주인 없는 옛 작업 등 — 토큰 없이 받는다(공개 모델은 그대로 받힌다)
     started, no_url, failed = [], [], []
     for name in names:
-        if name.startswith("노드 "):
-            failed.append({"name": name, "detail": "커스텀 노드는 여기서 받을 수 없어요 — 파드에 직접 설치하세요."})
+        if is_node_problem(name):
+            failed.append({"name": name, "detail": "커스텀 노드는 여기서 받을 수 없어요 — 노드팩은 모델 탭에 등록하면 파드를 시작할 때 설치돼요."})
             continue
         entry = _registry_entry_for(name)
         if not entry or not entry.get("download_url"):
@@ -521,7 +521,7 @@ def _maybe_auto_fetch(job_id: str, pod: dict, missing: list[str]) -> None:
     """워커의 "필요한 모델 자동 설치"가 켜져 있을 때 스케줄러가 부른다 — 이 작업이 이 워커에서 모자란 모델을
     사람이 "없는 모델 받기"를 누른 것처럼 받는다. 같은 모델은 작업마다 한 번만 시도하고(auto_fetch_tried),
     받는 중이거나 지난 받기가 실패했으면(fetch_error — 사람이 "없는 모델 받기"를 누르면 풀린다) 손대지 않는다."""
-    names = [n for n in missing if not n.startswith("노드 ")]
+    names = [n for n in missing if not is_node_problem(n)]
     with lock:
         job = jobs.get(job_id)
         if job is None or job.get("fetching_models") or job.get("fetch_error"):
@@ -566,7 +566,7 @@ def _needed_models_on_pod(user: dict, pod: dict) -> list[dict] | None:
             return None
         for name in missing:
             if name not in needed:
-                node = name.startswith("노드 ")
+                node = is_node_problem(name)
                 entry = None if node else _registry_entry_for(name)
                 needed[name] = {"name": name, "node": node, "kind": (entry or {}).get("kind"),
                                 "download_url": (entry or {}).get("download_url") or None, "jobs": []}

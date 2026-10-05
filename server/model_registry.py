@@ -29,8 +29,14 @@ KINDS = [
     ("clip_vision", "CLIP Vision"),
     ("controlnet", "ControlNet"),
     ("upscale_models", "업스케일러"),
+    ("ultralytics", "얼굴 탐지 모델(ultralytics)"),
+    ("custom_nodes", "노드팩"),
 ]
 KIND_IDS = {k for k, _ in KINDS}
+# 노드팩은 파일이 아니라 저장소다 — 파일명 칸은 custom_nodes 아래 폴더 이름, 받을 주소 칸은 github 저장소 주소.
+NODEPACK_KIND = "custom_nodes"
+GITHUB_REPO_RE = re.compile(r"^https://github\.com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$")
+NODEPACK_DIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # 입력칸의 자동완성용 — 이 밖의 값도 자유롭게 적을 수 있다.
 BASE_MODELS = ["SD 1.5", "SDXL", "Illustrious", "Pony", "NoobAI", "Flux", "Wan 2.2", "Wan 2.1", "Qwen-Image", "Z-Image", "krea.2", "MiniMax-H3", "기타"]
@@ -190,6 +196,12 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
             current["page_url"] = _clean_url(fields["page_url"], "페이지 주소")
         if "download_url" in fields:
             current["download_url"] = _clean_url(fields["download_url"], "다운로드 주소")
+        if kind == NODEPACK_KIND:
+            if not NODEPACK_DIR_RE.match(filename):
+                raise RegistryError("노드팩 폴더 이름은 영문·숫자·._-만 쓸 수 있어요.")
+            # 파드 시작 스크립트(셸)에 들어가는 값이라 github 저장소 주소 형식만 받는다.
+            if current["download_url"] and not GITHUB_REPO_RE.match(current["download_url"]):
+                raise RegistryError("노드팩 주소는 https://github.com/소유자/저장소 형식이어야 해요.")
         if kind != "loras":   # 트리거 키워드는 LoRA만의 개념이다
             current["trigger_keyword"] = ""
         empty = not (current["base_model"] or current["notes"] or current["tags"] or current["trigger_keyword"]

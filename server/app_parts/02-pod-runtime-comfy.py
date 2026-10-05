@@ -115,7 +115,24 @@ MODEL_LIST_SOURCES = {
     "controlnet": ("ControlNetLoader", "control_net_name"),
     "upscale_models": ("UpscaleModelLoader", "model_name"),
     "clip_vision": ("CLIPVisionLoader", "clip_name"),
+    "ultralytics": ("UltralyticsDetectorProvider", "model_name"),
 }
+# 노드팩이 들여오는 노드 → 노드팩 이름. 이 노드가 없으면 대기 사유를 "노드팩 없음 (이름)"으로 적는다 —
+# 노드팩은 파드 시작 때만 설치하므로(ComfyUI 재시작 필요) 작업 도중 받지 않는다.
+NODE_PACKS = {
+    "FaceDetailer": "ComfyUI-Impact-Pack",
+    "UltralyticsDetectorProvider": "ComfyUI-Impact-Subpack",
+}
+
+
+def missing_node_label(class_type: str) -> str:
+    pack = NODE_PACKS.get(class_type)
+    return f"노드팩 없음 ({pack})" if pack else f"노드 {class_type}"
+
+
+def is_node_problem(name: str) -> bool:
+    """대기 사유 항목이 모델 파일이 아니라 노드·노드팩이면 True — 받기 대상이 아니다."""
+    return name.startswith(("노드 ", "노드팩 없음 "))
 
 
 def object_info_pod(pod_id: str | None) -> dict:
