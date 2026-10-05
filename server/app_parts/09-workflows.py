@@ -63,6 +63,13 @@ WORKFLOW_TYPES = {
             "template_ids": {"seed": "input_image_batch", "csv": "input_image_csv_batch"},
         },
         {
+            # 기존 이미지 1장의 얼굴만 보정한다(workflow_builder.py의 base="face_detailer").
+            # family_id가 없어 txt2img/img2img처럼 체크포인트형·UNet+CLIP+VAE형 family에서만 보인다.
+            "id": "face_detailer", "label": "Face Detailer", "requires_input_image": True,
+            "requires_node": "FaceDetailer",
+            "template_ids": {"seed": "input_image_batch", "csv": "input_image_csv_batch"},
+        },
+        {
             # family_id가 있으면 그 family(base_id 기준)를 골랐을 때만 마법사 2단계에 보인다
             # (기존 txt2img/img2img는 family_id가 없어 전 family에 보임 — 그대로 유지).
             # architecture는 POST /api/build-workflow가 어느 빌더 모듈로 갈지 고르는 키다.
@@ -96,6 +103,9 @@ WORKFLOW_TYPES = {
         # applies_to_base가 있으면 그 base를 골랐을 때만 보인다 — hires_fix/usdu는 SDXL식
         # (EmptyLatentImage+KSampler) 그래프 전용이라 krea2_t2i/minimax_h3_*에는 안 맞는다.
         {"id": "hires_fix", "label": "Hires Fix", "applies_to_base": ["txt2img", "img2img"]},
+        # face_detailer는 디코드 뒤·usdu 앞에 들어간다(spec["face_detailer"]).
+        {"id": "face_detailer", "label": "Face Detailer", "requires_node": "FaceDetailer",
+         "applies_to_base": ["txt2img", "img2img"]},
         {"id": "usdu", "label": "Ultimate SD Upscale", "requires_node": "UltimateSDUpscaleNoUpscale",
          "applies_to_base": ["txt2img", "img2img"]},
     ],

@@ -58,6 +58,20 @@ hires_fix보다 뒤, VAEDecode 다음에 이어 붙임 — 커스텀 노드
                     찾는다(base="img2img" 전용)
     "Save Image"    SAVE_NODE_TITLE 기본값 "Save"
 
+spec["face_detailer"] = {"enabled": true, "positive", "negative", "steps", "cfg", "sampler_name",
+"scheduler", "denoise", ...} (선택, 디코드(=hires 뒤) 다음·usdu 앞에 이어 붙임 — Impact-Pack의
+FaceDetailer와 Impact-Subpack의 UltralyticsDetectorProvider(bbox/face_yolov8m.pt)가 있어야 함):
+    IMAGE → FaceDetailer(LoRA가 걸린 model/clip, 얼굴 전용 긍정·부정 CLIPTextEncode) → (usdu) → SaveImage.
+    중간 이미지는 저장하지 않는다(SaveImage는 끝에 하나뿐). 수치 기본값은 로더 형태마다 다르다
+    (FACE_DETAILER_DEFAULTS, UNet형은 workflow_builder_unet.FACE_DETAILER_DEFAULTS). 얼굴 프롬프트가
+    비면 메인 프롬프트를 쓴다 — 실행 시점 주입(templates/*)이 행마다 다시 넣는다.
+spec["base"] = "face_detailer"는 기존 이미지 1장의 얼굴만 보정한다:
+    LoadImage(제목 "input_image") → FaceDetailer → SaveImage. 메인 KSampler·main_prompt가 없고
+    hires_fix/usdu도 붙지 않는다(latent가 없다).
+FaceDetailer 쪽 노드 제목("Face Detailer"·"Face Detailer 긍정"/"Face Detailer 부정"·"얼굴 탐지 모델")에는
+"main_prompt"·"negative_prompt"·"KSampler"·"Save"·"latent"를 넣지 않는다 — 실행 템플릿의 부분일치
+주입이 잘못 집는다.
+
 hires-fix의 업스케일 노드 제목에는 일부러 "latent"를 넣지 않는다 — 넣으면
 해상도 주입(apply_resolution)이 EmptyLatentImage 대신 그 노드를 집을 수 있다.
 같은 이유로 EmptyLatentImage를 업스케일 노드보다 먼저 넣는다(딕셔너리 순서).
@@ -73,6 +87,15 @@ DEFAULT_NEGATIVE = "worst quality, low quality, bad anatomy, bad hands, text, wa
 #   EmptyLatentImage/KSampler/LatentUpscaleBy → 0:LATENT
 #   VAEDecode              → 0:IMAGE
 CHECKPOINT_MODEL, CHECKPOINT_CLIP, CHECKPOINT_VAE = 0, 1, 2
+
+FACE_DETECTOR_MODEL = "bbox/face_yolov8m.pt"
+# 체크포인트형 FaceDetailer 수치 기본값(NS-34 본문 값). 스펙의 face_detailer에 값이 있으면 그 값을 쓴다.
+FACE_DETAILER_DEFAULTS = {"steps": 20, "cfg": 8.0, "sampler_name": "euler", "scheduler": "simple", "denoise": 0.5}
+# 로더 형태와 상관없는 공통 기본값(본문 값).
+FACE_DETAILER_COMMON = {
+    "guide_size": 512, "max_size": 1024, "feather": 5, "bbox_threshold": 0.5, "bbox_dilation": 10,
+    "bbox_crop_factor": 3.0, "drop_size": 10, "cycle": 1, "noise_mask_feather": 20,
+}
 
 
 class WorkflowBuildError(Exception):
@@ -120,7 +143,56 @@ def _checkpoint_loader(spec: dict, add) -> tuple[list, list, list]:
     return [ckpt_id, CHECKPOINT_MODEL], [ckpt_id, CHECKPOINT_CLIP], vae_src
 
 
-def build_workflow(spec: dict, loader=_checkpoint_loader) -> dict:
+def _face_detailer(add, fd: dict, defaults: dict, image, model, clip, vae, seed: int,
+                   positive: str, negative: str) -> list:
+    """FaceDetailer + 얼굴 탐지 모델 + 얼굴 프롬프트 노드를 넣고 보정된 IMAGE 링크를 돌려준다."""
+    face_positive = str(fd.get("positive") or "").strip() or positive
+    if not face_positive:
+        raise WorkflowBuildError("얼굴 긍정 프롬프트를 입력해야 해요.")
+    face_negative = str(fd.get("negative") or "").strip() or negative
+    pos_id = add("CLIPTextEncode", {"text": face_positive, "clip": clip}, "Face Detailer 긍정")
+    neg_id = add("CLIPTextEncode", {"text": face_negative, "clip": clip}, "Face Detailer 부정")
+    detector_id = add("UltralyticsDetectorProvider", {"model_name": FACE_DETECTOR_MODEL}, "얼굴 탐지 모델")
+    v = {**FACE_DETAILER_COMMON, **defaults}
+    fd_id = add(
+        "FaceDetailer",
+        {
+            "image": image, "model": model, "clip": clip, "vae": vae,
+            "guide_size": _int(fd.get("guide_size"), "guide_size", default=v["guide_size"], minimum=64),
+            "guide_size_for": True,
+            "max_size": _int(fd.get("max_size"), "max_size", default=v["max_size"], minimum=64),
+            "seed": seed,
+            "steps": _int(fd.get("steps"), "얼굴 스텝", default=v["steps"], minimum=1),
+            "cfg": _float(fd.get("cfg"), "얼굴 CFG", default=v["cfg"], minimum=0),
+            "sampler_name": str(fd.get("sampler_name") or v["sampler_name"]).strip(),
+            "scheduler": str(fd.get("scheduler") or v["scheduler"]).strip(),
+            "positive": [pos_id, 0], "negative": [neg_id, 0],
+            "denoise": _float(fd.get("denoise"), "얼굴 denoise", default=v["denoise"], minimum=0.0, maximum=1.0),
+            "feather": _int(fd.get("feather"), "feather", default=v["feather"], minimum=0),
+            "noise_mask": True, "force_inpaint": True,
+            "bbox_threshold": _float(fd.get("bbox_threshold"), "bbox_threshold", default=v["bbox_threshold"],
+                                     minimum=0.0, maximum=1.0),
+            "bbox_dilation": _int(fd.get("bbox_dilation"), "bbox_dilation", default=v["bbox_dilation"]),
+            "bbox_crop_factor": _float(fd.get("bbox_crop_factor"), "bbox_crop_factor",
+                                       default=v["bbox_crop_factor"], minimum=1.0),
+            # sam_*·wildcard·inpaint_model·tiled_*는 첨부 워크플로우 값으로 고정한다(SAM은 안 쓴다).
+            "sam_detection_hint": "center-1", "sam_dilation": 0, "sam_threshold": 0.93,
+            "sam_bbox_expansion": 0, "sam_mask_hint_threshold": 0.7, "sam_mask_hint_use_negative": "False",
+            "drop_size": _int(fd.get("drop_size"), "drop_size", default=v["drop_size"], minimum=1),
+            "bbox_detector": [detector_id, 0],
+            "wildcard": "",
+            "cycle": _int(fd.get("cycle"), "cycle", default=v["cycle"], minimum=1),
+            "inpaint_model": False,
+            "noise_mask_feather": _int(fd.get("noise_mask_feather"), "noise_mask_feather",
+                                       default=v["noise_mask_feather"], minimum=0),
+            "tiled_encode": False, "tiled_decode": False,
+        },
+        "Face Detailer",
+    )
+    return [fd_id, 0]
+
+
+def build_workflow(spec: dict, loader=_checkpoint_loader, face_defaults: dict = FACE_DETAILER_DEFAULTS) -> dict:
     """스펙(dict)으로 ComfyUI API 형식 워크플로우(dict)를 만든다. loader는 모델 로더 노드를
     넣고 (model, clip, vae) 링크를 돌려준다 — 그 뒤 조립은 로더 형태와 상관없이 같다
     (UNet+CLIP+VAE형은 workflow_builder_unet.py가 자기 로더를 넘긴다)."""
@@ -128,11 +200,14 @@ def build_workflow(spec: dict, loader=_checkpoint_loader) -> dict:
         raise WorkflowBuildError("스펙이 JSON 객체가 아니에요.")
 
     base = str(spec.get("base") or "txt2img").strip()
-    if base not in ("txt2img", "img2img"):
-        raise WorkflowBuildError(f"base 값 '{base}'은(는) txt2img/img2img 중 하나여야 해요.")
+    if base not in ("txt2img", "img2img", "face_detailer"):
+        raise WorkflowBuildError(f"base 값 '{base}'은(는) txt2img/img2img/face_detailer 중 하나여야 해요.")
+    face_detailer = spec.get("face_detailer") or {}
+    if not isinstance(face_detailer, dict):
+        raise WorkflowBuildError("face_detailer는 객체여야 해요.")
 
     positive = str(spec.get("positive") or "").strip()
-    if not positive:
+    if not positive and base != "face_detailer":  # face_detailer는 얼굴 프롬프트만 있어도 된다
         raise WorkflowBuildError("긍정 프롬프트를 입력해야 해요.")
     negative = str(spec.get("negative") if spec.get("negative") is not None else DEFAULT_NEGATIVE)
 
@@ -178,6 +253,14 @@ def build_workflow(spec: dict, loader=_checkpoint_loader) -> dict:
         )
         model_src = [lora_id, 0]
         clip_src = [lora_id, 1]
+
+    if base == "face_detailer":
+        # 기존 이미지 1장 → 얼굴 보정 → 저장. 파일명은 img2img처럼 실행 시점에 템플릿이 넣는다.
+        image_id = add("LoadImage", {"image": ""}, "input_image")
+        result_image = _face_detailer(add, face_detailer, face_defaults, [image_id, 0], model_src, clip_src,
+                                      vae_src, seed, positive, negative)
+        add("SaveImage", {"filename_prefix": filename_prefix, "images": result_image}, "Save Image")
+        return workflow
 
     # 프롬프트 — 긍정 노드 제목은 반드시 "main_prompt"를 포함해야 한다(위 모듈 설명 참고).
     positive_id = add("CLIPTextEncode", {"text": positive, "clip": clip_src}, "main_prompt")
@@ -241,6 +324,10 @@ def build_workflow(spec: dict, loader=_checkpoint_loader) -> dict:
 
     decode_id = add("VAEDecode", {"samples": result_latent, "vae": vae_src}, "VAE 디코드")
     result_image = [decode_id, 0]
+
+    if face_detailer.get("enabled"):
+        result_image = _face_detailer(add, face_detailer, face_defaults, result_image, model_src, clip_src,
+                                      vae_src, seed, positive, negative)
 
     usdu = spec.get("usdu") or {}
     if isinstance(usdu, dict) and usdu.get("enabled"):
