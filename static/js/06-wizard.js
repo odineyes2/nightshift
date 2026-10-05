@@ -132,12 +132,15 @@ document.getElementById('wizard-family-modal-body').addEventListener('click', (e
   }
   if(wizard.familyId !== familyId){
     // family가 바뀌면 이전 단계에서 고른 워크플로우 유형/LoRA는 더 이상 호환을
-    // 보장할 수 없으니 함께 초기화한다.
-    wizard.base = null;
+    // 보장할 수 없으니 함께 초기화한다. 단, 라이트박스에서 연 Face Detailer 유형은
+    // 이 family에서 쓸 수 있으면(체크포인트형·UNet+CLIP+VAE형) 그대로 둔다.
+    const keepFaceDetailer = wizardPendingInputImage && wizard.base === 'face_detailer'
+      && (family.kind !== 'diffusion_models' || !!family.unet_image);
+    wizard.base = keepFaceDetailer ? 'face_detailer' : null;
     wizard.post = freshWizardPost();
     wizard.preset = null;
     wizard.loras = [];
-    wizard.batchMode = null;
+    wizard.batchMode = keepFaceDetailer ? 'seed' : null;
   }
   wizard.familyId = familyId;
   wizard.checkpoint = checkpoint;
@@ -612,6 +615,12 @@ async function wizardApply(){
     }
   }
 
+  // 라이트박스 "Face Detailer"로 열었으면 그 이미지를 참조 이미지로 채운다.
+  if(wizardPendingInputImage && wizard.base === 'face_detailer'){
+    const inputEl = optionsFields.querySelector('[data-name="input_image"]');
+    if(inputEl) inputEl.value = wizardPendingInputImage;
+  }
+
   setLoraTriggerField(wizard.loras.map(l => l.name));
   setQualityPromptField((baseModelFamilies[wizard.familyId] || {}).label);
   lastWizardModels = { checkpoint: wizard.checkpoint, loras: wizard.loras.map(l => l.name) };
@@ -717,6 +726,27 @@ document.getElementById('new-job-tab-select').addEventListener('click', () => {
 });
 document.getElementById('new-job-tab-details').addEventListener('click', goToNewJobDetails);
 document.getElementById('new-job-next-btn').addEventListener('click', goToNewJobDetails);
+
+// 라이트박스 "Face Detailer" 버튼 — 입력 이미지 풀에 둔 사본(stored)을 참조 이미지로 기억하고, 마법사를
+// Face Detailer 유형·시드 반복으로 채운 채 1단계(베이스 모델) 고르기를 연다. 이미지 하나라 시드 반복이 맞다.
+// 참조 이미지 칸은 "다음"을 눌러 wizardApply가 폼을 그릴 때 채워진다.
+let wizardPendingInputImage = null;
+async function startFaceDetailerWizard(stored){
+  document.getElementById('load-error').textContent = '';
+  openNewJobModal();
+  resetWizardAndWorkflow();
+  resetForm();
+  wizardPendingInputImage = stored;
+  wizard.base = 'face_detailer';
+  wizard.batchMode = 'seed';
+  try{ await fetchWorkflowTypes(); }catch(e){ /* 유형 이름 없이도 진행한다 */ }
+  newJobActiveTab = 'select';
+  wizardUpdateStepButtons();
+  document.getElementById('load-notice').textContent =
+    `'${stored}'을(를) Face Detailer 참조 이미지로 골랐어요. 베이스 모델을 고르고 "다음"을 누르세요.`;
+  await openWizardFamilyModal();
+}
+document.getElementById('wizard-reset-btn').addEventListener('click', () => { wizardPendingInputImage = null; });
 
 // 베이스 모델별 Face Detailer 기본값(GET /api/face-detailer-defaults)으로 spec.face_detailer를 만든다.
 async function faceDetailerSpec(familyId, architecture){
