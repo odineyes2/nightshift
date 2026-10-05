@@ -99,6 +99,12 @@ WORKFLOW_TYPES = {
         {"id": "usdu", "label": "Ultimate SD Upscale", "requires_node": "UltimateSDUpscaleNoUpscale",
          "applies_to_base": ["txt2img", "img2img"]},
     ],
+    # pre — 프롬프트를 생성 전에 다듬는 전처리, 0개 이상. requires_model이 그 파드의 model_kind
+    # 목록에 없으면 /api/enhance-prompt가 409(model_missing)로 돌려준다(모델 탭에서 받는다).
+    "pre": [
+        {"id": "prompt_enhance", "label": "Prompt Enhance",
+         "requires_model": "Huihui-qwen3vl_4b_fp8_scaled.safetensors", "model_kind": "text_encoders"},
+    ],
     "preset": [
         {
             "id": "openpose_cn", "label": "OpenPose ControlNet", "ref_kind": "pose",
@@ -325,7 +331,11 @@ async def enhance_prompt(request: Request):
     if not prompt:
         raise HTTPException(400, "개선할 프롬프트를 입력하세요.")
     mode = data.get("mode") if data.get("mode") in ("natural", "danbooru") else "natural"
-    enhanced = await asyncio.to_thread(_enhance_prompt_sync, prompt, mode)
+    if await asyncio.to_thread(lambda: enhancer_model_missing(object_info_pod(data.get("pod_id")))):
+        return JSONResponse(status_code=409, content={
+            "error": "model_missing", "kind": "text_encoders", "model": ENHANCER_MODEL,
+            "detail": f"이 파드에 텍스트 인코더 {ENHANCER_MODEL}가 없어요. 모델 탭에서 받아 주세요."})
+    enhanced =await asyncio.to_thread(_enhance_prompt_sync, prompt, mode)
     return {"enhanced": enhanced}
 
 

@@ -53,6 +53,20 @@ def _enhancer_extract_text(history_entry: dict, node_id: str) -> str | None:
     return None
 
 
+ENHANCER_MODEL = "Huihui-qwen3vl_4b_fp8_scaled.safetensors"   # prompt_enhancer.json의 CLIPLoader가 쓰는 텍스트 인코더
+
+
+def enhancer_model_missing(pod: dict | None = None) -> bool:
+    """그 파드의 텍스트 인코더 목록에 ENHANCER_MODEL이 없으면 True. 파드에 못 물어보면(꺼짐 등) 판단하지 않고 False."""
+    try:
+        _, info = fetch_comfy_object_info(False, pod)
+    except Exception:
+        return False
+    if info is None:
+        return False
+    return ENHANCER_MODEL not in combo_choices(info, *MODEL_LIST_SOURCES["text_encoders"])
+
+
 def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
     """ComfyUI에 prompt_enhancer.json 워크플로우를 제출하고 완료될 때까지 동기적으로
     기다린 뒤 개선된 프롬프트 문자열을 돌려준다. mode가 "danbooru"면 자연어로 다듬은
