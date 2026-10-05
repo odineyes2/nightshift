@@ -136,7 +136,10 @@ def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
         gid = base_id(e["base_model"])
         if not gid:
             continue
-        g = groups.setdefault(gid, {"label": e["base_model"], "kind": e["kind"], "checkpoints": []})
+        # prompt_style: 전처리(Prompt Enhance)가 모드를 자동으로 고르는 기준. UNet 기반 family(krea.2/MiniMax-H3)는
+        # 자연어, 체크포인트 기반(SDXL 계열)은 Danbooru 태그로 본다.
+        g = groups.setdefault(gid, {"label": e["base_model"], "kind": e["kind"], "checkpoints": [],
+                                    "prompt_style": "danbooru" if e["kind"] == "checkpoints" else "natural"})
         g["checkpoints"].append(e["filename"])
     return dict(sorted(groups.items(), key=lambda kv: kv[1]["label"].lower()))
 
