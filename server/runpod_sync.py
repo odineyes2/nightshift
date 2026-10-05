@@ -59,7 +59,7 @@ def sync_runpod_pods(owner_id: int, dry_run: bool, ensure_runtime_fn, job_has_ru
 
     running_by_id = {
         p["id"]: p for p in pods
-        if p["status"] == "RUNNING" and f"{comfy_port}/http" in p["ports"]
+        if runpod_api.is_on(p["status"]) and f"{comfy_port}/http" in p["ports"]
     }
 
     with pod_registry._lock:
@@ -138,7 +138,7 @@ def _log_sessions(pods: list[dict]) -> None:
     for p in pods:
         gpu_type = runpod_api.get_gpu_type_cached(p["id"]) or ""
         runpod_sessions.sync_pod_session(
-            p["id"], p["name"], gpu_type, p.get("cost_per_hr"), p["status"] == "RUNNING",
+            p["id"], p["name"], gpu_type, p.get("cost_per_hr"), runpod_api.is_on(p["status"]),
             p.get("last_started_at"), p.get("last_status_change"), worker_name=names.get(p["id"]))
     runpod_sessions.close_missing([p["id"] for p in pods])   # 지운 pod의 열린 세션
 

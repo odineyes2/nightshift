@@ -5,7 +5,14 @@ import os
 import sys
 import urllib.error
 import urllib.parse
+import tempfile
 
+tmp = tempfile.mkdtemp()
+for k in ("DATA", "OUTPUT", "ASSETS"):
+    os.environ[f"NIGHTSHIFT_{k}_DIR"] = os.path.join(tmp, k.lower())
+os.environ.setdefault("NIGHTSHIFT_ADMIN_USER", "admin")
+os.environ.setdefault("NIGHTSHIFT_ADMIN_PASSWORD", "Test-Passw0rd-xyz!")
+os.environ.pop("NIGHTSHIFT_PUBLIC_URL", None)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
 import runpod_api as R  # noqa: E402
 
@@ -110,4 +117,55 @@ assert pod is None and len(calls) == 4 * len(gpus) and not queue
 # 코드에 v1 흔적이 없다
 src = open(R.__file__, encoding="utf-8").read()
 assert "rest.runpod.io" not in src and "desiredStatus" not in src
+
+# --- 호출부(NS-33-2): STARTING은 켜짐(과금 중), EXITED면 세션을 동기화 시각으로 닫는다 ---
+import asyncio  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "server"))
+import app as A  # noqa: E402
+
+S = A.runpod_sessions
+assert S._parse_runpod_dt("2026-03-13T20:00:00Z") == "2026-03-13T20:00:00+00:00"
+assert S._parse_runpod_dt("2026-09-23 03:38:26.551 +0000 UTC") == "2026-09-23T03:38:26.551000+00:00"
+assert S._parse_runpod_dt("garbage") is None
+
+starting = {"id": "st1", "name": "nightshift-x", "status": "STARTING", "ports": ["8188/http"], "cost_per_hr": 0.3,
+            "last_started_at": None, "last_status_change": None, "network_volume_id": None, "image": "img"}
+R.list_runpod_pods_verbose = lambda: ([dict(starting)], None)
+R.get_gpu_type_cached = lambda pid: "NVIDIA GeForce RTX 4090"
+res = A.runpod_sync.sync_runpod_pods(1, False, lambda p: None, lambda pid: False)
+assert [a["runpod_pod_id"] for a in res["added"]] == ["st1"], res   # 자동 등록
+rows = S.list_sessions()
+assert len(rows) == 1 and rows[0]["ended_at"] is None, rows       # 세션 열기
+opened = rows[0]["started_at"]
+A.runpod_sync._log_sessions([dict(starting)])                     # startedAt이 아직 없어도 같은 세션 유지
+assert [r["started_at"] for r in S.list_sessions()] == [opened]
+
+# 대시보드 "구동 중"에 STARTING 포함, EXITED 제외
+R.list_network_volumes = lambda: ([], None)
+R.get_client_balance = lambda: (1.0, None)
+R.list_runpod_pods_verbose = lambda: ([dict(starting), dict(starting, id="ex1", status="EXITED")], None)
+d = asyncio.run(A.runpod_dashboard_api(SimpleNamespace(state=SimpleNamespace(user={"id": 1, "role": "admin"}))))
+assert [p["id"] for p in d["pods"]["items"]] == ["st1"], d
+
+# 꺼지면(EXITED, v2에는 종료 시각 없음) 세션을 이번 동기화 시각으로 닫는다
+before = datetime.now(timezone.utc)
+A.runpod_sync._log_sessions([dict(starting, status="EXITED", cost_per_hr=None)])
+row = S.list_sessions()[0]
+assert row["ended_at"] and datetime.fromisoformat(row["ended_at"]) >= before - timedelta(seconds=2), row
+
+# 부팅 감시: STARTING에서 멈춘 nightshift 파드도 시간이 지나면 지우고 다시 만든다
+w = A.pod_registry.create_pod({"kind": "comfyui", "url": "https://stk-8188.proxy.runpod.net", "name": "stk",
+                               "enabled": True, "note": "runpod:stk", "runpod_tier": "image"})
+terminated = []
+A.runpod_api.get_runpod_info = lambda url: {"status": "STARTING", "last_started_at": None}
+A.runpod_api.create_pod = lambda name, tier, env, entrypoint: ({"id": "stk2"}, None)
+A.runpod_api.terminate_pod = lambda rp: terminated.append(rp)
+A.driver_for = lambda pod: type("D", (), {"health": staticmethod(lambda p, t=None: {"ok": False})})
+A._log_runpod_sessions_quietly = lambda: None
+A.ensure_runtime = lambda pod: None
+acted = A._boot_watch_check(datetime.now(timezone.utc) + timedelta(hours=2))
+assert acted.get(w["id"]) == "retried" and "stk" in terminated, (acted, terminated)
 print("ok")
