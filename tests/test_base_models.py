@@ -1,4 +1,4 @@
-"""NS-35-1 베이스 모델 목록(DB v17)과 추가·변경·삭제. 임시 데이터 폴더만 쓴다."""
+"""NS-35-1 베이스 모델 목록(DB v17)과 추가·변경·삭제, NS-38-1 복수 베이스 모델(v18 연결 표). 임시 데이터 폴더만 쓴다."""
 import os
 import sys
 import tempfile
@@ -41,6 +41,54 @@ class BaseModelTests(unittest.TestCase):
         rest = [b["name"].lower() for b in got[13:]]
         self.assertEqual(rest, ["legacy"])   # 대소문자만 다른 값은 하나로
         self.assertEqual({b["name"]: b["count"] for b in got}["SDXL"], 1)
+        # v18: 예전 base_model 한 칸이 연결 표로 옮겨지고 사본 칸도 그대로다
+        e = R.get_entry("checkpoints", "old2.safetensors")
+        self.assertEqual((e["base_model"], e["base_models"]), ("legacy", ["legacy"]))
+        with db.connect() as conn:
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 18)
+            row = conn.execute("SELECT position, workflow_types_json, sweet_json FROM base_models WHERE name='SDXL'").fetchone()
+        self.assertEqual(tuple(row), (2, None, "{}"))
+
+    def test_shared_vae_two_bases(self):
+        R.add_base_model("Anima2")
+        R.upsert("diffusion_models", "anima2.safetensors", {"base_model": "Anima2"})
+        R.upsert("diffusion_models", "qwen.safetensors", {"base_models": ["Qwen-Image"]})
+        R.upsert("text_encoders", "te.safetensors", {"base_models": ["Anima2"]})
+        e = R.upsert("vae", "shared_vae.safetensors", {"base_models": ["Anima2", " qwen-image ", "ANIMA2", ""]})
+        self.assertEqual((e["base_model"], e["base_models"]), ("Anima2", ["Anima2", "qwen-image"]))
+        self.assertEqual(R.get_entry("vae", "shared_vae.safetensors")["base_models"], ["Anima2", "qwen-image"])
+        self.assertEqual(R.unet_image_parts("anima2")["vae"], "shared_vae.safetensors")
+        self.assertEqual(R.unet_image_parts("qwen-image")["vae"], "shared_vae.safetensors")
+        g = R.checkpoint_groups()
+        self.assertEqual(g["anima2"]["unet_image"], {"clip": "te.safetensors", "vae": "shared_vae.safetensors"})
+        self.assertEqual(g["qwen-image"]["unet_image_missing"], ["clip"])
+        # 체크포인트 하나가 두 계열 모두에 들어간다
+        R.upsert("checkpoints", "both.safetensors", {"base_models": ["SDXL", "Pony"]})
+        g = R.checkpoint_groups()
+        self.assertIn("both.safetensors", g["sdxl"]["checkpoints"])
+        self.assertIn("both.safetensors", g["pony"]["checkpoints"])
+        # LoRA base_ids
+        R.upsert("loras", "l.safetensors", {"base_models": ["Anima2", "Qwen-Image"], "trigger_keyword": "t"})
+        t = R.lora_triggers()["l.safetensors"]
+        self.assertEqual((t["base_id"], t["base_ids"]), ("anima2", ["anima2", "qwen-image"]))
+        # 사용 수·이름 변경·삭제 거부
+        counts = {b["name"]: b["count"] for b in R.list_base_models()}
+        self.assertEqual(counts["Anima2"], 4)
+        R.rename_base_model("Anima2", "Anima3")
+        self.assertEqual(R.get_entry("vae", "shared_vae.safetensors")["base_models"], ["Anima3", "qwen-image"])
+        self.assertEqual(R.lora_triggers()["l.safetensors"]["base_ids"], ["anima3", "qwen-image"])
+        with self.assertRaises(R.RegistryError) as cm:
+            R.delete_base_model("Anima3")
+        self.assertIn("4개", str(cm.exception))
+        # 하나만 빼면 나머지는 남고, 다 빼면 다른 정보가 없을 때 행이 사라진다
+        e = R.upsert("vae", "shared_vae.safetensors", {"base_models": ["qwen-image"]})
+        self.assertEqual(e["base_models"], ["qwen-image"])
+        self.assertIsNone(R.upsert("vae", "shared_vae.safetensors", {"base_models": []}))
+        with db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM model_base_models WHERE filename='shared_vae.safetensors'")
+                             .fetchone()[0], 0)
+        with self.assertRaises(R.RegistryError):
+            R.upsert("vae", "x.safetensors", {"base_models": "SDXL"})
 
     def test_add_and_duplicate(self):
         R.add_base_model("  NewBase ")
