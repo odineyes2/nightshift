@@ -195,8 +195,10 @@ function renderWizardTypeModal(){
     if(t.checkpoint_match && !variant.unknown && !variant.has(t.checkpoint_match)) return false;
     if(t.family_id) return true;
     // 단, 서버가 unet_image(텍스트 인코더·VAE)를 붙여 준 family(예: Anima)는 범용 UNet 빌더로 돈다.
-    return !currentFamily || currentFamily.kind !== 'diffusion_models' || !!currentFamily.unet_image;
+    // 부품이 모자란 family(unet_image_missing)는 숨기지 않고 비활성 줄로 보여 이유를 안내한다.
+    return !currentFamily || currentFamily.kind !== 'diffusion_models' || !!currentFamily.unet_image || !!currentFamily.unet_image_missing;
   });
+  const unetMissing = (currentFamily && currentFamily.kind === 'diffusion_models' && !currentFamily.unet_image && currentFamily.unet_image_missing) || null;
   const posts = (catalog.post || []).filter(t => !t.applies_to_base || t.applies_to_base.includes(wizard.base));
   // preset 유형(ControlNet/IPAdapter)은 이 family용 프리셋이 없으면 골라봤자 실행할
   // 워크플로우가 없으므로 아예 목록에서 숨긴다(LoRA 호환성 필터링과 같은 원칙).
@@ -235,8 +237,9 @@ function renderWizardTypeModal(){
            <label>높이<input type="number" class="option-input wizard-t2v-height-input" value="${wizard.t2vHeight}" min="64" step="16" title="영상 높이(참조 이미지가 없어 직접 정함)"></label>
          </div>`
       : '';
+    const partsMissing = unetMissing && !t.family_id;
     return `
-    <div class="wizard-pick-row${selected ? ' selected' : ''}" data-group="base" data-type-id="${escapeHtml(t.id)}">
+    <div class="wizard-pick-row${selected ? ' selected' : ''}${partsMissing ? ' disabled' : ''}" data-group="base" data-type-id="${escapeHtml(t.id)}">
       <div class="wizard-pick-row-label">${escapeHtml(t.label)}</div>
       ${extra}
     </div>`;
@@ -277,8 +280,13 @@ function renderWizardTypeModal(){
   const variantHint = variant.unknown
     ? `<div class="email-hint">고른 모델이 ${familyVariants.join('/')} 중 어느 계열인지 파일 이름으로 알 수 없어서 모든 유형을 보여 줘요. "모델" 탭에서 이 모델의 태그에 ${familyVariants.join(' 또는 ')}을(를) 적어 두면 맞는 유형만 보여요.</div>`
     : '';
+  const partNames = { clip: '텍스트 인코더', vae: 'VAE' };
+  const unetMissingHint = unetMissing
+    ? `<div class="email-hint">${unetMissing.map(k => partNames[k] || k).join('/')}가 정해지지 않았어요 — "모델" 탭에서 그 파일의 베이스 모델을 ${escapeHtml(currentFamily.label || wizard.familyId)}(으)로 지정해 주세요.</div>`
+    : '';
   body.innerHTML = `
     ${variantHint}
+    ${unetMissingHint}
     <div class="wizard-pick-section-title">베이스 (하나 선택)</div>
     <div class="wizard-pick-list">${baseRows}</div>
     <div class="wizard-pick-section-title">후처리 <span class="wizard-pick-row-hint">— 여러 개 함께 켤 수 있어요(베이스를 먼저 고르세요)</span></div>
