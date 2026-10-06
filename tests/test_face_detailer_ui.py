@@ -25,6 +25,10 @@ def main():
     assert "setFaceDetailerFieldsVisible(workflowHasFaceDetailer(parsed))" in src
     assert "spec.face_detailer.enabled = true" in src
     assert "face_detailer: false" in MODELS.read_text(encoding="utf-8")
+    # NS-36-2: 부품이 모자란 UNet family는 범용 베이스를 숨기지 않고 비활성 줄+안내로 보인다
+    assert "!!currentFamily.unet_image_missing" in src
+    assert "partsMissing ? ' disabled' : ''" in src
+    assert "unetMissingHint" in src and "베이스 모델을" in src
 
     css = CSS.read_text(encoding="utf-8")
     assert '#options-fields:not(.has-face-detailer) .field:has([data-name="face_prompt"]' in css
