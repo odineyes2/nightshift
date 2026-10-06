@@ -181,19 +181,22 @@ def lora_triggers() -> dict[str, dict]:
 # 전용 빌더를 쓰거나(krea.2·MiniMax-H3) 영상 모델(Wan)이라 범용 UNet 이미지 빌더 대상이 아닌 family.
 UNET_IMAGE_EXCLUDED = ("krea.2", "minimax-h3")
 UNET_IMAGE_EXCLUDED_PREFIXES = ("wan",)
+# 등록부에 같은 베이스 모델로 지정된 부품이 없을 때 쓰는 family별 기본 파일(출처: huggingface.co/circlestone-labs/Anima).
+# 공유 VAE처럼 다른 베이스 모델로 등록된 파일도 쓸 수 있게 한다. 등록부 지정이 언제나 우선이다.
+KNOWN_UNET_IMAGE_PARTS = {"anima": {"clip": "qwen_3_06b_base.safetensors", "vae": "qwen_image_vae.safetensors"}}
 
 
 def unet_image_parts(gid: str) -> dict | None:
-    """diffusion_models family가 범용 UNet+CLIP+VAE 이미지 빌더(workflow_builder_unet.py)로 돌 수 있으면
-    {clip, vae}(같은 베이스 모델로 등록된 텍스트 인코더·VAE 파일 하나씩)를, 아니면 None을 돌려준다.
-    제외 family이거나 텍스트 인코더·VAE 중 하나라도 등록돼 있지 않으면 None이다."""
+    """diffusion_models family가 범용 UNet+CLIP+VAE 이미지 빌더(workflow_builder_unet.py)에 쓸 부품
+    {clip, vae}를 돌려준다. 같은 베이스 모델로 등록된 텍스트 인코더·VAE 파일을 먼저 쓰고, 없는 부품은
+    KNOWN_UNET_IMAGE_PARTS로 채운다. 그래도 모자라면 찾은 것만 담긴다. 제외 family는 None이다."""
     if not gid or gid in UNET_IMAGE_EXCLUDED or gid.startswith(UNET_IMAGE_EXCLUDED_PREFIXES):
         return None
     found: dict[str, str] = {}
     for e in list_entries():
         if e["kind"] in ("text_encoders", "vae") and base_id(e["base_model"]) == gid:
             found.setdefault("clip" if e["kind"] == "text_encoders" else "vae", e["filename"])
-    return found if len(found) == 2 else None
+    return {**KNOWN_UNET_IMAGE_PARTS.get(gid, {}), **found}
 
 
 def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
@@ -216,8 +219,13 @@ def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
                                     "prompt_style": "danbooru" if e["kind"] == "checkpoints" else "natural"})
         g["checkpoints"].append(e["filename"])
     for gid, g in groups.items():
-        parts = unet_image_parts(gid)
-        if g["kind"] == "diffusion_models" and parts:
+        parts = unet_image_parts(gid) if g["kind"] == "diffusion_models" else None
+        if parts is None:
+            continue
+        missing = [k for k in ("clip", "vae") if k not in parts]
+        if missing:  # 마법사가 범용 베이스를 숨기지 않고 무엇이 빠졌는지 안내한다
+            g["unet_image_missing"] = missing
+        else:
             g["unet_image"] = parts
     return dict(sorted(groups.items(), key=lambda kv: kv[1]["label"].lower()))
 
