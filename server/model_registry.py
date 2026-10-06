@@ -6,7 +6,8 @@ ComfyUI의 /object_info는 "설치된 파일 이름"만 준다. 그 파일이 �
 DB(models 테이블)에 둔다. 파드와 무관한 기준 데이터다 — 어느 파드에 그 파일이 있는지는 상관없고,
 어느 파드에서든 이 정보를 보고 모델을 받거나 트리거 키워드를 쓴다. 파일이 실제로 놓이는 곳만 파드다.
 
-필드: base_model(베이스 모델 — 새 작업 마법사가 이 값으로 체크포인트를 묶고 LoRA를 걸러낸다), page_url(소개 페이지),
+필드: base_models(소속 베이스 모델 목록, 연결 표 model_base_models — 새 작업 마법사가 이 값으로 체크포인트를 묶고
+LoRA를 걸러낸다. base_model은 그 첫 값으로 호환용), page_url(소개 페이지),
 download_url(파일 받을 주소), trigger_keyword(LoRA), tags, notes.
 
 정보를 하나도 안 채운 항목은 행을 만들지 않는다(비우면 지운다).
@@ -40,7 +41,7 @@ NODEPACK_DIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 MAX_TEXT = 4000
 MAX_LIST = 50
-FIELDS = ("base_model", "notes", "tags", "trigger_keyword", "page_url", "download_url")
+FIELDS = ("base_model", "base_models", "notes", "tags", "trigger_keyword", "page_url", "download_url")
 
 
 def base_id(base_model: str) -> str:
@@ -90,11 +91,24 @@ def _clean_list(value, field: str) -> list[str]:
     return out
 
 
-def _row_to_entry(row) -> dict:
+def _links(conn, kind: str | None = None, filename: str | None = None) -> dict[tuple, list[str]]:
+    """{(kind, filename): [베이스 모델, ...]} — 연결 표(model_base_models, db.py v18)를 순서대로 읽는다."""
+    sql, args = "SELECT kind, filename, base_model FROM model_base_models", ()
+    if kind is not None:
+        sql, args = sql + " WHERE kind=? AND filename=?", (kind, filename)
+    out: dict[tuple, list[str]] = {}
+    for r in conn.execute(sql + " ORDER BY position, rowid", args).fetchall():
+        out.setdefault((r["kind"], r["filename"]), []).append(r["base_model"])
+    return out
+
+
+def _row_to_entry(row, links: dict) -> dict:
+    bases = links.get((row["kind"], row["filename"]), [])
     return {
         "kind": row["kind"],
         "filename": row["filename"],
-        "base_model": row["base_model"],
+        "base_model": bases[0] if bases else "",   # 호환용 — 첫 번째 베이스 모델
+        "base_models": bases,
         "notes": row["notes"],
         "tags": json.loads(row["tags_json"] or "[]"),
         "trigger_keyword": row["trigger_keyword"],
@@ -107,21 +121,22 @@ def _row_to_entry(row) -> dict:
 def list_entries() -> list[dict]:
     with db.connect() as conn:
         rows = conn.execute("SELECT * FROM models ORDER BY kind, filename COLLATE NOCASE").fetchall()
-    return [_row_to_entry(r) for r in rows]
+        links = _links(conn)
+    return [_row_to_entry(r, links) for r in rows]
 
 
 def get_entry(kind: str, filename: str) -> dict | None:
     with db.connect() as conn:
         row = conn.execute("SELECT * FROM models WHERE kind=? AND filename=?", (kind, filename)).fetchone()
-    return _row_to_entry(row) if row else None
+        return _row_to_entry(row, _links(conn, kind, filename)) if row else None
 
 
 # 베이스 모델 목록(base_models 표, db.py v17) — 화면의 베이스 모델 선택지. 이름은 대소문자 무시로 하나뿐이다.
 def list_base_models() -> list[dict]:
-    """[{name, count}] — count는 그 이름(대소문자 무시)을 쓰는 등록부 항목 수."""
+    """[{name, count}] — count는 그 이름(대소문자 무시)에 속한 등록부 항목 수."""
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT b.name, (SELECT COUNT(*) FROM models m WHERE m.base_model = b.name COLLATE NOCASE) AS count "
+            "SELECT b.name, (SELECT COUNT(*) FROM model_base_models l WHERE l.base_model = b.name) AS count "
             "FROM base_models b ORDER BY b.position, b.name COLLATE NOCASE").fetchall()
     return [{"name": r["name"], "count": r["count"]} for r in rows]
 
@@ -144,7 +159,7 @@ def add_base_model(name) -> str:
 
 
 def rename_base_model(old, new) -> str:
-    """목록 이름과 그 이름을 쓰는 등록부 항목의 base_model을 한 트랜잭션에서 함께 바꾼다."""
+    """목록 이름과 그 이름에 속한 연결(과 models.base_model 사본)을 한 트랜잭션에서 함께 바꾼다."""
     old, new = _clean_base_name(old), _clean_base_name(new)
     with db.connect() as conn:
         if not conn.execute("SELECT 1 FROM base_models WHERE name=?", (old,)).fetchone():
@@ -152,6 +167,9 @@ def rename_base_model(old, new) -> str:
         if old.lower() != new.lower() and conn.execute("SELECT 1 FROM base_models WHERE name=?", (new,)).fetchone():
             raise RegistryError(f"'{new}'은(는) 이미 있어요.")
         conn.execute("UPDATE base_models SET name=? WHERE name=?", (new, old))
+        # 목록 밖 값으로 이미 new에도 묶인 항목은 겹치지 않게 old 연결만 지운다
+        conn.execute("UPDATE OR IGNORE model_base_models SET base_model=? WHERE base_model=?", (new, old))
+        conn.execute("DELETE FROM model_base_models WHERE base_model=? AND base_model<>?", (old, new))
         conn.execute("UPDATE models SET base_model=?, updated_at=? WHERE base_model=? COLLATE NOCASE",
                      (new, db.now_iso(), old))
     return new
@@ -163,18 +181,20 @@ def delete_base_model(name) -> None:
     with db.connect() as conn:
         if not conn.execute("SELECT 1 FROM base_models WHERE name=?", (name,)).fetchone():
             raise RegistryError(f"'{name}'은(는) 목록에 없어요.")
-        used = conn.execute("SELECT COUNT(*) FROM models WHERE base_model=? COLLATE NOCASE", (name,)).fetchone()[0]
+        used = conn.execute("SELECT COUNT(*) FROM model_base_models WHERE base_model=?", (name,)).fetchone()[0]
         if used:
             raise RegistryError(f"모델 {used}개가 '{name}'을(를) 쓰고 있어요. 그 모델들의 베이스 모델을 먼저 바꿔 주세요.")
         conn.execute("DELETE FROM base_models WHERE name=?", (name,))
 
 
 def lora_triggers() -> dict[str, dict]:
-    """{파일명: {trigger, base_id}} — 마법사/워크플로우 탭이 쓴다. base_id가 비어 있으면 어떤 베이스 모델에나 보인다."""
+    """{파일명: {trigger, base_id, base_ids}} — 마법사/워크플로우 탭이 쓴다. base_ids가 비어 있으면 어떤 베이스
+    모델에나 보인다. base_id(첫 값)는 예전 화면 호환용이다."""
     out = {}
     for e in list_entries():
-        if e["kind"] == "loras" and (e["trigger_keyword"] or e["base_model"]):
-            out[e["filename"]] = {"trigger": e["trigger_keyword"], "base_id": base_id(e["base_model"])}
+        if e["kind"] == "loras" and (e["trigger_keyword"] or e["base_models"]):
+            ids = [base_id(b) for b in e["base_models"]]
+            out[e["filename"]] = {"trigger": e["trigger_keyword"], "base_id": ids[0] if ids else "", "base_ids": ids}
     return out
 
 
@@ -194,30 +214,31 @@ def unet_image_parts(gid: str) -> dict | None:
         return None
     found: dict[str, str] = {}
     for e in list_entries():
-        if e["kind"] in ("text_encoders", "vae") and base_id(e["base_model"]) == gid:
+        if e["kind"] in ("text_encoders", "vae") and gid in {base_id(b) for b in e["base_models"]}:
             found.setdefault("clip" if e["kind"] == "text_encoders" else "vae", e["filename"])
     return {**KNOWN_UNET_IMAGE_PARTS.get(gid, {}), **found}
 
 
 def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
-    """마법사 1단계용 — base_model이 있는 체크포인트/디퓨전 모델(UNet)을 그 값으로 묶는다:
+    """마법사 1단계용 — 체크포인트/디퓨전 모델(UNet)을 소속된 베이스 모델마다 묶는다(여럿이면 모두에 들어간다):
     {id: {label, kind, checkpoints}}. kind는 "checkpoints"(CheckpointLoaderSimple 조립) 또는
     "diffusion_models"(UNETLoader 기반 — krea.2/MiniMax-H3처럼 전용 빌더가 조립하는 family).
     installed를 주면 그 안에 있는(=실제로 쓸 수 있는) 파일만 남긴다."""
     groups: dict[str, dict] = {}
     for e in list_entries():
-        if e["kind"] not in ("checkpoints", "diffusion_models") or not e["base_model"]:
+        if e["kind"] not in ("checkpoints", "diffusion_models"):
             continue
         if installed is not None and e["filename"] not in installed:
             continue
-        gid = base_id(e["base_model"])
-        if not gid:
-            continue
-        # prompt_style: 전처리(Prompt Enhance)가 모드를 자동으로 고르는 기준. UNet 기반 family(krea.2/MiniMax-H3)는
-        # 자연어, 체크포인트 기반(SDXL 계열)은 Danbooru 태그로 본다.
-        g = groups.setdefault(gid, {"label": e["base_model"], "kind": e["kind"], "checkpoints": [],
-                                    "prompt_style": "danbooru" if e["kind"] == "checkpoints" else "natural"})
-        g["checkpoints"].append(e["filename"])
+        for base in e["base_models"]:
+            gid = base_id(base)
+            if not gid:
+                continue
+            # prompt_style: 전처리(Prompt Enhance)가 모드를 자동으로 고르는 기준. UNet 기반 family(krea.2/MiniMax-H3)는
+            # 자연어, 체크포인트 기반(SDXL 계열)은 Danbooru 태그로 본다.
+            g = groups.setdefault(gid, {"label": base, "kind": e["kind"], "checkpoints": [],
+                                        "prompt_style": "danbooru" if e["kind"] == "checkpoints" else "natural"})
+            g["checkpoints"].append(e["filename"])
     for gid, g in groups.items():
         parts = unet_image_parts(gid) if g["kind"] == "diffusion_models" else None
         if parts is None:
@@ -239,11 +260,26 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
         raise RegistryError("파일명이 올바르지 않아요.")
     with db.connect() as conn:
         row = conn.execute("SELECT * FROM models WHERE kind=? AND filename=?", (kind, filename)).fetchone()
-        current = _row_to_entry(row) if row else {
-            "base_model": "", "notes": "", "tags": [], "trigger_keyword": "",
+        current = _row_to_entry(row, _links(conn, kind, filename)) if row else {
+            "base_model": "", "base_models": [], "notes": "", "tags": [], "trigger_keyword": "",
             "page_url": "", "download_url": ""}
-        if "base_model" in fields:
-            current["base_model"] = _clean_str(fields["base_model"], "베이스 모델", 100)
+        # base_models(목록)가 우선이고, 예전처럼 base_model 문자열만 오면 [값]으로 본다.
+        if "base_models" in fields or "base_model" in fields:
+            raw = fields["base_models"] if "base_models" in fields else [fields["base_model"] or ""]
+            if raw is None:
+                raw = []
+            if not isinstance(raw, list):
+                raise RegistryError("베이스 모델은 목록이어야 해요.")
+            bases, seen = [], set()
+            for v in raw:
+                v = _clean_str(v, "베이스 모델", 100)
+                if v and v.lower() not in seen:   # 연결 표 키가 대소문자 무시라 하나로 합친다
+                    seen.add(v.lower())
+                    bases.append(v)
+            if len(bases) > MAX_LIST:
+                raise RegistryError(f"베이스 모델은 최대 {MAX_LIST}개까지예요.")
+            current["base_models"] = bases
+            current["base_model"] = bases[0] if bases else ""
         if "notes" in fields:
             current["notes"] = _clean_str(fields["notes"], "메모")
         if "tags" in fields:
@@ -278,6 +314,9 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
              json.dumps(current["tags"], ensure_ascii=False), current["trigger_keyword"],
              current["page_url"], current["download_url"], updated),
         )
+        conn.execute("DELETE FROM model_base_models WHERE kind=? AND filename=?", (kind, filename))
+        conn.executemany("INSERT INTO model_base_models(kind, filename, base_model, position) VALUES(?,?,?,?)",
+                         [(kind, filename, b, i) for i, b in enumerate(current["base_models"])])
     current.update({"kind": kind, "filename": filename, "updated_at": updated})
     return current
 

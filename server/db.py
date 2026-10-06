@@ -389,10 +389,29 @@ INSERT OR IGNORE INTO base_models(name, position, created_at)
   SELECT base_model, 100, datetime('now') FROM models WHERE base_model <> '' GROUP BY base_model COLLATE NOCASE
 """
 
+# v18: 모델 하나가 베이스 모델 여럿에 속한다(NS-38) — 연결 표로 옮긴다. models.base_model은 지우지 않고
+# "첫 번째 베이스 모델" 사본으로 계속 써 둔다(코드만 롤백해도 옛 코드가 읽을 수 있게).
+# base_models에는 베이스 모델별 워크플로우 유형 허용 목록(NULL = 자동)과 스윗 포인트 칸을 더한다.
+SCHEMA_V18 = """
+CREATE TABLE model_base_models (
+  kind       TEXT NOT NULL,
+  filename   TEXT NOT NULL,
+  base_model TEXT NOT NULL COLLATE NOCASE,
+  position   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (kind, filename, base_model),
+  FOREIGN KEY (kind, filename) REFERENCES models(kind, filename) ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX idx_model_base_models_base ON model_base_models(base_model);
+INSERT INTO model_base_models(kind, filename, base_model, position)
+  SELECT kind, filename, base_model, 0 FROM models WHERE base_model <> '';
+ALTER TABLE base_models ADD COLUMN workflow_types_json TEXT;
+ALTER TABLE base_models ADD COLUMN sweet_json TEXT NOT NULL DEFAULT '{}'
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
-              (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16), (17, SCHEMA_V17)]
+              (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16), (17, SCHEMA_V17), (18, SCHEMA_V18)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}
