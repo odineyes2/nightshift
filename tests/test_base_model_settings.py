@@ -92,6 +92,27 @@ class DetailTests(unittest.TestCase):
         self.assertIsNone(put({**body, "filename": "lone.safetensors", "member": False})[1]["entry"])
         self.assertIsNone(R.get_entry("vae", "lone.safetensors"))
 
+    def test_4_workflow_types(self):
+        def put(body, role="admin"):
+            return call(A.set_base_model_workflow_types, req(role, body))
+        families = lambda: call(A.get_base_model_families, req(), "auto")[1]
+        R.upsert("diffusion_models", "anima.safetensors", {"base_models": ["Anima"]})
+        # NULL(자동)이면 workflow_types가 None — 마법사는 지금과 같은 호환 규칙만 쓴다
+        self.assertIsNone(families()["anima"]["workflow_types"])
+        self.assertIsNone(R.base_model_detail("Anima")["workflow_types"])
+        self.assertEqual(put({"name": "Anima", "types": ["txt2img"]}, "user")[0], 403)
+        self.assertEqual(put({"name": "Anima", "types": ["nope"]})[0], 400)
+        self.assertEqual(put({"name": "Anima", "types": ["txt2img", "txt2img"]})[0], 400)
+        self.assertEqual(put({"name": "Anima", "types": "txt2img"})[0], 400)
+        self.assertEqual(put({"name": "없는이름", "types": []})[0], 400)
+        code, out = put({"name": "anima", "types": ["face_detailer", "txt2img", "hires_fix"]})
+        self.assertEqual((code, out["types"]), (200, ["face_detailer", "txt2img", "hires_fix"]))
+        self.assertEqual(families()["anima"]["workflow_types"], ["face_detailer", "txt2img", "hires_fix"])
+        self.assertEqual(R.base_model_detail("Anima")["workflow_types"], ["face_detailer", "txt2img", "hires_fix"])
+        # null로 자동으로 되돌린다
+        self.assertEqual(put({"name": "Anima", "types": None}), (200, {"types": None}))
+        self.assertIsNone(families()["anima"]["workflow_types"])
+
 
 if __name__ == "__main__":
     unittest.main()

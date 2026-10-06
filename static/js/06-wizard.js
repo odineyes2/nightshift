@@ -186,7 +186,12 @@ function renderWizardTypeModal(){
   // family_id가 없는 범용 항목(txt2img/img2img)은 체크포인트 기반(SDXL식, CheckpointLoaderSimple로
   // 조립하는 workflow_builder.py) family에서만 보인다 — krea.2/MiniMax-H3처럼 diffusion_models
   // kind(UNETLoader 기반, 전용 빌더가 조립)인 family에는 안 맞는 유형이라 숨긴다.
-  const bases = (catalog.base || []).filter(t => {
+  // Settings의 베이스 모델 세부 설정에서 유형을 직접 지정했으면 그 목록에 있는 것만 그 순서로 보인다.
+  // 아래 호환 필터는 그대로 함께 걸어 깨진 조합은 만들지 않는다. null이면 자동(호환 필터만).
+  const allowed = currentFamily && Array.isArray(currentFamily.workflow_types) ? currentFamily.workflow_types : null;
+  const allow = list => !allowed ? list
+    : list.filter(t => allowed.includes(t.id)).sort((a, b) => allowed.indexOf(a.id) - allowed.indexOf(b.id));
+  const bases = allow(catalog.base || []).filter(t => {
     if(t.family_id && t.family_id !== wizard.familyId) return false;
     // checkpoint_match: 같은 family(base_model)에 실제로 다른 역할을 하는 파일이
     // 여러 개 있을 때(예: MiniMax-H3의 fl2va/ref2va UNet) family_id만으로는 못
@@ -199,10 +204,10 @@ function renderWizardTypeModal(){
     return !currentFamily || currentFamily.kind !== 'diffusion_models' || !!currentFamily.unet_image || !!currentFamily.unet_image_missing;
   });
   const unetMissing = (currentFamily && currentFamily.kind === 'diffusion_models' && !currentFamily.unet_image && currentFamily.unet_image_missing) || null;
-  const posts = (catalog.post || []).filter(t => !t.applies_to_base || t.applies_to_base.includes(wizard.base));
+  const posts = allow(catalog.post || []).filter(t => !t.applies_to_base || t.applies_to_base.includes(wizard.base));
   // preset 유형(ControlNet/IPAdapter)은 이 family용 프리셋이 없으면 골라봤자 실행할
   // 워크플로우가 없으므로 아예 목록에서 숨긴다(LoRA 호환성 필터링과 같은 원칙).
-  const presets = (catalog.preset || []).filter(t => presetExists(wizard.familyId, t.id));
+  const presets = allow(catalog.preset || []).filter(t => presetExists(wizard.familyId, t.id));
   const nodeTypes = (comfyObjectInfoCache && comfyObjectInfoCache.connected) ? comfyObjectInfoCache.node_types : null;
 
   const baseRows = bases.map(t => {

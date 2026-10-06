@@ -146,6 +146,16 @@ async def set_base_model_member(request: Request):
     return {"entry": entry}
 
 
+@app.put("/api/base-models/workflow-types")
+async def set_base_model_workflow_types(request: Request):
+    """{name, types: [유형 id…] | null} — 마법사 2단계에 보일 유형 허용 목록(순서 포함). null이면 자동."""
+    admin_only(request)
+    data = await read_json_object(request, allow_empty=False)
+    types = _base_model_call(model_registry.set_base_workflow_types, data.get("name"), data.get("types"),
+                             workflow_type_ids())
+    return {"types": types}
+
+
 @app.delete("/api/base-models")
 def delete_base_model(request: Request, name: str):
     admin_only(request)

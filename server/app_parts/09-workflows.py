@@ -141,6 +141,11 @@ def get_workflow_types():
     return WORKFLOW_TYPES
 
 
+def workflow_type_ids() -> set[str]:
+    """베이스 모델별 허용 목록에 넣을 수 있는 유형 id — base·post·preset(전처리 pre는 계열과 무관해 늘 보인다)."""
+    return {t["id"] for g in ("base", "post", "preset") for t in WORKFLOW_TYPES[g]}
+
+
 def preset_filename(family_id: str, type_id: str) -> str:
     for value, label in ((family_id, "family_id"), (type_id, "type_id")):
         if not value or not re.fullmatch(r"[A-Za-z0-9_.-]+", value):

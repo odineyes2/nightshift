@@ -133,12 +133,36 @@ def get_entry(kind: str, filename: str) -> dict | None:
 
 # 베이스 모델 목록(base_models 표, db.py v17) — 화면의 베이스 모델 선택지. 이름은 대소문자 무시로 하나뿐이다.
 def list_base_models() -> list[dict]:
-    """[{name, count}] — count는 그 이름(대소문자 무시)에 속한 등록부 항목 수."""
+    """[{name, count, workflow_types}] — count는 그 이름(대소문자 무시)에 속한 등록부 항목 수.
+    workflow_types는 None(자동 — 마법사의 호환 규칙대로)이거나 직접 지정한 유형 id 목록(순서대로 보인다)."""
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT b.name, (SELECT COUNT(*) FROM model_base_models l WHERE l.base_model = b.name) AS count "
+            "SELECT b.name, b.workflow_types_json, "
+            "(SELECT COUNT(*) FROM model_base_models l WHERE l.base_model = b.name) AS count "
             "FROM base_models b ORDER BY b.position, b.name COLLATE NOCASE").fetchall()
-    return [{"name": r["name"], "count": r["count"]} for r in rows]
+    return [{"name": r["name"], "count": r["count"],
+             "workflow_types": None if r["workflow_types_json"] is None else json.loads(r["workflow_types_json"])}
+            for r in rows]
+
+
+def set_base_workflow_types(name, types, valid_ids) -> list[str] | None:
+    """베이스 모델의 워크플로우 유형 허용 목록을 저장한다. None이면 자동(NULL)으로 되돌린다.
+    valid_ids는 코드 카탈로그(WORKFLOW_TYPES)의 id 집합 — 그 밖의 id는 거부한다."""
+    name = _clean_base_name(name)
+    if types is not None:
+        if not isinstance(types, list) or not all(isinstance(t, str) for t in types):
+            raise RegistryError("types는 유형 id 목록이거나 null이어야 해요.")
+        unknown = [t for t in types if t not in valid_ids]
+        if unknown:
+            raise RegistryError(f"모르는 워크플로우 유형이에요: {', '.join(unknown)}")
+        if len(set(types)) != len(types):
+            raise RegistryError("같은 유형이 두 번 있어요.")
+    with db.connect() as conn:
+        cur = conn.execute("UPDATE base_models SET workflow_types_json=? WHERE name=?",
+                           (None if types is None else json.dumps(types), name))
+        if not cur.rowcount:
+            raise RegistryError(f"'{name}'은(는) 목록에 없어요.")
+    return types
 
 
 def _clean_base_name(value) -> str:
@@ -257,8 +281,9 @@ def base_model_detail(name) -> dict:
     missing: [...], dedicated: 전용 빌더/영상 family라 범용 조립 대상이 아님}. 체크포인트는 부품이 파일 안에 있어 None."""
     name = _clean_base_name(name)
     with db.connect() as conn:
-        row = conn.execute("SELECT name FROM base_models WHERE name=?", (name,)).fetchone()
+        row = conn.execute("SELECT name, workflow_types_json FROM base_models WHERE name=?", (name,)).fetchone()
     name = row["name"] if row else name   # 목록 밖 값(옛 등록부)도 소속 모델은 보여 준다
+    wtypes = json.loads(row["workflow_types_json"]) if row and row["workflow_types_json"] is not None else None
     members: dict[str, list[str]] = {}
     for e in list_entries():
         if name.lower() in (b.lower() for b in e["base_models"]):
@@ -269,7 +294,8 @@ def base_model_detail(name) -> dict:
         assembly = {"unet": members["diffusion_models"], "parts": parts or {},
                     "missing": [] if parts is None else [k for k in ("clip", "vae") if k not in parts],
                     "dedicated": parts is None}
-    return {"name": name, "listed": bool(row), "members": members, "assembly": assembly}
+    return {"name": name, "id": base_id(name), "listed": bool(row), "members": members, "assembly": assembly,
+            "workflow_types": wtypes}
 
 
 def set_base_membership(name, kind: str, filename: str, member: bool) -> dict | None:
@@ -319,7 +345,12 @@ def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
         else:
             g["unet_image"] = parts
     # 베이스 모델 목록(Settings 탭)의 position 순서. 목록 밖 값은 뒤에 이름순으로 둔다.
-    order = {base_id(b["name"]): i for i, b in enumerate(list_base_models())}
+    listed = list_base_models()
+    order = {base_id(b["name"]): i for i, b in enumerate(listed)}
+    # 워크플로우 유형 허용 목록(None = 자동). 마법사 2단계가 이 목록·순서로 좁힌다.
+    wtypes = {base_id(b["name"]): b["workflow_types"] for b in listed}
+    for gid, g in groups.items():
+        g["workflow_types"] = wtypes.get(gid)
     return dict(sorted(groups.items(), key=lambda kv: (order.get(kv[0], len(order)), kv[1]["label"].lower())))
 
 
