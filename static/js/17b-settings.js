@@ -153,6 +153,8 @@ function renderBaseModelDetail(d){
     <div class="settings-parts">${renderBaseModelAssembly(d.assembly)}</div>
     <div class="section-label">워크플로우 유형</div>
     ${renderBaseWorkflowTypes(d)}
+    <div class="section-label">스윗 포인트</div>
+    ${renderBaseSweet(d.sweet || {})}
     <div class="section-label">소속 모델</div>
     <div class="dl-meta">제외하면 이 베이스 모델과의 연결만 풀려요. 모델 정보는 지워지지 않아요(소속이 모두 없고 다른 정보도 없으면 등록부에서 빠져요).</div>
     ${groups || '<div class="dl-meta">소속 모델이 없어요</div>'}
@@ -242,6 +244,41 @@ function onBaseWorkflowTypeClick(btn){
   saveBaseWorkflowTypes(btn, list);
 }
 
+// 스윗 포인트 — 마법사가 빌더 spec(cfg·steps·sampler·negative)에 넣고, 접두어는 프롬프트 앞에 붙이고, 팁은 안내로 보여 준다.
+function renderBaseSweet(s){
+  const v = k => escapeHtml(s[k] == null ? '' : String(s[k]));
+  return `<div class="dl-meta">비운 칸은 마법사의 기본값을 써요.</div>
+    <div class="settings-bm-row">
+      <label>cfg <input type="number" class="option-input" id="base-sweet-cfg" min="0" max="100" step="0.1" value="${v('cfg')}"></label>
+      <label>steps <input type="number" class="option-input" id="base-sweet-steps" min="1" max="1000" step="1" value="${v('steps')}"></label>
+      <label>sampler <input type="text" class="option-input" id="base-sweet-sampler_name" maxlength="64" placeholder="예: euler_ancestral" value="${v('sampler_name')}"></label>
+    </div>
+    <label class="field-label" for="base-sweet-positive_prefix">추천 positive 접두어 <span class="dl-meta">프롬프트 앞에 붙어요</span></label>
+    <textarea class="option-input" id="base-sweet-positive_prefix" rows="2" maxlength="1000">${v('positive_prefix')}</textarea>
+    <label class="field-label" for="base-sweet-negative">추천 negative</label>
+    <textarea class="option-input" id="base-sweet-negative" rows="2" maxlength="2000">${v('negative')}</textarea>
+    <label class="field-label" for="base-sweet-prompt_tips">프롬프트 팁 <span class="dl-meta">마법사에 안내로 보여요</span></label>
+    <textarea class="option-input" id="base-sweet-prompt_tips" rows="3" maxlength="2000">${v('prompt_tips')}</textarea>
+    <div class="settings-bm-row"><button type="button" class="submit-btn" id="base-sweet-save">스윗 포인트 저장</button></div>`;
+}
+
+async function saveBaseSweet(btn){
+  const sweet = {};
+  for(const k of ['cfg', 'steps', 'sampler_name', 'positive_prefix', 'negative', 'prompt_tips']){
+    const val = document.getElementById(`base-sweet-${k}`).value.trim();
+    if(val) sweet[k] = (k === 'cfg' || k === 'steps') ? Number(val) : val;
+  }
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/base-models/sweet', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: baseModelModalName, sweet }) });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || `실패했어요 (${res.status})`);
+    setBaseModelModalError('');
+    await Promise.all([loadBaseModelDetail(), fetchBaseModelFamilies()]);
+  }catch(err){ setBaseModelModalError(err.message); btn.disabled = false; }
+}
+
 // 고른 종류의 등록부 항목 중 아직 소속이 아닌 것만 제안한다.
 function fillBaseMemberFiles(){
   const kind = document.getElementById('base-member-kind').value;
@@ -279,6 +316,7 @@ baseModelModal.addEventListener('click', (e) => {
   if(!btn) return;
   if(btn.id === 'base-model-modal-close') return closeBaseModelModal();
   if(btn.id === 'base-wt-add' || btn.closest('[data-wt]')) return onBaseWorkflowTypeClick(btn);
+  if(btn.id === 'base-sweet-save') return saveBaseSweet(btn);
   if(btn.id === 'base-member-add'){
     const filename = document.getElementById('base-member-file').value.trim();
     if(!filename){ setBaseModelModalError('파일명을 적어 주세요.'); return; }

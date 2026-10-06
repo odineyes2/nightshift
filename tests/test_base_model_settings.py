@@ -113,6 +113,40 @@ class DetailTests(unittest.TestCase):
         self.assertEqual(put({"name": "Anima", "types": None}), (200, {"types": None}))
         self.assertIsNone(families()["anima"]["workflow_types"])
 
+    def test_5_sweet(self):
+        def put(body, role="admin"):
+            return call(A.set_base_model_sweet, req(role, body))
+        R.upsert("checkpoints", "s.safetensors", {"base_models": ["SDXL"]})
+        R.add_base_model("SDXL") if "SDXL" not in [b["name"] for b in R.list_base_models()] else None
+        families = lambda: call(A.get_base_model_families, req(), "auto")[1]
+        self.assertEqual(families()["sdxl"]["sweet"], {})
+        good = {"cfg": 4.5, "steps": "30", "sampler_name": "euler_ancestral", "positive_prefix": "masterpiece",
+                "negative": "lowres, bad hands", "prompt_tips": "태그로 쓰세요", "scheduler": None}
+        self.assertEqual(put({"name": "SDXL", "sweet": good}, "user")[0], 403)
+        self.assertEqual(put({"name": "SDXL", "sweet": good})[0], 400)   # 모르는 칸
+        del good["scheduler"]
+        for bad in ({"steps": 0}, {"steps": 2.5}, {"steps": True}, {"cfg": -1}, {"cfg": "x"},
+                    {"sampler_name": "euler; rm"}, {"negative": "x" * 2001}, {"prompt_tips": 3}):
+            self.assertEqual(put({"name": "SDXL", "sweet": bad})[0], 400, bad)
+        self.assertEqual(put({"name": "없는이름", "sweet": {}})[0], 400)
+        self.assertEqual(put({"name": "SDXL", "sweet": "x"})[0], 400)
+        code, out = put({"name": "sdxl", "sweet": {**good, "positive_prefix": ""}})
+        self.assertEqual(code, 200)
+        self.assertEqual(out["sweet"], {"cfg": 4.5, "steps": 30, "sampler_name": "euler_ancestral",
+                                        "negative": "lowres, bad hands", "prompt_tips": "태그로 쓰세요"})
+        sweet = families()["sdxl"]["sweet"]
+        self.assertEqual(sweet, out["sweet"])
+        self.assertEqual(R.base_model_detail("SDXL")["sweet"], out["sweet"])
+        # 마법사처럼 spec에 넣으면 KSampler·negative_prompt 노드에 들어간다
+        import workflow_builder
+        spec = {"base": "txt2img", "checkpoint": "s.safetensors", "positive": "(prompt)",
+                **{k: sweet[k] for k in ("cfg", "steps", "sampler_name", "negative")}}
+        wf = workflow_builder.build_workflow(spec)
+        ks = next(n for n in wf.values() if n["class_type"] == "KSampler")["inputs"]
+        self.assertEqual((ks["cfg"], ks["steps"], ks["sampler_name"]), (4.5, 30, "euler_ancestral"))
+        neg = next(n for n in wf.values() if n.get("_meta", {}).get("title") == "negative_prompt")
+        self.assertEqual(neg["inputs"]["text"], "lowres, bad hands")
+
 
 if __name__ == "__main__":
     unittest.main()

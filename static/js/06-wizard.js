@@ -554,6 +554,9 @@ async function wizardApply(){
       };
       if(architecture === 'sdxl' || architecture === 'unet'){
         if(architecture === 'unet'){ spec.clip = unetImage.clip; spec.vae = unetImage.vae; }
+        // 베이스 모델의 스윗 포인트(Settings 탭) — 빈 칸은 빌더 기본값
+        const sweet = (baseModelFamilies[wizard.familyId] || {}).sweet || {};
+        for(const k of ['cfg', 'steps', 'sampler_name', 'negative']) if(sweet[k] != null && sweet[k] !== '') spec[k] = sweet[k];
         if(wizardPostApplies('hires_fix')) spec.hires_fix = { enabled: true, scale_by: wizard.post.hiresScale };
         // 얼굴 프롬프트·시드는 실행 시점에 템플릿이 넣는다(face_prompt/face_negative_prompt 옵션).
         // 수치는 이 베이스 모델에 저장된 기본값("셋팅" 탭)을 쓴다 — 못 불러오면 빌더 기본값.

@@ -156,6 +156,14 @@ async def set_base_model_workflow_types(request: Request):
     return {"types": types}
 
 
+@app.put("/api/base-models/sweet")
+async def set_base_model_sweet(request: Request):
+    """{name, sweet: {cfg, steps, sampler_name, positive_prefix, negative, prompt_tips}} — 빈 칸은 기본값을 쓴다."""
+    admin_only(request)
+    data = await read_json_object(request, allow_empty=False)
+    return {"sweet": _base_model_call(model_registry.set_base_sweet, data.get("name"), data.get("sweet"))}
+
+
 @app.delete("/api/base-models")
 def delete_base_model(request: Request, name: str):
     admin_only(request)
