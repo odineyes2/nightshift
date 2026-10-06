@@ -228,17 +228,65 @@ UNET_IMAGE_EXCLUDED_PREFIXES = ("wan",)
 KNOWN_UNET_IMAGE_PARTS = {"anima": {"clip": "qwen_3_06b_base.safetensors", "vae": "qwen_image_vae.safetensors"}}
 
 
+def unet_image_part_sources(gid: str) -> dict | None:
+    """unet_image_parts와 같은 결정에 출처를 붙인다: {clip|vae: {filename, source: registry|default}}."""
+    if not gid or gid in UNET_IMAGE_EXCLUDED or gid.startswith(UNET_IMAGE_EXCLUDED_PREFIXES):
+        return None
+    out = {k: {"filename": f, "source": "default"} for k, f in KNOWN_UNET_IMAGE_PARTS.get(gid, {}).items()}
+    found: set[str] = set()
+    for e in list_entries():
+        if e["kind"] in ("text_encoders", "vae") and gid in {base_id(b) for b in e["base_models"]}:
+            part = "clip" if e["kind"] == "text_encoders" else "vae"
+            if part not in found:
+                found.add(part)
+                out[part] = {"filename": e["filename"], "source": "registry"}
+    return out
+
+
 def unet_image_parts(gid: str) -> dict | None:
     """diffusion_models family가 범용 UNet+CLIP+VAE 이미지 빌더(workflow_builder_unet.py)에 쓸 부품
     {clip, vae}를 돌려준다. 같은 베이스 모델로 등록된 텍스트 인코더·VAE 파일을 먼저 쓰고, 없는 부품은
     KNOWN_UNET_IMAGE_PARTS로 채운다. 그래도 모자라면 찾은 것만 담긴다. 제외 family는 None이다."""
-    if not gid or gid in UNET_IMAGE_EXCLUDED or gid.startswith(UNET_IMAGE_EXCLUDED_PREFIXES):
-        return None
-    found: dict[str, str] = {}
+    parts = unet_image_part_sources(gid)
+    return None if parts is None else {k: v["filename"] for k, v in parts.items()}
+
+
+def base_model_detail(name) -> dict:
+    """베이스 모델 세부 설정 모달용 — {name, members: {종류: [파일명]}, assembly}.
+    assembly는 소속 UNet(diffusion_models)이 있을 때만 채운다: {unet: [...], parts: {clip, vae}(출처 포함),
+    missing: [...], dedicated: 전용 빌더/영상 family라 범용 조립 대상이 아님}. 체크포인트는 부품이 파일 안에 있어 None."""
+    name = _clean_base_name(name)
+    with db.connect() as conn:
+        row = conn.execute("SELECT name FROM base_models WHERE name=?", (name,)).fetchone()
+    name = row["name"] if row else name   # 목록 밖 값(옛 등록부)도 소속 모델은 보여 준다
+    members: dict[str, list[str]] = {}
     for e in list_entries():
-        if e["kind"] in ("text_encoders", "vae") and gid in {base_id(b) for b in e["base_models"]}:
-            found.setdefault("clip" if e["kind"] == "text_encoders" else "vae", e["filename"])
-    return {**KNOWN_UNET_IMAGE_PARTS.get(gid, {}), **found}
+        if name.lower() in (b.lower() for b in e["base_models"]):
+            members.setdefault(e["kind"], []).append(e["filename"])
+    assembly = None
+    if members.get("diffusion_models"):
+        parts = unet_image_part_sources(base_id(name))
+        assembly = {"unet": members["diffusion_models"], "parts": parts or {},
+                    "missing": [] if parts is None else [k for k in ("clip", "vae") if k not in parts],
+                    "dedicated": parts is None}
+    return {"name": name, "listed": bool(row), "members": members, "assembly": assembly}
+
+
+def set_base_membership(name, kind: str, filename: str, member: bool) -> dict | None:
+    """등록부 항목 하나를 베이스 모델에 넣거나 뺀다(연결만 바꾼다). 빼서 다른 정보도 없으면 upsert 규칙대로
+    행이 지워지고 None이다."""
+    name = _clean_base_name(name)
+    entry = get_entry(kind, filename) or {"base_models": []}
+    bases = [b for b in entry["base_models"] if b.lower() != name.lower()]
+    if member:
+        with db.connect() as conn:
+            row = conn.execute("SELECT name FROM base_models WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise RegistryError(f"'{name}'은(는) 목록에 없어요.")
+        bases.append(row["name"])
+    elif len(bases) == len(entry["base_models"]):
+        raise RegistryError(f"'{filename}'은(는) '{name}'에 속해 있지 않아요.")
+    return upsert(kind, filename, {"base_models": bases})
 
 
 def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:

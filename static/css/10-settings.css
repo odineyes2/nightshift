@@ -5,3 +5,14 @@
 .settings-bm-move{ display:flex; gap:4px; }
 .settings-bm-move button{ min-width:32px; font-variant-numeric:tabular-nums; }
 .settings-bm-row .base-model-delete{ color:var(--failed); }
+
+/* 베이스 모델 세부 설정 모달 */
+#base-model-modal .section-label{ margin-top:16px; }
+.settings-parts{ display:flex; flex-direction:column; gap:6px; margin:8px 0; }
+.settings-part{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.settings-part-label{ min-width:96px; font-weight:600; }
+.settings-part-missing{ color:var(--failed); }
+.settings-member-group{ margin:12px 0; display:flex; flex-direction:column; gap:6px; }
+.settings-member-file{ flex:1 1 160px; min-width:0; overflow-wrap:anywhere; }
+.settings-member-add{ margin-top:12px; }
+.settings-member-add select{ flex:0 1 180px; }
