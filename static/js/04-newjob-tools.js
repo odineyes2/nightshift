@@ -521,6 +521,7 @@ const DANBOORU_QUALITY_DEFAULT = 'masterpiece, best quality, amazing quality, ve
 // 세부 설정 탭의 "퀄리티 프롬프트" 칸 — 계열이 맞으면 보이고 기본값으로 채운다. 같은 계열로 다시 들어오면
 // 사람이 고친 값을 그대로 두고, 계열이 바뀌거나 폼을 초기화할 때(familyLabel 없음)만 다시 채운다.
 function setQualityPromptField(familyLabel){
+  setSweetPromptField(familyLabel);
   const field = document.getElementById('quality-prompt-field');
   if(!field) return;
   const input = document.getElementById('quality-prompt-input');
@@ -529,6 +530,35 @@ function setQualityPromptField(familyLabel){
   field.dataset.family = show ? familyLabel : '';
   field.style.display = show ? '' : 'none';
   input.value = show ? DANBOORU_QUALITY_DEFAULT : '';
+}
+
+// 베이스 모델 스윗 포인트의 추천 접두어·프롬프트 팁 — 퀄리티 칸과 같은 규칙으로 채운다(같은 계열이면 사람이 고친 값 유지).
+function setSweetPromptField(familyLabel){
+  const field = document.getElementById('sweet-prefix-field');
+  if(!field) return;
+  const fam = familyLabel ? Object.values(baseModelFamilies || {}).find(f => f.label === familyLabel) : null;
+  const sweet = (fam && fam.sweet) || {};
+  const tips = document.getElementById('sweet-tips-field');
+  tips.style.display = sweet.prompt_tips ? '' : 'none';
+  document.getElementById('sweet-tips-text').textContent = sweet.prompt_tips || '';
+  const show = !!sweet.positive_prefix;
+  if(show && field.dataset.family === familyLabel) return;
+  field.dataset.family = show ? familyLabel : '';
+  field.style.display = show ? '' : 'none';
+  document.getElementById('sweet-prefix-input').value = show ? sweet.positive_prefix : '';
+}
+
+function currentSweetPrefix(){
+  const field = document.getElementById('sweet-prefix-field');
+  return field && field.style.display !== 'none' ? document.getElementById('sweet-prefix-input').value.trim() : '';
+}
+
+// 접두어를 프롬프트 앞에 붙인다. 프롬프트가 비었거나 이미 들어 있으면 그대로 둔다.
+function prependSweetPrefix(text, prefix){
+  const p = (prefix || '').trim().replace(/[\s,]+$/, '');
+  const v = text || '';
+  if(!p || !v.trim() || v.toLowerCase().includes(p.toLowerCase())) return v;
+  return `${p}, ${v.replace(/^[\s,]+/, '')}`;
 }
 
 // 보이는 칸의 값(없으면 '').
@@ -547,14 +577,16 @@ function appendQualityPrompt(text, quality){
   return `${v.replace(/[\s,]+$/, '')}, ${q}`;
 }
 
-// CSV 사본의 각 행 main_prompt(또는 prompt)에 퀄리티 태그를 붙인다 — quality_prompt 칸을 직접 채운 행은 건너뛴다.
-async function csvWithQualityPrompt(file, quality){
+// CSV 사본의 각 행 main_prompt(또는 prompt)에 퀄리티 태그를 뒤에, 추천 접두어를 앞에 붙인다 —
+// quality_prompt 칸을 직접 채운 행은 퀄리티만 건너뛴다.
+async function csvWithQualityPrompt(file, quality, prefix){
   const { header, rows } = parseCsvText(await file.text());
   const target = header.includes('main_prompt') ? 'main_prompt' : (header.includes('prompt') ? 'prompt' : null);
   if(!target) return file;
   const lines = [header.map(csvFieldEscape).join(',')];
   for(const row of rows){
     if(!(row.quality_prompt || '').trim()) row[target] = appendQualityPrompt(row[target] || '', quality);
+    row[target] = prependSweetPrefix(row[target] || '', prefix);
     lines.push(header.map(h => csvFieldEscape(row[h])).join(','));
   }
   return new File([lines.join('\r\n') + '\r\n'], file.name, { type: 'text/csv' });

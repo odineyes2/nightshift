@@ -137,11 +137,12 @@ def list_base_models() -> list[dict]:
     workflow_types는 None(자동 — 마법사의 호환 규칙대로)이거나 직접 지정한 유형 id 목록(순서대로 보인다)."""
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT b.name, b.workflow_types_json, "
+            "SELECT b.name, b.workflow_types_json, b.sweet_json, "
             "(SELECT COUNT(*) FROM model_base_models l WHERE l.base_model = b.name) AS count "
             "FROM base_models b ORDER BY b.position, b.name COLLATE NOCASE").fetchall()
     return [{"name": r["name"], "count": r["count"],
-             "workflow_types": None if r["workflow_types_json"] is None else json.loads(r["workflow_types_json"])}
+             "workflow_types": None if r["workflow_types_json"] is None else json.loads(r["workflow_types_json"]),
+             "sweet": json.loads(r["sweet_json"] or "{}")}
             for r in rows]
 
 
@@ -163,6 +164,58 @@ def set_base_workflow_types(name, types, valid_ids) -> list[str] | None:
         if not cur.rowcount:
             raise RegistryError(f"'{name}'은(는) 목록에 없어요.")
     return types
+
+
+# 스윗 포인트 칸 → 글자 수 상한(문자열 칸). 빈 값은 저장하지 않는다(마법사가 지금 기본값을 쓴다).
+SWEET_TEXT_FIELDS = {"positive_prefix": 1000, "negative": 2000, "prompt_tips": 2000}
+_SAMPLER_RE = re.compile(r"^[A-Za-z0-9_.+-]{1,64}$")
+
+
+def set_base_sweet(name, sweet) -> dict:
+    """베이스 모델의 스윗 포인트 {cfg, steps, sampler_name, positive_prefix, negative, prompt_tips}를 저장한다."""
+    name = _clean_base_name(name)
+    if not isinstance(sweet, dict):
+        raise RegistryError("sweet는 객체여야 해요.")
+    unknown = set(sweet) - {"cfg", "steps", "sampler_name", *SWEET_TEXT_FIELDS}
+    if unknown:
+        raise RegistryError(f"모르는 칸이에요: {', '.join(sorted(unknown))}")
+    out: dict = {}
+    for key, value in sweet.items():
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        if key == "steps":
+            if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+                raise RegistryError("steps는 1 이상의 정수여야 해요.")
+            try:
+                f = float(value)
+            except ValueError:
+                raise RegistryError("steps는 1 이상의 정수여야 해요.")
+            if f != int(f) or not 1 <= f <= 1000:
+                raise RegistryError("steps는 1~1000 사이 정수여야 해요.")
+            out[key] = int(f)
+        elif key == "cfg":
+            try:
+                f = float(value) if not isinstance(value, bool) else -1
+            except (TypeError, ValueError):
+                f = -1
+            if not 0 <= f <= 100:
+                raise RegistryError("cfg는 0~100 사이 숫자여야 해요.")
+            out[key] = f
+        elif key == "sampler_name":
+            if not isinstance(value, str) or not _SAMPLER_RE.match(value.strip()):
+                raise RegistryError("sampler는 영문·숫자·_.+- 64자 이내여야 해요.")
+            out[key] = value.strip()
+        else:
+            if not isinstance(value, str):
+                raise RegistryError(f"{key}는 문자열이어야 해요.")
+            if len(value) > SWEET_TEXT_FIELDS[key]:
+                raise RegistryError(f"{key}는 {SWEET_TEXT_FIELDS[key]}자 이내여야 해요.")
+            out[key] = value.strip()
+    with db.connect() as conn:
+        cur = conn.execute("UPDATE base_models SET sweet_json=? WHERE name=?", (json.dumps(out), name))
+        if not cur.rowcount:
+            raise RegistryError(f"'{name}'은(는) 목록에 없어요.")
+    return out
 
 
 def _clean_base_name(value) -> str:
@@ -281,7 +334,8 @@ def base_model_detail(name) -> dict:
     missing: [...], dedicated: 전용 빌더/영상 family라 범용 조립 대상이 아님}. 체크포인트는 부품이 파일 안에 있어 None."""
     name = _clean_base_name(name)
     with db.connect() as conn:
-        row = conn.execute("SELECT name, workflow_types_json FROM base_models WHERE name=?", (name,)).fetchone()
+        row = conn.execute("SELECT name, workflow_types_json, sweet_json FROM base_models WHERE name=?",
+                           (name,)).fetchone()
     name = row["name"] if row else name   # 목록 밖 값(옛 등록부)도 소속 모델은 보여 준다
     wtypes = json.loads(row["workflow_types_json"]) if row and row["workflow_types_json"] is not None else None
     members: dict[str, list[str]] = {}
@@ -295,7 +349,7 @@ def base_model_detail(name) -> dict:
                     "missing": [] if parts is None else [k for k in ("clip", "vae") if k not in parts],
                     "dedicated": parts is None}
     return {"name": name, "id": base_id(name), "listed": bool(row), "members": members, "assembly": assembly,
-            "workflow_types": wtypes}
+            "workflow_types": wtypes, "sweet": json.loads(row["sweet_json"] or "{}") if row else {}}
 
 
 def set_base_membership(name, kind: str, filename: str, member: bool) -> dict | None:
@@ -348,9 +402,12 @@ def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
     listed = list_base_models()
     order = {base_id(b["name"]): i for i, b in enumerate(listed)}
     # 워크플로우 유형 허용 목록(None = 자동). 마법사 2단계가 이 목록·순서로 좁힌다.
-    wtypes = {base_id(b["name"]): b["workflow_types"] for b in listed}
+    # 스윗 포인트 — 마법사가 빌더 spec(cfg·steps·sampler·negative)과 positive 접두어·팁 안내에 쓴다.
+    by_id = {base_id(b["name"]): b for b in listed}
     for gid, g in groups.items():
-        g["workflow_types"] = wtypes.get(gid)
+        b = by_id.get(gid) or {}
+        g["workflow_types"] = b.get("workflow_types")
+        g["sweet"] = b.get("sweet") or {}
     return dict(sorted(groups.items(), key=lambda kv: (order.get(kv[0], len(order)), kv[1]["label"].lower())))
 
 

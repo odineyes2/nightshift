@@ -1071,6 +1071,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `POST` | `/api/base-models` | (관리자) 베이스 모델 추가 — 본문 `{name}`(1~100자, 대소문자만 다른 중복은 400) |
 | `PUT` | `/api/base-models` | (관리자) 베이스 모델 이름 변경 — 본문 `{old, new}`, 그 이름을 쓰는 등록부 항목의 `base_model`도 함께 바뀜 |
 | `DELETE` | `/api/base-models?name=` | (관리자) 베이스 모델 삭제 — 쓰는 모델이 있으면 400 |
+| `PUT` | `/api/base-models/sweet` | (관리자) 베이스 모델 스윗 포인트 `{name, sweet: {cfg, steps, sampler_name, positive_prefix, negative, prompt_tips}}` 저장 — Settings 탭 세부 설정 모달의 "스윗 포인트" 칸. 빈 칸은 저장하지 않는다(마법사가 빌더 기본값을 씀). 검사: steps 1~1000 정수, cfg 0~100, sampler 영문·숫자·`_.+-` 64자 이내, 접두어 1000자·negative/팁 2000자 이내, 모르는 칸 400. `/api/base-model-families`의 각 계열에 `sweet`로 실려, 마법사가 SDXL/UNet 빌더 spec에 cfg·steps·sampler_name·negative를 넣고, 세부 설정 탭에 "추천 접두어"(제출할 때 프롬프트 **앞**에 붙음 — Illustrious·NoobAI 퀄리티 프롬프트(뒤에 붙음)와는 따로)와 프롬프트 팁을 보여 준다. krea.2/MiniMax 전용 빌더에는 넣지 않는다 |
 | `PUT` | `/api/models` | (관리자) 등록부 항목 하나를 고침 — 본문 `{kind, filename, base_model?, page_url?, download_url?, trigger_keyword?, tags?, notes?}`, 넘긴 필드만 바뀜. 전부 비면 항목을 지우고 `{entry: null}`. `trigger_keyword`는 `loras`에서만 유효, 주소는 http(s)만 |
 | `GET` | `/api/models/inventory?refresh=false` | 내 ComfyUI 파드별 설치된 모델 `{pods: [{id, name, enabled, connected, models: {종류: [파일명]}}]}` |
 | `GET` | `/api/models/usage` | 모델별 사용 통계 `{usage: [{kind, filename, count, images, videos, favorites, last_used, samples: [{path, kind}]}]}` — 결과물 메타 기준(일반 회원은 자기 것, 관리자는 전체) |
