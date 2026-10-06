@@ -298,6 +298,8 @@ function applyUserUi(user){
   if(adminBtn) adminBtn.style.display = user && user.role === 'admin' ? '' : 'none';
   const dbBtn = document.getElementById('db-tab-btn');
   if(dbBtn) dbBtn.style.display = user && user.role === 'admin' ? '' : 'none';
+  const settingsBtn = document.getElementById('settings-tab-btn');
+  if(settingsBtn) settingsBtn.style.display = user && user.role === 'admin' ? '' : 'none';
 }
 
 window.__nightshiftAuthReady.then(user => {

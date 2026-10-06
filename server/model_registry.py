@@ -187,6 +187,28 @@ def delete_base_model(name) -> None:
         conn.execute("DELETE FROM base_models WHERE name=?", (name,))
 
 
+def reorder_base_models(names) -> list[str]:
+    """names 순서대로 position을 1부터 다시 매긴다. 목록의 모든 이름이 한 번씩 있어야 한다."""
+    if not isinstance(names, list):
+        raise RegistryError("names는 이름 목록이어야 해요.")
+    names = [_clean_base_name(n) for n in names]
+    with db.connect() as conn:
+        current = [r["name"] for r in conn.execute("SELECT name FROM base_models").fetchall()]
+        have = {n.lower(): n for n in current}
+        given = [n.lower() for n in names]
+        if len(set(given)) != len(given):
+            raise RegistryError("같은 이름이 두 번 있어요.")
+        unknown = [n for n in names if n.lower() not in have]
+        if unknown:
+            raise RegistryError(f"목록에 없는 이름이에요: {', '.join(unknown)}")
+        missing = [n for n in current if n.lower() not in set(given)]
+        if missing:
+            raise RegistryError(f"빠진 이름이 있어요: {', '.join(missing)}")
+        conn.executemany("UPDATE base_models SET position=? WHERE name=?",
+                         [(i, have[n.lower()]) for i, n in enumerate(names, 1)])
+    return [have[n.lower()] for n in names]
+
+
 def lora_triggers() -> dict[str, dict]:
     """{파일명: {trigger, base_id, base_ids}} — 마법사/워크플로우 탭이 쓴다. base_ids가 비어 있으면 어떤 베이스
     모델에나 보인다. base_id(첫 값)는 예전 화면 호환용이다."""
@@ -248,7 +270,9 @@ def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
             g["unet_image_missing"] = missing
         else:
             g["unet_image"] = parts
-    return dict(sorted(groups.items(), key=lambda kv: kv[1]["label"].lower()))
+    # 베이스 모델 목록(Settings 탭)의 position 순서. 목록 밖 값은 뒤에 이름순으로 둔다.
+    order = {base_id(b["name"]): i for i, b in enumerate(list_base_models())}
+    return dict(sorted(groups.items(), key=lambda kv: (order.get(kv[0], len(order)), kv[1]["label"].lower())))
 
 
 def upsert(kind: str, filename: str, fields: dict) -> dict | None:

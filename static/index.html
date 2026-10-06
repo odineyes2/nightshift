@@ -242,6 +242,7 @@
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 워커와 무관한 프롬프트 작업대"><svg class="ico"><use href="#i-tag"/></svg><span class="tab-label">Danbooru</span></button>
     <button class="tab-btn" id="db-tab-btn" data-tab="db" type="button" style="display:none;" title="DB — 앱이 쌓아 둔 여러 기록을 표로 봄(관리자 전용)"><svg class="ico"><use href="#i-database"/></svg><span class="tab-label">DB</span></button>
     <button class="tab-btn" id="admin-tab-btn" data-tab="admin" type="button" style="display:none;" title="회원 관리 (관리자 전용)"><svg class="ico"><use href="#i-users"/></svg><span class="tab-label">Admin</span><span class="tab-badge" id="admin-pending-badge" hidden></span></button>
+    <button class="tab-btn" id="settings-tab-btn" data-tab="settings" type="button" style="display:none;" title="설정 — 베이스 모델 등 앱 전체 설정(관리자 전용)"><svg class="ico"><use href="#i-settings"/></svg><span class="tab-label">Settings</span></button>
   </div>
 </div>
 
@@ -850,6 +851,22 @@
   </div>
 </main>
 
+<!-- 설정 — admin만(서버도 /api/base-models 변경을 admin에게만 연다). 서브탭은 지금 Base Model 하나. -->
+<main id="tab-settings" style="display:none;">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label"><svg class="ico"><use href="#i-settings"/></svg> Settings</div>
+    </div>
+    <div class="panel-body">
+      <div class="new-job-tabs" id="settings-subtabs">
+        <button class="pod-subtab-btn active" type="button" data-settings-tab="base-models">Base Model</button>
+      </div>
+      <div class="upload-error" id="settings-error"></div>
+      <div id="settings-base-models"></div>
+    </div>
+  </div>
+</main>
+
 <!-- 워커 안의 "모델" — 설치된 모델과 대기 작업에 필요한데 없는 모델(08b-worker-models.js) -->
 <main id="tab-pmodels" style="display:none;">
   <div class="panel">
@@ -991,10 +1008,8 @@
       <option value="name">이름순</option><option value="count">많이 쓴 순</option><option value="recent">최근 사용순</option>
     </select>
     <button class="load-btn" id="model-add-toggle" type="button" style="display:none;">＋ 모델 추가</button>
-    <button class="load-btn" id="base-model-manage-toggle" type="button" style="display:none;">베이스 모델 관리</button>
   </div>
   <div id="model-add-form"></div>
-  <div id="base-model-manage"></div>
   <div class="upload-error" id="lora-tab-error"></div>
   <div id="lora-tab-list"></div>
 </main>

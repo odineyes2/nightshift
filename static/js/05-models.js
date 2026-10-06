@@ -305,8 +305,6 @@ function renderModelRegistry(){
   const notice = '';
   const addBtn = document.getElementById('model-add-toggle');
   if(addBtn) addBtn.style.display = isAdminUser() ? '' : 'none';
-  const baseBtn = document.getElementById('base-model-manage-toggle');
-  if(baseBtn) baseBtn.style.display = isAdminUser() ? '' : 'none';
   if(shown.length === 0){
     listEl.innerHTML = notice + `<div class="comfy-model-empty">${filtered && all.length > 0 ? '거른 결과가 없어요' : '이 종류의 모델이 없어요'}</div>`;
     return;
@@ -361,86 +359,6 @@ document.getElementById('model-add-form').addEventListener('click', async (e) =>
     renderModelRegistry();
     flashNotice('등록했어요.');
   }catch(err){ setModelError(err.message); }
-});
-
-// ---- 베이스 모델 관리 (관리자) — 목록은 서버 DB(base_models)가 기준이다 ----
-// 코드가 이름(식별자)에 기대는 베이스 모델 — 이름을 바꾸거나 지우면 전용 워크플로우·프리셋 연결이 끊길 수 있다.
-const BASE_MODEL_CODE_BOUND = /^(krea\.2|minimax-h3|wan.*|illustrious|pony|noobai)$/i;
-
-function renderBaseModelManage(){
-  const el = document.getElementById('base-model-manage');
-  const rows = (modelRegistry.base_model_usage || []).map(b => `
-      <div class="dl-row model-full" data-name="${escapeHtml(b.name)}" style="flex-wrap:wrap;">
-        <input type="text" class="option-input" value="${escapeHtml(b.name)}" maxlength="100" aria-label="베이스 모델 이름" style="flex:1 1 160px; min-width:0;">
-        <span class="dl-meta">사용 ${b.count}개</span>
-        <button type="button" class="modal-btn-secondary base-model-rename">저장</button>
-        <button type="button" class="modal-btn-secondary base-model-delete" style="color:var(--failed);">삭제</button>
-      </div>`).join('');
-  el.innerHTML = `
-    <div class="model-editor" style="border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px;">
-      <div class="dl-meta model-full">베이스 모델 목록이에요. 이름을 바꾸면 그 이름을 쓰는 모델도 함께 바뀌어요.</div>
-      ${rows || '<div class="dl-meta model-full">아직 베이스 모델이 없어요</div>'}
-      <div class="dl-row model-full" style="flex-wrap:wrap; margin-top:6px;">
-        <input type="text" class="option-input" id="base-model-new" maxlength="100" placeholder="새 베이스 모델 이름 (예: Anima)" style="flex:1 1 160px; min-width:0;">
-        <button type="button" class="submit-btn" id="base-model-add">추가</button>
-        <button type="button" class="modal-btn-secondary" id="base-model-close">닫기</button>
-      </div>
-    </div>`;
-}
-
-// 저장 중에는 버튼을 막고, 끝나면 등록부를 다시 받아 편집 드롭다운·추가 폼·필터·패널을 새로 그린다.
-async function baseModelRequest(btn, method, url, body){
-  const label = btn.textContent;
-  btn.disabled = true; btn.textContent = '저장 중…';
-  try{
-    const res = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {},
-                                   body: body ? JSON.stringify(body) : undefined });
-    const data = await res.json().catch(() => ({}));
-    if(!res.ok) throw new Error(data.detail || `실패했어요 (${res.status})`);
-    setModelError('');
-    await fetchModelRegistry();
-    renderModelRegistry();
-    if(document.getElementById('model-add-form').innerHTML.trim()) renderModelAddForm();
-    renderBaseModelManage();
-    return true;
-  }catch(err){
-    setModelError(err.message);
-    btn.disabled = false; btn.textContent = label;
-    return false;
-  }
-}
-
-document.getElementById('base-model-manage-toggle').addEventListener('click', () => {
-  const el = document.getElementById('base-model-manage');
-  if(el.innerHTML.trim()){ el.innerHTML = ''; return; }
-  renderBaseModelManage();
-});
-
-document.getElementById('base-model-manage').addEventListener('click', async (e) => {
-  const btn = e.target.closest('button');
-  if(!btn) return;
-  if(btn.id === 'base-model-close'){ document.getElementById('base-model-manage').innerHTML = ''; return; }
-  if(btn.id === 'base-model-add'){
-    const name = document.getElementById('base-model-new').value.trim();
-    if(!name){ setModelError('베이스 모델 이름을 적어 주세요.'); return; }
-    if(await baseModelRequest(btn, 'POST', '/api/base-models', { name })) flashNotice('추가했어요.');
-    return;
-  }
-  const row = btn.closest('[data-name]');
-  if(!row) return;
-  const old = row.dataset.name;
-  const count = ((modelRegistry.base_model_usage || []).find(b => b.name === old) || {}).count || 0;
-  const bound = BASE_MODEL_CODE_BOUND.test(old) ? '\n이 이름에 묶인 전용 워크플로우가 동작하지 않을 수 있어요.' : '';
-  if(btn.classList.contains('base-model-rename')){
-    const name = row.querySelector('input').value.trim();
-    if(!name || name === old) return;
-    const msg = ((count ? `모델 ${count}개의 베이스 모델도 함께 바뀌어요.` : '') + bound).trim();
-    if(msg && !confirm(`"${old}" → "${name}"\n${msg}`)) return;
-    if(await baseModelRequest(btn, 'PUT', '/api/base-models', { old, new: name })) flashNotice('이름을 바꿨어요.');
-  }else if(btn.classList.contains('base-model-delete')){
-    if(!confirm(`"${old}" 베이스 모델을 삭제할까요?${bound}`)) return;
-    if(await baseModelRequest(btn, 'DELETE', '/api/base-models?name=' + encodeURIComponent(old))) flashNotice('삭제했어요.');
-  }
 });
 
 document.getElementById('model-sort').addEventListener('change', (e) => { modelSort = e.target.value; renderModelRegistry(); });
