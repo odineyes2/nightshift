@@ -370,10 +370,29 @@ SCHEMA_V16 = """
 ALTER TABLE runpod_sessions ADD COLUMN worker_name TEXT
 """
 
+# v17: 베이스 모델 목록(NS-35) — 코드에 박혀 있던 목록을 표로 옮겨 화면에서 추가·변경·삭제한다.
+# 예전 기본 13개를 같은 순서로 넣고, 등록부에 이미 쓰였지만 목록에 없던 값도 뒤에 넣는다
+# (대소문자만 다른 값은 NOCASE 키라 하나로 합쳐진다).
+SCHEMA_V17 = """
+CREATE TABLE base_models (
+  name       TEXT PRIMARY KEY COLLATE NOCASE,
+  position   INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+INSERT INTO base_models(name, position, created_at) VALUES
+  ('SD 1.5', 1, datetime('now')), ('SDXL', 2, datetime('now')), ('Illustrious', 3, datetime('now')),
+  ('Pony', 4, datetime('now')), ('NoobAI', 5, datetime('now')), ('Flux', 6, datetime('now')),
+  ('Wan 2.2', 7, datetime('now')), ('Wan 2.1', 8, datetime('now')), ('Qwen-Image', 9, datetime('now')),
+  ('Z-Image', 10, datetime('now')), ('krea.2', 11, datetime('now')), ('MiniMax-H3', 12, datetime('now')),
+  ('기타', 13, datetime('now'));
+INSERT OR IGNORE INTO base_models(name, position, created_at)
+  SELECT base_model, 100, datetime('now') FROM models WHERE base_model <> '' GROUP BY base_model COLLATE NOCASE
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
-              (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16)]
+              (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16), (17, SCHEMA_V17)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}
