@@ -74,13 +74,14 @@ class UnetBuilderTests(unittest.TestCase):
         self.assertFalse(by_class(wf, "UNETLoader"))
 
 
+ANIMA_DEFAULT = {"clip": "qwen_3_06b_base.safetensors", "vae": "qwen_image_vae.safetensors"}
+
+
 class FamilyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         for kind, name, base in (
-            ("diffusion_models", "anima.safetensors", "Anima"),
-            ("text_encoders", "qwen_3_06b.safetensors", "Anima"),
-            ("vae", "qwen_image_vae.safetensors", "Anima"),
+            ("diffusion_models", "anima.safetensors", "Anima"),  # 텍스트 인코더·VAE는 각 검사에서 등록
             ("diffusion_models", "lonely.safetensors", "Lonely"),  # 텍스트 인코더·VAE 없음
             ("diffusion_models", "krea2.safetensors", "krea.2"),
             ("diffusion_models", "h3_fl2va.safetensors", "MiniMax-H3"),
@@ -92,13 +93,53 @@ class FamilyTests(unittest.TestCase):
             model_registry.upsert("text_encoders", f"te_{base}.safetensors", {"base_model": base})
             model_registry.upsert("vae", f"vae_{base}.safetensors", {"base_model": base})
 
-    def test_unet_image_only_for_eligible(self):
+    def tearDown(self):
+        for kind, name in (("text_encoders", "my_te.safetensors"), ("vae", "my_vae.safetensors")):
+            model_registry.upsert(kind, name, {"base_model": ""})  # 비면 지워진다
+
+    def anima(self):
+        g = model_registry.checkpoint_groups()["anima"]
+        self.assertNotIn("unet_image_missing", g)
+        return g["unet_image"]
+
+    def test_anima_defaults_without_registry(self):  # (a)
+        self.assertEqual(self.anima(), ANIMA_DEFAULT)
+
+    def test_anima_vae_registered_elsewhere(self):  # (b) 공유 VAE가 다른 베이스 모델로 등록됨
+        model_registry.upsert("text_encoders", "my_te.safetensors", {"base_model": "Anima"})
+        model_registry.upsert("vae", "my_vae.safetensors", {"base_model": "Qwen-Image"})
+        self.assertEqual(self.anima(), {"clip": "my_te.safetensors", "vae": ANIMA_DEFAULT["vae"]})
+
+    def test_anima_registry_wins(self):  # (c)
+        model_registry.upsert("text_encoders", "my_te.safetensors", {"base_model": "Anima"})
+        model_registry.upsert("vae", "my_vae.safetensors", {"base_model": "Anima"})
+        self.assertEqual(self.anima(), {"clip": "my_te.safetensors", "vae": "my_vae.safetensors"})
+
+    def test_unknown_family_missing(self):  # (d)
+        g = model_registry.checkpoint_groups()["lonely"]
+        self.assertNotIn("unet_image", g)
+        self.assertEqual(g["unet_image_missing"], ["clip", "vae"])
+
+    def test_excluded_families(self):  # (e)
         groups = model_registry.checkpoint_groups()
-        self.assertEqual(groups["anima"]["unet_image"],
-                         {"clip": "qwen_3_06b.safetensors", "vae": "qwen_image_vae.safetensors"})
-        for gid in ("lonely", "krea.2", "minimax-h3", "wan-2.2", "wan-2.1"):
+        for gid in ("krea.2", "minimax-h3", "wan-2.2", "wan-2.1"):
             self.assertIn(gid, groups)
             self.assertNotIn("unet_image", groups[gid], gid)
+            self.assertNotIn("unet_image_missing", groups[gid], gid)
+
+    def test_anima_txt2img_face_detailer_build(self):  # (f) 마법사가 보내는 것처럼 unet_image로 조립
+        wf = U.build_workflow({"checkpoint": "anima.safetensors", **self.anima(), "positive": "p",
+                               "loras": [{"name": "a.safetensors"}], "face_detailer": {"enabled": True}})
+        (unet, _), = by_class(wf, "UNETLoader")
+        (clip, cn), = by_class(wf, "CLIPLoader")
+        (vae, vn), = by_class(wf, "VAELoader")
+        self.assertEqual((cn["inputs"]["clip_name"], vn["inputs"]["vae_name"]),
+                         (ANIMA_DEFAULT["clip"], ANIMA_DEFAULT["vae"]))
+        (lora, ln), = by_class(wf, "LoraLoader")
+        self.assertEqual((ln["inputs"]["model"], ln["inputs"]["clip"]), ([unet, 0], [clip, 0]))
+        (_, fd), = by_class(wf, "FaceDetailer")
+        self.assertEqual((fd["inputs"]["model"], fd["inputs"]["clip"], fd["inputs"]["vae"]),
+                         ([lora, 0], [lora, 1], [vae, 0]))
 
 
 if __name__ == "__main__":
