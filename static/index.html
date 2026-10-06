@@ -877,7 +877,7 @@
           <button class="enhance-mode-btn active" type="button" data-display="grid" title="썸네일 격자로 보기"><svg class="ico"><use href="#i-layout-grid"/></svg> Grid</button>
           <button class="enhance-mode-btn" type="button" data-display="details" title="명칭·설명·danbooru prompt를 한 줄씩 보기"><svg class="ico"><use href="#i-list"/></svg> Details</button>
         </div>
-        <button class="submit-btn" id="library-add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg> 게시물 추가하기</button>
+        <button class="submit-btn" id="library-add-btn" type="button" title="게시물 추가하기" aria-label="게시물 추가하기"><svg class="ico"><use href="#i-plus"/></svg><span class="btn-label">게시물 추가하기</span></button>
         <button class="load-btn" id="library-refresh-btn" type="button" title="새로고침" aria-label="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
       </div>
     </div>
@@ -887,6 +887,18 @@
       </div>
       <div class="upload-error" id="library-error"></div>
       <div id="library-list" class="library-grid"></div>
+      <!-- 아티클 갤러리(NS-40) — 게시물 하나의 이미지 전부. 열려 있는 동안 #library-list는 숨긴다. -->
+      <div id="library-article" hidden>
+        <div class="library-article-head">
+          <button class="load-btn" id="library-article-back" type="button"><svg class="ico"><use href="#i-arrow-left"/></svg> 목록</button>
+          <div class="library-name" id="library-article-name"></div>
+          <span class="gallery-count" id="library-article-count"></span>
+          <button class="submit-btn" id="library-article-add-btn" type="button" title="이미지 추가" aria-label="이미지 추가"><svg class="ico"><use href="#i-plus"/></svg><span class="btn-label">이미지 추가</span></button>
+        </div>
+        <div class="library-desc" id="library-article-desc"></div>
+        <div class="library-prompt" id="library-article-prompt"></div>
+        <div class="gallery-grid" id="library-article-grid"></div>
+      </div>
     </div>
   </div>
 </main>
@@ -1080,6 +1092,25 @@
   <button class="lightbox-nav lightbox-next" id="gallery-next" aria-label="다음 이미지" type="button">&rsaquo;</button>
 </div>
 
+<!-- Library 라이트박스(NS-40) — 갤러리 라이트박스와 같은 마크업·클래스, 동작은 17c-library.js -->
+<div class="lightbox-overlay" id="library-lightbox" style="display:none;">
+  <button class="lightbox-close" id="library-lightbox-close" aria-label="닫기" type="button">&times;</button>
+  <button class="lightbox-fs-btn" id="library-lightbox-fs-btn" aria-label="전체 화면" title="전체 화면 (F)" type="button"><svg class="ico"><use href="#i-maximize"/></svg></button>
+  <button class="lightbox-rot-btn lightbox-rot-cw" data-rot-delta="90" aria-label="시계 방향으로 90도 돌려 보기" title="시계 방향 90° (])" type="button"><svg class="ico"><use href="#i-rotate-cw"/></svg></button>
+  <button class="lightbox-rot-btn lightbox-rot-ccw" data-rot-delta="-90" aria-label="반시계 방향으로 90도 돌려 보기" title="반시계 방향 90° ([)" type="button"><svg class="ico"><use href="#i-rotate-ccw"/></svg></button>
+  <button class="lightbox-nav lightbox-prev" id="library-lightbox-prev" aria-label="이전 이미지" type="button">&lsaquo;</button>
+  <div class="lightbox-img-wrap">
+    <img class="lightbox-img" id="library-lightbox-img" src="" alt="">
+    <div class="lightbox-spinner" id="library-lightbox-spinner" style="display:none;"></div>
+    <div class="lightbox-info" id="library-lightbox-info"></div>
+    <div class="lightbox-actions">
+      <button class="modal-btn-secondary" id="library-lightbox-download-btn" type="button" title="다운로드" aria-label="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
+      <button class="modal-btn-secondary" id="library-lightbox-original-btn" type="button" title="원본 보기" aria-label="원본 보기"><svg class="ico"><use href="#i-zoom-in"/></svg><span class="btn-label">원본 보기</span></button>
+    </div>
+  </div>
+  <button class="lightbox-nav lightbox-next" id="library-lightbox-next" aria-label="다음 이미지" type="button">&rsaquo;</button>
+</div>
+
 <div class="lightbox-overlay" id="video-gallery-lightbox" style="display:none;">
   <button class="lightbox-close" id="video-gallery-lightbox-close" aria-label="닫기" type="button">&times;</button>
   <button class="lightbox-fs-btn" id="video-gallery-lightbox-fs-btn" aria-label="전체 화면" title="전체 화면 (F)" type="button"><svg class="ico"><use href="#i-maximize"/></svg></button>
@@ -1208,11 +1239,11 @@
 <div class="modal-overlay" id="pose-add-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
-      <div class="modal-title">Pose 추가</div>
+      <div class="modal-title" id="pose-add-title">Pose 추가</div>
       <button class="modal-close" id="pose-add-modal-close" type="button" aria-label="닫기">&times;</button>
     </div>
     <form id="pose-add-form" class="modal-body">
-      <div class="field">
+      <div class="field pose-add-meta">
         <label class="field-label" for="pose-add-name">Pose 명칭</label>
         <input type="text" class="option-input" id="pose-add-name" maxlength="200" required placeholder="예: 앉아서 무릎 감싸기">
       </div>
@@ -1224,15 +1255,15 @@
             <button class="enhance-mode-btn" type="button" data-mode="url"><svg class="ico"><use href="#i-link"/></svg> URL</button>
           </div>
         </div>
-        <input type="file" id="pose-add-file" accept="image/*" aria-label="이미지 파일">
-        <input type="url" class="option-input" id="pose-add-url" placeholder="https://… 이미지 주소" aria-label="이미지 주소" hidden>
-        <img id="pose-add-preview" class="pose-add-preview" alt="미리보기" hidden>
+        <input type="file" id="pose-add-file" accept="image/*" multiple aria-label="이미지 파일(여러 장)">
+        <textarea class="option-input" id="pose-add-url" rows="3" placeholder="https://… 이미지 주소 — 한 줄에 하나씩" aria-label="이미지 주소(한 줄에 하나)" hidden></textarea>
+        <div id="pose-add-preview" class="pose-add-preview" hidden></div>
       </div>
-      <div class="field">
+      <div class="field pose-add-meta">
         <label class="field-label" for="pose-add-desc">설명 <span class="opt">(선택)</span></label>
         <textarea class="option-input" id="pose-add-desc" rows="3"></textarea>
       </div>
-      <div class="field">
+      <div class="field pose-add-meta">
         <label class="field-label" for="pose-add-prompt">danbooru prompt <span class="opt">(선택)</span></label>
         <textarea class="option-input" id="pose-add-prompt" rows="2" placeholder="sitting, hugging own legs, ..."></textarea>
       </div>
