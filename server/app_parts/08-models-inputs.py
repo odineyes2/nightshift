@@ -129,6 +129,23 @@ async def reorder_base_models(request: Request):
     return {"names": _base_model_call(model_registry.reorder_base_models, data.get("names"))}
 
 
+@app.get("/api/base-models/detail")
+def base_model_detail(request: Request, name: str):
+    """세부 설정 모달 — 종류별 소속 모델과 UNet형이면 실제 조립될 부품·출처(registry/default)·빠진 부품."""
+    admin_only(request)
+    return _base_model_call(model_registry.base_model_detail, name)
+
+
+@app.put("/api/base-models/members")
+async def set_base_model_member(request: Request):
+    """{name, kind, filename, member: true|false} — 소속만 바꾼다. 빼서 남는 정보가 없으면 등록부 행도 사라진다."""
+    admin_only(request)
+    data = await read_json_object(request, allow_empty=False)
+    entry = _base_model_call(model_registry.set_base_membership, data.get("name"), str(data.get("kind") or ""),
+                             str(data.get("filename") or ""), bool(data.get("member")))
+    return {"entry": entry}
+
+
 @app.delete("/api/base-models")
 def delete_base_model(request: Request, name: str):
     admin_only(request)

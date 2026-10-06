@@ -1165,6 +1165,20 @@
 </div>
 <input type="file" id="asset-upload-input" multiple accept="image/*,video/*" hidden>
 
+<!-- 베이스 모델 세부 설정(Settings › Base Model에서 연다) — 소속 모델과 UNet 구성 점검 -->
+<div class="modal-overlay" id="base-model-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title" id="base-model-modal-title">Base Model</div>
+      <button class="modal-close" id="base-model-modal-close" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="upload-error" id="base-model-modal-error"></div>
+      <div id="base-model-modal-body"></div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="asset-move-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
