@@ -126,6 +126,8 @@
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></symbol>
   <symbol id="i-plug-zap" viewBox="0 0 24 24"><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="m2 22 3-3"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m18 3-4 4h6l-4 4"/></symbol>
   <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></symbol>
+  <symbol id="i-library" viewBox="0 0 24 24"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
   <symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
   <symbol id="i-group" viewBox="0 0 24 24"><path d="M3 7V5c0-1.1.9-2 2-2h2"/><path d="M17 3h2c1.1 0 2 .9 2 2v2"/><path d="M21 17v2c0 1.1-.9 2-2 2h-2"/><path d="M7 21H5c-1.1 0-2-.9-2-2v-2"/><rect width="7" height="5" x="7" y="7" rx="1"/><rect width="7" height="5" x="10" y="12" rx="1"/></symbol>
@@ -238,6 +240,7 @@
     <button class="tab-btn" data-tab="gallery" type="button" title="갤러리 — 결과 이미지"><svg class="ico"><use href="#i-images"/></svg><span class="tab-label">Gallery</span></button>
     <button class="tab-btn" data-tab="video-gallery" type="button" title="영상 갤러리 — 출력 폴더에 쌓인 영상 파일을 확인"><svg class="ico"><use href="#i-clapperboard"/></svg><span class="tab-label">Videos</span></button>
     <button class="tab-btn" data-tab="models" type="button" title="모델 — 워커와 무관한 모델 기준 데이터(주소·트리거 키워드·베이스 모델)"><svg class="ico"><use href="#i-boxes"/></svg><span class="tab-label">Models</span></button>
+    <button class="tab-btn" data-tab="library" type="button" title="라이브러리 — 포즈 같은 참고 자료 모음(내가 올린 것만, 관리자는 전부)"><svg class="ico"><use href="#i-library"/></svg><span class="tab-label">Library</span></button>
     <span class="tab-bar-sep"></span>
     <button class="tab-btn" data-tab="danbooru" type="button" title="Danbooru 프롬프트 — 워커와 무관한 프롬프트 작업대"><svg class="ico"><use href="#i-tag"/></svg><span class="tab-label">Danbooru</span></button>
     <button class="tab-btn" id="db-tab-btn" data-tab="db" type="button" style="display:none;" title="DB — 앱이 쌓아 둔 여러 기록을 표로 봄(관리자 전용)"><svg class="ico"><use href="#i-database"/></svg><span class="tab-label">DB</span></button>
@@ -864,7 +867,31 @@
 </main>
 
 <!-- 설정 — admin만(서버도 /api/base-models 변경을 admin에게만 연다). 서브탭은 지금 Base Model 하나. -->
-<main id="tab-settings" style="display:none;">
+<main id="tab-library" style="display:none;">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="section-label"><svg class="ico"><use href="#i-library"/></svg> Library</div>
+      <div class="panel-header-actions">
+        <span class="gallery-count" id="library-count"></span>
+        <div class="enhance-mode" id="library-display-toggle">
+          <button class="enhance-mode-btn active" type="button" data-display="grid" title="썸네일 격자로 보기"><svg class="ico"><use href="#i-layout-grid"/></svg> Grid</button>
+          <button class="enhance-mode-btn" type="button" data-display="details" title="명칭·설명·danbooru prompt를 한 줄씩 보기"><svg class="ico"><use href="#i-list"/></svg> Details</button>
+        </div>
+        <button class="submit-btn" id="library-add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg> 게시물 추가하기</button>
+        <button class="load-btn" id="library-refresh-btn" type="button" title="새로고침" aria-label="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="new-job-tabs" id="library-subtabs">
+        <button class="pod-subtab-btn active" type="button" data-library-tab="pose">Pose</button>
+      </div>
+      <div class="upload-error" id="library-error"></div>
+      <div id="library-list" class="library-grid"></div>
+    </div>
+  </div>
+</main>
+
+<main id="tab-settings"style="display:none;">
   <div class="panel">
     <div class="panel-header">
       <div class="section-label"><svg class="ico"><use href="#i-settings"/></svg> Settings</div>
@@ -1178,7 +1205,47 @@
 <input type="file" id="asset-upload-input" multiple accept="image/*,video/*" hidden>
 
 <!-- 베이스 모델 세부 설정(Settings › Base Model에서 연다) — 소속 모델과 UNet 구성 점검 -->
-<div class="modal-overlay" id="base-model-modal" style="display:none;">
+<div class="modal-overlay" id="pose-add-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">Pose 추가</div>
+      <button class="modal-close" id="pose-add-modal-close" type="button" aria-label="닫기">&times;</button>
+    </div>
+    <form id="pose-add-form" class="modal-body">
+      <div class="field">
+        <label class="field-label" for="pose-add-name">Pose 명칭</label>
+        <input type="text" class="option-input" id="pose-add-name" maxlength="200" required placeholder="예: 앉아서 무릎 감싸기">
+      </div>
+      <div class="field">
+        <div class="field-label-row">
+          <span class="field-label">이미지</span>
+          <div class="enhance-mode" id="pose-add-image-mode">
+            <button class="enhance-mode-btn active" type="button" data-mode="file"><svg class="ico"><use href="#i-upload"/></svg> 파일 올리기</button>
+            <button class="enhance-mode-btn" type="button" data-mode="url"><svg class="ico"><use href="#i-link"/></svg> URL</button>
+          </div>
+        </div>
+        <input type="file" id="pose-add-file" accept="image/*" aria-label="이미지 파일">
+        <input type="url" class="option-input" id="pose-add-url" placeholder="https://… 이미지 주소" aria-label="이미지 주소" hidden>
+        <img id="pose-add-preview" class="pose-add-preview" alt="미리보기" hidden>
+      </div>
+      <div class="field">
+        <label class="field-label" for="pose-add-desc">설명 <span class="opt">(선택)</span></label>
+        <textarea class="option-input" id="pose-add-desc" rows="3"></textarea>
+      </div>
+      <div class="field">
+        <label class="field-label" for="pose-add-prompt">danbooru prompt <span class="opt">(선택)</span></label>
+        <textarea class="option-input" id="pose-add-prompt" rows="2" placeholder="sitting, hugging own legs, ..."></textarea>
+      </div>
+      <div class="upload-error" id="pose-add-error"></div>
+    </form>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="pose-add-cancel" type="button">취소</button>
+      <button class="submit-btn" id="pose-add-save" type="submit" form="pose-add-form">저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="base-model-modal"style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
       <div class="modal-title" id="base-model-modal-title">Base Model</div>

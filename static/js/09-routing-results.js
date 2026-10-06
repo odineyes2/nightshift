@@ -20,6 +20,7 @@ const TAB_MAINS = {
   db: document.getElementById('tab-db'),                 // DB — RunPod 세션 등 기록 조회 (admin 전용)
   settings: document.getElementById('tab-settings'),     // 설정 — 베이스 모델 등 (admin 전용)
   models: document.getElementById('tab-lora'),          // 모델 — 파드와 무관한 기준 데이터
+  library: document.getElementById('tab-library'),       // 라이브러리 — Pose 등 참고 자료(17c-library.js)
   // 파드 갤러리("그 파드가 만든 것만")는 전역 갤러리와 같은 화면을 그대로 쓴다 —
   // ~500줄짜리 갤러리 구현(격자/작업별·날짜별 보기/선택/삭제/라이트박스)을 통째로
   // 복제하는 대신, galleryPodFilter 하나로 같은 코드가 "전체"와 "이 파드 것만"을
@@ -266,6 +267,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'pods') fetchRunpodDashboard();
   if(tab === 'admin') fetchAdminUsers();
   if(tab === 'settings') openSettingsTab();
+  if(tab === 'library') openLibraryTab();
   if(tab === 'db'){ renderDbPanelTabs(); fetchRunpodSessions(); fetchGitLog(); fetchGenerationLog(); }
   if(tab === 'prboard'){ initBoardCanvas(); resizeBoardViewport(); fetchBoard({ fit: true }); }
 
