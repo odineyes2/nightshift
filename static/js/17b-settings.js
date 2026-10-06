@@ -93,6 +93,7 @@ document.getElementById('settings-base-models').addEventListener('click', async 
 // 제외는 연결만 푼다(등록부 항목은 남는다). 마지막 소속을 빼면 "선택 안 함"이 되고, 다른 정보도 없으면 등록부 행이 사라진다.
 const baseModelModal = document.getElementById('base-model-modal');
 let baseModelModalName = '';
+let baseModelDetailData = null;
 
 function setBaseModelModalError(msg){ document.getElementById('base-model-modal-error').textContent = msg || ''; }
 
@@ -115,6 +116,9 @@ async function loadBaseModelDetail(){
     const res = await fetch('/api/base-models/detail?name=' + encodeURIComponent(baseModelModalName));
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || `불러오지 못했어요 (${res.status})`);
+    await fetchWorkflowTypes();
+    await fetchWorkflowPresetsList();
+    baseModelDetailData = data;
     renderBaseModelDetail(data);
   }catch(err){ setBaseModelModalError(err.message); }
 }
@@ -147,6 +151,8 @@ function renderBaseModelDetail(d){
   document.getElementById('base-model-modal-body').innerHTML = `
     <div class="section-label">구성 점검</div>
     <div class="settings-parts">${renderBaseModelAssembly(d.assembly)}</div>
+    <div class="section-label">워크플로우 유형</div>
+    ${renderBaseWorkflowTypes(d)}
     <div class="section-label">소속 모델</div>
     <div class="dl-meta">제외하면 이 베이스 모델과의 연결만 풀려요. 모델 정보는 지워지지 않아요(소속이 모두 없고 다른 정보도 없으면 등록부에서 빠져요).</div>
     ${groups || '<div class="dl-meta">소속 모델이 없어요</div>'}
@@ -157,6 +163,83 @@ function renderBaseModelDetail(d){
       <button type="button" class="submit-btn" id="base-member-add">추가</button>
     </div>`;
   fillBaseMemberFiles();
+}
+
+// ---- 워크플로우 유형 허용 목록 — null이면 자동(마법사의 호환 규칙), 목록이면 그것만 그 순서로 ----
+// 카탈로그는 코드(WORKFLOW_TYPES)의 base·post·preset. 같은 id(face_detailer)는 하나로 본다.
+function baseWorkflowCatalog(){
+  const out = new Map();
+  for(const group of ['base', 'post', 'preset'])
+    for(const t of (workflowTypesCache || {})[group] || []) if(!out.has(t.id)) out.set(t.id, { ...t, group });
+  return out;
+}
+
+// 유형 하나의 조립 방식 라벨과 이 계열에서 안 맞는 이유(없으면 '').
+function baseWorkflowTypeInfo(t, d){
+  const ckpt = !!(d.members.checkpoints || []).length, asm = d.assembly;
+  if(t.family_id) return { how: '전용', warn: t.family_id === d.id ? '' : `${t.family_id} 계열 전용이에요` };
+  if(t.group === 'preset') return { how: '프리셋', warn: presetExists(d.id, t.id) ? '' : '프리셋 파일이 없어요' };
+  const how = [ckpt && 'Checkpoint', asm && 'UNet'].filter(Boolean).join('/');
+  if(ckpt) return { how, warn: '' };
+  if(!asm) return { how, warn: '조립할 체크포인트·UNet 소속이 없어요' };
+  if(asm.dedicated) return { how, warn: '전용 빌더 계열이라 범용 조립을 못 해요' };
+  if(asm.missing.length) return { how, warn: `부품이 빠졌어요: ${asm.missing.map(k => BASE_PART_LABEL[k]).join(', ')}` };
+  return { how, warn: '' };
+}
+
+function renderBaseWorkflowTypes(d){
+  const catalog = baseWorkflowCatalog();
+  const label = t => { const { how, warn } = baseWorkflowTypeInfo(t, d);
+    return `${escapeHtml(t.label)}${how ? ` <span class="dl-meta">(${escapeHtml(how)})</span>` : ''}${warn
+      ? ` <span class="settings-part-missing"><svg class="ico"><use href="#i-triangle-alert"/></svg> ${escapeHtml(warn)}</span>` : ''}`; };
+  const custom = Array.isArray(d.workflow_types);
+  const toggle = `<label class="settings-bm-row"><input type="checkbox" id="base-wt-custom"${custom ? ' checked' : ''}> 직접 지정
+    <span class="dl-meta">끄면 자동 — 이 계열에 맞는 유형이 모두 보여요</span></label>`;
+  if(!custom){
+    const auto = [...catalog.values()].filter(t => !baseWorkflowTypeInfo(t, d).warn);
+    return toggle + `<div class="dl-meta">지금 보이는 유형: ${auto.map(t => escapeHtml(t.label)).join(', ') || '없음'}</div>`;
+  }
+  const list = d.workflow_types;
+  const rows = list.map((id, i) => `<div class="settings-bm-row" data-wt="${escapeHtml(id)}">
+      <span class="settings-bm-move">
+        <button type="button" class="modal-btn-secondary base-wt-up" aria-label="위로" title="위로"${i === 0 ? ' disabled' : ''}>↑</button>
+        <button type="button" class="modal-btn-secondary base-wt-down" aria-label="아래로" title="아래로"${i === list.length - 1 ? ' disabled' : ''}>↓</button>
+      </span>
+      <span class="settings-member-file">${catalog.has(id) ? label(catalog.get(id)) : escapeHtml(id)}</span>
+      <button type="button" class="modal-btn-secondary base-wt-remove">삭제</button></div>`).join('');
+  const rest = [...catalog.values()].filter(t => !list.includes(t.id));
+  return toggle + `<div class="settings-bm-list">${rows || '<div class="dl-meta">허용한 유형이 없어요 — 마법사 2단계에 아무것도 안 보여요</div>'}</div>
+    ${rest.length ? `<div class="settings-bm-row">
+      <select class="option-input" id="base-wt-new" aria-label="추가할 유형">${rest.map(t => {
+        const { how, warn } = baseWorkflowTypeInfo(t, d);
+        return `<option value="${escapeHtml(t.id)}">${escapeHtml(t.label)}${how ? ` (${escapeHtml(how)})` : ''}${warn ? ' ⚠' : ''}</option>`; }).join('')}</select>
+      <button type="button" class="submit-btn" id="base-wt-add">추가</button></div>` : ''}`;
+}
+
+async function saveBaseWorkflowTypes(btn, types){
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/base-models/workflow-types', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: baseModelModalName, types }) });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || `실패했어요 (${res.status})`);
+    setBaseModelModalError('');
+    await Promise.all([loadBaseModelDetail(), fetchBaseModelFamilies()]);   // 마법사도 새 목록을 쓰게 한다
+  }catch(err){ setBaseModelModalError(err.message); btn.disabled = false; }
+}
+
+function onBaseWorkflowTypeClick(btn){
+  const d = baseModelDetailData, list = [...(d.workflow_types || [])];
+  if(btn.id === 'base-wt-add') return saveBaseWorkflowTypes(btn, [...list, document.getElementById('base-wt-new').value]);
+  const row = btn.closest('[data-wt]');
+  const i = row ? list.indexOf(row.dataset.wt) : -1;
+  if(i < 0) return;
+  if(btn.classList.contains('base-wt-remove')) list.splice(i, 1);
+  else{
+    const j = btn.classList.contains('base-wt-up') ? i - 1 : i + 1;
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  saveBaseWorkflowTypes(btn, list);
 }
 
 // 고른 종류의 등록부 항목 중 아직 소속이 아닌 것만 제안한다.
@@ -181,12 +264,21 @@ async function setBaseMember(btn, kind, filename, member){
   }catch(err){ setBaseModelModalError(err.message); btn.disabled = false; }
 }
 
-baseModelModal.addEventListener('change', (e) => { if(e.target.id === 'base-member-kind') fillBaseMemberFiles(); });
+baseModelModal.addEventListener('change', (e) => {
+  if(e.target.id === 'base-member-kind') fillBaseMemberFiles();
+  if(e.target.id === 'base-wt-custom'){
+    // 직접 지정으로 바꿀 때는 지금 자동으로 보이는 유형으로 시작한다
+    const d = baseModelDetailData;
+    const start = [...baseWorkflowCatalog().values()].filter(t => !baseWorkflowTypeInfo(t, d).warn).map(t => t.id);
+    saveBaseWorkflowTypes(e.target, e.target.checked ? start : null);
+  }
+});
 baseModelModal.addEventListener('click', (e) => {
   if(e.target === baseModelModal) return closeBaseModelModal();
   const btn = e.target.closest('button');
   if(!btn) return;
   if(btn.id === 'base-model-modal-close') return closeBaseModelModal();
+  if(btn.id === 'base-wt-add' || btn.closest('[data-wt]')) return onBaseWorkflowTypeClick(btn);
   if(btn.id === 'base-member-add'){
     const filename = document.getElementById('base-member-file').value.trim();
     if(!filename){ setBaseModelModalError('파일명을 적어 주세요.'); return; }
