@@ -27,7 +27,21 @@ def main():
     lib = LIBRARY.read_text(encoding="utf-8")
     for needle in ["function openLibraryTab", "'/api/library/poses'", "fd.append('image_url'", "localStorage"]:
         assert needle in lib, needle
-    assert (ROOT / "static" / "css" / "11-library.css").exists()
+    # NS-40: 아티클 갤러리·Library 라이트박스(갤러리와 같은 클래스)·여러 장 입력·모바일 아이콘만 추가 버튼
+    for needle in ['id="library-article"', 'id="library-article-grid"', 'class="gallery-grid" id="library-article-grid"',
+                   'id="library-lightbox"', 'id="library-article-add-btn"', 'id="pose-add-file" accept="image/*" multiple',
+                   '<textarea class="option-input" id="pose-add-url"', '<span class="btn-label">게시물 추가하기</span>']:
+        assert needle in HTML, needle
+    box = HTML[HTML.index('id="library-lightbox"'):HTML.index('id="video-gallery-lightbox"')]
+    for cls in ["lightbox-close", "lightbox-fs-btn", "lightbox-rot-btn", "lightbox-nav", "lightbox-img-wrap",
+                "lightbox-spinner", "lightbox-info", "lightbox-actions"]:
+        assert cls in box, cls
+    assert HTML.index('id="library-lightbox"') < HTML.index('src="/js/bundle.js"')   # 공용 .lightbox-rot-btn 연결을 받는다
+    for needle in ["setupLightboxSwipe(libraryLightbox", "toggleLightboxFullscreen(libraryLightbox)",
+                   "/images`", "openLibraryArticle"]:
+        assert needle in lib, needle
+    css = (ROOT / "static" / "css" / "11-library.css").read_text(encoding="utf-8")
+    assert "@media (max-width:640px)" in css and "#library-add-btn .btn-label" in css
     node = shutil.which("node")
     if node:
         for f in (ROUTING, LIBRARY):

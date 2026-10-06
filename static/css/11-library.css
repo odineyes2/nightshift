@@ -6,7 +6,16 @@
     background:var(--panel); border:1px solid var(--border); border-radius:var(--radius-md);
     overflow:hidden; display:flex; flex-direction:column;
   }
-  .library-thumb{ display:block; aspect-ratio:1; background:var(--bg); }
+  /* 카드 전체가 버튼(NS-40) — 누르면 아티클 갤러리 */
+  button.library-card{ font:inherit; color:inherit; text-align:left; padding:0; cursor:pointer; width:100%; }
+  button.library-card:hover{ border-color:var(--accent, var(--queued)); }
+  .library-info > span{ display:block; }
+  .library-thumb{ display:block; aspect-ratio:1; background:var(--bg); position:relative; }
+  .library-thumb-count{
+    position:absolute; right:var(--gap-xs); bottom:var(--gap-xs); padding:2px 6px; border-radius:var(--radius-sm);
+    background:rgba(0,0,0,0.6); color:#fff; font-family:var(--mono); font-size:12px;
+    display:inline-flex; align-items:center; gap:4px;
+  }
   .library-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
   .library-info{ padding:var(--gap-sm); display:flex; flex-direction:column; gap:4px; min-width:0; }
   .library-name{ font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -23,9 +32,25 @@
   .library-details .library-thumb{ width:64px; flex-shrink:0; }
   .library-details .library-desc{ -webkit-line-clamp:3; }
 
-  .pose-add-preview{
-    display:block; max-width:100%; max-height:240px; margin-top:var(--gap-sm);
-    border:1px solid var(--border); border-radius:var(--radius-sm); object-fit:contain;
+  /* 아티클 갤러리 — 격자는 갤러리의 .gallery-grid/.gallery-item 그대로 */
+  #library-article{ display:flex; flex-direction:column; gap:var(--gap-sm); }
+  #library-article[hidden], #library-list[hidden]{ display:none; }
+  .library-article-head{ display:flex; align-items:center; gap:var(--gap-sm); min-width:0; }
+  .library-article-head .library-name{ flex:1; min-width:0; }
+  #library-article .library-desc{ -webkit-line-clamp:unset; }
+  .library-prompt:empty{ display:none; }
+  #library-article-grid .gallery-item{ cursor:pointer; }
+
+  /* 미리보기 — 여러 장을 작은 썸네일 줄로 */
+  .pose-add-preview{ display:flex; flex-wrap:wrap; gap:var(--gap-xs); margin-top:var(--gap-sm); }
+  .pose-add-preview img{
+    width:72px; height:72px; object-fit:cover;
+    border:1px solid var(--border); border-radius:var(--radius-sm);
   }
-  .pose-add-preview[hidden]{ display:none; }
+  .pose-add-preview[hidden], .pose-add-meta[hidden]{ display:none; }
   #pose-add-file[hidden], #pose-add-url[hidden]{ display:none; }
+
+  /* 모바일 — 추가 버튼은 아이콘만(기존 640px 기준) */
+  @media (max-width:640px){
+    #library-add-btn .btn-label, #library-article-add-btn .btn-label{ display:none; }
+  }
