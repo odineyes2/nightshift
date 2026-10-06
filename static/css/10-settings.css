@@ -1,0 +1,7 @@
+/* Settings 탭 — Base Model 서브탭 목록 */
+.settings-bm-list{ display:flex; flex-direction:column; gap:6px; margin:12px 0; }
+.settings-bm-row{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.settings-bm-row .option-input{ flex:1 1 160px; min-width:0; }
+.settings-bm-move{ display:flex; gap:4px; }
+.settings-bm-move button{ min-width:32px; font-variant-numeric:tabular-nums; }
+.settings-bm-row .base-model-delete{ color:var(--failed); }

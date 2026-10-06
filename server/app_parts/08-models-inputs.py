@@ -121,6 +121,14 @@ async def rename_base_model(request: Request):
     return {"name": _base_model_call(model_registry.rename_base_model, data.get("old"), data.get("new"))}
 
 
+@app.put("/api/base-models/order")
+async def reorder_base_models(request: Request):
+    """새 잡 마법사 1단계에 보일 베이스 모델 순서 {names:[...]} — 목록 전체를 원하는 순서로 보낸다."""
+    admin_only(request)
+    data = await read_json_object(request, allow_empty=False)
+    return {"names": _base_model_call(model_registry.reorder_base_models, data.get("names"))}
+
+
 @app.delete("/api/base-models")
 def delete_base_model(request: Request, name: str):
     admin_only(request)

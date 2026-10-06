@@ -133,6 +133,41 @@ class BaseModelTests(unittest.TestCase):
         self.assertEqual(R.checkpoint_groups()["anima"]["unet_image"],
                          {"clip": "qwen_3_06b.safetensors", "vae": "qwen_image_vae.safetensors"})
 
+    def test_z_order(self):
+        """NS-38-3 PUT /api/base-models/order — 관리자만, 목록 전체가 한 번씩 있어야 하고 마법사 1단계가 그 순서를 따른다."""
+        import asyncio
+        import json
+        from types import SimpleNamespace
+        os.environ.setdefault("NIGHTSHIFT_ADMIN_USER", "admin")
+        os.environ.setdefault("NIGHTSHIFT_ADMIN_PASSWORD", "Test-Passw0rd-xyz!")
+        os.chdir(ROOT / "server")
+        import app as A
+        from fastapi import HTTPException
+
+        def put(names, role="admin"):
+            async def body():
+                return json.dumps({"names": names}).encode()
+            req = SimpleNamespace(state=SimpleNamespace(user={"id": "u", "role": role}), body=body)
+            try:
+                return 200, asyncio.run(A.reorder_base_models(req))
+            except HTTPException as e:
+                return e.status_code, e.detail
+
+        R.upsert("checkpoints", "o_sdxl.safetensors", {"base_models": ["SDXL"]})
+        R.upsert("checkpoints", "o_pony.safetensors", {"base_models": ["Pony"]})
+        cur = names()
+        new = list(reversed(cur))
+        self.assertEqual(put(new, role="user")[0], 403)
+        self.assertEqual(put(new[1:])[0], 400)                 # 빠진 이름
+        self.assertEqual(put(new + ["없는이름"])[0], 400)       # 모르는 이름
+        self.assertEqual(put(new + [new[0]])[0], 400)          # 중복
+        self.assertEqual(put("SDXL")[0], 400)
+        code, out = put([n.upper() for n in new])               # 대소문자는 무시하고 저장된 이름을 돌려준다
+        self.assertEqual((code, out["names"]), (200, new))
+        self.assertEqual(names(), new)
+        ids = list(R.checkpoint_groups())
+        self.assertLess(ids.index("pony"), ids.index("sdxl"))   # 뒤집었으니 Pony가 SDXL보다 앞
+
 
 if __name__ == "__main__":
     unittest.main()
