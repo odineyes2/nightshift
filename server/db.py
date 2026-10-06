@@ -423,11 +423,28 @@ CREATE TABLE poses (
 CREATE INDEX idx_poses_owner ON poses(owner_id)
 """
 
+# v20: Library 게시물 복수 이미지(NS-40) — 이미지를 pose_images로 나누고 기존 한 장을 옮긴다(파일 이름은 그대로).
+# poses.image_file·source_url은 표 재작성을 피하려고 남겨 두고 새 코드는 읽지 않는다.
+SCHEMA_V20 = """
+CREATE TABLE pose_images (
+  id          INTEGER PRIMARY KEY,
+  pose_id     INTEGER NOT NULL REFERENCES poses(id) ON DELETE CASCADE,
+  image_file  TEXT NOT NULL,
+  thumb_file  TEXT NOT NULL,
+  source_url  TEXT NOT NULL DEFAULT '',
+  position    INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_pose_images_pose ON pose_images(pose_id, position);
+INSERT INTO pose_images(pose_id, image_file, thumb_file, source_url, position, created_at)
+  SELECT id, image_file, id || '_thumb.webp', source_url, 0, created_at FROM poses WHERE image_file <> ''
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
               (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16), (17, SCHEMA_V17), (18, SCHEMA_V18),
-              (19, SCHEMA_V19)]
+              (19, SCHEMA_V19), (20, SCHEMA_V20)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}
