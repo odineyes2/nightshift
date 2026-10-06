@@ -46,6 +46,9 @@
   }
   .model-field{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-dim); margin-top:6px; }
   .model-field .option-input{ max-width:none; }
+  /* 소속 베이스 모델 복수 선택(체크박스 묶음) */
+  .model-base-picks{ display:flex; flex-wrap:wrap; gap:6px 14px; padding:4px 0; }
+  .model-base-pick{ display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text); cursor:pointer; }
   .model-editor-actions{ display:flex; gap:8px; }
 
   /* ---- DB 탭 — RunPod 세션 로그. model-table 계열과 같은 그리드 표 느낌이지만

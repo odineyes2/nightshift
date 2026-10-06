@@ -420,11 +420,11 @@ function renderWizardLoraModal(){
     body.innerHTML = '<div class="comfy-model-empty">고를 수 있는 LoRA가 없어요 — 워커의 파드를 켜거나 "모델" 탭에 LoRA를 등록하세요.</div>';
     return;
   }
-  // 등록부에 베이스 모델을 안 적은 LoRA는 모든 베이스 모델과 호환되는 것으로 취급한다 — 나머지는 자기 베이스 모델이
-  // 지금 고른 것과 같을 때만 보여준다(비호환 LoRA는 아예 숨김).
+  // 등록부에 베이스 모델을 안 적은 LoRA는 모든 베이스 모델과 호환되는 것으로 취급한다 — 나머지는 소속 베이스 모델 중
+  // 하나가 지금 고른 것과 같을 때만 보여준다(비호환 LoRA는 아예 숨김).
   const compatible = all.filter(name => {
     const entry = getLoraEntry(name);
-    return !entry.baseId || entry.baseId === wizard.familyId;
+    return !entry.baseIds.length || entry.baseIds.includes(wizard.familyId);
   });
   const hint = isPreset
     ? '<div class="email-hint">이 워크플로우 유형은 프리셋에 이미 배선된 LoRA 로더 하나에만 덮어쓸 수 있어서, 여기서는 하나만 고를 수 있어요.</div>'

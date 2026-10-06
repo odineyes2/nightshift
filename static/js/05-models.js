@@ -15,10 +15,17 @@ function modelKey(kind, name){ return `${kind}\u0000${name}`; }
 // 서버의 model_registry.base_id와 같은 규칙 — 마법사가 LoRA를 걸러낼 때 체크포인트 그룹 id와 맞춰 본다.
 function baseIdOf(v){ return String(v || '').trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, ''); }
 
+// 등록부 항목의 소속 베이스 모델 목록(NS-38 — 여럿일 수 있다). base_models가 없는 옛 응답은 base_model 하나로 본다.
+function basesOf(e){ return e.base_models || (e.base_model ? [e.base_model] : []); }
+function basesText(e){ return basesOf(e).join(', '); }
+
 function rebuildLoraTriggersFromRegistry(){
   const out = {};
   for(const e of Object.values(modelRegistry.items)){
-    if(e.kind === 'loras' && (e.trigger_keyword || e.base_model)) out[e.filename] = { trigger: e.trigger_keyword || '', base_id: baseIdOf(e.base_model) };
+    if(e.kind === 'loras' && (e.trigger_keyword || basesOf(e).length)){
+      const ids = basesOf(e).map(baseIdOf);
+      out[e.filename] = { trigger: e.trigger_keyword || '', base_id: ids[0] || '', base_ids: ids };
+    }
   }
   loraTriggers = out;
 }
@@ -91,20 +98,23 @@ function usageHtml(kind, name){
 
 function modelEntry(kind, name){
   return modelRegistry.items[modelKey(kind, name)]
-    || { kind, filename: name, base_model: '', notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '' };
+    || { kind, filename: name, base_model: '', base_models: [], notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '' };
 }
 
-// 베이스 모델은 이제 자유 입력이 아니라 서버가 정해 둔 기준 목록(modelRegistry.base_models,
-// server/model_registry.py의 BASE_MODELS)에서만 고른다 — 대소문자가 미묘하게 다른 값이
-// 새로 생겨 필터가 못 알아보는 일이 없도록(전에 "Krea.2"/"krea.2"가 따로 놀던 문제).
-// selected가 그 목록에 없으면(예전에 API로 직접 넣은 값 등) 지우지 않고 맨 끝에 얹어 둔다.
-function baseModelSelectOptions(selected){
+// 베이스 모델은 자유 입력이 아니라 서버가 정해 둔 기준 목록(modelRegistry.base_models, DB base_models 표)에서만
+// 고른다 — 대소문자가 미묘하게 다른 값이 새로 생겨 필터가 못 알아보는 일이 없도록. 한 모델이 여러 베이스 모델에
+// 속할 수 있어(예: Anima·Qwen-Image가 같은 VAE를 씀) 체크박스로 여럿 고른다. 아무것도 안 고르면 "선택 안 함"이다.
+// selected 중 목록에 없는 값(예전에 API로 직접 넣은 값 등)은 지우지 않고 맨 끝에 얹어 둔다.
+function baseModelChecks(selected, dis){
   const canon = modelRegistry.base_models || [];
-  const opts = ['<option value="">선택 안 함</option>'];
-  for(const b of canon) opts.push(`<option value="${escapeHtml(b)}"${b === selected ? ' selected' : ''}>${escapeHtml(b)}</option>`);
-  if(selected && !canon.includes(selected)) opts.push(`<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)} (목록에 없음)</option>`);
-  return opts.join('');
+  const on = new Set((selected || []).map(b => b.toLowerCase()));
+  const extra = (selected || []).filter(b => !canon.some(c => c.toLowerCase() === b.toLowerCase()));
+  const box = (b, label) => `<label class="model-base-pick"><input type="checkbox" value="${escapeHtml(b)}"${on.has(b.toLowerCase()) ? ' checked' : ''} ${dis || ''}>${escapeHtml(label)}</label>`;
+  const boxes = canon.map(b => box(b, b)).concat(extra.map(b => box(b, `${b} (목록에 없음)`))).join('');
+  return `<div class="model-base-picks" data-field="base_models">${boxes || '<span class="dim">베이스 모델 목록이 비어 있어요.</span>'}</div>`;
 }
+
+function checkedBases(el){ return [...el.querySelectorAll('input[type="checkbox"]:checked')].map(i => i.value); }
 
 function setModelError(text){ document.getElementById('lora-tab-error').textContent = text || ''; }
 
@@ -121,7 +131,7 @@ async function putModelEntry(payload){
 // ---- 편집 패널 임시 값(저장 버튼을 눌러야 반영) ----
 function modelDraftFromEntry(kind, name){
   const e = modelEntry(kind, name);
-  return { origKind: kind, kind, origName: name, filename: name, base_model: e.base_model, notes: e.notes,
+  return { origKind: kind, kind, origName: name, filename: name, base_models: [...basesOf(e)], notes: e.notes,
            tags: [...(e.tags || [])], trigger_keyword: e.trigger_keyword, page_url: e.page_url, download_url: e.download_url };
 }
 
@@ -147,12 +157,12 @@ async function saveModelDraft(){
     setModelError('이미 등록된 항목이에요(종류+파일명이 같음).');
     return;
   }
-  const fields = { base_model: d.base_model, notes: d.notes, tags: d.tags,
+  const fields = { base_models: d.base_models, notes: d.notes, tags: d.tags,
                     trigger_keyword: d.trigger_keyword, page_url: d.page_url, download_url: d.download_url };
   try{
     await putModelEntry({ kind: d.kind, filename: newName, ...fields });
     if(moved){
-      await putModelEntry({ kind: d.origKind, filename: d.origName, base_model: '', notes: '', tags: [],
+      await putModelEntry({ kind: d.origKind, filename: d.origName, base_models: [], notes: '', tags: [],
                              trigger_keyword: '', page_url: '', download_url: '' });
       modelKindActive = d.kind;   // 종류를 옮겼으면 그 종류 탭으로 같이 옮겨야 보인다
       modelExpandedKey = modelKey(d.kind, newName);
@@ -200,7 +210,7 @@ function modelRowHtml(kind, name, isAdmin){
     <div class="model-cols${isLora ? ' lora' : ''} model-row-head" role="button" tabindex="0">
       ${modelThumbHtml(kind, name)}
       <div class="gallery-details-col name lora-tab-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
-      <div class="gallery-details-col" title="${escapeHtml(e.base_model)}">${e.base_model ? escapeHtml(e.base_model) : '<span class="dim">-</span>'}</div>
+      <div class="gallery-details-col" title="${escapeHtml(basesText(e))}">${basesOf(e).length ? escapeHtml(basesText(e)) : '<span class="dim">-</span>'}</div>
       ${isLora ? `<div class="gallery-details-col" title="${escapeHtml(e.trigger_keyword)}">${e.trigger_keyword ? escapeHtml(e.trigger_keyword) : '<span class="dim">-</span>'}</div>` : ''}
       ${tagsHtml}
       <div class="gallery-details-col dim">${usage ? usage.count : '-'}</div>
@@ -225,8 +235,8 @@ function modelRowHtml(kind, name, isAdmin){
         <input type="text" class="option-input" data-field="filename" ${dis} placeholder="예: ComfyUI-Impact-Pack" value="${escapeHtml(d.filename)}"></label>`
       : `<label class="model-field"><span>파일명 <span style="opacity:.6">(하위 폴더는 "폴더/이름.safetensors")</span></span>
         <input type="text" class="option-input" data-field="filename" ${dis} placeholder="${d.kind === 'ultralytics' ? '예: bbox/face_yolov8m.pt' : '예: mmh3/my_style_v2.safetensors'}" value="${escapeHtml(d.filename)}"></label>`}
-      <label class="model-field"><span>베이스 모델</span>
-        <select class="option-input" data-field="base_model" ${dis}>${baseModelSelectOptions(d.base_model)}</select></label>
+      <div class="model-field"><span>베이스 모델 <span style="opacity:.6">(여럿 고를 수 있어요)</span></span>
+        ${baseModelChecks(d.base_models, dis)}</div>
       ${isLora ? `<label class="model-field"><span>트리거 키워드</span>
         <input type="text" class="option-input" data-field="trigger_keyword" ${dis} placeholder="없으면 비워둠 — 워크플로우에서 고르면 프롬프트에 자동으로 붙어요" value="${escapeHtml(d.trigger_keyword)}"></label>` : ''}
       <label class="model-field"><span>페이지 주소${link(d.page_url)}</span>
@@ -269,7 +279,7 @@ function renderModelRegistry(){
   // 차이는 같은 베이스 모델로 본다(전에 등록된 값이 기준 표기와 살짝 다를 수 있어서).
   const baseFilterEl = document.getElementById('model-base-filter');
   const usedBasesLower = new Set(
-    Object.values(modelRegistry.items).map(e => (e.base_model || '').trim().toLowerCase()).filter(Boolean));
+    Object.values(modelRegistry.items).flatMap(e => basesOf(e).map(b => b.trim().toLowerCase())).filter(Boolean));
   const bases = (modelRegistry.base_models || []).filter(b => usedBasesLower.has(b.toLowerCase()));
   if(modelBaseFilter && !bases.some(b => b.toLowerCase() === modelBaseFilter.toLowerCase())) modelBaseFilter = '';
   baseFilterEl.innerHTML = '<option value="">베이스 모델: 전체</option>'
@@ -279,9 +289,9 @@ function renderModelRegistry(){
   const filter = document.getElementById('lora-tab-filter').value.trim().toLowerCase();
   let shown = all.filter(n => {
     const e = modelEntry(modelKindActive, n);
-    if(modelBaseFilter && e.base_model.toLowerCase() !== modelBaseFilter.toLowerCase()) return false;
+    if(modelBaseFilter && !basesOf(e).some(b => b.toLowerCase() === modelBaseFilter.toLowerCase())) return false;
     if(!filter) return true;
-    return (n + ' ' + e.base_model + ' ' + (e.tags || []).join(' ') + ' ' + e.notes + ' ' + e.trigger_keyword + ' ' + e.page_url).toLowerCase().includes(filter);
+    return (n + ' ' + basesText(e) + ' ' + (e.tags || []).join(' ') + ' ' + e.notes + ' ' + e.trigger_keyword + ' ' + e.page_url).toLowerCase().includes(filter);
   });
   if(modelSort !== 'name'){
     const val = n => {
@@ -317,7 +327,7 @@ function renderModelAddForm(){
         <input type="text" class="option-input" id="model-add-filename" placeholder="예: my_style_v2.safetensors"></label>
       <label class="model-field"><span>페이지 주소</span><input type="url" class="option-input" id="model-add-page" placeholder="https://…"></label>
       <label class="model-field"><span>다운로드 주소</span><input type="url" class="option-input" id="model-add-download" placeholder="https://…"></label>
-      <label class="model-field"><span>베이스 모델</span><select class="option-input" id="model-add-base">${baseModelSelectOptions('')}</select></label>
+      <div class="model-field" id="model-add-base"><span>베이스 모델 <span style="opacity:.6">(여럿 고를 수 있어요)</span></span>${baseModelChecks([])}</div>
       ${kind === 'loras' ? '<label class="model-field"><span>트리거 키워드</span><input type="text" class="option-input" id="model-add-trigger"></label>' : ''}
       <div class="dl-row model-full" style="margin-top:6px;">
         <button type="button" class="submit-btn" id="model-add-save">추가</button>
@@ -337,10 +347,10 @@ document.getElementById('model-add-form').addEventListener('click', async (e) =>
   if(!e.target.closest('#model-add-save')) return;
   const v = id => (document.getElementById(id) || { value: '' }).value.trim();
   const payload = { kind: modelKindActive, filename: v('model-add-filename'), page_url: v('model-add-page'),
-                    download_url: v('model-add-download'), base_model: v('model-add-base') };
+                    download_url: v('model-add-download'), base_models: checkedBases(document.getElementById('model-add-base')) };
   if(modelKindActive === 'loras') payload.trigger_keyword = v('model-add-trigger');
   if(!payload.filename){ setModelError('파일명을 입력하세요.'); return; }
-  if(!(payload.page_url || payload.download_url || payload.base_model || payload.trigger_keyword)){
+  if(!(payload.page_url || payload.download_url || payload.base_models.length || payload.trigger_keyword)){
     setModelError('페이지 주소·다운로드 주소·베이스 모델 중 하나는 적어야 등록돼요.'); return;
   }
   try{
@@ -473,7 +483,7 @@ document.getElementById('lora-tab-list').addEventListener('click', (e) => {
     const editor = clearBtn.closest('.model-editor');
     if(!confirm('이 모델의 등록 정보(주소·베이스 모델·트리거 키워드·태그·메모)를 모두 지울까요? 파일은 그대로예요.')) return;
     const kind = editor.dataset.kind, name = editor.dataset.name;
-    putModelEntry({ kind, filename: name, base_model: '', notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '' })
+    putModelEntry({ kind, filename: name, base_models: [], notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '' })
       .then(() => { modelExpandedKey = null; modelEditDraft = null; renderModelRegistry(); })
       .catch(err => setModelError(err.message));
     return;
@@ -509,7 +519,13 @@ document.getElementById('lora-tab-list').addEventListener('input', (e) => {
   const editor = e.target.closest('.model-editor');
   if(!input || !editor || !isAdminUser() || !modelEditDraft) return;
   const field = input.dataset.field;
-  modelEditDraft[field] = field === 'tags' ? input.value.split(',').map(t => t.trim()).filter(Boolean) : input.value;
+  if(field === 'base_models'){
+    // 이미 고른 것의 순서는 지키고 새로 고른 것만 끝에 붙인다 — 첫 값이 호환용 base_model이 된다
+    const on = checkedBases(input), cur = modelEditDraft.base_models;
+    modelEditDraft.base_models = [...cur.filter(b => on.includes(b)), ...on.filter(b => !cur.includes(b))];
+  }else{
+    modelEditDraft[field] = field === 'tags' ? input.value.split(',').map(t => t.trim()).filter(Boolean) : input.value;
+  }
   const saveBtn = editor.querySelector('.model-save-btn');
   if(saveBtn) saveBtn.disabled = !modelDraftDirty();
 });
