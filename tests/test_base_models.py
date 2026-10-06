@@ -45,7 +45,7 @@ class BaseModelTests(unittest.TestCase):
         e = R.get_entry("checkpoints", "old2.safetensors")
         self.assertEqual((e["base_model"], e["base_models"]), ("legacy", ["legacy"]))
         with db.connect() as conn:
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 18)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], db.MIGRATIONS[-1][0])
             row = conn.execute("SELECT position, workflow_types_json, sweet_json FROM base_models WHERE name='SDXL'").fetchone()
         self.assertEqual(tuple(row), (2, None, "{}"))
 
