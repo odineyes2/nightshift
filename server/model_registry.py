@@ -38,9 +38,6 @@ NODEPACK_KIND = "custom_nodes"
 GITHUB_REPO_RE = re.compile(r"^https://github\.com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$")
 NODEPACK_DIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
-# 입력칸의 자동완성용 — 이 밖의 값도 자유롭게 적을 수 있다.
-BASE_MODELS = ["SD 1.5", "SDXL", "Illustrious", "Pony", "NoobAI", "Flux", "Wan 2.2", "Wan 2.1", "Qwen-Image", "Z-Image", "krea.2", "MiniMax-H3", "기타"]
-
 MAX_TEXT = 4000
 MAX_LIST = 50
 FIELDS = ("base_model", "notes", "tags", "trigger_keyword", "page_url", "download_url")
@@ -117,6 +114,59 @@ def get_entry(kind: str, filename: str) -> dict | None:
     with db.connect() as conn:
         row = conn.execute("SELECT * FROM models WHERE kind=? AND filename=?", (kind, filename)).fetchone()
     return _row_to_entry(row) if row else None
+
+
+# 베이스 모델 목록(base_models 표, db.py v17) — 화면의 베이스 모델 선택지. 이름은 대소문자 무시로 하나뿐이다.
+def list_base_models() -> list[dict]:
+    """[{name, count}] — count는 그 이름(대소문자 무시)을 쓰는 등록부 항목 수."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT b.name, (SELECT COUNT(*) FROM models m WHERE m.base_model = b.name COLLATE NOCASE) AS count "
+            "FROM base_models b ORDER BY b.position, b.name COLLATE NOCASE").fetchall()
+    return [{"name": r["name"], "count": r["count"]} for r in rows]
+
+
+def _clean_base_name(value) -> str:
+    name = _clean_str(value, "베이스 모델 이름", 100)
+    if not name:
+        raise RegistryError("베이스 모델 이름을 적어 주세요.")
+    return name
+
+
+def add_base_model(name) -> str:
+    name = _clean_base_name(name)
+    with db.connect() as conn:
+        if conn.execute("SELECT 1 FROM base_models WHERE name=?", (name,)).fetchone():
+            raise RegistryError(f"'{name}'은(는) 이미 있어요.")
+        conn.execute("INSERT INTO base_models(name, position, created_at) "
+                     "VALUES(?, (SELECT COALESCE(MAX(position), 0) + 1 FROM base_models), ?)", (name, db.now_iso()))
+    return name
+
+
+def rename_base_model(old, new) -> str:
+    """목록 이름과 그 이름을 쓰는 등록부 항목의 base_model을 한 트랜잭션에서 함께 바꾼다."""
+    old, new = _clean_base_name(old), _clean_base_name(new)
+    with db.connect() as conn:
+        if not conn.execute("SELECT 1 FROM base_models WHERE name=?", (old,)).fetchone():
+            raise RegistryError(f"'{old}'은(는) 목록에 없어요.")
+        if old.lower() != new.lower() and conn.execute("SELECT 1 FROM base_models WHERE name=?", (new,)).fetchone():
+            raise RegistryError(f"'{new}'은(는) 이미 있어요.")
+        conn.execute("UPDATE base_models SET name=? WHERE name=?", (new, old))
+        conn.execute("UPDATE models SET base_model=?, updated_at=? WHERE base_model=? COLLATE NOCASE",
+                     (new, db.now_iso(), old))
+    return new
+
+
+def delete_base_model(name) -> None:
+    """쓰는 등록부 항목이 있으면 지우지 않는다."""
+    name = _clean_base_name(name)
+    with db.connect() as conn:
+        if not conn.execute("SELECT 1 FROM base_models WHERE name=?", (name,)).fetchone():
+            raise RegistryError(f"'{name}'은(는) 목록에 없어요.")
+        used = conn.execute("SELECT COUNT(*) FROM models WHERE base_model=? COLLATE NOCASE", (name,)).fetchone()[0]
+        if used:
+            raise RegistryError(f"모델 {used}개가 '{name}'을(를) 쓰고 있어요. 그 모델들의 베이스 모델을 먼저 바꿔 주세요.")
+        conn.execute("DELETE FROM base_models WHERE name=?", (name,))
 
 
 def lora_triggers() -> dict[str, dict]:

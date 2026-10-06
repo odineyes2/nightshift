@@ -91,11 +91,41 @@ async def cancel_model_download(request: Request):
 def get_model_registry():
     """모델 등록부 — 파일 종류 목록과 지금까지 정보를 적어 둔 항목들. 어느 파드에 뭐가 설치돼
     있는지는 /api/comfy-object-info가 알려 주고, 화면이 둘을 파일명으로 합친다."""
+    usage = model_registry.list_base_models()
     return {
         "kinds": [{"id": k, "label": label} for k, label in model_registry.KINDS],
-        "base_models": model_registry.BASE_MODELS,
+        "base_models": [b["name"] for b in usage],
+        "base_model_usage": usage,
         "items": model_registry.list_entries(),
     }
+
+
+def _base_model_call(fn, *args):
+    try:
+        return fn(*args)
+    except model_registry.RegistryError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/base-models")
+async def add_base_model(request: Request):
+    admin_only(request)
+    data = await read_json_object(request, allow_empty=False)
+    return {"name": _base_model_call(model_registry.add_base_model, data.get("name"))}
+
+
+@app.put("/api/base-models")
+async def rename_base_model(request: Request):
+    admin_only(request)
+    data = await read_json_object(request, allow_empty=False)
+    return {"name": _base_model_call(model_registry.rename_base_model, data.get("old"), data.get("new"))}
+
+
+@app.delete("/api/base-models")
+def delete_base_model(request: Request, name: str):
+    admin_only(request)
+    _base_model_call(model_registry.delete_base_model, name)
+    return {"ok": True}
 
 
 @app.put("/api/models")
