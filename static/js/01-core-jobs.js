@@ -450,7 +450,7 @@ async function fetchJobWorkflowCheckpoint(jobId){
 
 function jobBaseModelLabel(j){
   const ckpt = j.options && j.options.checkpoint;
-  if(ckpt) return modelEntry('checkpoints', ckpt).base_model || ckpt;
+  if(ckpt) return basesText(modelEntry('checkpoints', ckpt)) || ckpt;
   // wan22/minimax-h3 영상 템플릿은 체크포인트 드롭다운이 아예 없다(고정 내장 모델).
   const tid = j.template_id || '';
   if(tid.startsWith('wan22_')) return 'Wan 2.2';
@@ -458,7 +458,7 @@ function jobBaseModelLabel(j){
   if(j.workflow_filename){
     if(j.id in jobWorkflowCheckpointCache){
       const found = jobWorkflowCheckpointCache[j.id];
-      if(found) return modelEntry('checkpoints', found).base_model || found;
+      if(found) return basesText(modelEntry('checkpoints', found)) || found;
     }else{
       fetchJobWorkflowCheckpoint(j.id);
     }

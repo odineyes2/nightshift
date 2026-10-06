@@ -76,6 +76,9 @@ function wmKindLabel(kind){
   return k ? k.label : (kind || '');
 }
 
+// 소속 베이스 모델마다 태그 하나(여럿일 수 있다)
+function wmBaseTags(e){ return basesOf(e).map(b => `<span class="wm-tag">${escapeHtml(b)}</span>`).join(''); }
+
 function renderWorkerModels(){
   const connected = !!wmData.connected;
   document.getElementById('wm-offline').style.display = connected ? 'none' : '';
@@ -126,7 +129,7 @@ function renderWorkerModels(){
       : !hasDl ? '<span class="wm-tag" title="이 워커의 파드에 다운로더가 없어요 — 위 안내의 설치 스크립트를 실행하세요">다운로더 없음</span>'
       : `<button type="button" class="load-btn wm-get-btn" data-get-kind="${escapeHtml(e.kind)}" data-get-name="${escapeHtml(e.filename)}" title="이 워커에 받기">${ico('download')} 받기</button>`;
     return `<div class="wm-row"><span class="wm-name" title="${escapeHtml(e.filename)}">${escapeHtml(e.filename)}</span>
-      <span class="wm-kind">${escapeHtml(wmKindLabel(e.kind))}</span>${e.base_model ? `<span class="wm-tag">${escapeHtml(e.base_model)}</span>` : ''}${action}</div>`;
+      <span class="wm-kind">${escapeHtml(wmKindLabel(e.kind))}</span>${wmBaseTags(e)}${action}</div>`;
   }).join('') : `<div class="comfy-model-empty">${q && missing.length ? '찾는 이름이 없어요.' : '모델 탭에 등록된 모델이 이 워커에 다 있어요.'}</div>`;
 
   // 설치된 모델 — 종류별, 이름 검색. 등록부에 없는 것은 "등록"으로 모델 탭에 들여온다(관리자만).
@@ -138,7 +141,7 @@ function renderWorkerModels(){
     if(!names.length) return '';
     const rows = names.map(name => {
       const reg = modelRegistry.items[modelKey(kind, name)];
-      const regHtml = reg ? (reg.base_model ? `<span class="wm-tag">${escapeHtml(reg.base_model)}</span>` : '')
+      const regHtml = reg ? wmBaseTags(reg)
         : (isAdminUser() ? `<button type="button" class="load-btn wm-register-btn" data-reg-kind="${escapeHtml(kind)}" data-reg-name="${escapeHtml(name)}" title="모델 탭 등록부에 이 모델의 정보(베이스 모델·주소 등)를 적으러 가요">등록</button>`
           : '<span class="wm-tag" title="모델 탭 등록부에 없는 모델이에요">미등록</span>');
       return `<div class="wm-row"><span class="wm-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>${regHtml}</div>`;

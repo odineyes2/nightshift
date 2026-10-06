@@ -447,12 +447,12 @@ async function fetchLoraTriggers(){
   }
 }
 
-// {trigger, baseId} 형태를 항상 돌려준다 — 아직 fetch가 안 됐거나 그 이름이 목록에 없을 때를 위한 기본값.
-// baseId가 비어 있으면 어떤 베이스 모델을 골라도 보이는 LoRA다.
+// {trigger, baseIds} 형태를 항상 돌려준다 — 아직 fetch가 안 됐거나 그 이름이 목록에 없을 때를 위한 기본값.
+// baseIds가 비어 있으면 어떤 베이스 모델을 골라도 보이는 LoRA다. base_ids가 없는 옛 응답은 base_id 하나로 본다.
 function getLoraEntry(name){
   const entry = loraTriggers[name];
-  if(entry && typeof entry === 'object') return { trigger: entry.trigger || '', baseId: entry.base_id || '' };
-  return { trigger: '', baseId: '' };
+  if(entry && typeof entry === 'object') return { trigger: entry.trigger || '', baseIds: entry.base_ids || (entry.base_id ? [entry.base_id] : []) };
+  return { trigger: '', baseIds: [] };
 }
 
 // LoRA의 트리거 키워드. ComfyUI는 하위 폴더까지 붙인 이름(예: sdxl/foo.safetensors)을 주는데
