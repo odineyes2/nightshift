@@ -628,11 +628,12 @@ def run_once(base_workflow, comfy_url, seed, index, main_prompt, negative_prompt
 def load_pose_sequence(path):
     # 순차 생성(NS-42) — nightshift가 저장한 포즈 목록 [{image, pose_id, pose_name, tags, width, height}].
     # 목록 순서대로 돈다. 경로가 없거나 비면 None(포즈 순회 없이 예전 동작).
+    # Position 순차 실행(NS-43)은 image 없이 tags만 담는다 — 포즈 이미지 주입 없이 돈다.
     if not path:
         return None
     with open(path, encoding="utf-8") as f:
         items = json.load(f)
-    return [item for item in items if isinstance(item, dict) and item.get("image")] or None
+    return [item for item in items if isinstance(item, dict)] or None
 
 
 def pose_prompt(prompt, tags):
@@ -679,12 +680,14 @@ def main():
     poses = load_pose_sequence(env("POSE_SEQUENCE_PATH"))
     if poses:
         # 포즈 k × 장수(seed_count). 크기는 항목의 width/height, 없으면 WIDTH/HEIGHT.
+        # 이미지 없는 목록은 Position 순차 실행 — 표시 이름만 다르고 포즈 이미지는 넣지 않는다.
+        noun = "포즈" if poses[0].get("image") else "Position"
         total_images = len(poses) * seed_count * default_batch_size
-        print(f"[seed_batch] 포즈 {len(poses)}개 × {seed_count}장 제출 예정, 이미지 {total_images}장 예상")
+        print(f"[seed_batch] {noun} {len(poses)}개 × {seed_count}장 제출 예정, 이미지 {total_images}장 예상")
         done_images = 0
         index = 0
         for k, pose in enumerate(poses, start=1):
-            label = f"포즈 {k}/{len(poses)}"
+            label = f"{noun} {k}/{len(poses)}"
             pose_width = str(pose.get("width") or width)
             pose_height = str(pose.get("height") or height)
             for _ in range(seed_count):
@@ -698,10 +701,10 @@ def main():
                 report_progress(job_id, nightshift_url, total_images, done_images, label)
                 run_once(base_workflow, comfy_url, seed, index, pose_prompt(base_prompt, pose.get("tags")),
                          negative_prompt, pose_width, pose_height,
-                         pose_image=str(pose["image"]), face_prompt=base_prompt)
+                         pose_image=str(pose.get("image") or ""), face_prompt=base_prompt)
                 done_images += default_batch_size
-        report_progress(job_id, nightshift_url, total_images, done_images, f"포즈 {len(poses)}/{len(poses)}")
-        print(f"[seed_batch] 포즈 {len(poses)}개 완료 (이미지 {done_images}장)")
+        report_progress(job_id, nightshift_url, total_images, done_images, f"{noun} {len(poses)}/{len(poses)}")
+        print(f"[seed_batch] {noun} {len(poses)}개 완료 (이미지 {done_images}장)")
         return
 
     total_images = seed_count * default_batch_size
