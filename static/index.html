@@ -1288,10 +1288,15 @@
           <div class="enhance-mode" id="pose-add-image-mode">
             <button class="enhance-mode-btn active" type="button" data-mode="file"><svg class="ico"><use href="#i-upload"/></svg> 파일 올리기</button>
             <button class="enhance-mode-btn" type="button" data-mode="url"><svg class="ico"><use href="#i-link"/></svg> URL</button>
+            <button class="enhance-mode-btn" type="button" data-mode="gallery"><svg class="ico"><use href="#i-images"/></svg> 갤러리</button>
           </div>
         </div>
         <input type="file" id="pose-add-file" accept="image/*" multiple aria-label="이미지 파일(여러 장)">
         <textarea class="option-input" id="pose-add-url" rows="3" placeholder="https://… 이미지 주소 — 한 줄에 하나씩" aria-label="이미지 주소(한 줄에 하나)" hidden></textarea>
+        <div id="pose-add-gallery" hidden>
+          <button class="modal-btn-secondary" id="pose-add-gallery-btn" type="button"><svg class="ico"><use href="#i-images"/></svg> 갤러리에서 고르기</button>
+          <span class="opt" id="pose-add-gallery-count"></span>
+        </div>
         <div id="pose-add-preview" class="pose-add-preview" hidden></div>
       </div>
       <div class="field pose-add-meta">
@@ -1446,6 +1451,10 @@
       <div class="upload-error" id="input-image-picker-error"></div>
       <div class="gallery-grid" id="input-image-picker-grid"></div>
       <div class="empty" id="input-image-picker-empty" style="display:none;">서버에 저장된 이미지가 없어요</div>
+    </div>
+    <!-- 여러 장 선택 모드(openInputImageGalleryPicker(…, {multiple:true}))에서만 보인다 -->
+    <div class="modal-footer" id="input-image-picker-footer" style="display:none;">
+      <button class="submit-btn" id="input-image-picker-done" type="button">선택 완료</button>
     </div>
   </div>
 </div>
