@@ -849,6 +849,7 @@ function buildInputImageControl(opt){
       await fetchInputImages(true);
       populateSelectOptions(select, inputImageChoices(), '(입력 이미지 없음)');
       select.value = data.name;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
     }catch(e){
       alert(e.message || '업로드에 실패했어요.');
     }finally{
@@ -875,6 +876,7 @@ function buildInputImageControl(opt){
     await fetchInputImages(true);
     populateSelectOptions(select, inputImageChoices(), '(입력 이미지 없음)');
     select.value = data.added[0];
+    select.dispatchEvent(new Event('change', { bubbles: true }));
   }));
 
   wrap.appendChild(select);

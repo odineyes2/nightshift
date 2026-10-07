@@ -508,6 +508,26 @@
           </div>
         </div>
 
+        <!-- OpenPose ControlNet 수치(04-newjob-tools.js renderOpenPosePanel) — 붙은 워크플로우에 DWPreprocessor가 있을 때만 보인다. -->
+        <div class="field fd-panel" id="op-panel" hidden>
+          <div class="field-label-row">
+            <label class="field-label">OpenPose 수치</label>
+            <div class="fd-tabs">
+              <button type="button" class="modal-btn-secondary active" data-op-tab="edit">수정</button>
+              <button type="button" class="modal-btn-secondary" data-op-tab="setting">셋팅</button>
+            </div>
+          </div>
+          <div data-op-pane="edit">
+            <div class="fd-grid" id="op-edit-grid"></div>
+            <div class="email-hint" id="op-edit-hint">값을 바꾸면 이 작업의 워크플로우에만 반영돼요.</div>
+          </div>
+          <div data-op-pane="setting" hidden>
+            <div class="fd-grid" id="op-setting-grid"></div>
+            <div class="email-hint" id="op-setting-hint"></div>
+            <button type="button" class="modal-btn-secondary" id="op-setting-save">이 베이스 모델 기본값으로 저장</button>
+          </div>
+        </div>
+
         <div class="field" id="video-workflow-field" style="display:none;">
           <div class="field-label-row">
             <label class="field-label">영상 생성 워크플로우 (.json) <span class="opt">— 선택</span></label>

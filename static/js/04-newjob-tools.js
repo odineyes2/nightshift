@@ -726,3 +726,119 @@ document.getElementById('fd-setting-save').addEventListener('click', async () =>
   }catch(e){ hint.textContent = e.message; }
 });
 
+// OpenPose ControlNet 수치 패널 — Face Detailer 패널과 같은 틀. 수정 탭은 이 작업의 ControlNetApplyAdvanced·
+// DWPreprocessor·ControlNetLoader만 고치고(POST /api/controlnet/apply), 셋팅 탭은 베이스 모델별 기본값을 저장한다.
+const OP_FIELDS = ['strength', 'start_percent', 'end_percent', 'resolution', 'detect_body', 'detect_hand', 'detect_face',
+  'scale_stick_for_xinsr_cn', 'bbox_detector', 'pose_estimator', 'control_net_name'];
+const OP_NUMBER_FIELDS = ['strength', 'start_percent', 'end_percent', 'resolution'];
+const opEditGrid = document.getElementById('op-edit-grid');
+const opSettingGrid = document.getElementById('op-setting-grid');
+for(const grid of [opEditGrid, opSettingGrid]){
+  grid.innerHTML = OP_FIELDS.map(k => `<label>${k}<input class="option-input" data-fd="${k}" autocomplete="off" spellcheck="false"
+    ${OP_NUMBER_FIELDS.includes(k) ? 'type="number" step="any"' : 'type="text"'}></label>`).join('');
+}
+
+// checkWorkflowCompatibility가 워크플로우를 읽을 때마다 부른다 — 세 노드의 값을 합쳐 수정 탭에 채운다.
+function renderOpenPosePanel(workflow){
+  const nodes = workflow && typeof workflow === 'object' ? Object.values(workflow) : [];
+  const pick = cls => (nodes.find(n => n && n.class_type === cls) || {}).inputs || {};
+  const has = nodes.some(n => n && n.class_type === 'DWPreprocessor');
+  document.getElementById('op-panel').hidden = !has;
+  if(has) fdFill(opEditGrid, { ...pick('ControlNetLoader'), ...pick('DWPreprocessor'), ...pick('ControlNetApplyAdvanced') });
+}
+
+opEditGrid.addEventListener('change', async () => {
+  const hint = document.getElementById('op-edit-hint');
+  const file = selectedFiles.workflow;
+  if(!file) return;
+  try{
+    const data = await fdPost('/api/controlnet/apply', { workflow: JSON.parse(await file.text()), values: fdRead(opEditGrid) });
+    setWorkflowFile(new File([JSON.stringify(data.workflow)], file.name, { type: 'application/json' }));
+    hint.textContent = '이 작업의 워크플로우에 반영했어요.';
+  }catch(e){ hint.textContent = e.message; }
+});
+
+async function loadOpenPoseSetting(){
+  const hint = document.getElementById('op-setting-hint');
+  const family = wizard.familyId;
+  document.getElementById('op-setting-save').hidden = !family || !isAdminUser();
+  fdFill(opSettingGrid, {});
+  if(!family){ hint.textContent = '마법사에서 베이스 모델을 고르면 그 모델의 기본값을 볼 수 있어요.'; return; }
+  try{
+    const res = await fetch(`/api/controlnet-defaults/${encodeURIComponent(family)}`);
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || '기본값을 불러오지 못했어요.');
+    fdFill(opSettingGrid, data.values);
+    hint.textContent = `${family}의 기본값이에요. 마법사로 새로 만드는 워크플로우에 쓰여요.` + (isAdminUser() ? '' : ' 저장은 관리자만 할 수 있어요.');
+  }catch(e){ hint.textContent = e.message; }
+}
+
+document.querySelectorAll('[data-op-tab]').forEach(btn => btn.addEventListener('click', () => {
+  const tab = btn.dataset.opTab;
+  document.querySelectorAll('[data-op-tab]').forEach(b => b.classList.toggle('active', b === btn));
+  document.querySelectorAll('[data-op-pane]').forEach(p => { p.hidden = p.dataset.opPane !== tab; });
+  if(tab === 'setting') loadOpenPoseSetting();
+}));
+
+document.getElementById('op-setting-save').addEventListener('click', async () => {
+  const hint = document.getElementById('op-setting-hint');
+  try{
+    await fdPost(`/api/controlnet-defaults/${encodeURIComponent(wizard.familyId)}`, { values: fdRead(opSettingGrid) }, 'PUT');
+    hint.textContent = `${wizard.familyId}의 기본값으로 저장했어요.`;
+  }catch(e){ hint.textContent = e.message; }
+});
+
+// 포즈 이미지 비율(너비/높이)에 맞춘 SDXL 크기 — 면적 1024²을 유지하고 64 배수, 512~2048로 자른다.
+function poseSizeFor(w, h){
+  const r = w / h, clamp = v => Math.min(2048, Math.max(512, v));
+  return { width: clamp(Math.round(1024 * Math.sqrt(r) / 64) * 64), height: clamp(Math.round(1024 / Math.sqrt(r) / 64) * 64) };
+}
+function inputImageSize(name){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = reject;
+    img.src = `/api/input-images/${encodeURIComponent(name)}/raw`;
+  });
+}
+function ratioLabel(w, h){
+  const gcd = (a, b) => b ? gcd(b, a % b) : a, g = gcd(w, h);
+  return w / g <= 32 ? `${w / g}:${h / g}` : (w / h).toFixed(2);
+}
+
+// 포즈 이미지가 정해지면(업로드·갤러리·직접 고르기) 그 비율의 크기를 width/height 칸에 제안한다.
+// 칸이 비었거나 전에 자동으로 채운 값일 때만 채운다 — 사용자가 직접 적은 값은 덮지 않는다.
+// img2img(입력 이미지 칸이 있음)는 크기가 입력 이미지를 따르므로 비율이 10% 넘게 다르면 경고만 한다.
+async function suggestPoseSize(poseName){
+  const field = optionsFields.querySelector('[data-name="pose_image"]')?.closest('.field');
+  if(!field) return;
+  let hint = document.getElementById('pose-size-hint');
+  if(!hint){ hint = document.createElement('div'); hint.id = 'pose-size-hint'; hint.className = 'email-hint'; field.appendChild(hint); }
+  hint.textContent = '';
+  if(!poseName) return;
+  let pose;
+  try{ pose = await inputImageSize(poseName); }catch(e){ return; }
+  const ratio = ratioLabel(pose.w, pose.h);
+  const inputName = optionsFields.querySelector('[data-name="input_image"]')?.value;
+  if(inputName){
+    try{
+      const input = await inputImageSize(inputName);
+      if(Math.abs((input.w / input.h) / (pose.w / pose.h) - 1) > 0.1)
+        hint.textContent = `입력 이미지와 포즈 이미지(${ratio})의 비율이 달라 자세가 찌그러질 수 있어요.`;
+    }catch(e){ /* 입력 이미지를 못 읽으면 경고 없이 둔다 */ }
+    return;
+  }
+  const size = poseSizeFor(pose.w, pose.h);
+  const wEl = optionsFields.querySelector('[data-name="width"]');
+  const hEl = optionsFields.querySelector('[data-name="height"]');
+  if(!wEl || !hEl){ hint.textContent = `CSV는 행의 width/height 열로 크기를 정해요 — 포즈 이미지(${ratio})에는 ${size.width}×${size.height}를 권해요.`; return; }
+  const free = el => el.value.trim() === '' || el.dataset.poseAuto === el.value.trim();
+  if(!free(wEl) || !free(hEl)) return;
+  wEl.value = wEl.dataset.poseAuto = String(size.width);
+  hEl.value = hEl.dataset.poseAuto = String(size.height);
+  hint.textContent = `포즈 이미지 비율(${ratio})에 맞춰 ${size.width}×${size.height}를 제안했어요.`;
+}
+optionsFields.addEventListener('change', e => {
+  if(e.target.dataset && e.target.dataset.name === 'pose_image') suggestPoseSize(e.target.value);
+});
+

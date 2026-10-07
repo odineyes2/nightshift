@@ -327,6 +327,8 @@
   /* 얼굴 프롬프트 칸은 붙은 워크플로우에 FaceDetailer가 있을 때만 보인다(06-wizard.js setFaceDetailerFieldsVisible). */
   #options-fields:not(.has-face-detailer) .field:has([data-name="face_prompt"], [data-name="face_negative_prompt"]){ display:none; }
   /* Face Detailer 수치 패널(수정·셋팅 탭). */
+  /* 포즈 이미지 칸은 붙은 워크플로우에 DWPreprocessor가 있을 때만 보인다(06-wizard.js setOpenPoseFieldsVisible). */
+  #options-fields:not(.has-openpose) .field:has([data-name="pose_image"]){ display:none; }
   .fd-tabs{ display:flex; gap:6px; }
   .fd-tabs .active{ border-color:var(--text); color:var(--text); }
   .fd-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:8px 12px; margin:8px 0; }
