@@ -803,6 +803,9 @@ document.getElementById('gallery-rotate-selected-btn').addEventListener('click',
 document.getElementById('gallery-send-to-pose-btn').addEventListener('click', () => {
   openPoseImportModal(Array.from(selectedGalleryNames));
 });
+document.getElementById('gallery-library-selected-btn').addEventListener('click', () => {
+  openLibraryFromGallery(Array.from(selectedGalleryNames));
+});
 document.getElementById('gallery-delete-selected-btn').addEventListener('click', () => {
   deleteGalleryImages(Array.from(selectedGalleryNames));
 });
@@ -1183,6 +1186,10 @@ document.getElementById('gallery-lightbox-original-btn').addEventListener('click
 document.getElementById('gallery-lightbox-send-to-pose-btn').addEventListener('click', () => {
   const img = displayedGalleryImages[lightboxIndex];
   if(img) openPoseImportModal([img.name]);
+});
+document.getElementById('gallery-lightbox-library-btn').addEventListener('click', () => {
+  const img = displayedGalleryImages[lightboxIndex];
+  if(img) openLibraryFromGallery([img.name]);
 });
 document.getElementById('gallery-lightbox-load-job-btn').addEventListener('click', async () => {
   const img = displayedGalleryImages[lightboxIndex];

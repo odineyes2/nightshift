@@ -76,7 +76,7 @@ class PoseResultMeta(unittest.TestCase):
         self.assertIn("row('해상도', dims)\n      + poseRow(params.pose)", meta_js)
         self.assertIn("data-pose-link", meta_js)
         self.assertIn("openLibraryPose(Number(poseLink.dataset.poseLink))", meta_js)
-        self.assertIn("function openLibraryPose(id)", lib_js)
+        self.assertIn("function openLibraryPose(id, tab = 'pose')", lib_js)
         self.assertIn("게시물을 찾을 수 없어요", lib_js)
 
 
