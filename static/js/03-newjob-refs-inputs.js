@@ -358,6 +358,15 @@ function renderOptionFields(template){
     // danbooru_seed_prompts는 자체 필드/라벨 없이 buildPromptEnhanceControl이
     // main_prompt 옆에 숨겨진 입력으로 직접 넣는다(아래 참고).
     if(opt.name === 'danbooru_seed_prompts') continue;
+    // pose_sequence(순차 생성 포즈 목록, NS-42)도 화면에 그리지 않는 숨은 값이다 — 순차 마법사가 제출 직전에 채운다.
+    if(opt.name === 'pose_sequence'){
+      const hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.className = 'option-input';
+      hidden.dataset.name = 'pose_sequence';
+      optionsFields.appendChild(hidden);
+      continue;
+    }
     // 마법사가 이 템플릿을 방금 채웠다면(wizardRefCounts), 실제로 그래프에 없는 참조
     // 슬롯은 옵션 폼에 아예 안 그린다 — 수동으로 템플릿을 고른 경우엔 wizardRefCounts가
     // null이라 항상 전부 보인다(wizardApplyRefCountsFor/템플릿 select 리스너 참고).

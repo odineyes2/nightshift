@@ -842,3 +842,15 @@ optionsFields.addEventListener('change', e => {
   if(e.target.dataset && e.target.dataset.name === 'pose_image') suggestPoseSize(e.target.value);
 });
 
+// 순차 생성(NS-42)의 pose_sequence 값 — 일괄 복사 API 응답(items, 목록 순서)을 템플릿이 읽는 모양으로 바꾼다.
+// 태그 스위치가 꺼져 있으면 tags를 비운다. width/height 칸에 사용자가 직접 적은 값(fixed)이 있으면
+// 모든 포즈에 그 크기를, 없으면 포즈마다 이미지 비율에 맞춘 SDXL 크기를 쓴다.
+function poseSequenceValue(items, tagsOn, fixed){
+  return JSON.stringify(items.map(it => ({
+    image: it.name, pose_id: it.pose_id, pose_name: it.pose_name,
+    tags: tagsOn ? (it.danbooru_prompt || '').trim() : '',
+    width: fixed ? fixed.width : it.sdxl_width,
+    height: fixed ? fixed.height : it.sdxl_height,
+  })));
+}
+

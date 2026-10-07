@@ -530,7 +530,7 @@ function buildJobCard(j){
       ${progress ? `
         <div class="progress-wrap">
           <div class="progress-track"><div class="progress-fill ${j.status}" style="width:${progressPct}%"></div></div>
-          <span class="progress-text">${progress.done}/${progress.total}</span>
+          <span class="progress-text">${progress.label ? `${escapeHtml(progress.label)} · ` : ''}${progress.done}/${progress.total}</span>
         </div>` : ''}
       <div class="job-card-actions">
         ${jobElapsedHtml(j)}

@@ -17,6 +17,18 @@
   }
   .library-pose-btn:hover, .library-pose-btn:focus-visible{ background:var(--accent, var(--queued)); }
   #library-article-grid .gallery-item{ position:relative; }
+  /* 순차 생성 체크(NS-42) — 썸네일 오른쪽 위. 체크하면 강조색 */
+  .library-check-btn{
+    position:absolute; right:var(--gap-xs); top:var(--gap-xs); z-index:1;
+    display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0;
+    border:none; border-radius:var(--radius-sm); background:rgba(0,0,0,0.6); color:rgba(255,255,255,0.55); cursor:pointer;
+  }
+  .library-check-btn[aria-pressed="true"]{ background:var(--accent, var(--queued)); color:#fff; }
+  .library-check-btn:focus-visible{ outline:2px solid var(--accent, var(--queued)); outline-offset:2px; }
+  .library-details .library-check-btn{ width:24px; height:24px; right:2px; top:2px; }
+  /* 순차 생성 폼 — 총 장수 안내와 포즈 태그 스위치 */
+  .pose-sequence-hint{ font-size:14px; color:var(--text); margin:var(--gap-xs) 0; }
+  .pose-tag-toggle{ display:inline-flex; align-items:center; gap:8px; margin-top:var(--gap-xs); font-size:12.5px; color:var(--text-dim); cursor:pointer; }
   .library-details .library-pose-btn{ width:24px; height:24px; left:2px; top:2px; }
   .library-info > span{ display:block; }
   .library-thumb{ display:block; aspect-ratio:1; background:var(--bg); position:relative; }

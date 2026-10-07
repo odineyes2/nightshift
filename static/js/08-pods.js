@@ -369,7 +369,7 @@ function renderPodCard(p){
           ? `<b>${escapeHtml(job.template_label || '작업')}</b>${prog ? `
                <div class="progress-wrap">
                  <div class="progress-track"><div class="progress-fill running" style="width:${pct}%"></div></div>
-                 <span class="progress-text">${prog.done}/${prog.total}</span>
+                 <span class="progress-text">${prog.label ? `${escapeHtml(prog.label)} · ` : ''}${prog.done}/${prog.total}</span>
                </div>` : ''}`
           : p.boot ? renderBootLine(p)
           : `<span class="dim">${state.label}${p.waiting_for_pod ? ` · 연결 대기 ${p.waiting_for_pod}건` : ''}</span>`}
