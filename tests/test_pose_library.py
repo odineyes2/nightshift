@@ -70,7 +70,7 @@ def call(fn, *args):
 class PoseTests(unittest.TestCase):
     def test_1_migration(self):
         with db.connect() as conn:
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 20)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], db.MIGRATIONS[-1][0])
             cols = {r[1] for r in conn.execute("PRAGMA table_info(poses)")}
         self.assertTrue({"name", "description", "danbooru_prompt", "image_file", "source_url", "owner_id"} <= cols)
         # v19 게시물은 이미지 한 장으로 옮겨지고 파일 이름은 그대로라 옛 주소도 열린다

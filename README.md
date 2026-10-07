@@ -254,6 +254,10 @@ nightshift는 여러 사람이 함께 쓸 수 있는 **회원제**입니다. 예
 - **게시물 추가하기**(모바일은 아이콘만)를 누르면 모달에서 Pose 명칭(필수)·이미지(파일 여러 장 또는 URL 한 줄에 하나)·설명·danbooru prompt를 적어 저장합니다. 한 번에 20장까지. 아티클 갤러리의 **이미지 추가**로 기존 게시물에 이미지를 덧붙입니다. URL로 넣으면 서버가 이미지를 받아 `data/library/poses`에 저장하므로 원본이 사라져도 썸네일이 깨지지 않습니다(공인 주소만, 장당 20MB까지).
 - API: `GET/POST /api/library/poses`, `POST /api/library/poses/{id}/images`, `GET /api/library/poses/{id}/images/{image_id}/image|thumb`, `GET /api/library/poses/{id}/image|thumb`(첫 장).
 
+**Position**(`server/position_library.py`)은 Pose와 같은 구조의 게시물(명칭·설명·danbooru prompt·이미지 여러 장)이고 파일은 `data/library/positions`에 둡니다. 공개 범위·이미지 추가 규칙은 Pose와 같고, 여기에 **수정**과 **삭제**가 더 있습니다. 게시물을 지우면 이미지 파일도 함께 지워지고, 이미지 한 장 지우기는 마지막 한 장이면 거절합니다(게시물을 지워야 합니다).
+
+- API: `GET/POST /api/library/positions`, `PATCH|DELETE /api/library/positions/{id}`(수정은 JSON `{name, description, danbooru_prompt}` 중 바꿀 칸만), `POST /api/library/positions/{id}/images`, `DELETE /api/library/positions/{id}/images/{image_id}`, `GET /api/library/positions/{id}/images/{image_id}/image|thumb`.
+
 ### 프로젝트 보드 (Board 탭, `server/board_store.py`)
 
 프로젝트 안의 **Board** 서브탭은 이미지·영상·메모를 자유롭게 늘어놓고 선으로 이어 가며 구상하는 무한 캔버스(무드보드)입니다. 헤더와 프로젝트 바 아래 공간을 전부 캔버스로 씁니다. 보드는 프로젝트마다 하나이고, "미분류"에는 없습니다.
