@@ -40,6 +40,11 @@ def main():
     for needle in ["setupLightboxSwipe(libraryLightbox", "toggleLightboxFullscreen(libraryLightbox)",
                    "/images`", "openLibraryArticle"]:
         assert needle in lib, needle
+    # NS-44: 수정·삭제 버튼을 Pose 탭에서도 연다(Position만 열던 조건이 없다)
+    for needle in ["hidden = !pos", "hidden = !isPositionTab()", "return isPositionTab() ? `<button class=\"library-image-delete-btn\""]:
+        assert needle not in lib, needle
+    for bid in ["library-article-edit-btn", "library-article-delete-btn", "library-lightbox-delete-btn"]:
+        assert f"document.getElementById('{bid}').hidden = false;" in lib, bid
     css = (ROOT / "static" / "css" / "11-library.css").read_text(encoding="utf-8")
     assert "@media (max-width:640px)" in css and "#library-add-btn .btn-label" in css
     node = shutil.which("node")
