@@ -74,6 +74,7 @@ import board_store
 import db
 import git_log
 import model_download
+import library_move
 import model_registry
 import pod_registry
 import pose_library

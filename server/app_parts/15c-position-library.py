@@ -63,6 +63,16 @@ def delete_library_position(request: Request, position_id: int):
     return {"ok": True}
 
 
+@app.post("/api/library/positions/{position_id}/move-to-pose")
+async def move_library_position_to_pose(request: Request, position_id: int):
+    """게시물을 Pose로 옮긴다(원본은 지움) — 응답은 새 Pose 게시물(id가 바뀐다)."""
+    position = _library_position(request, position_id)
+    try:
+        return await asyncio.to_thread(library_move.move_position_to_pose, position)
+    except (pose_library.PoseError, OSError) as e:
+        raise HTTPException(400, f"옮기지 못했어요: {e}")
+
+
 @app.delete("/api/library/positions/{position_id}/images/{image_id}")
 def delete_library_position_image(request: Request, position_id: int, image_id: int):
     """이미지 한 장을 지운다 — 마지막 한 장이면 400."""
