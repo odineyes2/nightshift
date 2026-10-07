@@ -280,7 +280,8 @@ function buildOptionControl(opt){
   if(opt.type === 'comfy_model'){
     return buildComfyModelControl(opt);
   }
-  if(opt.type === 'input_image'){
+  // 포즈 이미지는 선택 칸이지만 업로드·갤러리에서 선택이 있는 입력 이미지 컨트롤로 그린다(NS-41).
+  if(opt.type === 'input_image' || opt.name === 'pose_image'){
     return buildInputImageControl(opt);
   }
   if(opt.type === 'input_image_optional'){

@@ -204,7 +204,9 @@ function renderWizardTypeModal(){
     return !currentFamily || currentFamily.kind !== 'diffusion_models' || !!currentFamily.unet_image || !!currentFamily.unet_image_missing;
   });
   const unetMissing = (currentFamily && currentFamily.kind === 'diffusion_models' && !currentFamily.unet_image && currentFamily.unet_image_missing) || null;
-  const posts = allow(catalog.post || []).filter(t => !t.applies_to_base || t.applies_to_base.includes(wizard.base));
+  // family_kind가 있는 후처리(openpose)는 그 kind의 family에서만 보인다 — UNet형(Anima·krea2·영상)에서는 숨긴다.
+  const posts = allow(catalog.post || []).filter(t => (!t.applies_to_base || t.applies_to_base.includes(wizard.base))
+    && postFitsFamily(t, currentFamily));
   // preset 유형(ControlNet/IPAdapter)은 이 family용 프리셋이 없으면 골라봤자 실행할
   // 워크플로우가 없으므로 아예 목록에서 숨긴다(LoRA 호환성 필터링과 같은 원칙).
   const presets = allow(catalog.preset || []).filter(t => presetExists(wizard.familyId, t.id));
@@ -259,10 +261,17 @@ function renderWizardTypeModal(){
     const scaleInput = (t.id === 'hires_fix' && checked)
       ? `<input type="number" class="option-input wizard-pick-row-strength wizard-hires-scale-input" value="${wizard.post.hiresScale}" min="1" max="4" step="0.1" title="배율(scale_by)">`
       : '';
+    // OpenPose는 이 베이스 모델에 연결된 ControlNet(controlnets.openpose, 1순위가 맨 앞)을 고른다. 없으면 비활성+안내.
+    const cnNames = t.id === 'openpose' ? openPoseControlNets(currentFamily) : null;
+    const cnMissing = cnNames && !cnNames.length;
+    const cnExtra = !cnNames ? '' : cnMissing
+      ? `<span class="wizard-pick-row-hint">모델 탭에서 ControlNet을 이 베이스 모델에 연결해 주세요</span>`
+      : checked ? `<select class="option-input wizard-cn-name-input" title="ControlNet 모델">${cnNames.map(n =>
+          `<option value="${escapeHtml(n)}"${n === wizard.post.cnName ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('')}</select>` : '';
     return `
-      <div class="wizard-pick-row${checked ? ' selected' : ''}${wizard.base ? '' : ' disabled'}" data-group="post" data-type-id="${escapeHtml(t.id)}">
+      <div class="wizard-pick-row${checked ? ' selected' : ''}${wizard.base && !cnMissing ? '' : ' disabled'}" data-group="post" data-type-id="${escapeHtml(t.id)}">
         <div class="wizard-pick-row-label">${escapeHtml(t.label)}</div>
-        ${badge}${scaleInput}
+        ${badge}${scaleInput}${cnExtra}
       </div>`;
   }).join('');
 
@@ -304,6 +313,7 @@ function renderWizardTypeModal(){
 document.getElementById('wizard-type-modal-body').addEventListener('click', (e) => {
   // 배율/체크박스/참조 개수/비디오 참조 방식 같은 인라인 입력칸 클릭은 그 줄의 선택 토글이 아니다.
   if(e.target.classList.contains('wizard-hires-scale-input')
+     || e.target.classList.contains('wizard-cn-name-input')
      || e.target.classList.contains('wizard-krea2-refine-input')
      || e.target.classList.contains('wizard-refimage-count-input')
      || e.target.classList.contains('wizard-refvideo-count-input')
@@ -358,6 +368,8 @@ function handleWizardTypeModalInput(e){
   let needsRerender = false;
   if(e.target.classList.contains('wizard-hires-scale-input')){
     wizard.post.hiresScale = parseFloat(e.target.value) || 1.5;
+  }else if(e.target.classList.contains('wizard-cn-name-input')){
+    wizard.post.cnName = e.target.value;
   }else if(e.target.classList.contains('wizard-krea2-refine-input')){
     wizard.refinePrompt = e.target.checked;
   }else if(e.target.classList.contains('wizard-refimage-count-input')){
@@ -565,6 +577,11 @@ async function wizardApply(){
           if(wizard.base !== 'face_detailer') spec.face_detailer.enabled = true;
         }
         if(wizardPostApplies('usdu')) spec.usdu = { enabled: true, upscale_by: 2.0 };
+        // 포즈 이미지는 실행 시점에 템플릿이 넣는다(pose_image 옵션). 수치는 이 베이스 모델의 셋팅 기본값.
+        if(wizardPostApplies('openpose') && postFitsFamily({ family_kind: 'checkpoints' }, baseModelFamilies[wizard.familyId])){
+          spec.controlnet = await controlNetSpec(wizard.familyId,
+            wizard.post.cnName || openPoseControlNets(baseModelFamilies[wizard.familyId])[0]);
+        }
       }else if(architecture === 'krea2'){
         spec.refine_prompt = wizard.refinePrompt;
       }else if(architecture === 'minimax_h3_i2v'){
@@ -642,7 +659,7 @@ async function wizardApply(){
   lastWizardModels = { checkpoint: wizard.checkpoint, loras: wizard.loras.map(l => l.name) };
 
   const builtIn = ['sdxl', 'unet'].includes(architecture);
-  const typeSlug = isPreset ? wizard.preset : [wizard.base, architecture === 'unet' && 'unet', builtIn && wizardPostApplies('hires_fix') && 'hires', builtIn && wizardPostApplies('face_detailer') && 'fd', builtIn && wizardPostApplies('usdu') && 'usdu'].filter(Boolean).join('_');
+  const typeSlug = isPreset ? wizard.preset : [wizard.base, architecture === 'unet' && 'unet', builtIn && wizardPostApplies('hires_fix') && 'hires', builtIn && wizardPostApplies('face_detailer') && 'fd', builtIn && wizardPostApplies('usdu') && 'usdu', workflowHasOpenPose(workflow) && 'cn'].filter(Boolean).join('_');
   setWorkflowFile(new File([JSON.stringify(workflow)], `wizard_${typeSlug}_workflow.json`, { type: 'application/json' }));
 
   document.getElementById('load-notice').textContent =
@@ -784,12 +801,48 @@ function setFaceDetailerFieldsVisible(visible){
   optionsFields.classList.toggle('has-face-detailer', !!visible);
 }
 
+// family_kind가 있는 유형(openpose — "checkpoints")은 그 kind의 family에서만 맞는다. family를 안 골랐으면 막지 않는다.
+function postFitsFamily(t, family){
+  return !t.family_kind || !family || family.kind === t.family_kind;
+}
+
+// 이 베이스 모델에 연결된 OpenPose ControlNet 파일(서버가 셋팅 저장값 → openpose_pre → 알파벳순으로 정렬).
+function openPoseControlNets(family){
+  return ((family && family.controlnets) || {}).openpose || [];
+}
+
+// 베이스 모델별 OpenPose 기본값(GET /api/controlnet-defaults)으로 spec.controlnet을 만든다 — 평평한 값을
+// 빌더 모양(ControlNet 수치 + dw)으로 나눈다. 고른 ControlNet 파일이 저장값보다 우선한다.
+async function controlNetSpec(familyId, controlNetName){
+  if(!controlNetName) throw new Error('이 베이스 모델에 연결된 OpenPose ControlNet이 없어요 — 모델 탭에서 연결해 주세요.');
+  let values = {};
+  try{
+    const res = await fetch(`/api/controlnet-defaults/${encodeURIComponent(familyId)}`);
+    if(res.ok) values = (await res.json()).values || {};
+  }catch(e){ /* 빌더 기본값을 쓴다 */ }
+  const { strength, start_percent, end_percent, control_net_name, ...dw } = values;
+  const spec = { enabled: true, type: 'openpose', control_net_name: controlNetName, dw };
+  for(const [k, v] of Object.entries({ strength, start_percent, end_percent })) if(v != null) spec[k] = v;
+  return spec;
+}
+
+// 워크플로우에 DWPreprocessor가 있는지 — 있을 때만 포즈 이미지 칸과 OpenPose 패널을 보인다.
+function workflowHasOpenPose(workflow){
+  if(!workflow || typeof workflow !== 'object') return false;
+  return Object.values(workflow).some(n => n && typeof n === 'object' && n.class_type === 'DWPreprocessor');
+}
+function setOpenPoseFieldsVisible(visible){
+  optionsFields.classList.toggle('has-openpose', !!visible);
+}
+
 async function checkWorkflowCompatibility(file){
   const el = document.getElementById('workflow-check');
   const token = ++workflowCheckToken;
   updateNewJobTabs();
   setFaceDetailerFieldsVisible(false);
   renderFaceDetailerPanel(null);
+  setOpenPoseFieldsVisible(false);
+  renderOpenPosePanel(null);
   if(!file){
     el.hidden = true;
     el.textContent = '';
@@ -808,6 +861,8 @@ async function checkWorkflowCompatibility(file){
     if(token === workflowCheckToken){
       setFaceDetailerFieldsVisible(workflowHasFaceDetailer(parsed));
       renderFaceDetailerPanel(parsed);
+      setOpenPoseFieldsVisible(workflowHasOpenPose(parsed));
+      renderOpenPosePanel(parsed);
     }
   }catch(e){
     if(token === workflowCheckToken) renderWorkflowCheck('warn', 'JSON 형식이 아니에요 — ComfyUI에서 "API 형식으로 저장"한 파일인지 확인해 주세요.');

@@ -181,6 +181,7 @@ function baseWorkflowTypeInfo(t, d){
   const ckpt = !!(d.members.checkpoints || []).length, asm = d.assembly;
   if(t.family_id) return { how: '전용', warn: t.family_id === d.id ? '' : `${t.family_id} 계열 전용이에요` };
   if(t.group === 'preset') return { how: '프리셋', warn: presetExists(d.id, t.id) ? '' : '프리셋 파일이 없어요' };
+  if(t.family_kind === 'checkpoints') return { how: 'Checkpoint', warn: ckpt ? '' : '체크포인트형 계열에서만 써요' };
   const how = [ckpt && 'Checkpoint', asm && 'UNet'].filter(Boolean).join('/');
   if(ckpt) return { how, warn: '' };
   if(!asm) return { how, warn: '조립할 체크포인트·UNet 소속이 없어요' };
