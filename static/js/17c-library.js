@@ -6,15 +6,32 @@ let libraryPoses = [];
 let libraryDisplayMode = (() => { try{ return localStorage.getItem(LIBRARY_DISPLAY_KEY) === 'details' ? 'details' : 'grid'; }catch(e){ return 'grid'; } })();
 let poseAddImageMode = 'file';   // 'file' | 'url'
 
+// 서브탭(NS-43) — Pose와 Position이 같은 목록·아티클·라이트박스·추가 모달을 쓰고 API 주소·문구·생성 동작만 다르다.
+let libraryTab = 'pose';   // 'pose' | 'position'
+const LIBRARY_API = { pose: '/api/library/poses', position: '/api/library/positions' };
+const libraryApi = () => LIBRARY_API[libraryTab];
+const isPositionTab = () => libraryTab === 'position';
+const libraryNoun = () => isPositionTab() ? 'Position' : '포즈';
+
 function setLibraryError(msg){ document.getElementById('library-error').textContent = msg || ''; }
+
+function setLibraryTab(tab){
+  libraryTab = tab;
+  librarySelected.clear();
+  document.querySelectorAll('#library-subtabs [data-library-tab]')
+    .forEach(b => b.classList.toggle('active', b.dataset.libraryTab === tab));
+  document.getElementById('library-sequence-btn').title =
+    `체크한 게시물(없으면 지금 목록 전부)의 모든 이미지를 ${libraryNoun()}로 차례로 생성`;
+}
 
 // 탭 진입·새로고침은 목록으로 돌아간다(아티클 갤러리는 닫힌다).
 async function openLibraryTab(){
   closeLibraryArticle();
   syncLibraryDisplayToggle();
   setLibraryError('');
+  libraryPoses = [];
   try{
-    const res = await fetch('/api/library/poses');
+    const res = await fetch(libraryApi());
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || `불러오지 못했어요 (${res.status})`);
     libraryPoses = data.items || [];
@@ -33,6 +50,7 @@ async function openLibraryTab(){
 let libraryPendingArticle = null;
 function openLibraryPose(id){
   libraryPendingArticle = id;
+  setLibraryTab('pose');
   showTab('library');
 }
 
@@ -48,7 +66,7 @@ function renderLibraryPoses(){
   el.className = isDetails ? 'library-details' : 'library-grid';
   syncLibrarySelection();
   if(!libraryPoses.length){
-    el.innerHTML = '<div class="dl-meta">아직 포즈가 없어요. 게시물 추가하기로 첫 포즈를 올려 보세요.</div>';
+    el.innerHTML = `<div class="dl-meta">아직 ${libraryNoun()}가 없어요. 게시물 추가하기로 첫 ${libraryNoun()}를 올려 보세요.</div>`;
     return;
   }
   el.innerHTML = libraryPoses.map(p => `
@@ -69,7 +87,13 @@ function renderLibraryPoses(){
 
 // "이 포즈로 생성"(NS-41) — 카드·아티클 격자에 얹는 작은 아이콘 버튼. 라이트박스 버튼은 index.html에 있다.
 function poseGenerateButton(cls, imageId){
-  return `<button class="library-pose-btn ${cls}" type="button" data-image-id="${imageId}" title="이 포즈로 생성" aria-label="이 포즈로 생성">${ico('wand')}</button>`;
+  const label = isPositionTab() ? '이 Position으로 생성 (txt2img)' : '이 포즈로 생성';
+  return `<button class="library-pose-btn ${cls}" type="button" data-image-id="${imageId}" title="${label}" aria-label="${label}">${ico('wand')}</button>`;
+}
+
+// Position 아티클 격자의 "이 장 삭제"(NS-43) — 썸네일 오른쪽 위
+function libraryImageDeleteButton(imageId){
+  return isPositionTab() ? `<button class="library-image-delete-btn" type="button" data-image-id="${imageId}" title="이 장 삭제" aria-label="이 장 삭제">${ico('trash-2')}</button>` : '';
 }
 
 // 순차 생성(NS-42) — 카드 체크로 고른 게시물. 아무것도 없으면 지금 목록 전부를 쓴다.
@@ -90,6 +114,14 @@ async function generatePoseSequence(){
   setLibraryError('');
   const ids = libraryPoses.filter(p => !librarySelected.size || librarySelected.has(p.id)).map(p => p.id);
   if(!ids.length) return;
+  if(isPositionTab()){
+    // Position(NS-43)은 이미지를 쓰지 않으므로 서버 복사 없이 목록 응답으로 장마다 한 항목을 만든다.
+    const items = libraryPoses.filter(p => ids.includes(p.id)).flatMap(p => p.images.map(() => ({
+      position_id: p.id, position_name: p.name, danbooru_prompt: p.danbooru_prompt || '',
+    })));
+    if(!items.length) return setLibraryError('고른 게시물에 이미지가 없어요');
+    return startPositionSequenceWizard(items);
+  }
   try{
     const res = await fetch('/api/library/poses/to-input', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pose_ids: ids }),
@@ -103,8 +135,15 @@ async function generatePoseSequence(){
 }
 
 // 고른 장을 입력 이미지 풀로 복사하고 OpenPose 마법사를 연다(danbooru prompt는 메인 프롬프트 끝에 붙는다).
+// Position(NS-43)은 이미지를 넘기지 않고 danbooru prompt만 들고 txt2img 시드 배치 마법사를 연다.
 async function generateFromPose(poseId, imageId){
   setLibraryError('');
+  if(isPositionTab()){
+    const p = libraryPoses.find(x => x.id === poseId);
+    if(!p) return;
+    if(libraryLightbox.style.display !== 'none') closeLibraryLightbox();
+    return startPositionWizard(p.danbooru_prompt);
+  }
   try{
     const res = await fetch(`/api/library/poses/${poseId}/images/${imageId}/to-input`, { method: 'POST' });
     const data = await res.json().catch(() => ({}));
@@ -138,11 +177,47 @@ function renderLibraryArticle(){
   document.getElementById('library-article-count').textContent = `${p.images.length}장`;
   document.getElementById('library-article-desc').textContent = p.description || '';
   document.getElementById('library-article-prompt').textContent = p.danbooru_prompt || '';
+  const pos = isPositionTab();
+  document.getElementById('library-article-edit-btn').hidden = !pos;
+  document.getElementById('library-article-delete-btn').hidden = !pos;
   document.getElementById('library-article-grid').innerHTML = p.images.map((im, i) => `
     <div class="gallery-item" data-index="${i}" role="button" tabindex="0" title="크게 보기">
       <img src="${escapeHtml(im.thumb_url)}" alt="${escapeHtml(p.name)} ${i + 1}" loading="lazy">
       ${poseGenerateButton('library-item-pose-btn', im.id)}
+      ${libraryImageDeleteButton(im.id)}
     </div>`).join('');
+}
+
+// ---- Position 수정·삭제(NS-43) — 삭제는 confirm을 거친다. 마지막 한 장은 서버가 400으로 막는다 ----
+async function libraryRequest(url, opts, failMsg){
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok) throw new Error(data.detail || `${failMsg} (${res.status})`);
+  return data;
+}
+
+async function deleteLibraryPost(){
+  const p = libraryArticle();
+  if(!p || !confirm(`'${p.name}' 게시물과 이미지 ${p.images.length}장을 모두 지울까요?`)) return;
+  setLibraryError('');
+  try{
+    await libraryRequest(`${libraryApi()}/${p.id}`, { method: 'DELETE' }, '삭제하지 못했어요');
+    await openLibraryTab();
+  }catch(err){ setLibraryError(err.message); }
+}
+
+async function deleteLibraryImage(imageId){
+  const p = libraryArticle();
+  if(!p) return;
+  if(p.images.length < 2) return setLibraryError('마지막 한 장은 지울 수 없어요. 게시물 삭제를 쓰세요.');
+  if(!confirm('이 이미지를 지울까요?')) return;
+  setLibraryError('');
+  try{
+    await libraryRequest(`${libraryApi()}/${p.id}/images/${imageId}`, { method: 'DELETE' }, '삭제하지 못했어요');
+    if(libraryLightbox.style.display !== 'none') closeLibraryLightbox();
+    await openLibraryTab();
+    openLibraryArticle(p.id);
+  }catch(err){ setLibraryError(err.message); }
 }
 
 document.getElementById('library-list').addEventListener('click', (e) => {
@@ -173,17 +248,25 @@ document.getElementById('library-select-all-btn').addEventListener('click', () =
 document.getElementById('library-sequence-btn').addEventListener('click', generatePoseSequence);
 document.getElementById('library-article-back').addEventListener('click', closeLibraryArticle);
 document.getElementById('library-article-grid').addEventListener('click', (e) => {
+  const del = e.target.closest('.library-image-delete-btn');
+  if(del) return deleteLibraryImage(Number(del.dataset.imageId));
   const btn = e.target.closest('.library-pose-btn');
   if(btn) return generateFromPose(libraryArticleId, Number(btn.dataset.imageId));
   const item = e.target.closest('.gallery-item');
   if(item) openLibraryLightbox(Number(item.dataset.index));
 });
 document.getElementById('library-article-grid').addEventListener('keydown', (e) => {
-  if(e.target.closest('.library-pose-btn')) return;   // 버튼의 Enter는 버튼 자신의 click으로
+  if(e.target.closest('.library-pose-btn, .library-image-delete-btn')) return;   // 버튼의 Enter는 버튼 자신의 click으로
   const item = e.target.closest('.gallery-item');
   if(item && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); openLibraryLightbox(Number(item.dataset.index)); }
 });
-document.querySelectorAll('#library-subtabs [data-library-tab]').forEach(btn => btn.addEventListener('click', closeLibraryArticle));
+document.getElementById('library-article-edit-btn').addEventListener('click', () => openPoseAddModal(null, libraryArticle()));
+document.getElementById('library-article-delete-btn').addEventListener('click', deleteLibraryPost);
+document.querySelectorAll('#library-subtabs [data-library-tab]').forEach(btn => btn.addEventListener('click', () => {
+  if(btn.dataset.libraryTab === libraryTab) return closeLibraryArticle();
+  setLibraryTab(btn.dataset.libraryTab);
+  openLibraryTab();
+}));
 
 // ---- Library 라이트박스 — 갤러리 라이트박스와 같은 UI, 공용 함수(15-gallery.js)를 overlay만 바꿔 부른다 ----
 const libraryLightbox = document.getElementById('library-lightbox');
@@ -201,6 +284,8 @@ function renderLibraryLightbox(){
   libraryLightboxImg.alt = p.name;
   document.getElementById('library-lightbox-info').textContent = `${p.name} · ${libraryLightboxIndex + 1}/${p.images.length}`;
   const many = p.images.length > 1;
+  document.getElementById('library-lightbox-delete-btn').hidden = !isPositionTab();
+  document.querySelector('#library-lightbox-pose-btn .btn-label').textContent = isPositionTab() ? '이 Position으로 생성' : '이 포즈로 생성';
   document.getElementById('library-lightbox-prev').style.display = many ? '' : 'none';
   document.getElementById('library-lightbox-next').style.display = many ? '' : 'none';
 }
@@ -238,6 +323,10 @@ document.getElementById('library-lightbox-download-btn').addEventListener('click
 document.getElementById('library-lightbox-pose-btn').addEventListener('click', () => {
   const im = libraryArticle()?.images[libraryLightboxIndex];
   if(im) generateFromPose(libraryArticleId, im.id);
+});
+document.getElementById('library-lightbox-delete-btn').addEventListener('click', () => {
+  const im = libraryArticle()?.images[libraryLightboxIndex];
+  if(im) deleteLibraryImage(im.id);
 });
 document.getElementById('library-lightbox-original-btn').addEventListener('click', () => {
   const im = libraryArticle()?.images[libraryLightboxIndex];
@@ -303,16 +392,49 @@ function updatePoseAddPreview(){
   poseAddPreview.innerHTML = srcs.map(s => `<img src="${escapeHtml(s)}" alt="미리보기">`).join('');
 }
 
-function openPoseAddModal(targetId = null){
+// 세 번째 쓰임(NS-43, Position만): 수정(edit=게시물) — 값을 채우고 이미지 칸을 숨긴다.
+let poseAddEdit = null;
+function openPoseAddModal(targetId = null, edit = null){
   poseAddTargetId = targetId;
+  poseAddEdit = edit;
   document.getElementById('pose-add-form').reset();
-  document.getElementById('pose-add-title').textContent = targetId ? '이미지 추가' : 'Pose 추가';
+  const kind = isPositionTab() ? 'Position' : 'Pose';
+  document.getElementById('pose-add-title').textContent = targetId ? '이미지 추가' : edit ? `${kind} 수정` : `${kind} 추가`;
+  document.querySelector('label[for="pose-add-name"]').textContent = `${kind} 명칭`;
   document.querySelectorAll('#pose-add-form .pose-add-meta').forEach(el => { el.hidden = !!targetId; });
+  document.getElementById('pose-add-image-field').hidden = !!edit;
   document.getElementById('pose-add-name').required = !targetId;
+  if(edit){
+    document.getElementById('pose-add-name').value = edit.name || '';
+    document.getElementById('pose-add-desc').value = edit.description || '';
+    document.getElementById('pose-add-prompt').value = edit.danbooru_prompt || '';
+  }
   setPoseAddError('');
   setPoseAddImageMode('file');
   poseAddModal.style.display = 'flex';
   if(!targetId) document.getElementById('pose-add-name').focus();
+}
+
+async function savePoseEdit(){
+  const name = document.getElementById('pose-add-name').value.trim();
+  if(!name) return setPoseAddError(`${isPositionTab() ? 'Position' : 'Pose'} 명칭을 적어주세요.`);
+  const id = poseAddEdit.id;
+  const btn = document.getElementById('pose-add-save');
+  btn.disabled = true; btn.textContent = '저장 중…';
+  setPoseAddError('');
+  try{
+    await libraryRequest(`${libraryApi()}/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name, description: document.getElementById('pose-add-desc').value,
+        danbooru_prompt: document.getElementById('pose-add-prompt').value,
+      }),
+    }, '저장하지 못했어요');
+    closePoseAddModal();
+    await openLibraryTab();
+    openLibraryArticle(id);
+  }catch(err){ setPoseAddError(err.message); }
+  finally{ btn.disabled = false; btn.textContent = '저장'; }
 }
 
 function closePoseAddModal(){
@@ -322,6 +444,7 @@ function closePoseAddModal(){
 
 async function savePoseAdd(e){
   e.preventDefault();
+  if(poseAddEdit) return savePoseEdit();
   const name = document.getElementById('pose-add-name').value.trim();
   const fd = new FormData();
   if(!poseAddTargetId){
@@ -339,7 +462,7 @@ async function savePoseAdd(e){
     urls.forEach(u => fd.append('image_url', u));
     count = urls.length;
   }
-  if(!poseAddTargetId && !name) return setPoseAddError('Pose 명칭을 적어주세요.');
+  if(!poseAddTargetId && !name) return setPoseAddError(`${isPositionTab() ? 'Position' : 'Pose'} 명칭을 적어주세요.`);
   if(!count) return setPoseAddError('이미지를 올리거나 이미지 주소를 적어주세요.');
   if(count > POSE_ADD_MAX) return setPoseAddError(`이미지는 한 번에 ${POSE_ADD_MAX}장까지 넣을 수 있어요.`);
   const btn = document.getElementById('pose-add-save');
@@ -347,7 +470,7 @@ async function savePoseAdd(e){
   setPoseAddError('');
   const targetId = poseAddTargetId;
   try{
-    const url = targetId ? `/api/library/poses/${targetId}/images` : '/api/library/poses';
+    const url = targetId ? `${libraryApi()}/${targetId}/images` : libraryApi();
     const res = await fetch(url, { method: 'POST', body: fd });
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || `저장하지 못했어요 (${res.status})`);

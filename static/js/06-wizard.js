@@ -138,12 +138,14 @@ document.getElementById('wizard-family-modal-body').addEventListener('click', (e
       && (family.kind !== 'diffusion_models' || !!family.unet_image);
     // Library "이 포즈로 생성"으로 연 txt2img + OpenPose도 체크포인트형 family면 그대로 둔다.
     const keepOpenPose = !!wizardPendingPose && wizard.post.openpose && family.kind === 'checkpoints';
-    wizard.base = keepFaceDetailer ? 'face_detailer' : keepOpenPose ? 'txt2img' : null;
+    // Library Position(NS-43)은 단순 txt2img라 어떤 family(체크포인트형·UNet형)에서도 유지한다.
+    const keepTxt2img = keepOpenPose || !!(wizardPendingPose && wizardPendingPose.position);
+    wizard.base = keepFaceDetailer ? 'face_detailer' : keepTxt2img ? 'txt2img' : null;
     wizard.post = freshWizardPost();
     wizard.post.openpose = keepOpenPose;
     wizard.preset = null;
     wizard.loras = [];
-    wizard.batchMode = keepFaceDetailer || keepOpenPose ? 'seed' : null;
+    wizard.batchMode = keepFaceDetailer || keepTxt2img ? 'seed' : null;
   }
   wizard.familyId = familyId;
   wizard.checkpoint = checkpoint;
@@ -658,11 +660,15 @@ async function wizardApply(){
   }
   // Library "이 포즈로 생성"으로 열었으면 포즈 이미지 칸을 채우고(크기 제안까지), danbooru prompt를 메인 프롬프트 끝에 붙인다.
   // 순차 생성(NS-42)이면 포즈 칸 대신 "포즈 N개" 안내를 두고, 제출 직전에 pose_sequence를 채운다.
-  if(wizardPendingPose && workflowHasOpenPose(workflow)){
-    const poseEl = optionsFields.querySelector('[data-name="pose_image"]');
+  // Library Position(NS-43)은 OpenPose 없이 같은 자리에서 danbooru prompt만 붙인다(순차면 Position N개 안내).
+  const pendingPosition = wizardPendingPose && wizardPendingPose.position;
+  if(wizardPendingPose && (pendingPosition || workflowHasOpenPose(workflow))){
+    const poseEl = pendingPosition ? null : optionsFields.querySelector('[data-name="pose_image"]');
     const raw = optionsFields.querySelector('.enhance-raw');
-    if(wizardPendingPose.sequence) applyPoseSequenceForm(wizardPendingPose.sequence, poseEl, raw);
-    else{
+    if(wizardPendingPose.sequence){
+      if(pendingPosition) applyPoseSequenceForm(wizardPendingPose.sequence, null, raw, 'Position', positionSequenceValue);
+      else applyPoseSequenceForm(wizardPendingPose.sequence, poseEl, raw);
+    }else{
       if(poseEl){ poseEl.value = wizardPendingPose.name; suggestPoseSize(poseEl.value); }
       const tags = wizardPendingPose.prompt;
       const setTags = on => {
@@ -838,6 +844,28 @@ function startOpenPoseSequenceWizard(items){
   return startOpenPoseWizard(items[0].name, '');
 }
 
+// Library Position(NS-43) — 이미지는 넘기지 않고 danbooru prompt만 메인 프롬프트 끝에 붙이는 txt2img·시드 반복.
+// sequence(장마다 한 항목)가 있으면 순차 실행 — 작업 하나에서 seed_batch가 항목마다 돈다. 크기는 마법사 기본값.
+async function startPositionWizard(prompt, sequence = null){
+  document.getElementById('load-error').textContent = '';
+  openNewJobModal();
+  resetWizardAndWorkflow();
+  resetForm();
+  wizardPendingInputImage = null;
+  wizardPendingPose = sequence ? { position: true, sequence } : { position: true, prompt: (prompt || '').trim() };
+  wizard.base = 'txt2img';
+  wizard.post.openpose = false;
+  wizard.batchMode = 'seed';
+  try{ await fetchWorkflowTypes(); }catch(e){ /* 유형 이름 없이도 진행한다 */ }
+  newJobActiveTab = 'select';
+  wizardUpdateStepButtons();
+  document.getElementById('load-notice').textContent = sequence
+    ? `Position ${sequence.length}개를 목록 순서대로 생성해요. 베이스 모델을 고르고 "다음"을 누르세요.`
+    : 'Position의 danbooru prompt를 메인 프롬프트에 붙여 생성해요. 베이스 모델을 고르고 "다음"을 누르세요.';
+  await openWizardFamilyModal();
+}
+function startPositionSequenceWizard(items){ return startPositionWizard('', items); }
+
 // "포즈 태그 자동 붙이기" 스위치(기본 켬) — 메인 프롬프트 칸 아래에 둔다. 누를 때마다 onChange(켜짐 여부).
 function addPoseTagSwitch(raw, onChange){
   const label = document.createElement('label');
@@ -854,21 +882,22 @@ function addPoseTagSwitch(raw, onChange){
 }
 
 // 순차 모드 폼 — 포즈 칸을 숨기고, 시드 개수 칸을 "포즈마다 생성 장수"(1)로 바꾸고, 총 장수를 보여 준다.
-function applyPoseSequenceForm(items, poseEl, raw){
+// Position 순차(NS-43)는 noun='Position', toValue=positionSequenceValue로 같은 폼을 쓴다.
+function applyPoseSequenceForm(items, poseEl, raw, noun = '포즈', toValue = poseSequenceValue){
   const poseField = poseEl && poseEl.closest('.field');
   if(poseField) poseField.hidden = true;
   const countEl = optionsFields.querySelector('[data-name="seed_count"]');
   if(countEl){
     countEl.value = '1';
     const label = countEl.closest('.field')?.querySelector('.field-label');
-    if(label) label.textContent = '포즈마다 생성 장수';
+    if(label) label.textContent = `${noun}마다 생성 장수`;   // 포즈마다 생성 장수 / Position마다 생성 장수
   }
   const hint = document.createElement('div');
   hint.className = 'pose-sequence-hint';
   hint.id = 'pose-sequence-hint';
   const renderHint = () => {
     const per = Math.max(1, parseInt(countEl && countEl.value, 10) || 1);
-    hint.innerHTML = `포즈 ${items.length}개 · 목록 순서대로 · <b>총 ${items.length * per}장</b>`;
+    hint.innerHTML = `${noun} ${items.length}개 · 목록 순서대로 · <b>총 ${items.length * per}장</b>`;
   };
   renderHint();
   if(countEl) countEl.addEventListener('input', renderHint);
@@ -882,7 +911,7 @@ function applyPoseSequenceForm(items, poseEl, raw){
     const hEl = optionsFields.querySelector('[data-name="height"]');
     const typed = el => el && el.value.trim() && el.dataset.poseAuto !== el.value.trim();
     const fixed = typed(wEl) && typed(hEl) ? { width: Number(wEl.value), height: Number(hEl.value) } : null;
-    seqEl.value = poseSequenceValue(items, tagSwitch.getAttribute('aria-checked') === 'true', fixed);
+    seqEl.value = toValue(items, tagSwitch.getAttribute('aria-checked') === 'true', fixed);   // poseSequenceValue(items, …)
   });
 }
 

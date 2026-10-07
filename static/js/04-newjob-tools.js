@@ -854,3 +854,12 @@ function poseSequenceValue(items, tagsOn, fixed){
   })));
 }
 
+// Position 순차 실행(NS-43)의 pose_sequence 값 — image 없이 tags만(서버가 kind=position으로 받는다).
+// 크기는 넣지 않아 폼의 width/height를 그대로 쓴다.
+function positionSequenceValue(items, tagsOn){
+  return JSON.stringify(items.map(it => ({
+    pose_id: it.position_id, pose_name: it.position_name,
+    tags: tagsOn ? (it.danbooru_prompt || '').trim() : '',
+  })));
+}
+
