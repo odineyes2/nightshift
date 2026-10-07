@@ -88,7 +88,7 @@ function renderLibraryPoses(){
 // "이 포즈로 생성"(NS-41) — 카드·아티클 격자에 얹는 작은 아이콘 버튼. 라이트박스 버튼은 index.html에 있다.
 function poseGenerateButton(cls, imageId){
   const label = isPositionTab() ? '이 Position으로 생성 (txt2img)' : '이 포즈로 생성';
-  return `<button class="library-pose-btn ${cls}" type="button" data-image-id="${imageId}" title="${label}" aria-label="${label}">${ico('wand')}</button>`;
+  return `<button class="library-pose-btn ${cls}" type="button" data-image-id="${imageId}" title="${label}" aria-label="${label}">${ico('list-checks')}</button>`;
 }
 
 // 아티클 격자의 "이 장 삭제"(NS-43, Pose는 NS-44) — 썸네일 오른쪽 위
