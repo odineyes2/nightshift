@@ -1,6 +1,32 @@
 # app.py가 app_parts/*.py를 번호 순서대로 한 네임스페이스에서 실행한다 — 앞 파일의 이름을 import 없이 쓴다.
 # ---- 회원 관리 (admin 전용) ---------------------------------------------------------------
 
+@app.get("/api/settings/notifications")
+def get_notification_settings(request: Request):
+    admin_only(request)
+    import notify
+    return notify.public_settings()
+
+
+@app.put("/api/settings/notifications")
+async def put_notification_settings(request: Request):
+    admin_only(request)
+    import notify
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        return notify.save_settings(body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/settings/notifications/test")
+async def test_notification_settings(request: Request):
+    admin_only(request)
+    import notify
+    return await asyncio.to_thread(notify.send, notify.get_settings(), "시험 알림",
+                                   "Nightshift 시험 알림이에요.")
+
+
 @app.get("/api/admin/users")
 def admin_list_users(request: Request):
     admin_only(request)
