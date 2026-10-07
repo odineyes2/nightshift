@@ -690,6 +690,7 @@
         <button class="load-btn" id="gallery-rotate-selected-btn" type="button" title="선택한 이미지를 전부 시계 방향으로 90도 돌려요 (원본을 실제로 바꿔요)"><svg class="ico"><use href="#i-rotate-cw"/></svg><span class="btn-label">회전</span></button>
         <button class="load-btn share-editor-btn" id="gallery-open-editor-btn" type="button" style="display:none;" title="선택한 이미지를 OpenCut 편집기로 보내 열기 (PC 브라우저 권장)"><svg class="ico"><use href="#i-external-link"/></svg><span class="btn-label">편집기로</span></button>
         <button class="load-btn" id="gallery-send-to-pose-btn" type="button" title="참조 세트로 보내기"><svg class="ico"><use href="#i-bookmark-plus"/></svg><span class="btn-label">세트 추가</span></button>
+        <button class="load-btn" id="gallery-library-selected-btn" type="button" title="Pose·Position 라이브러리에 넣기" aria-label="라이브러리"><svg class="ico"><use href="#i-library"/></svg><span class="btn-label">라이브러리</span></button>
         <button class="del-btn" id="gallery-delete-selected-btn" type="button" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
         <button class="modal-btn-secondary" id="gallery-clear-selection-btn" type="button" title="선택 해제"><svg class="ico"><use href="#i-x"/></svg><span class="btn-label">해제</span></button>
       </div>
@@ -1108,6 +1109,7 @@
       <button class="modal-btn-secondary" id="gallery-lightbox-original-btn" type="button" title="원본 보기" aria-label="원본 보기"><svg class="ico"><use href="#i-zoom-in"/></svg><span class="btn-label">원본 보기</span></button>
       <button class="modal-btn-secondary" id="gallery-lightbox-load-job-btn" type="button" title="이 이미지를 생성한 작업 설정 불러오기" aria-label="작업 불러오기"><svg class="ico"><use href="#i-history"/></svg><span class="btn-label">작업 불러오기</span></button>
       <button class="modal-btn-secondary" id="gallery-lightbox-send-to-pose-btn" type="button" title="참조 세트로 보내기" aria-label="세트 추가"><svg class="ico"><use href="#i-bookmark-plus"/></svg><span class="btn-label">세트 추가</span></button>
+      <button class="modal-btn-secondary" id="gallery-lightbox-library-btn" type="button" title="Pose·Position 라이브러리에 넣기" aria-label="라이브러리"><svg class="ico"><use href="#i-library"/></svg><span class="btn-label">라이브러리</span></button>
       <button class="modal-btn-secondary" id="gallery-lightbox-i2v-btn" type="button" title="이 이미지를 시작 이미지로 영상 만들기 (WAN2.2 i2v)" aria-label="영상 만들기"><svg class="ico"><use href="#i-clapperboard"/></svg><span class="btn-label">영상 만들기</span></button>
       <button class="modal-btn-secondary" id="gallery-lightbox-face-btn" type="button" title="이 이미지를 참조 이미지로 얼굴 보정 작업 만들기 (Face Detailer)" aria-label="Face Detailer"><svg class="ico"><use href="#i-user"/></svg><span class="btn-label">Face Detailer</span></button>
       <button class="modal-btn-secondary" id="gallery-lightbox-move-btn" type="button" title="이 이미지를 다른 프로젝트로 옮기기" aria-label="프로젝트로 이동"><svg class="ico"><use href="#i-folder-input"/></svg><span class="btn-label">이동</span></button>
@@ -1302,6 +1304,58 @@
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="pose-add-cancel" type="button">취소</button>
       <button class="submit-btn" id="pose-add-save" type="submit" form="pose-add-form">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 갤러리에서 Library로 넣기(NS-45) — 고른 결과 이미지를 output_name으로 보내 Pose·Position 게시물을 만들거나 덧붙인다. 동작은 17c-library.js -->
+<div class="modal-overlay" id="library-from-gallery-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">라이브러리에 넣기</div>
+      <button class="modal-close" id="lfg-close" type="button" aria-label="닫기">&times;</button>
+    </div>
+    <form id="lfg-form" class="modal-body">
+      <div class="field">
+        <span class="field-label">종류</span>
+        <div class="enhance-mode" id="lfg-kind">
+          <button class="enhance-mode-btn active" type="button" data-kind="pose">Pose</button>
+          <button class="enhance-mode-btn" type="button" data-kind="position">Position</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="field-label">넣을 곳</span>
+        <div class="enhance-mode" id="lfg-target">
+          <button class="enhance-mode-btn active" type="button" data-target="new">새 게시물</button>
+          <button class="enhance-mode-btn" type="button" data-target="existing">기존 게시물</button>
+        </div>
+      </div>
+      <div class="field" id="lfg-existing-field" hidden>
+        <label class="field-label" for="lfg-existing">게시물</label>
+        <select class="option-input" id="lfg-existing"></select>
+      </div>
+      <div class="field lfg-new">
+        <label class="field-label" for="lfg-name">명칭</label>
+        <input type="text" class="option-input" id="lfg-name" maxlength="200">
+      </div>
+      <div class="field lfg-new">
+        <label class="field-label" for="lfg-desc">설명 <span class="opt">(선택)</span></label>
+        <textarea class="option-input" id="lfg-desc" rows="3"></textarea>
+      </div>
+      <div class="field lfg-new">
+        <label class="field-label" for="lfg-prompt">danbooru prompt <span class="opt">(선택)</span></label>
+        <textarea class="option-input" id="lfg-prompt" rows="2" placeholder="sitting, hugging own legs, ..."></textarea>
+      </div>
+      <div class="field">
+        <span class="field-label" id="lfg-count"></span>
+        <div id="lfg-preview" class="pose-add-preview"></div>
+      </div>
+      <div class="upload-error" id="lfg-error"></div>
+      <div id="lfg-done" hidden><span id="lfg-done-msg"></span> <button class="modal-btn-secondary" id="lfg-open-btn" type="button">Library에서 보기</button></div>
+    </form>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="lfg-cancel" type="button">닫기</button>
+      <button class="submit-btn" id="lfg-save" type="submit" form="lfg-form">저장</button>
     </div>
   </div>
 </div>

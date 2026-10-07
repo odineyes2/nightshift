@@ -77,6 +77,9 @@
   }
   .pose-add-preview[hidden], .pose-add-meta[hidden], #pose-add-image-field[hidden]{ display:none; }
   #pose-add-file[hidden], #pose-add-url[hidden]{ display:none; }
+  /* 갤러리에서 Library로 넣기(NS-45) — 같은 미리보기 줄을 쓰고 숨김만 맞춘다 */
+  #library-from-gallery-modal .field[hidden], #lfg-done[hidden], #lfg-save[hidden]{ display:none; }
+  #lfg-done{ display:flex; align-items:center; gap:var(--gap-sm); flex-wrap:wrap; }
 
   /* 모바일 — 추가 버튼은 아이콘만(기존 640px 기준) */
   @media (max-width:640px){

@@ -48,9 +48,9 @@ async function openLibraryTab(){
 // 갤러리 정보의 "포즈" 링크(NS-42) — Library 탭으로 가서 목록을 받은 뒤 그 게시물을 연다.
 // 볼 수 없거나 지워진 게시물은 목록에 없으므로 안내만 띄운다.
 let libraryPendingArticle = null;
-function openLibraryPose(id){
+function openLibraryPose(id, tab = 'pose'){
   libraryPendingArticle = id;
-  setLibraryTab('pose');
+  setLibraryTab(tab);
   showTab('library');
 }
 
@@ -490,4 +490,95 @@ document.getElementById('pose-add-file').addEventListener('change', updatePoseAd
 document.getElementById('pose-add-url').addEventListener('input', updatePoseAddPreview);
 document.querySelectorAll('#pose-add-image-mode .enhance-mode-btn').forEach(btn => {
   btn.addEventListener('click', () => setPoseAddImageMode(btn.dataset.mode));
+});
+
+// ---- 갤러리에서 Library로 넣기(NS-45) — 결과 이미지 이름(output_name)만 보내고 서버가 경로·권한을 검사해 읽는다 ----
+const lfgModal = document.getElementById('library-from-gallery-modal');
+let lfgNames = [];
+let lfgKind = 'pose';       // 'pose' | 'position'
+let lfgTarget = 'new';      // 'new' | 'existing'
+let lfgDone = null;         // 저장한 게시물 { id, kind }
+const lfgKindLabel = () => lfgKind === 'position' ? 'Position' : 'Pose';
+function setLfgError(msg){ document.getElementById('lfg-error').textContent = msg || ''; }
+
+// 기존 게시물 목록은 Library 탭과 같은 API — 회원은 자기 것만, admin은 전부
+async function loadLfgExisting(){
+  const sel = document.getElementById('lfg-existing');
+  sel.innerHTML = '<option value="">불러오는 중…</option>';
+  try{
+    const data = await libraryRequest(LIBRARY_API[lfgKind], {}, '목록을 불러오지 못했어요');
+    const items = data.items || [];
+    sel.innerHTML = items.length
+      ? items.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${p.images.length}장)</option>`).join('')
+      : `<option value="">${lfgKindLabel()} 게시물이 없어요</option>`;
+  }catch(err){ sel.innerHTML = '<option value=""></option>'; setLfgError(err.message); }
+}
+
+function syncLfg(){
+  document.querySelectorAll('#lfg-kind .enhance-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.kind === lfgKind));
+  document.querySelectorAll('#lfg-target .enhance-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.target === lfgTarget));
+  const isNew = lfgTarget === 'new';
+  document.querySelectorAll('#lfg-form .lfg-new').forEach(el => { el.hidden = !isNew; });
+  document.getElementById('lfg-existing-field').hidden = isNew;
+  document.querySelector('label[for="lfg-name"]').textContent = `${lfgKindLabel()} 명칭`;
+  if(!isNew) loadLfgExisting();
+}
+
+function openLibraryFromGallery(names){
+  if(!names.length) return;
+  lfgNames = names;
+  lfgDone = null;
+  document.getElementById('lfg-form').reset();
+  document.getElementById('lfg-done').hidden = true;
+  document.getElementById('lfg-save').hidden = false;
+  document.getElementById('lfg-count').textContent = `이미지 ${names.length}장`;
+  document.getElementById('lfg-preview').innerHTML = names.map(n =>
+    `<img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(n)}/thumbnail?size=80&fit=cover`)}" alt="" loading="lazy">`).join('');
+  setLfgError(names.length > POSE_ADD_MAX ? `이미지는 한 번에 ${POSE_ADD_MAX}장까지 넣을 수 있어요.` : '');
+  syncLfg();
+  lfgModal.style.display = 'flex';
+}
+
+function closeLibraryFromGallery(){ lfgModal.style.display = 'none'; }
+
+async function saveLibraryFromGallery(e){
+  e.preventDefault();
+  if(lfgNames.length > POSE_ADD_MAX) return setLfgError(`이미지는 한 번에 ${POSE_ADD_MAX}장까지 넣을 수 있어요.`);
+  const fd = new FormData();
+  lfgNames.forEach(n => fd.append('output_name', n));
+  let url = LIBRARY_API[lfgKind];
+  if(lfgTarget === 'new'){
+    const name = document.getElementById('lfg-name').value.trim();
+    if(!name) return setLfgError(`${lfgKindLabel()} 명칭을 적어주세요.`);
+    fd.append('name', name);
+    fd.append('description', document.getElementById('lfg-desc').value);
+    fd.append('danbooru_prompt', document.getElementById('lfg-prompt').value);
+  }else{
+    const id = document.getElementById('lfg-existing').value;
+    if(!id) return setLfgError('넣을 게시물을 골라주세요.');
+    url += `/${id}/images`;
+  }
+  const btn = document.getElementById('lfg-save');
+  btn.disabled = true; btn.textContent = '저장 중…';
+  setLfgError('');
+  try{
+    const post = await libraryRequest(url, { method: 'POST', body: fd }, '저장하지 못했어요');
+    lfgDone = { id: post.id, kind: lfgKind };
+    document.getElementById('lfg-done-msg').textContent = `${lfgKindLabel()} '${post.name}'에 ${lfgNames.length}장 넣었어요.`;
+    document.getElementById('lfg-done').hidden = false;
+    btn.hidden = true;
+  }catch(err){ setLfgError(err.message); }
+  finally{ btn.disabled = false; btn.textContent = '저장'; }
+}
+
+document.querySelectorAll('#lfg-kind .enhance-mode-btn').forEach(b => b.addEventListener('click', () => { lfgKind = b.dataset.kind; syncLfg(); }));
+document.querySelectorAll('#lfg-target .enhance-mode-btn').forEach(b => b.addEventListener('click', () => { lfgTarget = b.dataset.target; syncLfg(); }));
+document.getElementById('lfg-form').addEventListener('submit', saveLibraryFromGallery);
+document.getElementById('lfg-close').addEventListener('click', closeLibraryFromGallery);
+document.getElementById('lfg-cancel').addEventListener('click', closeLibraryFromGallery);
+document.getElementById('lfg-open-btn').addEventListener('click', () => {
+  if(!lfgDone) return;
+  closeLibraryFromGallery();
+  closeLightbox();
+  openLibraryPose(lfgDone.id, lfgDone.kind);
 });
