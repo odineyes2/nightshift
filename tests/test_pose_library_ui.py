@@ -21,7 +21,9 @@ def main():
                    'id="pose-add-modal"', 'id="pose-add-name"', 'id="pose-add-file"', 'id="pose-add-url"',
                    'id="pose-add-desc"', 'id="pose-add-prompt"', 'id="pose-add-error"']:
         assert needle in HTML, needle
-    routing = ROUTING.read_text(encoding="utf-8")
+    # NS-46: Pose/Position 서브탭이 Grid·Details 토글보다 위
+    assert HTML.index('id="library-subtabs"') < HTML.index('id="library-display-toggle"')
+    routing =ROUTING.read_text(encoding="utf-8")
     assert "library: document.getElementById('tab-library')" in routing
     assert "if(tab === 'library') openLibraryTab();" in routing
     lib = LIBRARY.read_text(encoding="utf-8")
