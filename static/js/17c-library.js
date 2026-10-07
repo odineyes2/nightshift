@@ -180,6 +180,11 @@ function renderLibraryArticle(){
   // 수정·삭제는 두 서브탭 모두(NS-44) — 마크업의 hidden을 연다
   document.getElementById('library-article-edit-btn').hidden = false;
   document.getElementById('library-article-delete-btn').hidden = false;
+  const moveBtn = document.getElementById('library-article-move-btn');
+  const moveLabel = isPositionTab() ? 'Pose로 이동' : 'Position으로 이동';
+  moveBtn.title = moveLabel;
+  moveBtn.setAttribute('aria-label', moveLabel);
+  moveBtn.querySelector('.btn-label').textContent = moveLabel;
   document.getElementById('library-article-grid').innerHTML = p.images.map((im, i) => `
     <div class="gallery-item" data-index="${i}" role="button" tabindex="0" title="크게 보기">
       <img src="${escapeHtml(im.thumb_url)}" alt="${escapeHtml(p.name)} ${i + 1}" loading="lazy">
@@ -202,6 +207,23 @@ async function deleteLibraryPost(){
   setLibraryError('');
   try{
     await libraryRequest(`${libraryApi()}/${p.id}`, { method: 'DELETE' }, '삭제하지 못했어요');
+    await openLibraryTab();
+  }catch(err){ setLibraryError(err.message); }
+}
+
+// Pose↔Position 이동(NS-46) — 서버가 대상 쪽에 새 게시물을 만들고 원본을 지운다(id가 바뀐다).
+// 끝나면 대상 서브탭으로 바꾸고 새 게시물 아티클을 연다.
+async function moveLibraryPost(){
+  const p = libraryArticle();
+  if(!p) return;
+  const [target, path, label] = isPositionTab()
+    ? ['pose', 'move-to-pose', 'Pose'] : ['position', 'move-to-position', 'Position'];
+  if(!confirm(`'${p.name}' 게시물(이미지 ${p.images.length}장)을 ${label}로 옮길까요? 여기서는 사라져요.`)) return;
+  setLibraryError('');
+  try{
+    const moved = await libraryRequest(`${libraryApi()}/${p.id}/${path}`, { method: 'POST' }, '옮기지 못했어요');
+    libraryPendingArticle = moved.id;
+    setLibraryTab(target);
     await openLibraryTab();
   }catch(err){ setLibraryError(err.message); }
 }
@@ -262,6 +284,7 @@ document.getElementById('library-article-grid').addEventListener('keydown', (e) 
 });
 document.getElementById('library-article-edit-btn').addEventListener('click', () => openPoseAddModal(null, libraryArticle()));
 document.getElementById('library-article-delete-btn').addEventListener('click', deleteLibraryPost);
+document.getElementById('library-article-move-btn').addEventListener('click', moveLibraryPost);
 document.querySelectorAll('#library-subtabs [data-library-tab]').forEach(btn => btn.addEventListener('click', () => {
   if(btn.dataset.libraryTab === libraryTab) return closeLibraryArticle();
   setLibraryTab(btn.dataset.libraryTab);

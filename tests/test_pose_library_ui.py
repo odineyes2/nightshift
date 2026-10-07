@@ -47,6 +47,15 @@ def main():
         assert needle not in lib, needle
     for bid in ["library-article-edit-btn", "library-article-delete-btn", "library-lightbox-delete-btn"]:
         assert f"document.getElementById('{bid}').hidden = false;" in lib, bid
+    # NS-46: 아티클의 Pose↔Position 이동 버튼 — confirm 뒤 API를 부르고 대상 탭으로 바꿔 새 게시물을 연다
+    assert 'id="library-article-move-btn"' in HTML
+    move = lib[lib.index("async function moveLibraryPost"):lib.index("async function deleteLibraryImage")]
+    for needle in ["'move-to-pose'", "'move-to-position'", "confirm(", "{ method: 'POST' }",
+                   "libraryPendingArticle = moved.id", "setLibraryTab(target)", "await openLibraryTab()"]:
+        assert needle in move, needle
+    for needle in ["'Pose로 이동' : 'Position으로 이동'",
+                   "getElementById('library-article-move-btn').addEventListener('click', moveLibraryPost)"]:
+        assert needle in lib, needle
     css = (ROOT / "static" / "css" / "11-library.css").read_text(encoding="utf-8")
     assert "@media (max-width:640px)" in css and "#library-add-btn .btn-label" in css
     node = shutil.which("node")
