@@ -120,10 +120,6 @@ WORKFLOW_TYPES = {
     ],
     "preset": [
         {
-            "id": "openpose_cn", "label": "OpenPose ControlNet", "ref_kind": "pose",
-            "template_ids": {"seed": "pose_batch", "csv": "pose_csv_batch"},
-        },
-        {
             "id": "depth_cn", "label": "Depth ControlNet", "ref_kind": "depth",
             "template_ids": {"seed": "depth_batch", "csv": "depth_csv_batch"},
         },
