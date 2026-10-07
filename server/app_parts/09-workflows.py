@@ -482,6 +482,9 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
 
     # ComfyUI가 떠 있으면 고른 값들이 실제로 설치/지원되는지 먼저 본다. 꺼져 있으면
     # 확인할 기준이 없으니 검증을 건너뛴다(다른 경로들과 같은 규칙).
+    # 없는 모델은 거절하지 않고 missing_models로 알린다 — 작업은 대기 큐에 들어가 스케줄러가
+    # "없는 모델"로 기다리며 받는다. 받을 수 없는 값(샘플러·스케줄러)만 400으로 막는다.
+    missing_models: list[dict] = []
     if object_info is not None:
         def require_installed(value: str, kind: str, label: str):
             if not value:
@@ -493,7 +496,7 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
             # 자동 설치하게 한다(job_missing_on_pod는 빈 목록도 "없음"으로 본다 — 역할이 다르다).
             installed = combo_choices(object_info, *source)
             if installed and value not in installed:
-                raise HTTPException(400, f"{label} '{value}'은(는) 지금 연결된 ComfyUI에 설치돼 있지 않아요.")
+                missing_models.append({"kind": kind, "label": label, "value": value})
 
         architecture = str(spec.get("architecture") or "sdxl").strip()
         # krea.2/MiniMax-H3는 체크포인트가 아니라 UNETLoader(디퓨전 모델) 파일을 쓴다.
@@ -540,7 +543,7 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
             raise HTTPException(400, f"알 수 없는 architecture 값이에요: {architecture}")
     except WorkflowBuildError as e:
         raise HTTPException(400, str(e))
-    return {"workflow": workflow}
+    return {"workflow": workflow, "missing_models": missing_models}
 
 
 @app.post("/api/validate-workflow")

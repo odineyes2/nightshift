@@ -631,6 +631,11 @@ async function wizardApply(){
       const data = await res.json().catch(() => ({}));
       if(!res.ok) throw new Error(data.detail || '워크플로우를 만들지 못했어요.');
       workflow = data.workflow;
+      // 없는 모델은 막지 않는다 — 작업이 대기 칸에서 그 모델을 받은 뒤 시작한다.
+      const missing = Array.isArray(data.missing_models) ? data.missing_models : [];
+      if(missing.length){
+        flashNotice(`이 워커에 없는 모델: ${missing.map(m => `${m.label} ${m.value}`).join(', ')} — 대기 칸에서 받아요(워커의 자동 설치가 켜져 있으면 알아서 받아요).`);
+      }
     }
   }catch(e){
     errorEl.textContent = e.message || '워크플로우를 준비하지 못했어요.';
