@@ -252,9 +252,10 @@ nightshift는 여러 사람이 함께 쓸 수 있는 **회원제**입니다. 예
 - 오른쪽 위 **Grid / Details** 토글로 보기를 바꿉니다(고른 보기는 브라우저에 기억). Grid는 썸네일·명칭·설명(두 줄), Details는 한 줄에 작은 썸네일·명칭·설명·danbooru prompt를 보여 줍니다. 이미지가 여러 장이면 썸네일 모서리에 장 수가 뜹니다.
 - 게시물을 누르면 **아티클 갤러리**가 열려 그 게시물의 이미지를 모두 갤러리 격자로 보여 줍니다(`← 목록`·서브탭·새로고침으로 돌아감). 이미지를 누르면 갤러리와 같은 라이트박스가 열립니다 — 좌우 넘김(←/→·스와이프), 전체 화면(F), 전체 화면에서 보기 회전(`[`/`]`), Esc 닫기, 다운로드·원본 보기.
 - **게시물 추가하기**(모바일은 아이콘만)를 누르면 모달에서 Pose 명칭(필수)·이미지(파일 여러 장 또는 URL 한 줄에 하나)·설명·danbooru prompt를 적어 저장합니다. 한 번에 20장까지. 아티클 갤러리의 **이미지 추가**로 기존 게시물에 이미지를 덧붙입니다. URL로 넣으면 서버가 이미지를 받아 `data/library/poses`에 저장하므로 원본이 사라져도 썸네일이 깨지지 않습니다(공인 주소만, 장당 20MB까지).
-- API: `GET/POST /api/library/poses`, `POST /api/library/poses/{id}/images`, `GET /api/library/poses/{id}/images/{image_id}/image|thumb`, `GET /api/library/poses/{id}/image|thumb`(첫 장).
+- 게시물의 명칭·설명·danbooru prompt를 **수정**하고, 게시물이나 이미지 한 장을 **삭제**할 수 있습니다(주인 또는 관리자). 게시물을 지우면 이미지 파일도 함께 지워지고, 이미지 한 장 지우기는 마지막 한 장이면 거절합니다(게시물을 지워야 합니다). "이 포즈로 생성"·순차 생성으로 입력 이미지 풀에 복사한 사본은 지우지 않습니다.
+- API: `GET/POST /api/library/poses`, `PATCH|DELETE /api/library/poses/{id}`(수정은 JSON `{name, description, danbooru_prompt}` 중 바꿀 칸만), `POST /api/library/poses/{id}/images`, `DELETE /api/library/poses/{id}/images/{image_id}`, `GET /api/library/poses/{id}/images/{image_id}/image|thumb`, `GET /api/library/poses/{id}/image|thumb`(첫 장).
 
-**Position**(`server/position_library.py`)은 Pose와 같은 구조의 게시물(명칭·설명·danbooru prompt·이미지 여러 장)이고 파일은 `data/library/positions`에 둡니다. 공개 범위·이미지 추가 규칙은 Pose와 같고, 여기에 **수정**과 **삭제**가 더 있습니다. 게시물을 지우면 이미지 파일도 함께 지워지고, 이미지 한 장 지우기는 마지막 한 장이면 거절합니다(게시물을 지워야 합니다).
+**Position**(`server/position_library.py`)은 Pose와 같은 구조의 게시물(명칭·설명·danbooru prompt·이미지 여러 장)이고 파일은 `data/library/positions`에 둡니다. 공개 범위·이미지 추가·수정·삭제 규칙은 Pose와 같습니다.
 
 - API: `GET/POST /api/library/positions`, `PATCH|DELETE /api/library/positions/{id}`(수정은 JSON `{name, description, danbooru_prompt}` 중 바꿀 칸만), `POST /api/library/positions/{id}/images`, `DELETE /api/library/positions/{id}/images/{image_id}`, `GET /api/library/positions/{id}/images/{image_id}/image|thumb`.
 

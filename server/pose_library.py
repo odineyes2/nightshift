@@ -160,6 +160,48 @@ def add_images(pose_id: int, images: list) -> dict:
     return get_pose(pose_id)
 
 
+def update_pose(pose_id: int, fields: dict) -> dict:
+    """명칭·설명·danbooru prompt 중 온 것만 바꾼다(명칭은 비울 수 없다)."""
+    sets = {k: (str(fields[k] or "")).strip() for k in ("name", "description", "danbooru_prompt") if k in fields}
+    if "name" in sets and not sets["name"]:
+        raise PoseError("Pose 명칭을 적어주세요.")
+    if sets:
+        with db.connect() as conn:
+            conn.execute(f"UPDATE poses SET {', '.join(f'{k}=?' for k in sets)} WHERE id=?", [*sets.values(), pose_id])
+    return get_pose(pose_id)
+
+
+def _unlink(image: dict) -> None:
+    for f in (image["image_file"], image["thumb_file"]):
+        if f:
+            (_dir() / f).unlink(missing_ok=True)
+
+
+def delete_pose(pose: dict) -> None:
+    """게시물 행(이미지 행은 CASCADE)과 파일을 모두 지운다 — NS-39식 첫 장도 v20에서 pose_images 행이 됐다."""
+    with db.connect() as conn:
+        conn.execute("DELETE FROM poses WHERE id=?", (pose["id"],))
+    for image in pose["images"]:
+        _unlink(image)
+
+
+def delete_image(pose: dict, image_id: int) -> dict:
+    """이미지 한 장을 지운다 — 마지막 한 장은 지우지 못한다(게시물을 지운다)."""
+    image = get_pose_image(pose, image_id)
+    if not image:
+        raise LookupError(image_id)
+    if len(pose["images"]) <= 1:
+        raise PoseError("마지막 이미지는 지울 수 없어요. 게시물을 지워주세요.")
+    rest = [i for i in pose["images"] if i["id"] != image_id]
+    with db.connect() as conn:
+        conn.execute("DELETE FROM pose_images WHERE id=?", (image_id,))
+        if pose.get("image_file") == image["image_file"]:   # 옛 코드용 첫 장 칸을 새 첫 장으로 맞춘다
+            conn.execute("UPDATE poses SET image_file=?, source_url=? WHERE id=?",
+                         (rest[0]["image_file"], rest[0]["source_url"], pose["id"]))
+    _unlink(image)
+    return get_pose(pose["id"])
+
+
 def list_poses(owner_scope) -> list[dict]:
     """owner_scope가 None이면(admin) 전부, 아니면 그 회원 것만 — 최신순."""
     with db.connect() as conn:

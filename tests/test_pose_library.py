@@ -1,6 +1,7 @@
 """NS-39-1·NS-40-1 Library > Pose 서버 — DB v19·v20(복수 이미지)·이미지 저장·URL 받기(SSRF 차단)·API·회원별 공개 범위. 임시 데이터 폴더만 쓴다."""
 import asyncio
 import io
+import json
 import os
 import sys
 import tempfile
@@ -48,11 +49,14 @@ def png(size=(800, 600)) -> bytes:
     return buf.getvalue()
 
 
-def req(uid="u1", role="user", form=None):
-    """form은 dict 또는 같은 키가 여러 번 오는 [(키, 값)] 목록."""
+def req(uid="u1", role="user", form=None, body=None):
+    """form은 dict 또는 같은 키가 여러 번 오는 [(키, 값)] 목록. body는 JSON으로 보낼 값(바이트면 그대로)."""
     async def read_form():
         return FormData(list(form.items()) if isinstance(form, dict) else (form or []))
-    return SimpleNamespace(state=SimpleNamespace(user={"id": uid, "role": role}), form=read_form)
+
+    async def read_body():
+        return body if isinstance(body, bytes) else json.dumps(body).encode()
+    return SimpleNamespace(state=SimpleNamespace(user={"id": uid, "role": role}), form=read_form, body=read_body)
 
 
 def upload(data: bytes, name="pose.png"):
@@ -186,6 +190,53 @@ class PoseTests(unittest.TestCase):
         self.assertEqual(call(A.add_library_pose, req(form=many))[0], 400)
         self.assertEqual(counts(), before)
         self.assertEqual(set(data_dir("library/poses").iterdir()), files)
+
+    def test_8_update(self):
+        """NS-44 — 온 칸만 바꾸고, 빈 명칭은 400, 남의 것은 404."""
+        a = call(A.add_library_pose, req(form={"name": "앞", "description": "원래", "image": upload(png())}))[1]
+        code, b = call(A.update_library_pose, req(body={"name": " 뒤 ", "danbooru_prompt": "standing"}), a["id"])
+        self.assertEqual((code, b["name"], b["danbooru_prompt"], b["description"]), (200, "뒤", "standing", "원래"))
+        self.assertEqual(call(A.update_library_pose, req(body={"name": ""}), a["id"]),
+                         (400, "Pose 명칭을 적어주세요."))
+        self.assertEqual(call(A.update_library_pose, req(body=b"{nope"), a["id"])[0], 400)
+        self.assertEqual(call(A.update_library_pose, req(body=[1]), a["id"])[0], 400)
+        self.assertEqual(call(A.update_library_pose, req("u2", body={"name": "x"}), a["id"])[0], 404)
+        code, c = call(A.update_library_pose, req("adm", "admin", body={"description": "d"}), a["id"])
+        self.assertEqual((code, c["name"], c["description"]), (200, "뒤", "d"))
+
+    def test_9_delete_image(self):
+        """NS-44 — 남의 것·없는 장은 404, 마지막 장은 400, 첫 장을 지우면 대표(첫 장)와 옛 칸이 새 첫 장으로."""
+        form = [("name", "지울 장")] + [("image", upload(png((100 + i, 100)))) for i in range(2)]
+        a = call(A.add_library_pose, req(form=form))[1]
+        first, second = a["images"]
+        self.assertEqual(call(A.delete_library_pose_image, req("u2"), a["id"], first["id"])[0], 404)
+        self.assertEqual(call(A.delete_library_pose_image, req(), a["id"], 99999)[0], 404)
+        code, b = call(A.delete_library_pose_image, req(), a["id"], first["id"])
+        self.assertEqual((code, [i["id"] for i in b["images"]]), (200, [second["id"]]))
+        self.assertFalse(P.image_path(first, False).exists())
+        self.assertFalse(P.image_path(first, True).exists())
+        self.assertEqual(b["image_file"], second["image_file"])
+        self.assertEqual(call(A.get_library_pose_thumb, req(), a["id"])[1].path, P.image_path(second, True))
+        self.assertEqual(call(A.delete_library_pose_image, req(), a["id"], second["id"])[0], 400)
+
+    def test_9b_delete_pose(self):   # test_10이면 test_1보다 먼저 돌아 게시물 500을 지운다
+        """NS-44 — 행과 원본·썸네일이 사라지고, 다시 지우면 404. NS-39식 첫 장도 지워지고 admin은 남의 것도."""
+        a = call(A.add_library_pose, req(form=[("name", "지울 것"), ("image", upload(png())), ("image", upload(png()))]))[1]
+        paths = [P.image_path(i, t) for i in a["images"] for t in (False, True)]
+        self.assertTrue(all(p.is_file() for p in paths))
+        self.assertEqual(call(A.delete_library_pose, req("u2"), a["id"])[0], 404)
+        self.assertEqual(call(A.delete_library_pose, req(), a["id"]), (200, {"ok": True}))
+        self.assertFalse(any(p.exists() for p in paths))
+        with db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM pose_images WHERE pose_id=?", (a["id"],)).fetchone()[0], 0)
+        self.assertIsNone(P.get_pose(a["id"]))
+        self.assertEqual(call(A.delete_library_pose, req(), a["id"])[0], 404)
+        # 옛 NS-39 게시물(500, u9 것) — admin이 지우면 <id>.png·<id>_thumb.webp도 사라진다
+        d = data_dir("library/poses")
+        (d / "500.png").write_bytes(png())
+        (d / "500_thumb.webp").write_bytes(b"t")
+        self.assertEqual(call(A.delete_library_pose, req("adm", "admin"), 500)[0], 200)
+        self.assertFalse((d / "500.png").exists() or (d / "500_thumb.webp").exists())
 
 
 if __name__ == "__main__":
