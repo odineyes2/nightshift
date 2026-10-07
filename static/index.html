@@ -941,9 +941,33 @@
     <div class="panel-body">
       <div class="new-job-tabs" id="settings-subtabs">
         <button class="pod-subtab-btn active" type="button" data-settings-tab="base-models">Base Model</button>
+        <button class="pod-subtab-btn" type="button" data-settings-tab="notifications">Notification</button>
       </div>
       <div class="upload-error" id="settings-error"></div>
-      <div id="settings-base-models"></div>
+      <div id="settings-base-models" class="settings-pane"></div>
+      <div id="settings-notifications" class="settings-pane" style="display:none;">
+        <div class="dl-meta">잡이 끝나면 ntfy로 알림을 보내요. 폰의 ntfy 앱에서 같은 토픽을 구독해 주세요. 공개 서버의 토픽은 이름만 알면 누구나 구독할 수 있으니 추측하기 어려운 이름을 써 주세요.</div>
+        <div class="settings-form">
+          <label class="settings-bm-row"><button type="button" class="pod-switch" id="notify-enabled" role="switch" aria-checked="false" aria-label="알림 켜기"></button> 알림 켜기</label>
+          <div class="settings-bm-row" role="radiogroup" aria-label="알림 방식">
+            <label><input type="radio" name="notify-mode" value="each"> 잡이 끝날 때마다</label>
+            <label><input type="radio" name="notify-mode" value="all"> 모든 잡이 끝났을 때만</label>
+          </div>
+          <label class="settings-field"><span class="field-label">서버 주소</span>
+            <input type="url" class="option-input" id="notify-server" placeholder="예: https://ntfy.sh"></label>
+          <label class="settings-field"><span class="field-label">토픽</span>
+            <input type="text" class="option-input" id="notify-topic" maxlength="64" placeholder="예: nightshift-a8f3k2"></label>
+          <div class="settings-field"><label class="field-label" for="notify-token">액세스 토큰 (선택) <span class="dl-meta" id="notify-token-state"></span></label>
+            <div class="settings-bm-row">
+              <input type="password" class="option-input" id="notify-token" autocomplete="new-password" placeholder="비워 두면 지금 값을 그대로 써요">
+              <button type="button" class="modal-btn-secondary" id="notify-token-clear">지우기</button>
+            </div></div>
+          <div class="settings-bm-row">
+            <button type="button" class="submit-btn" id="notify-save">저장</button>
+            <button type="button" class="modal-btn-secondary" id="notify-test">시험 보내기</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </main>

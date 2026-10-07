@@ -1,14 +1,109 @@
-// ---- Settings 탭 (관리자) — 지금은 Base Model 서브탭 하나 ----
+// ---- Settings 탭 (관리자) — Base Model · Notification 서브탭 ----
 // 베이스 모델 목록은 서버 DB(base_models)가 기준이다. 목록 순서가 새 잡 마법사 1단계의 순서다.
 // 코드가 이름(식별자)에 기대는 베이스 모델 — 이름을 바꾸거나 지우면 전용 워크플로우·프리셋 연결이 끊길 수 있다.
 const BASE_MODEL_CODE_BOUND = /^(krea\.2|minimax-h3|wan.*|illustrious|pony|noobai)$/i;
 
 function setSettingsError(msg){ document.getElementById('settings-error').textContent = msg || ''; }
 
+let settingsSubtab = 'base-models';
+
 async function openSettingsTab(){
+  document.querySelectorAll('#settings-subtabs [data-settings-tab]').forEach(b =>
+    b.classList.toggle('active', b.dataset.settingsTab === settingsSubtab));
+  document.querySelectorAll('#tab-settings .settings-pane').forEach(p =>
+    p.style.display = p.id === 'settings-' + settingsSubtab ? '' : 'none');
+  setSettingsError('');
+  if(settingsSubtab === 'notifications') return loadNotifySettings();
   await fetchModelRegistry();
   renderBaseModelSettings();
 }
+
+document.getElementById('settings-subtabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-settings-tab]');
+  if(!btn || btn.dataset.settingsTab === settingsSubtab) return;
+  settingsSubtab = btn.dataset.settingsTab;
+  openSettingsTab();
+});
+
+// ---- Notification 서브탭 — 잡 종료 ntfy 알림(서버 notify.py). 토큰은 원문 대신 token_set만 받는다 ----
+const notifyEnabled = document.getElementById('notify-enabled');
+notifyEnabled.addEventListener('click', () =>
+  notifyEnabled.setAttribute('aria-checked', String(notifyEnabled.getAttribute('aria-checked') !== 'true')));
+
+function renderNotifySettings(s){
+  notifyEnabled.setAttribute('aria-checked', String(!!s.enabled));
+  document.querySelectorAll('input[name="notify-mode"]').forEach(r => r.checked = r.value === s.mode);
+  document.getElementById('notify-server').value = s.server || '';
+  document.getElementById('notify-topic').value = s.topic || '';
+  document.getElementById('notify-token').value = '';
+  document.getElementById('notify-token-state').textContent = s.token_set ? '설정됨' : '';
+  document.getElementById('notify-token-clear').hidden = !s.token_set;
+}
+
+// 저장·지우기·시험 공용 — 저장 중에는 버튼을 막는다. 성공하면 서버가 돌려준 설정으로 폼을 다시 그린다.
+async function notifyRequest(btn, busyLabel, method, url, body){
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = busyLabel;
+  try{
+    const res = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {},
+                                   body: body ? JSON.stringify(body) : undefined });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || `실패했어요 (${res.status})`);
+    setSettingsError('');
+    return data;
+  }catch(err){
+    setSettingsError(err.message);
+    return null;
+  }finally{
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
+async function loadNotifySettings(){
+  try{
+    const res = await fetch('/api/settings/notifications');
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || `불러오지 못했어요 (${res.status})`);
+    renderNotifySettings(data);
+  }catch(err){ setSettingsError(err.message); }
+}
+
+function notifyFormBody(){
+  const mode = document.querySelector('input[name="notify-mode"]:checked');
+  return {
+    enabled: notifyEnabled.getAttribute('aria-checked') === 'true',
+    mode: mode ? mode.value : 'all',
+    server: document.getElementById('notify-server').value.trim(),
+    topic: document.getElementById('notify-topic').value.trim(),
+    token: document.getElementById('notify-token').value,
+  };
+}
+
+async function saveNotifySettings(btn){
+  const data = await notifyRequest(btn, '저장 중…', 'PUT', '/api/settings/notifications', notifyFormBody());
+  if(data) renderNotifySettings(data);
+  return !!data;
+}
+
+document.getElementById('notify-save').addEventListener('click', async (e) => {
+  if(await saveNotifySettings(e.currentTarget)) flashNotice('저장했어요.');
+});
+
+// 시험 알림은 저장된 설정으로 보내므로 먼저 지금 폼을 저장한다.
+document.getElementById('notify-test').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  if(!await saveNotifySettings(btn)) return;
+  const data = await notifyRequest(btn, '보내는 중…', 'POST', '/api/settings/notifications/test');
+  if(!data) return;
+  if(data.ok) flashNotice('시험 알림을 보냈어요. 폰에 왔는지 확인해 주세요.');
+  else setSettingsError(data.error || '알림을 보내지 못했어요.');
+});
+
+document.getElementById('notify-token-clear').addEventListener('click', async (e) => {
+  if(!confirm('저장된 액세스 토큰을 지울까요?')) return;
+  const data = await notifyRequest(e.currentTarget, '지우는 중…', 'PUT', '/api/settings/notifications', { clear_token: true });
+  if(data){ renderNotifySettings(data); flashNotice('토큰을 지웠어요.'); }
+});
 
 function renderBaseModelSettings(){
   const el = document.getElementById('settings-base-models');
