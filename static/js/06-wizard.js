@@ -136,11 +136,14 @@ document.getElementById('wizard-family-modal-body').addEventListener('click', (e
     // 이 family에서 쓸 수 있으면(체크포인트형·UNet+CLIP+VAE형) 그대로 둔다.
     const keepFaceDetailer = wizardPendingInputImage && wizard.base === 'face_detailer'
       && (family.kind !== 'diffusion_models' || !!family.unet_image);
-    wizard.base = keepFaceDetailer ? 'face_detailer' : null;
+    // Library "이 포즈로 생성"으로 연 txt2img + OpenPose도 체크포인트형 family면 그대로 둔다.
+    const keepOpenPose = !!wizardPendingPose && wizard.post.openpose && family.kind === 'checkpoints';
+    wizard.base = keepFaceDetailer ? 'face_detailer' : keepOpenPose ? 'txt2img' : null;
     wizard.post = freshWizardPost();
+    wizard.post.openpose = keepOpenPose;
     wizard.preset = null;
     wizard.loras = [];
-    wizard.batchMode = keepFaceDetailer ? 'seed' : null;
+    wizard.batchMode = keepFaceDetailer || keepOpenPose ? 'seed' : null;
   }
   wizard.familyId = familyId;
   wizard.checkpoint = checkpoint;
@@ -653,6 +656,16 @@ async function wizardApply(){
     const inputEl = optionsFields.querySelector('[data-name="input_image"]');
     if(inputEl) inputEl.value = wizardPendingInputImage;
   }
+  // Library "이 포즈로 생성"으로 열었으면 포즈 이미지 칸을 채우고(크기 제안까지), danbooru prompt를 메인 프롬프트 끝에 붙인다.
+  if(wizardPendingPose && workflowHasOpenPose(workflow)){
+    const poseEl = optionsFields.querySelector('[data-name="pose_image"]');
+    if(poseEl){ poseEl.value = wizardPendingPose.name; suggestPoseSize(poseEl.value); }
+    const raw = optionsFields.querySelector('.enhance-raw');
+    if(raw && wizardPendingPose.prompt && !raw.value.includes(wizardPendingPose.prompt)){
+      raw.value = [raw.value.trim(), wizardPendingPose.prompt].filter(Boolean).join(', ');
+      raw.dispatchEvent(new Event('input'));
+    }
+  }
 
   setLoraTriggerField(wizard.loras.map(l => l.name));
   setQualityPromptField((baseModelFamilies[wizard.familyId] || {}).label);
@@ -770,6 +783,7 @@ async function startFaceDetailerWizard(stored){
   resetWizardAndWorkflow();
   resetForm();
   wizardPendingInputImage = stored;
+  wizardPendingPose = null;
   wizard.base = 'face_detailer';
   wizard.batchMode = 'seed';
   try{ await fetchWorkflowTypes(); }catch(e){ /* 유형 이름 없이도 진행한다 */ }
@@ -779,7 +793,28 @@ async function startFaceDetailerWizard(stored){
     `'${stored}'을(를) Face Detailer 참조 이미지로 골랐어요. 베이스 모델을 고르고 "다음"을 누르세요.`;
   await openWizardFamilyModal();
 }
-document.getElementById('wizard-reset-btn').addEventListener('click', () => { wizardPendingInputImage = null; });
+document.getElementById('wizard-reset-btn').addEventListener('click', () => { wizardPendingInputImage = null; wizardPendingPose = null; });
+
+// Library "이 포즈로 생성" — 입력 이미지 풀에 둔 사본(stored)과 게시물의 danbooru prompt를 기억하고, 마법사를
+// txt2img + OpenPose·시드 반복으로 채운 채 1단계(베이스 모델)를 연다. 포즈 칸·프롬프트는 wizardApply가 채운다.
+let wizardPendingPose = null;
+async function startOpenPoseWizard(stored, prompt){
+  document.getElementById('load-error').textContent = '';
+  openNewJobModal();
+  resetWizardAndWorkflow();
+  resetForm();
+  wizardPendingInputImage = null;
+  wizardPendingPose = { name: stored, prompt: (prompt || '').trim() };
+  wizard.base = 'txt2img';
+  wizard.post.openpose = true;
+  wizard.batchMode = 'seed';
+  try{ await fetchWorkflowTypes(); }catch(e){ /* 유형 이름 없이도 진행한다 */ }
+  newJobActiveTab = 'select';
+  wizardUpdateStepButtons();
+  document.getElementById('load-notice').textContent =
+    `'${stored}'을(를) 포즈 이미지로 골랐어요. 베이스 모델을 고르고 "다음"을 누르세요.`;
+  await openWizardFamilyModal();
+}
 
 // 베이스 모델별 Face Detailer 기본값(GET /api/face-detailer-defaults)으로 spec.face_detailer를 만든다.
 async function faceDetailerSpec(familyId, architecture){

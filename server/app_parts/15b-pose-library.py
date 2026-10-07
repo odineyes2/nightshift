@@ -78,3 +78,24 @@ def get_library_pose_image_n(request: Request, pose_id: int, image_id: int):
 @app.get("/api/library/poses/{pose_id}/images/{image_id}/thumb")
 def get_library_pose_thumb_n(request: Request, pose_id: int, image_id: int):
     return _library_pose_file(request, pose_id, image_id, True)
+
+
+@app.post("/api/library/poses/{pose_id}/images/{image_id}/to-input")
+async def library_pose_to_input(request: Request, pose_id: int, image_id: int):
+    """"이 포즈로 생성"(NS-41) — 고른 장을 요청한 회원의 입력 이미지 풀로 복사하고 {name, danbooru_prompt}를
+    돌려준다. 주인 또는 admin만(아니면 404). 같은 이름·같은 내용이 이미 있으면 사본을 새로 만들지 않는다."""
+    pose = _library_pose(request, pose_id)
+    image = pose_library.get_pose_image(pose, image_id)
+    if not image or not pose_library.image_path(image, False).is_file():
+        raise HTTPException(404, "이미지 파일이 없어요.")
+    try:
+        name, content = await asyncio.to_thread(pose_library.input_copy, pose, image)
+    except pose_library.PoseError as e:
+        raise HTTPException(400, str(e))
+    try:
+        same = await asyncio.to_thread(resolve_input_image(name).read_bytes) == content
+    except InputAssetError:
+        same = False
+    if not same:
+        name = await asyncio.to_thread(save_input_image, name, content)
+    return {"name": name, "danbooru_prompt": pose.get("danbooru_prompt") or ""}
