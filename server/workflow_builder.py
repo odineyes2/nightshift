@@ -65,6 +65,11 @@ FaceDetailer와 Impact-Subpack의 UltralyticsDetectorProvider(bbox/face_yolov8m.
     중간 이미지는 저장하지 않는다(SaveImage는 끝에 하나뿐). 수치 기본값은 로더 형태마다 다르다
     (FACE_DETAILER_DEFAULTS, UNet형은 workflow_builder_unet.FACE_DETAILER_DEFAULTS). 얼굴 프롬프트가
     비면 메인 프롬프트를 쓴다 — 실행 시점 주입(templates/*)이 행마다 다시 넣는다.
+spec["controlnet"] = {"enabled": true, "type": "openpose", "control_net_name", "strength", "start_percent",
+"end_percent", "dw": {DWPreprocessor 입력}} (선택, txt2img/img2img 전용) — LoadImage("pose_image") →
+    DWPreprocessor → ControlNetApplyAdvanced(← ControlNetLoader, 체크포인트 VAE)가 main_prompt·negative_prompt
+    조건을 받아 베이스·hires KSampler에 넘긴다. Face Detailer·USDU는 원래 조건을 쓴다.
+
 spec["base"] = "face_detailer"는 기존 이미지 1장의 얼굴만 보정한다:
     LoadImage(제목 "input_image") → FaceDetailer → SaveImage. 메인 KSampler·main_prompt가 없고
     hires_fix/usdu도 붙지 않는다(latent가 없다).
@@ -95,6 +100,14 @@ FACE_DETAILER_DEFAULTS = {"steps": 20, "cfg": 8.0, "sampler_name": "euler", "sch
 FACE_DETAILER_COMMON = {
     "guide_size": 512, "max_size": 1024, "feather": 5, "bbox_threshold": 0.5, "bbox_dilation": 10,
     "bbox_crop_factor": 3.0, "drop_size": 10, "cycle": 1, "noise_mask_feather": 20,
+}
+
+# OpenPose ControlNet 기본값(NS-41 첨부 워크플로우 값). 스펙의 controlnet·controlnet["dw"]에 값이 있으면 그 값을 쓴다.
+CONTROLNET_DEFAULTS = {"strength": 0.8, "start_percent": 0.0, "end_percent": 0.8}
+DWPOSE_DEFAULTS = {
+    "detect_hand": "enable", "detect_body": "enable", "detect_face": "enable", "resolution": 1024,
+    "bbox_detector": "yolox_l.onnx", "pose_estimator": "dw-ll_ucoco_384_bs5.torchscript.pt",
+    "scale_stick_for_xinsr_cn": "disable",
 }
 
 
@@ -192,6 +205,54 @@ def _face_detailer(add, fd: dict, defaults: dict, image, model, clip, vae, seed:
     return [fd_id, 0]
 
 
+def _enable(value, name: str, default: str) -> str:
+    value = default if value is None or value == "" else value
+    if isinstance(value, bool):
+        value = "enable" if value else "disable"
+    if value not in ("enable", "disable"):
+        raise WorkflowBuildError(f"{name} 값은 enable/disable 중 하나여야 해요.")
+    return value
+
+
+def _openpose_controlnet(add, cn: dict, positive, negative, vae) -> tuple[list, list]:
+    """포즈 이미지 → DWPreprocessor → ControlNetApplyAdvanced(← ControlNetLoader)를 넣고 CN이 걸린
+    (positive, negative) 조건 링크를 돌려준다. 포즈 이미지 파일명은 실행 시점에 템플릿이 제목 "pose_image"로 찾아 넣는다."""
+    name = str(cn.get("control_net_name") or "").strip()
+    if not name:
+        raise WorkflowBuildError("ControlNet 모델을 골라야 해요.")
+    dw = cn.get("dw") or {}
+    if not isinstance(dw, dict):
+        raise WorkflowBuildError("controlnet.dw는 객체여야 해요.")
+    loader_id = add("ControlNetLoader", {"control_net_name": name}, "Load ControlNet Model")
+    # 제목에 "input_image"를 넣지 않는다 — img2img 입력 주입이 이 노드를 집으면 안 된다.
+    image_id = add("LoadImage", {"image": ""}, "pose_image")
+    dw_inputs = {key: _enable(dw.get(key), key, DWPOSE_DEFAULTS[key])
+                 for key in ("detect_hand", "detect_body", "detect_face", "scale_stick_for_xinsr_cn")}
+    dw_inputs.update({
+        "resolution": _int(dw.get("resolution"), "DWPose resolution", default=DWPOSE_DEFAULTS["resolution"], minimum=64),
+        "bbox_detector": str(dw.get("bbox_detector") or DWPOSE_DEFAULTS["bbox_detector"]).strip(),
+        "pose_estimator": str(dw.get("pose_estimator") or DWPOSE_DEFAULTS["pose_estimator"]).strip(),
+        "image": [image_id, 0],
+    })
+    dw_id = add("DWPreprocessor", dw_inputs, "DWPose Estimator")
+    start = _float(cn.get("start_percent"), "start_percent", default=CONTROLNET_DEFAULTS["start_percent"],
+                   minimum=0.0, maximum=1.0)
+    end = _float(cn.get("end_percent"), "end_percent", default=CONTROLNET_DEFAULTS["end_percent"],
+                 minimum=0.0, maximum=1.0)
+    if start > end:
+        raise WorkflowBuildError("start_percent는 end_percent보다 클 수 없어요.")
+    apply_id = add(
+        "ControlNetApplyAdvanced",
+        {"strength": _float(cn.get("strength"), "ControlNet strength", default=CONTROLNET_DEFAULTS["strength"],
+                            minimum=0.0, maximum=2.0),
+         "start_percent": start, "end_percent": end,
+         "positive": positive, "negative": negative, "control_net": [loader_id, 0],
+         "image": [dw_id, 0], "vae": vae},
+        "Apply ControlNet",
+    )
+    return [apply_id, 0], [apply_id, 1]
+
+
 def build_workflow(spec: dict, loader=_checkpoint_loader, face_defaults: dict = FACE_DETAILER_DEFAULTS) -> dict:
     """스펙(dict)으로 ComfyUI API 형식 워크플로우(dict)를 만든다. loader는 모델 로더 노드를
     넣고 (model, clip, vae) 링크를 돌려준다 — 그 뒤 조립은 로더 형태와 상관없이 같다
@@ -205,8 +266,16 @@ def build_workflow(spec: dict, loader=_checkpoint_loader, face_defaults: dict = 
     face_detailer = spec.get("face_detailer") or {}
     if not isinstance(face_detailer, dict):
         raise WorkflowBuildError("face_detailer는 객체여야 해요.")
+    controlnet = spec.get("controlnet") or {}
+    if not isinstance(controlnet, dict):
+        raise WorkflowBuildError("controlnet은 객체여야 해요.")
+    if controlnet.get("enabled"):
+        if str(controlnet.get("type") or "openpose") != "openpose":
+            raise WorkflowBuildError("controlnet.type은 openpose만 지원해요.")
+        if base == "face_detailer":
+            raise WorkflowBuildError("OpenPose ControlNet은 txt2img·img2img와만 함께 쓸 수 있어요.")
 
-    positive = str(spec.get("positive") or "").strip()
+    positive =str(spec.get("positive") or "").strip()
     if not positive and base != "face_detailer":  # face_detailer는 얼굴 프롬프트만 있어도 된다
         raise WorkflowBuildError("긍정 프롬프트를 입력해야 해요.")
     negative = str(spec.get("negative") if spec.get("negative") is not None else DEFAULT_NEGATIVE)
@@ -286,6 +355,12 @@ def build_workflow(spec: dict, loader=_checkpoint_loader, face_defaults: dict = 
         latent_src = [latent_id, 0]
         denoise = 1.0
 
+    # ControlNet은 베이스·hires KSampler에만 건다. Face Detailer·USDU는 원래 조건을 쓴다(조각·타일엔 전체 포즈가 안 맞는다).
+    sampler_positive, sampler_negative = [positive_id, 0], [negative_id, 0]
+    if controlnet.get("enabled"):
+        sampler_positive, sampler_negative = _openpose_controlnet(add, controlnet, sampler_positive,
+                                                                  sampler_negative, vae_src)
+
     sampler_inputs = {
         "seed": seed,
         "steps": steps,
@@ -294,8 +369,8 @@ def build_workflow(spec: dict, loader=_checkpoint_loader, face_defaults: dict = 
         "scheduler": scheduler,
         "denoise": denoise,
         "model": model_src,
-        "positive": [positive_id, 0],
-        "negative": [negative_id, 0],
+        "positive": sampler_positive,
+        "negative": sampler_negative,
         "latent_image": latent_src,
     }
     sampler_id = add("KSampler", dict(sampler_inputs), "KSampler")

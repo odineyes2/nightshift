@@ -31,5 +31,8 @@ def _unet_loader(spec: dict, add) -> tuple[list, list, list]:
 def build_workflow(spec: dict) -> dict:
     if not isinstance(spec, dict):
         raise WorkflowBuildError("스펙이 JSON 객체가 아니에요.")
+    if isinstance(spec.get("controlnet"), dict) and spec["controlnet"].get("enabled"):
+        # OpenPose ControlNet은 체크포인트 하나로 된 SDXL 계열 전용이다(NS-41).
+        raise WorkflowBuildError("OpenPose ControlNet은 체크포인트형 베이스 모델에서만 쓸 수 있어요.")
     spec = {**spec, **{k: v for k, v in DEFAULTS.items() if spec.get(k) in (None, "")}}
     return _build_workflow(spec, loader=_unet_loader, face_defaults=FACE_DETAILER_DEFAULTS)

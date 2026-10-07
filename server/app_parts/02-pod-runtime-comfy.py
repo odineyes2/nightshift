@@ -124,6 +124,7 @@ MODEL_LIST_SOURCES = {
 NODE_PACKS = {
     "FaceDetailer": "ComfyUI-Impact-Pack",
     "UltralyticsDetectorProvider": "ComfyUI-Impact-Subpack",
+    "DWPreprocessor": "comfyui_controlnet_aux",
 }
 
 

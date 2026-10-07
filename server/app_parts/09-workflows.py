@@ -7,7 +7,7 @@ async def get_base_model_families(request: Request, pod_id: str | None = None):
     연결하지 못하면 좁힐 기준이 없으니 등록된 것을 전부 보여 준다."""
     user = me(request)
     if pod_id == "auto":   # 파드를 정하지 않고 구상하는 중 — 등록해 둔 체크포인트를 전부 보여 준다(배정은 스케줄러가 한다)
-        return model_registry.checkpoint_groups(None)
+        return model_registry.checkpoint_groups(None, controlnet_saved_names())
     pods = [object_info_pod(pod_id)] if pod_id else [
         p for p in visible_pods_for(user) if p.get("kind") == pod_registry.DEFAULT_KIND and p.get("enabled")]
     installed: set[str] | None = None
@@ -28,7 +28,7 @@ async def get_base_model_families(request: Request, pod_id: str | None = None):
     live = [r for r in results if r is not None]
     if live:
         installed = set().union(*live)
-    return model_registry.checkpoint_groups(installed)
+    return model_registry.checkpoint_groups(installed, controlnet_saved_names())
 
 
 # "새 작업 추가" 마법사 2단계(워크플로우 유형)의 정적 카탈로그 — 세 그룹으로
@@ -108,6 +108,9 @@ WORKFLOW_TYPES = {
          "applies_to_base": ["txt2img", "img2img"]},
         {"id": "usdu", "label": "Ultimate SD Upscale", "requires_node": "UltimateSDUpscaleNoUpscale",
          "applies_to_base": ["txt2img", "img2img"]},
+        # openpose는 체크포인트 하나로 된 family(kind "checkpoints")에서만 보인다(spec["controlnet"], NS-41).
+        {"id": "openpose", "label": "OpenPose ControlNet", "requires_node": "DWPreprocessor",
+         "applies_to_base": ["txt2img", "img2img"], "family_kind": "checkpoints"},
     ],
     # pre — 프롬프트를 생성 전에 다듬는 전처리, 0개 이상. requires_model이 그 파드의 model_kind
     # 목록에 없으면 /api/enhance-prompt가 409(model_missing)로 돌려준다(모델 탭에서 받는다).
@@ -322,6 +325,139 @@ async def apply_face_detailer_api(request: Request):
     return {"workflow": workflow}
 
 
+# OpenPose ControlNet 수치 — Face Detailer와 같은 틀(수정 탭은 작업별, 셋팅 탭은 베이스 모델별 기본값).
+# 값은 평평한 dict로 다루고, 노드에 넣을 때 ControlNetApplyAdvanced·DWPreprocessor·ControlNetLoader로 나눈다.
+CONTROLNET_APPLY_FIELDS = {"strength": (float, 0.0, 2.0), "start_percent": (float, 0.0, 1.0),
+                           "end_percent": (float, 0.0, 1.0)}
+DWPOSE_FIELDS = {
+    "detect_hand": ("enable", None, None), "detect_body": ("enable", None, None),
+    "detect_face": ("enable", None, None), "scale_stick_for_xinsr_cn": ("enable", None, None),
+    "resolution": (int, 64, 2048), "bbox_detector": (str, None, None), "pose_estimator": (str, None, None),
+}
+CONTROLNET_FIELDS = {**CONTROLNET_APPLY_FIELDS, **DWPOSE_FIELDS, "control_net_name": ("filename", None, None)}
+CONTROLNET_DEFAULTS_FILE = data_path("controlnet_defaults.json")
+
+
+def clean_controlnet_values(raw) -> dict:
+    """사용자가 보낸 ControlNet 수치를 검사해 알려진 칸만 형을 맞춰 돌려준다(빈 값은 뺀다)."""
+    if not isinstance(raw, dict):
+        raise HTTPException(400, "ControlNet 값은 객체여야 해요.")
+    out = {}
+    for key, value in raw.items():
+        if key not in CONTROLNET_FIELDS:
+            raise HTTPException(400, f"알 수 없는 ControlNet 항목이에요: {key}")
+        kind, lo, hi = CONTROLNET_FIELDS[key]
+        if value is None or value == "":
+            continue
+        if kind == "enable":
+            if isinstance(value, bool):
+                value = "enable" if value else "disable"
+            if value not in ("enable", "disable"):
+                raise HTTPException(400, f"{key} 값은 enable/disable 중 하나여야 해요.")
+        elif kind in (str, "filename"):
+            value = str(value).strip()
+            # ControlNet 파일명은 하위 폴더(a/b.safetensors)·공백이 있을 수 있다.
+            pattern = r"[^\\:*?\"<>|\x00-\x1f]{1,200}" if kind == "filename" else r"[A-Za-z0-9_.+-]{1,100}"
+            if not re.fullmatch(pattern, value) or ".." in value:
+                raise HTTPException(400, f"{key} 값 '{value}'이(가) 올바르지 않아요.")
+        else:
+            try:
+                value = kind(float(value)) if kind is int else float(value)
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"{key} 값 '{value}'은(는) 숫자가 아니에요.")
+            if (lo is not None and value < lo) or (hi is not None and value > hi):
+                raise HTTPException(400, f"{key} 값은 {lo}~{hi} 범위여야 해요.")
+        out[key] = value
+    if out.get("start_percent", 0.0) > out.get("end_percent", 1.0):
+        raise HTTPException(400, "start_percent는 end_percent보다 클 수 없어요.")
+    return out
+
+
+def load_controlnet_defaults() -> dict:
+    try:
+        data = json.loads(CONTROLNET_DEFAULTS_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def controlnet_saved_names() -> dict[str, str]:
+    """family id → 셋팅 탭에 저장한 ControlNet 파일명(마법사 후보 1순위)."""
+    return {gid: v["control_net_name"] for gid, v in load_controlnet_defaults().items()
+            if isinstance(v, dict) and v.get("control_net_name")}
+
+
+def is_xinsir_controlnet(name: str) -> bool:
+    """xinsir 모델이면 DWPose의 scale_stick_for_xinsr_cn을 켠다 — 파일명이나 등록부 page/download URL로 판정한다."""
+    if "xinsir" in (name or "").lower():
+        return True
+    entry = model_registry.get_entry("controlnet", name) if name else None
+    return bool(entry) and "xinsir" in f"{entry.get('page_url', '')} {entry.get('download_url', '')}".lower()
+
+
+def controlnet_defaults_for(family_id: str) -> dict:
+    """빌더 기본값 위에 이 베이스 모델에 저장된 값을 덮은 전체 수치(control_net_name은 저장했을 때만)."""
+    import workflow_builder
+    saved = load_controlnet_defaults().get(family_id) or {}
+    return {**workflow_builder.CONTROLNET_DEFAULTS, **workflow_builder.DWPOSE_DEFAULTS, **saved}
+
+
+@app.get("/api/controlnet-defaults/{family_id}")
+def get_controlnet_defaults(family_id: str):
+    preset_filename(family_id, "x")  # family_id 형식 검사
+    return {"family_id": family_id, "values": controlnet_defaults_for(family_id),
+            "saved": load_controlnet_defaults().get(family_id) or {}}
+
+
+@app.put("/api/controlnet-defaults/{family_id}")
+async def put_controlnet_defaults(family_id: str, request: Request):
+    admin_only(request)
+    preset_filename(family_id, "x")
+    try:
+        body = await request.json()
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    values = clean_controlnet_values(body.get("values") if isinstance(body, dict) else None)
+    data = load_controlnet_defaults()
+    if values:
+        data[family_id] = values
+    else:
+        data.pop(family_id, None)  # 빈 값을 보내면 빌더 기본값으로 되돌린다
+    CONTROLNET_DEFAULTS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "family_id": family_id, "saved": values}
+
+
+def apply_controlnet_values(workflow: dict, values: dict) -> int:
+    """워크플로우의 ControlNetApplyAdvanced·DWPreprocessor·ControlNetLoader 입력을 values로 고치고 고친 노드 수를 돌려준다."""
+    parts = {
+        "ControlNetApplyAdvanced": {k: v for k, v in values.items() if k in CONTROLNET_APPLY_FIELDS},
+        "DWPreprocessor": {k: v for k, v in values.items() if k in DWPOSE_FIELDS},
+        "ControlNetLoader": {k: v for k, v in values.items() if k == "control_net_name"},
+    }
+    count = 0
+    for node in workflow.values():
+        if isinstance(node, dict) and node.get("class_type") in parts:
+            node.setdefault("inputs", {}).update(parts[node["class_type"]])
+            count += 1
+    return count
+
+
+@app.post("/api/controlnet/apply")
+async def apply_controlnet_api(request: Request):
+    # "수정" 탭 — 붙어 있는 워크플로우의 ControlNet·DWPose 수치를 이 작업만 바꾼다(저장된 기본값은 그대로).
+    try:
+        body = await request.json()
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    workflow = body.get("workflow") if isinstance(body, dict) else None
+    if not isinstance(workflow, dict):
+        raise HTTPException(400, "워크플로우 JSON(노드 id → 노드) 형식이 아니에요.")
+    values = clean_controlnet_values(body.get("values"))
+    if not apply_controlnet_values(workflow, values):
+        raise HTTPException(400, "워크플로우에 ControlNet 노드가 없어요.")
+    return {"workflow": workflow}
+
+
 @app.post("/api/build-workflow")
 async def build_workflow_api(request: Request, pod_id: str | None = None):
     # "워크플로우 빌더" 탭 — 업로드 없이 스펙(체크포인트/LoRA/프롬프트/샘플러/해상도)
@@ -335,6 +471,12 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
     if not isinstance(spec, dict):
         raise HTTPException(400, "스펙이 JSON 객체가 아니에요.")
+    controlnet = spec.get("controlnet") if isinstance(spec.get("controlnet"), dict) else {}
+    control_net_name = str(controlnet.get("control_net_name") or "").strip() if controlnet.get("enabled") else ""
+    dw = controlnet.get("dw") if isinstance(controlnet.get("dw"), dict) else {}
+    if control_net_name and dw.get("scale_stick_for_xinsr_cn") in (None, "") and is_xinsir_controlnet(control_net_name):
+        # 사용자가 정한 값이 없을 때만 xinsir 모델에 맞춘다.
+        spec = {**spec, "controlnet": {**controlnet, "dw": {**dw, "scale_stick_for_xinsr_cn": "enable"}}}
 
     try:
         _, object_info = await asyncio.to_thread(
@@ -374,6 +516,7 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
         else:
             require_installed(str(spec.get("checkpoint") or "").strip(), checkpoint_kind, "체크포인트")
         require_installed(str(spec.get("vae") or "").strip(), "vae", "VAE")
+        require_installed(control_net_name, "controlnet", "ControlNet")
         if architecture == "unet":
             require_installed(str(spec.get("clip") or "").strip(), "text_encoders", "텍스트 인코더")
         for lora in (spec.get("loras") or []):

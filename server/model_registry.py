@@ -369,13 +369,31 @@ def set_base_membership(name, kind: str, filename: str, member: bool) -> dict | 
     return upsert(kind, filename, {"base_models": bases})
 
 
-def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
+# ControlNet 종류별 내장 선호 순서 — 셋팅 탭에 저장한 값 다음, 나머지 알파벳순 앞에 둔다.
+# openpose_pre: https://huggingface.co/Laxhar/noob_openpose (Illustrious 1순위, NS-41)
+PREFERRED_CONTROLNETS = {"openpose": ["openpose_pre.safetensors"]}
+
+
+def _controlnets_for(entries: list[dict], gid: str, preferred: str = "") -> dict[str, list[str]]:
+    """이 베이스 모델에 연결된 controlnet 항목 중 파일명·태그에 openpose가 있는 것을 순서대로 고른다."""
+    names = [e["filename"] for e in entries
+             if e["kind"] == "controlnet" and gid in {base_id(b) for b in e["base_models"]}
+             and ("openpose" in e["filename"].lower() or any("openpose" in t.lower() for t in e["tags"]))]
+    order = [preferred] + PREFERRED_CONTROLNETS["openpose"]
+    return {"openpose": sorted(names, key=lambda n: (order.index(n) if n in order else len(order), n))}
+
+
+def checkpoint_groups(installed: set[str] | None = None,
+                      controlnet_preferred: dict[str, str] | None = None) -> dict[str, dict]:
     """마법사 1단계용 — 체크포인트/디퓨전 모델(UNet)을 소속된 베이스 모델마다 묶는다(여럿이면 모두에 들어간다):
     {id: {label, kind, checkpoints}}. kind는 "checkpoints"(CheckpointLoaderSimple 조립) 또는
     "diffusion_models"(UNETLoader 기반 — krea.2/MiniMax-H3처럼 전용 빌더가 조립하는 family).
-    installed를 주면 그 안에 있는(=실제로 쓸 수 있는) 파일만 남긴다."""
+    installed를 주면 그 안에 있는(=실제로 쓸 수 있는) 파일만 남긴다.
+    체크포인트형 family에는 controlnets({"openpose": [파일명…]})를 붙인다 — controlnet_preferred(family id →
+    셋팅 탭에 저장한 파일명)가 1순위다. ControlNet 파일은 설치 여부로 거르지 않는다(없으면 자동 받기가 처리한다)."""
     groups: dict[str, dict] = {}
-    for e in list_entries():
+    entries = list_entries()
+    for e in entries:
         if e["kind"] not in ("checkpoints", "diffusion_models"):
             continue
         if installed is not None and e["filename"] not in installed:
@@ -408,6 +426,8 @@ def checkpoint_groups(installed: set[str] | None = None) -> dict[str, dict]:
         b = by_id.get(gid) or {}
         g["workflow_types"] = b.get("workflow_types")
         g["sweet"] = b.get("sweet") or {}
+        if g["kind"] == "checkpoints":
+            g["controlnets"] = _controlnets_for(entries, gid, (controlnet_preferred or {}).get(gid, ""))
     return dict(sorted(groups.items(), key=lambda kv: (order.get(kv[0], len(order)), kv[1]["label"].lower())))
 
 
