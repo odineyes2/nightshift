@@ -52,6 +52,40 @@ async def add_library_pose_images(request: Request, pose_id: int):
         raise HTTPException(400, str(e))
 
 
+@app.patch("/api/library/poses/{pose_id}")
+async def update_library_pose(request: Request, pose_id: int):
+    """본문 JSON {name?, description?, danbooru_prompt?} — 온 칸만 바꾼다(NS-44)."""
+    _library_pose(request, pose_id)
+    try:
+        body = json.loads(await request.body())
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    try:
+        return pose_library.update_pose(pose_id, body)
+    except pose_library.PoseError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/library/poses/{pose_id}")
+def delete_library_pose(request: Request, pose_id: int):
+    """게시물과 모든 이미지 파일을 지운다. 입력 이미지 풀에 복사한 사본은 남긴다."""
+    pose_library.delete_pose(_library_pose(request, pose_id))
+    return {"ok": True}
+
+
+@app.delete("/api/library/poses/{pose_id}/images/{image_id}")
+def delete_library_pose_image(request: Request, pose_id: int, image_id: int):
+    """이미지 한 장을 지운다 — 마지막 한 장이면 400."""
+    try:
+        return pose_library.delete_image(_library_pose(request, pose_id), image_id)
+    except LookupError:
+        raise HTTPException(404, "이미지를 찾을 수 없어요.")
+    except pose_library.PoseError as e:
+        raise HTTPException(400, str(e))
+
+
 def _library_pose_file(request: Request, pose_id: int, image_id, thumb: bool):
     image = pose_library.get_pose_image(_library_pose(request, pose_id), image_id)
     path = pose_library.image_path(image, thumb) if image else None
