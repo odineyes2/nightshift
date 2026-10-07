@@ -6,9 +6,18 @@
     background:var(--panel); border:1px solid var(--border); border-radius:var(--radius-md);
     overflow:hidden; display:flex; flex-direction:column;
   }
-  /* 카드 전체가 버튼(NS-40) — 누르면 아티클 갤러리 */
-  button.library-card{ font:inherit; color:inherit; text-align:left; padding:0; cursor:pointer; width:100%; }
-  button.library-card:hover{ border-color:var(--accent, var(--queued)); }
+  /* 카드 전체가 버튼(NS-40, 안에 "이 포즈로 생성" 버튼을 넣으려고 div role=button) — 누르면 아티클 갤러리 */
+  .library-card[role="button"]{ cursor:pointer; width:100%; }
+  .library-card[role="button"]:hover{ border-color:var(--accent, var(--queued)); }
+  /* "이 포즈로 생성"(NS-41) — 썸네일 왼쪽 위 아이콘 버튼 */
+  .library-pose-btn{
+    position:absolute; left:var(--gap-xs); top:var(--gap-xs); z-index:1;
+    display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0;
+    border:none; border-radius:var(--radius-sm); background:rgba(0,0,0,0.6); color:#fff; cursor:pointer;
+  }
+  .library-pose-btn:hover, .library-pose-btn:focus-visible{ background:var(--accent, var(--queued)); }
+  #library-article-grid .gallery-item{ position:relative; }
+  .library-details .library-pose-btn{ width:24px; height:24px; left:2px; top:2px; }
   .library-info > span{ display:block; }
   .library-thumb{ display:block; aspect-ratio:1; background:var(--bg); position:relative; }
   .library-thumb-count{
