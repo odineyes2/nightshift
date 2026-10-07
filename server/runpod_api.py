@@ -185,6 +185,9 @@ def _rest(method: str, path: str, timeout: float = REQUEST_TIMEOUT_SEC, body: di
             # v2는 RFC 9457 {title, status, detail}
             reason = str(err.get("detail") or err.get("title") or err.get("error") or err.get("message") or "")[:300] \
                 if isinstance(err, dict) else ""
+            # 형식 오류(422)는 detail이 "Request validation failed."뿐이고 어느 칸인지는 errors 목록에 있다
+            if isinstance(err, dict) and isinstance(err.get("errors"), list):
+                reason = f"{reason} {'; '.join(str(x) for x in err['errors'])[:300]}".strip()
         except (json.JSONDecodeError, OSError):
             reason = ""
         return None, f"RunPod가 거절했어요(HTTP {e.code}){': ' + reason if reason else ''}"
@@ -285,7 +288,9 @@ def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[s
             if env:
                 body["env"] = env
             if entrypoint:
-                body["args"] = {"entrypoint": entrypoint}   # 이미지의 ENTRYPOINT를 바꾼다(CMD가 아니라 — runpod/comfyui는 CMD가 없다)
+                # 이미지의 ENTRYPOINT를 바꾼다(CMD가 아니라 — runpod/comfyui는 CMD가 없다). v2는 최상위 entrypoint 배열이고,
+                # args는 문자열(CMD)이다 — {"args": {"entrypoint": …}}로 보내면 422로 만들기가 전부 막혔다(2026-10-07).
+                body["entrypoint"] = entrypoint
             raw, err = _rest("POST", "/pods", timeout=60, body=body)
             if err:
                 errors.append(f"{cloud}{'·' + dcs[0] if dcs else ''}·{gpu_id}: {err}")
