@@ -6,6 +6,7 @@ URL로 넣으면 서버가 받아 저장한다 — 원본 사이트가 지워져
 """
 
 import io
+import math
 import urllib.request
 from pathlib import Path
 
@@ -195,3 +196,15 @@ def input_copy(pose: dict, image: dict) -> tuple[str, bytes]:
         ImageOps.exif_transpose(_open_image(data)).convert("RGB").save(buf, "PNG")
         data, ext = buf.getvalue(), ".png"
     return f"library_pose_{pose['id']}_{image['id']}{ext}", data
+
+
+def sdxl_size(width: int, height: int) -> tuple[int, int]:
+    """포즈 비율에 맞는 SDXL 크기 — JS poseSizeFor와 같은 식(1024² 면적, 64 배수, 512~2048)."""
+    r = width / height
+    snap = lambda v: min(2048, max(512, math.floor(v / 64 + 0.5) * 64))  # JS Math.round와 같게 반올림
+    return snap(1024 * math.sqrt(r)), snap(1024 / math.sqrt(r))
+
+
+def image_size(data: bytes) -> tuple[int, int]:
+    """회전(EXIF)을 반영한 (가로, 세로)."""
+    return ImageOps.exif_transpose(_open_image(data)).size

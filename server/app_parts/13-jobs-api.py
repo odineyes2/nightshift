@@ -205,12 +205,18 @@ async def update_job_progress(job_id: str, request: Request):
     done = data.get("done")
     if not isinstance(total, int) or not isinstance(done, int) or total < 0 or done < 0:
         raise HTTPException(400, "total/done은 0 이상의 정수여야 해요.")
+    # 선택 label — 순차 생성의 "포즈 3/27" 같은 짧은 설명(NS-42).
+    label = data.get("label")
+    if label is not None and (not isinstance(label, str) or len(label) > 40):
+        raise HTTPException(400, "label은 40자 이하 문자열이어야 해요.")
 
     with lock:
         job = jobs.get(job_id)
         if not job:
             raise HTTPException(404, "없는 작업이에요.")
         job["progress"] = {"total": total, "done": done}
+        if label:
+            job["progress"]["label"] = label
 
     return {"ok": True}
 
@@ -304,6 +310,13 @@ def get_job_csv(job_id: str, request: Request):
 async def update_job_csv(job_id: str, request: Request):
     await write_job_attachment(job_id, "csv_filename", request, validate_csv_text, "CSV 파일이 없어요.")
     return {"ok": True}
+
+
+@app.get("/api/jobs/{job_id}/poses")
+def get_job_poses(job_id: str, request: Request):
+    # 순차 생성 포즈 목록(NS-42) — "설정 불러오기"가 새 작업 폼의 pose_sequence로 다시 넣는다.
+    text = read_job_attachment(job_id, "pose_sequence_filename", "포즈 목록이 없어요.", me(request))
+    return Response(content=text, media_type="application/json")
 
 
 @app.post("/api/jobs/{job_id}/retry")

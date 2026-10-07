@@ -415,11 +415,14 @@ def get_default_batch_size(workflow):
         return 1
 
 
-def report_progress(job_id, nightshift_url, total, done):
+def report_progress(job_id, nightshift_url, total, done, label=None):
     if not job_id or not nightshift_url:
         return
     try:
-        payload = json.dumps({"total": total, "done": done}).encode("utf-8")
+        data = {"total": total, "done": done}
+        if label:
+            data["label"] = label
+        payload = json.dumps(data).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         # nightshift가 NIGHTSHIFT_API_KEY로 인증을 켜두면 /api/*가 전부 이 키를
         # 요구한다. 키 없이 보내면 401로 조용히 실패해서(경고만 찍고 계속 돈다)
@@ -598,22 +601,46 @@ def apply_pose_image(workflow, comfy_url, name):
         node.setdefault("inputs", {})["image"] = uploaded_name
 
 
-def run_once(base_workflow, comfy_url, seed, index, main_prompt, negative_prompt, width, height):
+def run_once(base_workflow, comfy_url, seed, index, main_prompt, negative_prompt, width, height,
+             pose_image=None, face_prompt=None):
+    # pose_image/face_prompt는 순차 생성(POSE_SEQUENCE_PATH)에서만 준다 — 포즈마다 이미지가 바뀌고,
+    # Face Detailer에는 포즈 태그를 뺀 원래 프롬프트를 넘긴다.
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
     apply_lora(workflow)
     apply_main_prompt(workflow, main_prompt)
     apply_negative_prompt(workflow, negative_prompt)
-    apply_face_detailer(workflow, seed, main_prompt, negative_prompt)
+    apply_face_detailer(workflow, seed, main_prompt if face_prompt is None else face_prompt, negative_prompt)
     apply_resolution(workflow, width, height)
-    apply_pose_image(workflow, comfy_url, env("POSE_IMAGE"))
+    if pose_image is None:
+        apply_pose_image(workflow, comfy_url, env("POSE_IMAGE"))
+    else:
+        apply_pose_image(workflow, comfy_url, pose_image)
     apply_filename_prefix(workflow, index, seed)
 
     prompt_id = queue_prompt(comfy_url, workflow)
     print(f"[seed_batch] [{index}] seed={seed} 큐 등록 (prompt_id={prompt_id})")
     wait_for_completion(comfy_url, prompt_id)
     print(f"[seed_batch] [{index}] 완료")
+
+
+def load_pose_sequence(path):
+    # 순차 생성(NS-42) — nightshift가 저장한 포즈 목록 [{image, pose_id, pose_name, tags, width, height}].
+    # 목록 순서대로 돈다. 경로가 없거나 비면 None(포즈 순회 없이 예전 동작).
+    if not path:
+        return None
+    with open(path, encoding="utf-8") as f:
+        items = json.load(f)
+    return [item for item in items if isinstance(item, dict) and item.get("image")] or None
+
+
+def pose_prompt(prompt, tags):
+    """메인 프롬프트 뒤에 그 포즈의 태그를 붙인다(태그가 비면 그대로)."""
+    prompt, tags = (prompt or "").strip(), (tags or "").strip()
+    if not tags:
+        return prompt
+    return f"{prompt}, {tags}" if prompt else tags
 
 
 def main():
@@ -649,6 +676,34 @@ def main():
     nightshift_url = env("NIGHTSHIFT_URL", "http://127.0.0.1:8000")
 
     default_batch_size = get_default_batch_size(base_workflow)
+    poses = load_pose_sequence(env("POSE_SEQUENCE_PATH"))
+    if poses:
+        # 포즈 k × 장수(seed_count). 크기는 항목의 width/height, 없으면 WIDTH/HEIGHT.
+        total_images = len(poses) * seed_count * default_batch_size
+        print(f"[seed_batch] 포즈 {len(poses)}개 × {seed_count}장 제출 예정, 이미지 {total_images}장 예상")
+        done_images = 0
+        index = 0
+        for k, pose in enumerate(poses, start=1):
+            label = f"포즈 {k}/{len(poses)}"
+            pose_width = str(pose.get("width") or width)
+            pose_height = str(pose.get("height") or height)
+            for _ in range(seed_count):
+                index += 1
+                seed = random.randint(0, 2**31 - 1) if seed_mode == "random" else index - 1
+                base_prompt = (
+                    danbooru_seed_prompts[index - 1]
+                    if index - 1 < len(danbooru_seed_prompts)
+                    else main_prompt
+                )
+                report_progress(job_id, nightshift_url, total_images, done_images, label)
+                run_once(base_workflow, comfy_url, seed, index, pose_prompt(base_prompt, pose.get("tags")),
+                         negative_prompt, pose_width, pose_height,
+                         pose_image=str(pose["image"]), face_prompt=base_prompt)
+                done_images += default_batch_size
+        report_progress(job_id, nightshift_url, total_images, done_images, f"포즈 {len(poses)}/{len(poses)}")
+        print(f"[seed_batch] 포즈 {len(poses)}개 완료 (이미지 {done_images}장)")
+        return
+
     total_images = seed_count * default_batch_size
     print(f"[seed_batch] 총 {seed_count}건 제출 예정, 이미지 {total_images}장 예상")
     report_progress(job_id, nightshift_url, total_images, 0)

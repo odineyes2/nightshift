@@ -8,6 +8,7 @@
       { "name": "seed_count", "label": "시드 개수", "type": "number", "default": 1 },
       { "name": "seed_mode", "label": "시드 방식", "type": "select", "choices": ["random", "sequential"], "default": "random" },
       { "name": "pose_image", "label": "포즈 이미지", "type": "input_image_optional", "default": "" },
+      { "name": "pose_sequence", "label": "순차 생성 포즈 목록 (내부용)", "type": "textarea", "default": "" },
       { "name": "main_prompt", "label": "메인 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 업로드한 워크플로우의 프롬프트를 그대로 사용해요" },
       { "name": "negative_prompt", "label": "네거티브 프롬프트 (기본값 적용됨 — 필요하면 고쳐 쓰세요)", "type": "textarea", "default": "worst quality, low quality, bad anatomy, bad hands, text, watermark, signature", "placeholder": "비워두면 업로드한 워크플로우의 값을 그대로 사용해요" },
       { "name": "face_prompt", "label": "Face Detailer 얼굴 프롬프트", "type": "textarea", "default": "", "placeholder": "비워두면 메인 프롬프트를 사용해요" },
