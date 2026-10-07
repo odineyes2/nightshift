@@ -91,9 +91,9 @@ function poseGenerateButton(cls, imageId){
   return `<button class="library-pose-btn ${cls}" type="button" data-image-id="${imageId}" title="${label}" aria-label="${label}">${ico('wand')}</button>`;
 }
 
-// Position 아티클 격자의 "이 장 삭제"(NS-43) — 썸네일 오른쪽 위
+// 아티클 격자의 "이 장 삭제"(NS-43, Pose는 NS-44) — 썸네일 오른쪽 위
 function libraryImageDeleteButton(imageId){
-  return isPositionTab() ? `<button class="library-image-delete-btn" type="button" data-image-id="${imageId}" title="이 장 삭제" aria-label="이 장 삭제">${ico('trash-2')}</button>` : '';
+  return `<button class="library-image-delete-btn" type="button" data-image-id="${imageId}" title="이 장 삭제" aria-label="이 장 삭제">${ico('trash-2')}</button>`;
 }
 
 // 순차 생성(NS-42) — 카드 체크로 고른 게시물. 아무것도 없으면 지금 목록 전부를 쓴다.
@@ -177,9 +177,9 @@ function renderLibraryArticle(){
   document.getElementById('library-article-count').textContent = `${p.images.length}장`;
   document.getElementById('library-article-desc').textContent = p.description || '';
   document.getElementById('library-article-prompt').textContent = p.danbooru_prompt || '';
-  const pos = isPositionTab();
-  document.getElementById('library-article-edit-btn').hidden = !pos;
-  document.getElementById('library-article-delete-btn').hidden = !pos;
+  // 수정·삭제는 두 서브탭 모두(NS-44) — 마크업의 hidden을 연다
+  document.getElementById('library-article-edit-btn').hidden = false;
+  document.getElementById('library-article-delete-btn').hidden = false;
   document.getElementById('library-article-grid').innerHTML = p.images.map((im, i) => `
     <div class="gallery-item" data-index="${i}" role="button" tabindex="0" title="크게 보기">
       <img src="${escapeHtml(im.thumb_url)}" alt="${escapeHtml(p.name)} ${i + 1}" loading="lazy">
@@ -284,7 +284,7 @@ function renderLibraryLightbox(){
   libraryLightboxImg.alt = p.name;
   document.getElementById('library-lightbox-info').textContent = `${p.name} · ${libraryLightboxIndex + 1}/${p.images.length}`;
   const many = p.images.length > 1;
-  document.getElementById('library-lightbox-delete-btn').hidden = !isPositionTab();
+  document.getElementById('library-lightbox-delete-btn').hidden = false;
   document.querySelector('#library-lightbox-pose-btn .btn-label').textContent = isPositionTab() ? '이 Position으로 생성' : '이 포즈로 생성';
   document.getElementById('library-lightbox-prev').style.display = many ? '' : 'none';
   document.getElementById('library-lightbox-next').style.display = many ? '' : 'none';
@@ -392,7 +392,7 @@ function updatePoseAddPreview(){
   poseAddPreview.innerHTML = srcs.map(s => `<img src="${escapeHtml(s)}" alt="미리보기">`).join('');
 }
 
-// 세 번째 쓰임(NS-43, Position만): 수정(edit=게시물) — 값을 채우고 이미지 칸을 숨긴다.
+// 세 번째 쓰임(NS-43, Pose는 NS-44): 수정(edit=게시물) — 값을 채우고 이미지 칸을 숨긴다.
 let poseAddEdit = null;
 function openPoseAddModal(targetId = null, edit = null){
   poseAddTargetId = targetId;
