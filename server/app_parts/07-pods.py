@@ -134,7 +134,8 @@ async def runpod_create_worker_api(request: Request):
     if tier not in runpod_api.RUNPOD_TIERS:
         raise HTTPException(400, "등급을 골라 주세요(image/video).")
     worker = pod_registry.create_pod({"kind": pod_registry.DEFAULT_KIND, "url": "", "name": "", "enabled": False,
-                                      "pull_outputs": True, "auto_install_models": True, "tags": ["runpod", "auto"],
+                                      "pull_outputs": True, "auto_install_models": True, "auto_power_off": True,
+                                      "tags": ["runpod", "auto"],
                                       "note": "runpod:creating", "owner_id": user["id"], "runpod_tier": tier})
     pod, created, err = await asyncio.to_thread(_attach_new_runpod, _public_base_url(request), worker, tier)
     if err:

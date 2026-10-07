@@ -152,7 +152,8 @@ def normalize_pod(raw: dict) -> dict:
         # nightshift가 만든 RunPod 워커의 등급(image/video, NS-6) — 있으면 전원 끄기=파드 지우기, 켜기=이 등급으로 새 파드.
         "runpod_tier": str(raw.get("runpod_tier") or "")[:20],
         # 작업이 다 끝나고 한동안 새 작업이 없으면 RunPod 전원을 끈다(NS-8). auto_off_at은 마지막으로 스스로 끈 시각.
-        "auto_power_off": bool(raw.get("auto_power_off")),
+        # 값이 없으면 켠다(NS-47) — 명시적으로 끈 false는 그대로 둔다.
+        "auto_power_off": bool(raw.get("auto_power_off", True)),
         "auto_off_minutes": auto_off_minutes,   # 마지막 작업이 끝난 뒤 이만큼(분) 새 작업이 없으면 끈다
         "auto_off_at": str(raw.get("auto_off_at") or ""),
         "created_at": raw.get("created_at") or _now_iso(),
