@@ -55,11 +55,13 @@ if bash:
     (fake / "python3").write_text('#!/bin/bash\necho "pip $*" >> "$NS_LOG"\n', newline="\n")
     sh = root / "s.sh"
     sh.write_text(script, newline="\n", encoding="utf-8")
-    env = dict(os.environ, COMFY_DIR=comfy.as_posix(), NS_LOG=log.as_posix())
-    cmd = f'export PATH="$(cygpath -u "{fake.as_posix()}" 2>/dev/null || echo "{fake.as_posix()}"):$PATH"; ' \
+    # COMFY_DIR는 root 기준 상대 경로 — 절대 경로면 mkdir -p가 C:/Users/<이름>까지 거슬러 확인하다 Codex 샌드박스에서 거절된다.
+    env = dict(os.environ, COMFY_DIR="ComfyUI", NS_LOG=log.as_posix())
+    # Codex Windows 샌드박스는 PATH를 새로 짜서 Git Bash의 /usr/bin(mkdir·chmod·cygpath)이 빠진다 — 앞에 붙여 둔다.
+    cmd = f'export PATH="/usr/bin:$PATH"; export PATH="$(cygpath -u "{fake.as_posix()}" 2>/dev/null || echo "{fake.as_posix()}"):$PATH"; ' \
           f'chmod +x "{fake.as_posix()}"/*; bash "{sh.as_posix()}"'
     for _ in range(2):
-        r = subprocess.run([bash, "-c", cmd], capture_output=True, text=True, env=env, encoding="utf-8")
+        r = subprocess.run([bash, "-c", cmd], capture_output=True, text=True, env=env, encoding="utf-8", cwd=root)
         assert r.returncode == 0, r.stdout + r.stderr
     lines = log.read_text().splitlines()
     assert len([x for x in lines if x.startswith("git clone --depth 1 ")]) == 2, lines
