@@ -332,6 +332,9 @@ def _run_one_job(pod_id: str, job_id: str):
         extra_env["VIDEO_WORKFLOW_UPLOAD_PATH"] = str((JOBS_DIR / job["video_workflow_filename"]).resolve())
     if job.get("csv_filename"):
         extra_env["CSV_PATH"] = str((JOBS_DIR / job["csv_filename"]).resolve())
+    if job.get("pose_sequence_filename"):
+        # 순차 생성 포즈 목록(NS-42) — 수백 개면 환경변수 길이 상한을 넘을 수 있어 파일 경로로 넘긴다.
+        extra_env["POSE_SEQUENCE_PATH"] = str((JOBS_DIR / job["pose_sequence_filename"]).resolve())
     for name, value in job.get("options", {}).items():
         extra_env[name.upper()] = str(value)
     extra_env.update(ref_assets_job_env(job.get("owner_id")))

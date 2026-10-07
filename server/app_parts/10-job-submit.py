@@ -178,6 +178,43 @@ def validate_pose_image(workflow_bytes: bytes, csv_bytes, option_value):
         raise HTTPException(400, "OpenPose 워크플로우는 포즈 이미지가 필요해요 — 포즈 이미지를 골라 주세요.")
 
 
+def parse_pose_sequence(raw) -> list[dict] | None:
+    """순차 생성 포즈 목록(NS-42) — JSON 배열 [{image, pose_id, pose_name, tags, width, height}].
+    비었으면 None. 각 image는 입력 이미지 풀에 있어야 한다(없으면 400)."""
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        items = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        raise HTTPException(400, "pose_sequence가 올바른 JSON이 아니에요.")
+    if not isinstance(items, list) or not items:
+        raise HTTPException(400, "pose_sequence는 포즈가 1개 이상 든 배열이어야 해요.")
+    out = []
+    for i, item in enumerate(items, start=1):
+        image = str(item.get("image") or "").strip() if isinstance(item, dict) else ""
+        if not image:
+            raise HTTPException(400, f"pose_sequence {i}번째 항목에 image가 없어요.")
+        try:
+            resolve_input_image(image)
+        except InputAssetError as e:
+            raise HTTPException(400, f"pose_sequence {i}번째 포즈 이미지를 확인하세요: {e}")
+        size = {}
+        for key in ("width", "height"):
+            value = item.get(key)
+            if value not in (None, ""):
+                if isinstance(value, bool) or not isinstance(value, int) or not 64 <= value <= 4096:
+                    raise HTTPException(400, f"pose_sequence {i}번째 항목의 {key}는 64~4096 정수여야 해요.")
+                size[key] = value
+        out.append({
+            "image": image,
+            "pose_id": item.get("pose_id"),
+            "pose_name": str(item.get("pose_name") or ""),
+            "tags": str(item.get("tags") or ""),
+            **size,
+        })
+    return out
+
+
 _recent_user_stores: dict[tuple[str, int], "RecentFileStore"] = {}
 
 
@@ -359,8 +396,12 @@ async def create_job(
             workflow_bytes, flat_image_spec["node_title_env"], flat_image_spec["default_title"], flat_image_spec["label"],
         )
 
+    # 순차 생성 포즈 목록(NS-42)은 옵션(환경변수)으로 넘기지 않고 파일로 저장한다.
+    raw_options = dict(raw_options)
+    pose_sequence = parse_pose_sequence(raw_options.pop("pose_sequence", None))
     if workflow_bytes is not None:
-        validate_pose_image(workflow_bytes, csv_bytes, raw_options.get("pose_image"))
+        validate_pose_image(workflow_bytes, csv_bytes,
+                            raw_options.get("pose_image") or (pose_sequence[0]["image"] if pose_sequence else None))
 
     # comfy_model 옵션(체크포인트/LoRA 드롭다운)을 쓰는 템플릿이면 설치 목록으로
     # 값을 검증해야 한다. coerce_option은 동기 함수라, 여기서 미리 스레드로 받아
@@ -374,6 +415,8 @@ async def create_job(
 
     options = {}
     for option in template.get("options", []):
+        if option["name"] == "pose_sequence":
+            continue
         raw = raw_options.get(option["name"])
         # 파드를 안 정했으면 설치 목록으로 검증할 기준이 없다 — 값은 그대로 받고, 스케줄러가 배정할 때 그 파드에 있는지 본다.
         options[option["name"]] = coerce_option(option, raw, options, pod if pod is not None else NO_POD)
@@ -411,6 +454,11 @@ async def create_job(
         csv_original_name = csv_filename
         recent_store("csvs", user).record(csv_filename, csv_bytes)
 
+    pose_sequence_name = None
+    if pose_sequence:
+        pose_sequence_name = f"{job_id}_poses.json"
+        (JOBS_DIR / pose_sequence_name).write_text(json.dumps(pose_sequence, ensure_ascii=False), encoding="utf-8")
+
     # img2video 복합 템플릿의 "영상 생성 워크플로우"는 완전히 선택 — 안 올리면
     # 템플릿 스크립트가 nightshift 내장 기본값(wan22_i2v.json/wan22_flf2v.json)을
     # 그대로 쓴다. 다른 템플릿들은 애초에 이 값을 보내지 않으므로 항상 None.
@@ -443,6 +491,7 @@ async def create_job(
             "video_workflow_original_name": video_workflow_filename if video_workflow_dest_name else None,
             "csv_filename": csv_dest_name,
             "csv_original_name": csv_original_name,
+            "pose_sequence_filename": pose_sequence_name,
             "status": "pending",
             "queued_at": now_iso(),
             "started_at": None,

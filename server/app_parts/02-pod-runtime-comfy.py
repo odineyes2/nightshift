@@ -59,7 +59,7 @@ def prune_deleted_jobs():
         reverse=True,
     )
     for job in deleted[DELETED_JOBS_RETENTION:]:
-        for field in ("workflow_filename", "video_workflow_filename", "csv_filename"):
+        for field in ("workflow_filename", "video_workflow_filename", "csv_filename", "pose_sequence_filename"):
             filename = job.get(field)
             if filename:
                 (JOBS_DIR / filename).unlink(missing_ok=True)

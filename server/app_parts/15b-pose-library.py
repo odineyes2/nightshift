@@ -88,6 +88,12 @@ async def library_pose_to_input(request: Request, pose_id: int, image_id: int):
     image = pose_library.get_pose_image(pose, image_id)
     if not image or not pose_library.image_path(image, False).is_file():
         raise HTTPException(404, "이미지 파일이 없어요.")
+    name, _ = await _pose_to_input(pose, image)
+    return {"name": name, "danbooru_prompt": pose.get("danbooru_prompt") or ""}
+
+
+async def _pose_to_input(pose: dict, image: dict) -> tuple[str, bytes]:
+    """포즈 한 장을 입력 이미지 풀로 복사하고 (풀의 이름, 바이트)를 돌려준다. 같은 내용이면 새로 쓰지 않는다."""
     try:
         name, content = await asyncio.to_thread(pose_library.input_copy, pose, image)
     except pose_library.PoseError as e:
@@ -98,4 +104,34 @@ async def library_pose_to_input(request: Request, pose_id: int, image_id: int):
         same = False
     if not same:
         name = await asyncio.to_thread(save_input_image, name, content)
-    return {"name": name, "danbooru_prompt": pose.get("danbooru_prompt") or ""}
+    return name, content
+
+
+@app.post("/api/library/poses/to-input")
+async def library_poses_to_input(request: Request):
+    """순차 생성(NS-42) — 본문 {"pose_ids": [...]}의 게시물마다 모든 이미지를 입력 이미지 풀로 복사하고
+    목록 순서대로 [{pose_id, pose_name, image_id, name, danbooru_prompt, width, height, sdxl_width, sdxl_height}]를
+    돌려준다. 하나라도 볼 수 없는 게시물이면 404."""
+    try:
+        body = json.loads(await request.body())
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    ids = body.get("pose_ids") if isinstance(body, dict) else None
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+        raise HTTPException(400, "pose_ids는 게시물 번호 배열이어야 해요.")
+    poses = [_library_pose(request, i) for i in ids]  # 복사 전에 전부 검사한다
+    out = []
+    for pose in poses:
+        for image in pose["images"]:
+            if not pose_library.image_path(image, False).is_file():
+                continue
+            name, content = await _pose_to_input(pose, image)
+            try:
+                w, h = await asyncio.to_thread(pose_library.image_size, content)
+            except pose_library.PoseError as e:
+                raise HTTPException(400, str(e))
+            sw, sh = pose_library.sdxl_size(w, h)
+            out.append({"pose_id": pose["id"], "pose_name": pose.get("name") or "", "image_id": image["id"],
+                        "name": name, "danbooru_prompt": pose.get("danbooru_prompt") or "",
+                        "width": w, "height": h, "sdxl_width": sw, "sdxl_height": sh})
+    return out
