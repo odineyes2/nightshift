@@ -6,6 +6,11 @@
 .settings-bm-move button{ min-width:32px; font-variant-numeric:tabular-nums; }
 .settings-bm-row .base-model-delete{ color:var(--failed); }
 
+/* Notification 서브탭 폼 */
+.settings-form{ display:flex; flex-direction:column; gap:12px; margin:12px 0; max-width:560px; }
+.settings-field{ display:flex; flex-direction:column; gap:4px; }
+.settings-form label{ cursor:pointer; }
+
 /* 베이스 모델 세부 설정 모달 */
 #base-model-modal .section-label{ margin-top:16px; }
 .settings-parts{ display:flex; flex-direction:column; gap:6px; margin:8px 0; }
