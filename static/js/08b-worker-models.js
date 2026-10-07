@@ -3,11 +3,14 @@
 // "모두 받기"는 없는 것 중 등록부(모델 탭)에 받을 주소가 있는 것을 워커의 다운로더 노드로 한꺼번에 받는다 —
 // 다 받으면 서버가 스케줄러를 깨워 막혀 있던 작업이 저절로 시작된다(GET/POST /api/pods/{id}/models…).
 // 받는 중에는 3초마다 진행률을, 끝나면 설치 목록을 새로 받는다.
+// "노드팩 설치 후 ComfyUI 재시작"은 등록부의 노드팩을 켜진 파드에 설치하고 ComfyUI만 다시 띄운다(파드·모델은 그대로) —
+// 그동안은 3초마다 진행 기록(nodepack)을 새로 받는다.
 let wmPodId = null;
 let wmData = { connected: false, models: {}, needed: [] };
 let wmDownloader = null;   // /api/models/downloader/status 결과
 let wmTimer = null;
 let wmActive = 0;          // 지난번에 본 "받는 중" 개수 — 0이 되면 설치 목록을 새로 받는다
+let wmNodepackBusy = false; // 노드팩 설치·재시작 진행 중 — 끝나면 설치 목록을 새로 받는다
 
 function openWorkerModels(podId){
   if(wmPodId !== podId){ wmData = { connected: false, models: {}, needed: [] }; wmDownloader = null; }
@@ -46,6 +49,7 @@ async function fetchWorkerModels(refresh){
 
 async function pollWorkerDownloads(){
   const podId = wmPodId;
+  if(wmNodepackBusy){ fetchWorkerModels(false); return; }   // 진행 기록을 받으면 그쪽에서 다시 불린다
   if(!podId || !(wmDownloader && wmDownloader.installed)) return;
   let items = [];
   try{
@@ -79,8 +83,27 @@ function wmKindLabel(kind){
 // 소속 베이스 모델마다 태그 하나(여럿일 수 있다)
 function wmBaseTags(e){ return basesOf(e).map(b => `<span class="wm-tag">${escapeHtml(b)}</span>`).join(''); }
 
+const WM_NODEPACK_STATE = { queued: '대기', installing: '받는 중', pip: '패키지 설치 중', done: '설치됨', error: '실패' };
+
+function renderNodepackStatus(){
+  const run = wmData.nodepack;
+  const el = document.getElementById('wm-nodepack-status');
+  const busy = !!(run && (run.status === 'installing' || run.status === 'restarting'));
+  if(wmNodepackBusy && !busy) fetchWorkerModels(true);   // 막 끝났다 — 새 노드가 들어온 설치 목록을 다시 받는다
+  wmNodepackBusy = busy;
+  el.style.display = run ? '' : 'none';
+  if(!run) return;
+  const head = run.status === 'installing' ? '노드팩을 설치하고 있어요 — 끝나면 ComfyUI를 다시 시작해요. 그동안 이 워커는 새 작업을 받지 않아요.'
+    : run.status === 'restarting' ? 'ComfyUI를 다시 시작하고 있어요…'
+    : run.message || '';
+  const packs = (run.packs || []).map(p => `${escapeHtml(p.name)} — ${escapeHtml(WM_NODEPACK_STATE[p.status] || p.status)}${p.error ? `: ${escapeHtml(p.error)}` : ''}`);
+  el.classList.toggle('error', run.status === 'error');
+  el.innerHTML = `${run.auto ? '[자동] ' : ''}${escapeHtml(head)}${packs.length ? `<br>${packs.join('<br>')}` : ''}`;
+}
+
 function renderWorkerModels(){
   const connected = !!wmData.connected;
+  renderNodepackStatus();
   document.getElementById('wm-offline').style.display = connected ? 'none' : '';
   for(const id of ['wm-needed-section', 'wm-missing-section', 'wm-installed-section']) document.getElementById(id).style.display = connected ? '' : 'none';
   if(!connected) return;
@@ -89,7 +112,8 @@ function renderWorkerModels(){
   const needed = wmData.needed || [];
   document.getElementById('wm-needed-count').textContent = needed.length ? `${needed.length}개` : '';
   document.getElementById('wm-needed-list').innerHTML = needed.length ? needed.map(n => {
-    const where = n.node ? '<span class="wm-tag warn" title="커스텀 노드는 받기로 설치할 수 없어요 — 파드에 직접 설치하세요">노드 — 직접 설치</span>'
+    const where = n.node ? (n.installable ? '<span class="wm-tag ok" title="모델 탭에 등록된 노드팩이에요 — 위 버튼으로 설치할 수 있어요">노드팩 — 설치 가능</span>'
+        : '<span class="wm-tag warn" title="모델 탭에 노드팩(github 주소)을 등록하면 여기서 설치할 수 있어요">노드 — 등록 필요</span>')
       : n.download_url ? '<span class="wm-tag ok" title="모델 탭 등록부에 받을 주소가 있어요">받을 수 있음</span>'
       : '<span class="wm-tag warn" title="모델 탭에서 이 모델의 다운로드 주소를 적어 주면 받을 수 있어요">받을 주소 없음</span>';
     // 같은 템플릿의 작업이 여럿이면 "시드 반복 ×8"처럼 묶는다
@@ -108,6 +132,9 @@ function renderWorkerModels(){
   btn.style.display = needed.length && hasDl ? '' : 'none';
   btn.disabled = !fetchable;
   btn.title = fetchable ? `받을 주소가 있는 ${fetchable}개를 이 워커에 받아요` : '받을 주소가 있는 모델이 없어요 — 모델 탭에서 다운로드 주소를 적어 주세요';
+  const npBtn = document.getElementById('wm-nodepack-btn');
+  npBtn.style.display = hasDl && needed.some(n => n.installable) ? '' : 'none';
+  npBtn.disabled = wmNodepackBusy;
   const hint = document.getElementById('wm-downloader-hint');
   hint.style.display = needed.length && !hasDl ? '' : 'none';
   if(needed.length && !hasDl){
@@ -196,4 +223,22 @@ document.getElementById('wm-fetch-all-btn').addEventListener('click', async () =
   }
   btn.disabled = false;
   pollWorkerDownloads();
+});
+document.getElementById('wm-nodepack-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('wm-nodepack-btn');
+  const errorEl = document.getElementById('wm-error');
+  if(!confirm('등록된 노드팩을 이 파드에 설치하고 ComfyUI를 다시 시작할까요?\n파드와 받아 둔 모델은 그대로예요. 설치가 끝날 때까지(몇 분~수십 분) 이 워커는 새 작업을 받지 않아요.')) return;
+  btn.disabled = true;
+  errorEl.textContent = '';
+  try{
+    const res = await fetch(`/api/pods/${encodeURIComponent(wmPodId)}/nodepacks/install`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || `시작하지 못했어요(HTTP ${res.status}).`);
+    flashNotice(`노드팩 설치를 시작했어요: ${data.packs.join(', ')}`);
+    wmNodepackBusy = true;
+  }catch(e){
+    errorEl.textContent = e.message;
+    btn.disabled = false;
+  }
+  fetchWorkerModels(false);
 });

@@ -56,7 +56,7 @@
   - `10-job-submit` 참조 노드 검사·최근 워크플로우/CSV·작업 생성 `create_job`(`/api/upload`, `POST /api/jobs`)
   - `11-projects-board` 프로젝트·보드 프리셋·보드(카드·선·생성 카드 실행)
   - `12-output-assets` 작업의 프로젝트 이동·결과물 메타(`/api/output-assets*`)·태그
-  - `13-jobs-api` 큐 시작/정지·작업 목록/로그/진행 보고·start/pause/fetch-missing/stop/move/삭제·워커 모델 탭 API(`/api/pods/{id}/models`, `…/models/fetch-needed`)
+  - `13-jobs-api` 큐 시작/정지·작업 목록/로그/진행 보고·start/pause/fetch-missing/stop/move/삭제·워커 모델 탭 API(`/api/pods/{id}/models`, `…/models/fetch-needed`)·켜진 파드에 노드팩 설치 후 ComfyUI만 재시작(`…/nodepacks/install`, 자동 설치 `_maybe_auto_nodepacks`)
   - `14-output-images` 메일 보내기·결과 이미지 목록/썸네일/회전/다운로드/삭제·ComfyUI 결과 동기화
   - `15-videos-share` 결과 영상·영상 편집·OpenCut 공유
   - `16-danbooru-static` Danbooru 태그/기록·`/js/bundle.js`·`/css/bundle.css`·정적 파일 마운트

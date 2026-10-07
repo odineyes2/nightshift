@@ -9,6 +9,9 @@ ComfyUI에는 모델 파일을 내려받는 API가 없어서, nightshift가 파�
   POST /nightshift/dl/start    {url, folder, filename, headers?, overwrite?} 다운로드 시작
   GET  /nightshift/dl/status   진행 목록
   POST /nightshift/dl/cancel   {id}
+  POST /nightshift/nodepacks/install {packs: [{name, url}]} 노드팩 설치 시작(git clone + pip, v3)
+  GET  /nightshift/nodepacks/status  설치 진행
+  POST /nightshift/restart     ComfyUI만 다시 시작(같은 프로세스 자리에서 다시 실행 — 파드·파일은 그대로)
 
 파드 주소는 인터넷에 열려 있으므로 모든 라우트는 X-Nightshift-Token 헤더가 같은 폴더의 token 파일과
 같아야만 동작한다(토큰은 nightshift가 설치 스크립트에 넣어 준다). 받는 곳은 ComfyUI가 그 종류에
@@ -20,6 +23,8 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -32,7 +37,7 @@ from aiohttp import web
 import folder_paths
 from server import PromptServer
 
-VERSION = 2
+VERSION = 3   # 3: 노드팩 설치·ComfyUI 재시작
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # nightshift의 종류 이름 -> ComfyUI folder_paths 이름 후보(버전마다 이름이 달랐다).
@@ -241,6 +246,110 @@ async def dl_cancel(request):
         if job is None:
             return web.json_response({"error": "없는 다운로드예요."}, status=404)
         job["cancel"] = True
+    return web.json_response({"ok": True})
+
+
+# ---- 노드팩 설치·ComfyUI 재시작(v3) --------------------------------------------
+# 노드팩은 ComfyUI를 다시 시작해야 들어온다. 파드를 다시 만들면 받아 둔 모델까지 다 사라지므로, 켜진 파드에서
+# 노드팩만 설치하고 ComfyUI 프로세스만 다시 띄운다. 설치 방식은 파드 시작 스크립트(model_download._nodepack_script)와
+# 같다 — 폴더가 있으면 clone을, .nightshift_pip_ok가 있으면 pip를 건너뛴다.
+PACK_DIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+GITHUB_REPO_RE = re.compile(r"^https://github\.com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$")
+GIT_TIMEOUT = 300
+PIP_TIMEOUT = 1500
+_np = {"status": "idle", "packs": [], "started_at": None, "finished_at": None}
+
+
+def _tail(text, n=400):
+    return (text or "").strip()[-n:]
+
+
+def _install_pack(item):
+    d = os.path.join(os.path.dirname(HERE), item["name"])   # 이 노드가 있는 custom_nodes 폴더
+    if not os.path.isdir(d):
+        tmp = d + ".nstmp"
+        shutil.rmtree(tmp, ignore_errors=True)
+        r = subprocess.run(["git", "clone", "--depth", "1", item["url"], tmp],
+                           capture_output=True, text=True, timeout=GIT_TIMEOUT)
+        if r.returncode:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise RuntimeError("git clone 실패: " + _tail(r.stderr))
+        os.replace(tmp, d)
+    req, mark = os.path.join(d, "requirements.txt"), os.path.join(d, ".nightshift_pip_ok")
+    if os.path.isfile(req) and not os.path.exists(mark):
+        item["status"] = "pip"
+        # ComfyUI를 돌리는 그 python(이미지의 venv)에 깐다
+        r = subprocess.run([sys.executable, "-m", "pip", "install", "-r", req],
+                           capture_output=True, text=True, timeout=PIP_TIMEOUT, cwd=d)
+        if r.returncode:
+            raise RuntimeError("패키지 설치 실패: " + _tail(r.stderr or r.stdout))
+        open(mark, "w").close()
+
+
+def _install_packs(items):
+    for item in items:
+        item["status"] = "installing"
+        try:
+            _install_pack(item)
+            item["status"] = "done"
+        except subprocess.TimeoutExpired:
+            item["status"], item["error"] = "error", "시간 안에 끝나지 않았어요."
+        except Exception as e:
+            item["status"], item["error"] = "error", str(e)[:500]
+    with _lock:
+        _np["status"] = "done"
+        _np["finished_at"] = time.time()
+
+
+@routes.post("/nightshift/nodepacks/install")
+async def np_install(request):
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON이 아니에요."}, status=400)
+    items = []
+    for p in body.get("packs") or []:
+        name, url = (p or {}).get("name"), (p or {}).get("url")
+        if not (isinstance(name, str) and PACK_DIR_RE.match(name) and isinstance(url, str) and GITHUB_REPO_RE.match(url)):
+            return web.json_response({"error": "노드팩 이름이나 github 주소 형식이 올바르지 않아요."}, status=400)
+        items.append({"name": name, "url": url, "status": "queued", "error": None})
+    if not items:
+        return web.json_response({"error": "설치할 노드팩이 없어요."}, status=400)
+    with _lock:
+        if _np["status"] == "running":
+            return web.json_response({"error": "이미 노드팩을 설치하는 중이에요."}, status=409)
+        _np.update(status="running", packs=items, started_at=time.time(), finished_at=None)
+    threading.Thread(target=_install_packs, args=(items,), daemon=True).start()
+    return web.json_response({"ok": True})
+
+
+@routes.get("/nightshift/nodepacks/status")
+async def np_status(request):
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    with _lock:
+        return web.json_response({k: _np[k] for k in ("status", "started_at", "finished_at")}
+                                 | {"packs": [dict(p) for p in _np["packs"]]})
+
+
+def _reexec():
+    time.sleep(1)   # 응답이 나간 뒤에
+    sys.stdout.flush()
+    # ComfyUI-Manager의 재시작과 같은 방식 — 같은 PID로 다시 실행하므로 runpod/comfyui 시작 스크립트의
+    # wait도 그대로 이어지고 컨테이너는 살아 있다. 소켓은 기본이 상속 안 됨(PEP 446)이라 8188 포트도 다시 잡힌다.
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+@routes.post("/nightshift/restart")
+async def comfy_restart(request):
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    with _lock:
+        if _np["status"] == "running":
+            return web.json_response({"error": "노드팩을 설치하는 중이에요 — 끝난 뒤 다시 시작하세요."}, status=409)
+    threading.Thread(target=_reexec, daemon=True).start()
     return web.json_response({"ok": True})
 
 

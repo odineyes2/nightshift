@@ -181,6 +181,10 @@ def schedule_once() -> None:
             if free.get(pod["id"], 0) <= 0:
                 reasons.append(f"'{name}': 다른 작업이 돌고 있어요")
                 continue
+            busy = pod_runtimes[pod["id"]].maintenance
+            if busy:
+                reasons.append(f"'{name}': {busy}")
+                continue
             missing = job_missing_on_pod(job, pod)
             if missing is None:
                 reasons.append(f"'{name}': 설치된 모델 목록을 못 읽었어요")
@@ -198,6 +202,7 @@ def schedule_once() -> None:
                              "names": best_missing[1]} if best_missing else None)
             if best_missing and best_missing[0].get("auto_install_models"):
                 _maybe_auto_fetch(job["id"], best_missing[0], best_missing[1])   # 13-jobs-api.py
+                _maybe_auto_nodepacks(best_missing[0], best_missing[1])          # 13-jobs-api.py
             with lock:
                 if job.get("waiting_reason") == reason and job.get("missing_models") == missing_info:
                     continue

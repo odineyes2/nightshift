@@ -933,8 +933,10 @@
       <section class="wm-section" id="wm-needed-section">
         <div class="wm-section-head">
           <h3>대기 작업에 필요한데 없는 모델 <span class="wm-count" id="wm-needed-count"></span></h3>
+          <button class="submit-btn" id="wm-nodepack-btn" type="button" style="display:none;" title="등록된 노드팩을 이 파드에 설치하고 ComfyUI만 다시 시작해요(받아 둔 모델은 그대로)"><svg class="ico"><use href="#i-download"/></svg> 노드팩 설치 후 ComfyUI 재시작</button>
           <button class="submit-btn" id="wm-fetch-all-btn" type="button"><svg class="ico"><use href="#i-download"/></svg> 모두 받기</button>
         </div>
+        <div class="email-hint" id="wm-nodepack-status" style="display:none;"></div>
         <div class="email-hint" id="wm-downloader-hint" style="display:none;"></div>
         <div id="wm-needed-list"></div>
       </section>

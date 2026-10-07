@@ -464,7 +464,7 @@ async def _start_model_downloads(user: dict, pod: dict, names: list[str]) -> tup
     started, no_url, failed = [], [], []
     for name in names:
         if is_node_problem(name):
-            failed.append({"name": name, "detail": "커스텀 노드는 여기서 받을 수 없어요 — 노드팩은 모델 탭에 등록하면 파드를 시작할 때 설치돼요."})
+            failed.append({"name": name, "detail": "커스텀 노드는 모델 받기로 설치할 수 없어요 — 노드팩을 모델 탭에 등록하면 워커 모델 탭의 \"노드팩 설치\"나 자동 설치로 설치돼요."})
             continue
         entry = _registry_entry_for(name)
         if not entry or not entry.get("download_url"):
@@ -569,9 +569,147 @@ def _needed_models_on_pod(user: dict, pod: dict) -> list[dict] | None:
                 node = is_node_problem(name)
                 entry = None if node else _registry_entry_for(name)
                 needed[name] = {"name": name, "node": node, "kind": (entry or {}).get("kind"),
-                                "download_url": (entry or {}).get("download_url") or None, "jobs": []}
+                                "download_url": (entry or {}).get("download_url") or None, "jobs": [],
+                                # 노드팩이면 등록부에 github 주소가 있어 이 화면에서 설치할 수 있나
+                                "installable": bool(node and _missing_packs([name])[0])}
             needed[name]["jobs"].append({"id": job["id"], "label": job.get("template_label") or job.get("template_id")})
     return sorted(needed.values(), key=lambda x: x["name"].lower())
+
+
+# ---- 켜진 파드에 노드팩 설치 → ComfyUI만 재시작 ------------------------------------
+# 노드팩은 ComfyUI를 다시 시작해야 들어온다. 파드를 다시 만들면(RunPod 전원 끄기·켜기) 받아 둔 모델까지 다 사라지므로,
+# 다운로더 노드(v3)에 노드팩을 설치시키고 ComfyUI 프로세스만 다시 띄운다. 그동안 그 워커는 maintenance로 새 작업을
+# 받지 않고(04-scheduler-app), 실행 중이거나 배정된 작업이 있으면 시작하지 않는다(재시작이 작업을 죽이므로).
+NODEPACK_INSTALL_TIMEOUT_SEC = 1800   # 파드 시작 때 설치 상한(600초)보다 넉넉히 — sam2 빌드처럼 오래 걸리는 pip가 있다
+COMFY_RESTART_TIMEOUT_SEC = 300
+NODEPACK_MIN_NODE_VERSION = 3
+NODEPACK_LABEL_PREFIX = "노드팩 없음 ("
+nodepack_runs: dict[str, dict] = {}   # pod_id -> 마지막 설치 기록(메모리만 — 서버 재시작 때 사라져도 된다)
+
+
+def _missing_packs(names: list[str]) -> tuple[list[dict], list[str]]:
+    """대기 사유의 "노드팩 없음 (이름)"을 등록부의 노드팩으로 — ([{name, url}] 설치할 것, [등록 안 된 이름]).
+    "노드 X"(어느 노드팩인지 모름)는 어느 쪽에도 넣지 않는다."""
+    entries = {e["filename"]: e for e in model_registry.list_entries() if e["kind"] == model_registry.NODEPACK_KIND}
+    packs, unknown = [], []
+    for name in names:
+        if not (name.startswith(NODEPACK_LABEL_PREFIX) and name.endswith(")")):
+            continue
+        pack = name[len(NODEPACK_LABEL_PREFIX):-1]
+        e = entries.get(pack)
+        if e and model_registry.GITHUB_REPO_RE.match(e["download_url"] or ""):
+            packs.append({"name": pack, "url": e["download_url"]})
+        else:
+            unknown.append(pack)
+    return packs, unknown
+
+
+def _start_nodepack_install(pod: dict, packs: list[dict], auto: bool = False) -> str | None:
+    """설치를 시작한다 — 못 하면 그 이유. 같은 파드 주소(=같은 RunPod 파드)에서 자동으로 해 본 노드팩은 tried에 남겨
+    자동으로는 다시 하지 않는다(실패를 되풀이하지 않게 — 사람이 버튼으로는 다시 할 수 있다)."""
+    rt = ensure_runtime(pod)
+    with lock:
+        if rt.maintenance:
+            return f"이 워커는 이미 {rt.maintenance}이에요."
+        if rt.running or rt.queue.qsize():
+            return "이 워커에서 실행 중이거나 곧 시작할 작업이 있어요 — 작업이 끝난 뒤 다시 해 주세요(ComfyUI 재시작이 작업을 멈춰요)."
+        prev = nodepack_runs.get(pod["id"]) or {}
+        tried = set(prev.get("tried") or []) if prev.get("url") == pod.get("url") else set()
+        rt.maintenance = "노드팩 설치 중"
+        nodepack_runs[pod["id"]] = {"status": "installing", "auto": auto, "url": pod.get("url"),
+                                    "tried": sorted(tried | {p["name"] for p in packs}),
+                                    "packs": [{"name": p["name"], "status": "queued"} for p in packs],
+                                    "message": None, "started_at": now_iso(), "finished_at": None}
+    threading.Thread(target=_nodepack_run, args=(pod, packs), daemon=True).start()
+    return None
+
+
+def _nodepack_run(pod: dict, packs: list[dict]) -> None:
+    pid = pod["id"]
+
+    def note(**fields):
+        with lock:
+            nodepack_runs[pid].update(fields)
+
+    def call(method, path, body=None, timeout=20):
+        return model_download.call_node(pod, method, path, body, timeout=timeout)
+
+    try:
+        info = call("GET", "/nightshift/dl/ping", timeout=10)
+        if (info.get("version") or 0) < NODEPACK_MIN_NODE_VERSION:
+            raise model_download.DownloadError("이 파드의 다운로더가 옛 버전이라 노드팩을 설치할 수 없어요 — "
+                                               "RunPod 전원을 껐다 켜면 새 파드에 새 버전이 깔려요.")
+        call("POST", "/nightshift/nodepacks/install", {"packs": packs})
+        deadline = time.time() + NODEPACK_INSTALL_TIMEOUT_SEC
+        while True:
+            time.sleep(5)
+            st = call("GET", "/nightshift/nodepacks/status", timeout=15)
+            note(packs=st.get("packs") or [])
+            if st.get("status") != "running":
+                break
+            if time.time() > deadline:
+                raise model_download.DownloadError(f"노드팩 설치가 {NODEPACK_INSTALL_TIMEOUT_SEC // 60}분 안에 끝나지 않았어요.")
+        results = st.get("packs") or []
+        failed = [f"{p['name']}: {p.get('error') or '실패'}" for p in results if p.get("status") != "done"]
+        if results and len(failed) == len(results):
+            raise model_download.DownloadError("노드팩을 하나도 설치하지 못했어요 — " + " · ".join(failed))
+        with lock:
+            pod_runtimes[pid].maintenance = "ComfyUI 재시작 중"
+        note(status="restarting")
+        call("POST", "/nightshift/restart")
+        time.sleep(5)   # 노드가 1초 뒤 다시 실행한다 — 옛 프로세스의 응답을 "다시 떴다"로 보지 않게
+        deadline = time.time() + COMFY_RESTART_TIMEOUT_SEC
+        while not driver_for(pod).health(pod)["ok"]:
+            if time.time() > deadline:
+                raise model_download.DownloadError(f"ComfyUI가 {COMFY_RESTART_TIMEOUT_SEC // 60}분 안에 다시 뜨지 않았어요 — 파드의 로그를 확인하세요.")
+            time.sleep(3)
+        done = "노드팩을 설치하고 ComfyUI를 다시 시작했어요"
+        note(status="error" if failed else "done", message=done + (f" — 실패: {' · '.join(failed)}" if failed else ""))
+    except model_download.DownloadError as e:
+        note(status="error", message=str(e))
+    except Exception as e:
+        logging.getLogger("uvicorn.error").exception("노드팩 설치 실패")
+        note(status="error", message=f"노드팩 설치 중 오류: {type(e).__name__}")
+    finally:
+        with lock:
+            pod_runtimes[pid].maintenance = None
+            nodepack_runs[pid]["finished_at"] = now_iso()
+        ComfyUIDriver.invalidate_capabilities(pid)
+        invalidate_comfy_status_cache(pid)
+        poke_scheduler()
+
+
+def _maybe_auto_nodepacks(pod: dict, missing: list[str]) -> None:
+    """워커의 "필요한 모델 자동 설치"가 켜져 있을 때 스케줄러가 부른다 — 대기 작업에 필요한 노드팩이 등록부에 있으면
+    켜진 파드에 설치하고 ComfyUI를 다시 시작한다. 작업이 돌고 있으면 이번엔 건너뛰고 다음 차례에 다시 본다."""
+    packs, _ = _missing_packs(missing)
+    if not packs:
+        return
+    with lock:
+        prev = nodepack_runs.get(pod["id"]) or {}
+        tried = set(prev.get("tried") or []) if prev.get("url") == pod.get("url") else set()
+    todo = [p for p in packs if p["name"] not in tried]
+    if todo:
+        _start_nodepack_install(pod, todo, auto=True)
+
+
+@app.post("/api/pods/{pod_id}/nodepacks/install")
+async def install_nodepacks_api(pod_id: str, request: Request):
+    """워커 모델 탭의 "노드팩 설치 후 ComfyUI 재시작" — 대기 작업에 필요한데 없는 노드팩 중 등록부에 있는 것을 설치한다.
+    진행은 GET /api/pods/{id}/models의 nodepack으로 본다."""
+    user = me(request)
+    pod = _download_pod(user, pod_id)
+    needed = await asyncio.to_thread(_needed_models_on_pod, user, pod)
+    if needed is None:
+        raise HTTPException(409, "이 워커의 파드에 연결하지 못해 무엇이 없는지 알 수 없어요.")
+    packs, unknown = await asyncio.to_thread(_missing_packs, [n["name"] for n in needed if n["node"]])
+    if not packs:
+        hint = f" 모델 탭에 노드팩(github 주소)을 등록해 주세요: {', '.join(unknown)}" if unknown else ""
+        raise HTTPException(400, "설치할 노드팩이 없어요." + hint)
+    err = await asyncio.to_thread(_start_nodepack_install, pod, packs)
+    if err:
+        raise HTTPException(409, err)
+    return {"pod_id": pod["id"], "packs": [p["name"] for p in packs], "unknown": unknown}
 
 
 @app.get("/api/pods/{pod_id}/models")
@@ -584,11 +722,16 @@ async def pod_models_api(pod_id: str, request: Request, refresh: bool = False):
         _, info = await asyncio.to_thread(fetch_comfy_object_info, refresh, pod)
     except Exception:
         info = None
-    if info is None:
-        return {"connected": False, "models": {}, "needed": []}
+    with lock:
+        run = dict(nodepack_runs.get(pod["id"]) or {}) or None
+    if run:
+        run.pop("tried", None)
+        run.pop("url", None)
+    if info is None:   # ComfyUI 재시작 중에도 진행 기록은 보여 준다
+        return {"connected": False, "models": {}, "needed": [], "nodepack": run}
     models = {k: combo_choices(info, *src) for k, src in MODEL_LIST_SOURCES.items()}
     needed = await asyncio.to_thread(_needed_models_on_pod, user, pod)
-    return {"connected": True, "models": models, "needed": needed or []}
+    return {"connected": True, "models": models, "needed": needed or [], "nodepack": run}
 
 
 @app.post("/api/pods/{pod_id}/models/fetch-needed")

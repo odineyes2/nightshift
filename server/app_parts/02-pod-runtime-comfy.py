@@ -20,6 +20,8 @@ class PodRuntime:
         self.max_concurrent = max(1, int(max_concurrent or 1))
         self.workers = 0        # 실제로 띄운 워커 스레드 수
         self.closed = False     # 파드가 지워지면 True — 스레드가 스스로 끝난다
+        # 노드팩 설치·ComfyUI 재시작 중이면 그 문구 — 스케줄러가 이 파드에 새 작업을 보내지 않는다(13-jobs-api)
+        self.maintenance: str | None = None
 
 
 pod_runtimes: dict[str, PodRuntime] = {}
