@@ -906,6 +906,7 @@
     <div class="panel-body">
       <div class="new-job-tabs" id="library-subtabs">
         <button class="pod-subtab-btn active" type="button" data-library-tab="pose">Pose</button>
+        <button class="pod-subtab-btn" type="button" data-library-tab="position">Position</button>
       </div>
       <div class="upload-error" id="library-error"></div>
       <div id="library-list" class="library-grid"></div>
@@ -916,6 +917,9 @@
           <div class="library-name" id="library-article-name"></div>
           <span class="gallery-count" id="library-article-count"></span>
           <button class="submit-btn" id="library-article-add-btn" type="button" title="이미지 추가" aria-label="이미지 추가"><svg class="ico"><use href="#i-plus"/></svg><span class="btn-label">이미지 추가</span></button>
+          <!-- Position만(NS-43) — 게시물 수정·삭제 -->
+          <button class="load-btn" id="library-article-edit-btn" type="button" title="수정" aria-label="수정" hidden><svg class="ico"><use href="#i-pencil"/></svg><span class="btn-label">수정</span></button>
+          <button class="load-btn" id="library-article-delete-btn" type="button" title="게시물 삭제" aria-label="게시물 삭제" hidden><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
         </div>
         <div class="library-desc" id="library-article-desc"></div>
         <div class="library-prompt" id="library-article-prompt"></div>
@@ -1130,6 +1134,7 @@
     <div class="lightbox-actions">
       <button class="modal-btn-secondary" id="library-lightbox-download-btn" type="button" title="다운로드" aria-label="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
       <button class="modal-btn-secondary" id="library-lightbox-pose-btn" type="button" title="이 포즈로 생성 (OpenPose)" aria-label="이 포즈로 생성"><svg class="ico"><use href="#i-wand"/></svg><span class="btn-label">이 포즈로 생성</span></button>
+      <button class="modal-btn-secondary" id="library-lightbox-delete-btn" type="button" title="이 장 삭제" aria-label="이 장 삭제" hidden><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">이 장 삭제</span></button>
       <button class="modal-btn-secondary" id="library-lightbox-original-btn" type="button" title="원본 보기" aria-label="원본 보기"><svg class="ico"><use href="#i-zoom-in"/></svg><span class="btn-label">원본 보기</span></button>
     </div>
   </div>
@@ -1272,7 +1277,7 @@
         <label class="field-label" for="pose-add-name">Pose 명칭</label>
         <input type="text" class="option-input" id="pose-add-name" maxlength="200" required placeholder="예: 앉아서 무릎 감싸기">
       </div>
-      <div class="field">
+      <div class="field" id="pose-add-image-field">
         <div class="field-label-row">
           <span class="field-label">이미지</span>
           <div class="enhance-mode" id="pose-add-image-mode">

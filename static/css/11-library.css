@@ -26,6 +26,13 @@
   .library-check-btn[aria-pressed="true"]{ background:var(--accent, var(--queued)); color:#fff; }
   .library-check-btn:focus-visible{ outline:2px solid var(--accent, var(--queued)); outline-offset:2px; }
   .library-details .library-check-btn{ width:24px; height:24px; right:2px; top:2px; }
+  /* Position 아티클 격자의 "이 장 삭제"(NS-43) — 썸네일 오른쪽 위 */
+  .library-image-delete-btn{
+    position:absolute; right:var(--gap-xs); top:var(--gap-xs); z-index:1;
+    display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0;
+    border:none; border-radius:var(--radius-sm); background:rgba(0,0,0,0.6); color:#fff; cursor:pointer;
+  }
+  .library-image-delete-btn:hover, .library-image-delete-btn:focus-visible{ background:var(--danger, var(--failed)); }
   /* 순차 생성 폼 — 총 장수 안내와 포즈 태그 스위치 */
   .pose-sequence-hint{ font-size:14px; color:var(--text); margin:var(--gap-xs) 0; }
   .pose-tag-toggle{ display:inline-flex; align-items:center; gap:8px; margin-top:var(--gap-xs); font-size:12.5px; color:var(--text-dim); cursor:pointer; }
@@ -68,10 +75,11 @@
     width:72px; height:72px; object-fit:cover;
     border:1px solid var(--border); border-radius:var(--radius-sm);
   }
-  .pose-add-preview[hidden], .pose-add-meta[hidden]{ display:none; }
+  .pose-add-preview[hidden], .pose-add-meta[hidden], #pose-add-image-field[hidden]{ display:none; }
   #pose-add-file[hidden], #pose-add-url[hidden]{ display:none; }
 
   /* 모바일 — 추가 버튼은 아이콘만(기존 640px 기준) */
   @media (max-width:640px){
-    #library-add-btn .btn-label, #library-article-add-btn .btn-label{ display:none; }
+    #library-add-btn .btn-label, #library-article-add-btn .btn-label,
+    #library-article-edit-btn .btn-label, #library-article-delete-btn .btn-label{ display:none; }
   }
