@@ -434,10 +434,28 @@ function loraPodsBadge(name){
     : `<span class="model-pods-badge warn" title="켜진 워커 어디에도 없어요 — 골라도 되지만, 작업이 대기 칸에서 '없는 모델 받기'를 기다려요">${ico('triangle-alert')} 켜진 워커에 없음</span>`;
 }
 
+// 마법사 LoRA 선택지 — 켜진 파드에 설치된 LoRA ∪ 모델 등록부 LoRA. 파드에 없는 것도 고를 수 있게 한다
+// (대기 칸에서 '없는 모델 받기'로 받는다). 파일 이름(마지막 경로 조각)이 같으면 설치된 쪽 이름(하위 폴더 포함)을 남긴다.
+function wizardLoraChoices(){
+  const info = comfyObjectInfoCache;
+  const installed = (info && info.connected && info.models && info.models.loras) || [];
+  const catalog = (info && info.catalog && info.catalog.loras) || [];
+  const baseName = name => String(name).split(/[\\/]/).pop();
+  const seen = new Set();
+  const out = [];
+  for(const name of [...installed, ...catalog]){
+    const key = baseName(name);
+    if(seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
 function renderWizardLoraModal(){
   const body = document.getElementById('wizard-lora-modal-body');
   const isPreset = wizardIsPreset();
-  const all = modelChoices('loras');
+  const all = wizardLoraChoices();
   if(all.length === 0){
     body.innerHTML = '<div class="comfy-model-empty">고를 수 있는 LoRA가 없어요 — 워커의 파드를 켜거나 "모델" 탭에 LoRA를 등록하세요.</div>';
     return;
