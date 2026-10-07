@@ -341,6 +341,26 @@ def apply_input_image(workflow, comfy_url, image_path):
     node.setdefault("inputs", {})["image"] = uploaded_name
 
 
+def apply_pose_image(workflow, comfy_url, name):
+    # OpenPose ControlNet의 포즈 이미지(NS-41) — input_image_batch.py와 같다.
+    # 제목 "pose_image"인 LoadImage에만 넣고, 이름이 비었거나 노드가 없으면 건너뛴다.
+    nodes = [
+        node for node in workflow.values()
+        if isinstance(node, dict) and node.get("class_type") == "LoadImage"
+        and "pose_image" in str((node.get("_meta") or {}).get("title", ""))
+    ]
+    name = (name or "").strip()
+    if not name or not nodes:
+        return
+    path = input_images_dir() / name
+    if not path.is_file():
+        print(f"포즈 이미지 '{name}'를 찾을 수 없습니다 ({path})", file=sys.stderr)
+        sys.exit(1)
+    uploaded_name = upload_image_to_comfy(comfy_url, path)
+    for node in nodes:
+        node.setdefault("inputs", {})["image"] = uploaded_name
+
+
 # ComfyUI에 이미 올린 이미지의 (키 -> ComfyUI가 돌려준 파일명) 캐시.
 # 프로세스 하나가 작업 하나를 처리하고 끝나므로 실행 단위 캐시로 충분하다.
 _uploaded_image_cache = {}
@@ -520,6 +540,8 @@ def run_once(base_workflow, comfy_url, row, title, seed, index, image_path):
     apply_checkpoint(workflow)
     apply_lora(workflow)
     apply_input_image(workflow, comfy_url, image_path)
+    # 행의 pose_image가 비면 옵션의 포즈 이미지를 쓴다
+    apply_pose_image(workflow, comfy_url, row.get("pose_image") or env("POSE_IMAGE"))
     apply_filename_prefix(workflow, title, index, seed)
 
     prompt_id = queue_prompt(comfy_url, workflow)

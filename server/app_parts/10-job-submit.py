@@ -6,8 +6,6 @@
 # (노드가 없으면 실행 스크립트가 경고만 남기고 계속 진행 — MAIN_PROMPT 노드를
 # 못 찾았을 때와 같은 관용).
 TEMPLATE_PRIMARY_KIND = {
-    "pose_batch": "pose",
-    "pose_csv_batch": "pose",
     "depth_batch": "depth",
     "depth_csv_batch": "depth",
     "lineart_batch": "lineart",
@@ -21,9 +19,9 @@ REF_NODE_REQUIRED_TEMPLATES = set(TEMPLATE_PRIMARY_KIND)
 REF_KIND_NODE_TITLE_ENV = {"pose": "POSE_NODE_TITLE", "depth": "DEPTH_NODE_TITLE", "lineart": "LINEART_NODE_TITLE"}
 REF_KIND_LABELS = {"pose": "포즈", "depth": "depth", "lineart": "lineart"}
 
-# CSV 템플릿에서 주 참조를 지정하는 컬럼 이름 — pose_csv_batch는 하위호환을 위해
-# "pose" 그대로 쓰고, 새 템플릿은 종류 이름을 그대로 컬럼명으로 쓴다.
-CSV_PRIMARY_REF_COLUMN = {"pose_csv_batch": "pose", "depth_csv_batch": "depth", "lineart_csv_batch": "lineart"}
+# CSV 템플릿에서 주 참조를 지정하는 컬럼 이름 — 종류 이름을 그대로 컬럼명으로 쓴다.
+# (OpenPose는 pose_batch 대신 시드·CSV 템플릿의 pose_image로 옮겼다 — NS-41)
+CSV_PRIMARY_REF_COLUMN = {"depth_csv_batch": "depth", "lineart_csv_batch": "lineart"}
 
 
 def find_ref_load_image_node(workflow: dict, title_substring: str):
@@ -145,6 +143,39 @@ def validate_flat_image_csv_rows(csv_bytes: bytes, column: str):
 
     if errors:
         raise HTTPException(400, f"CSV의 {column} 컬럼을 확인하세요.\n" + "\n".join(errors))
+
+
+def validate_pose_image(workflow_bytes: bytes, csv_bytes, option_value):
+    # OpenPose ControlNet(DWPreprocessor)이 든 워크플로우는 포즈 이미지가 꼭 있어야
+    # 한다 — 없으면 ControlNet이 빈 그림을 따르는 작업이 그대로 돈다. 시드 반복은
+    # pose_image 옵션, CSV는 모든 행의 pose_image 열 또는 옵션 기본값이 있어야 한다.
+    try:
+        workflow = json.loads(workflow_bytes)
+    except ValueError:
+        return
+    if not isinstance(workflow, dict) or not any(
+        isinstance(n, dict) and n.get("class_type") == "DWPreprocessor" for n in workflow.values()
+    ):
+        return
+    default = str(option_value or "").strip()
+    if default:
+        try:
+            resolve_input_image(default)
+        except InputAssetError as e:
+            raise HTTPException(400, f"포즈 이미지를 확인하세요: {e}")
+    if csv_bytes is not None:
+        validate_flat_image_csv_rows(csv_bytes, "pose_image")
+        if not default:
+            rows = list(csv.DictReader(io.StringIO(csv_bytes.decode("utf-8-sig"))))
+            missing = [str(i) for i, row in enumerate(rows, start=2) if not (row.get("pose_image") or "").strip()]
+            if missing:
+                raise HTTPException(
+                    400,
+                    "OpenPose 워크플로우는 포즈 이미지가 필요해요 — 포즈 이미지 옵션을 고르거나 "
+                    f"CSV pose_image 열을 채워 주세요 ({', '.join(missing[:10])}번째 줄).",
+                )
+    elif not default:
+        raise HTTPException(400, "OpenPose 워크플로우는 포즈 이미지가 필요해요 — 포즈 이미지를 골라 주세요.")
 
 
 _recent_user_stores: dict[tuple[str, int], "RecentFileStore"] = {}
@@ -327,6 +358,9 @@ async def create_job(
         validate_workflow_has_flat_image_node(
             workflow_bytes, flat_image_spec["node_title_env"], flat_image_spec["default_title"], flat_image_spec["label"],
         )
+
+    if workflow_bytes is not None:
+        validate_pose_image(workflow_bytes, csv_bytes, raw_options.get("pose_image"))
 
     # comfy_model 옵션(체크포인트/LoRA 드롭다운)을 쓰는 템플릿이면 설치 목록으로
     # 값을 검증해야 한다. coerce_option은 동기 함수라, 여기서 미리 스레드로 받아

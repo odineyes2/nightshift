@@ -262,6 +262,27 @@ def apply_input_image(workflow, comfy_url, image_path):
     node.setdefault("inputs", {})["image"] = uploaded_name
 
 
+def apply_pose_image(workflow, comfy_url, name):
+    # OpenPose ControlNet의 포즈 이미지(NS-41). 빌더가 제목 "pose_image"로 만든
+    # LoadImage에만 넣는다 — 클래스로 대체하지 않아 img2img의 input_image를 잘못
+    # 집지 않는다. 이름이 비었거나 그 노드가 없으면 아무것도 하지 않는다.
+    nodes = [
+        node for node in workflow.values()
+        if isinstance(node, dict) and node.get("class_type") == "LoadImage"
+        and "pose_image" in str((node.get("_meta") or {}).get("title", ""))
+    ]
+    name = (name or "").strip()
+    if not name or not nodes:
+        return
+    path = input_images_dir() / name
+    if not path.is_file():
+        print(f"포즈 이미지 '{name}'를 찾을 수 없습니다 ({path})", file=sys.stderr)
+        sys.exit(1)
+    uploaded_name = upload_image_to_comfy(comfy_url, path)
+    for node in nodes:
+        node.setdefault("inputs", {})["image"] = uploaded_name
+
+
 def apply_seed(workflow, seed):
     # USDU 모드(workflow_builder.py)는 시드가 KSampler가 아니라
     # UltimateSDUpscaleNoUpscale 노드의 "seed" 입력에 있으므로 후보에 포함한다
@@ -525,6 +546,7 @@ def run_once(base_workflow, comfy_url, seed, image_path, index, job_id, output_d
     apply_main_prompt(workflow, main_prompt)
     apply_face_detailer(workflow, seed, main_prompt)
     apply_input_image(workflow, comfy_url, image_path)
+    apply_pose_image(workflow, comfy_url, env("POSE_IMAGE"))
     apply_filename_prefix(workflow, index, seed, image_path)
 
     prompt_id = queue_prompt(comfy_url, workflow)

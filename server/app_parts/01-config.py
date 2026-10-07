@@ -175,8 +175,8 @@ VIDEO_WORKFLOWS_DIR = TEMPLATES_DIR / "video_workflows"
 VIDEO_WORKFLOW_NAMES = {"wan22_i2v", "wan22_flf2v"}
 STATE_FILE = data_path("jobs_state.json")
 STATE_FILE = data_path("jobs_state.json")
-# "새 작업 추가" 마법사의 ControlNet 계열 워크플로우 유형(openpose_cn/depth_cn/
-# lineart_cn)이 쓰는, family(베이스 모델)별로 미리 만들어 올려둔 워크플로우 JSON
+# "새 작업 추가" 마법사의 ControlNet 계열 워크플로우 유형(depth_cn/lineart_cn —
+# OpenPose는 빌더가 조립하는 post.openpose로 옮겼다)이 쓰는, family(베이스 모델)별로 미리 만들어 올려둔 워크플로우 JSON
 # 저장소. 이 세 유형은 체크포인트마다 ControlNet 로더/가중치 배선이 달라 워크플로우
 # 빌더가 안전하게 자동 조립할 수 없어서(잘못 배선하면 조용히 ControlNet 없이
 # 돌아가는 사고가 남), 관리자가 한 번 만들어둔 워크플로우를 family+유형 조합별로

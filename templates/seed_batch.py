@@ -100,6 +100,7 @@ EmptyLatentImage 노드가 여러 개인 워크플로우:
 """
 
 import copy
+import io
 import json
 import os
 import random
@@ -108,6 +109,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
 
 
 def env(name, default=None):
@@ -535,6 +537,67 @@ def wait_for_completion(comfy_url, prompt_id):
         time.sleep(interval)
 
 
+# 포즈 이미지 업로드 — input_image_batch.py의 사본 ----------------------------
+
+def input_images_dir():
+    override = env("NIGHTSHIFT_INPUT_IMAGES_DIR")
+    if override:
+        return Path(override)
+    return Path(env("NIGHTSHIFT_ASSETS_DIR", "/workspace/dataset/assets")) / "input"
+
+
+# 같은 파일을 반복마다 다시 올리지 않는다(실행 단위 캐시, 크기·수정시각 포함).
+_uploaded_image_cache = {}
+
+
+def upload_image_to_comfy(comfy_url, image_path):
+    stat = image_path.stat()
+    cache_key = (comfy_url, str(image_path.resolve()), stat.st_size, stat.st_mtime_ns)
+    if cache_key in _uploaded_image_cache:
+        return _uploaded_image_cache[cache_key]
+    boundary = uuid.uuid4().hex
+    body = io.BytesIO()
+    body.write(
+        f'--{boundary}\r\nContent-Disposition: form-data; name="image"; filename="{image_path.name}"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n".encode("utf-8")
+    )
+    body.write(image_path.read_bytes())
+    body.write(
+        f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="overwrite"\r\n\r\ntrue\r\n--{boundary}--\r\n'.encode("utf-8")
+    )
+    req = urllib.request.Request(
+        f"{comfy_url}/upload/image",
+        data=body.getvalue(),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "User-Agent": COMFY_USER_AGENT},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        uploaded_name = json.loads(resp.read().decode("utf-8"))["name"]
+    _uploaded_image_cache[cache_key] = uploaded_name
+    return uploaded_name
+
+
+def apply_pose_image(workflow, comfy_url, name):
+    # OpenPose ControlNet의 포즈 이미지(NS-41). 빌더가 제목 "pose_image"로 만든
+    # LoadImage에만 넣는다. 이름이 비었거나 그 노드가 없으면 아무것도 하지 않는다
+    # — 포즈 없는 txt2img 작업은 전과 같다.
+    nodes = [
+        node for node in workflow.values()
+        if isinstance(node, dict) and node.get("class_type") == "LoadImage"
+        and "pose_image" in str((node.get("_meta") or {}).get("title", ""))
+    ]
+    name = (name or "").strip()
+    if not name or not nodes:
+        return
+    path = input_images_dir() / name
+    if not path.is_file():
+        print(f"포즈 이미지 '{name}'를 찾을 수 없습니다 ({path})", file=sys.stderr)
+        sys.exit(1)
+    uploaded_name = upload_image_to_comfy(comfy_url, path)
+    for node in nodes:
+        node.setdefault("inputs", {})["image"] = uploaded_name
+
+
 def run_once(base_workflow, comfy_url, seed, index, main_prompt, negative_prompt, width, height):
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
@@ -544,6 +607,7 @@ def run_once(base_workflow, comfy_url, seed, index, main_prompt, negative_prompt
     apply_negative_prompt(workflow, negative_prompt)
     apply_face_detailer(workflow, seed, main_prompt, negative_prompt)
     apply_resolution(workflow, width, height)
+    apply_pose_image(workflow, comfy_url, env("POSE_IMAGE"))
     apply_filename_prefix(workflow, index, seed)
 
     prompt_id = queue_prompt(comfy_url, workflow)
