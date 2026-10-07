@@ -150,6 +150,35 @@ def extract_video_meta(path: Path) -> dict:
 
 # 로더 노드의 입력 이름 -> params_json에 넣을 목록 이름. 체크포인트는 checkpoint 칸에 따로 둔다.
 _MODEL_INPUTS = (("lora_name", "loras"), ("unet_name", "unets"), ("vae_name", "vaes"), ("clip_name", "text_encoders"))
+# Library "이 포즈로 생성"(NS-41·42)이 입력 풀에 넣는 사본 이름(pose_library.input_copy) — 게시물·이미지 id가 들어 있다.
+_POSE_IMAGE_RE = re.compile(r"(?:^|/)library_pose_(\d+)_(\d+)\.\w+$")
+
+
+def _pose_from_graph(nodes: list) -> dict | None:
+    """제목이 pose_image인 LoadImage의 이미지 이름에서 포즈 게시물 id를 뽑는다(이름은 색인 때 붙인다)."""
+    for n in nodes:
+        if (n.get("_meta") or {}).get("title") != "pose_image":
+            continue
+        m = _POSE_IMAGE_RE.search(str(n["inputs"].get("image") or ""))
+        if m:
+            return {"id": int(m.group(1)), "image_id": int(m.group(2))}
+    return None
+
+
+def _with_pose_name(conn, meta: dict) -> dict:
+    """params_json.pose에 게시물 이름을 붙인다(색인 중인 연결로 읽는다). 게시물이 지워졌으면 id만 남긴다."""
+    try:
+        params = json.loads(meta.get("params_json") or "{}")
+        pose = params.get("pose")
+        if not pose:
+            return meta
+        found = conn.execute("SELECT name FROM poses WHERE id=?", (pose["id"],)).fetchone()
+        if found:
+            pose["name"] = found["name"]
+            meta["params_json"] = json.dumps(params, ensure_ascii=False)
+    except Exception:
+        pass
+    return meta
 
 
 def meta_from_graph(graph) -> dict:
@@ -192,6 +221,9 @@ def meta_from_graph(graph) -> dict:
                 if isinstance(value, str) and value and value not in used.setdefault(key, []):
                     used[key].append(value)
         params.update({k: v for k, v in used.items() if v})
+        pose = _pose_from_graph(nodes)
+        if pose:
+            params["pose"] = pose
         if params:
             meta["params_json"] = json.dumps(params, ensure_ascii=False)
         return meta
@@ -313,6 +345,7 @@ def _backfill_model_meta(found: dict, key: str = _BACKFILL_KEY, where: str = "")
                 continue
             if not meta:
                 continue
+            meta = _with_pose_name(conn, meta)
             conn.execute(
                 "UPDATE assets SET params_json=COALESCE(?, params_json), checkpoint=COALESCE(checkpoint, ?), "
                 "seed=COALESCE(seed, ?), prompt=COALESCE(NULLIF(prompt, ''), ?), "
@@ -378,6 +411,7 @@ def sync(force: bool = False) -> dict | None:
                 if row is None and kind == "video":
                     meta = extract_video_meta(f)
                 if row is None:
+                    meta = _with_pose_name(conn, meta)
                     parts = path.split("/")
                     job_id = parts[0] if len(parts) > 1 and parts[0] in job_projects else None
                     # 주인: 그 작업을 만든 회원, 작업이 없으면(ComfyUI에서 직접 만든 것) 받아온 파드의 주인.

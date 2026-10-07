@@ -593,6 +593,12 @@ function createAssetMetaPanel(root, kind){
   function row(label, value){
     return value == null || value === '' ? '' : `<div class="am-kv"><dt>${label}</dt><dd>${escapeHtml(String(value))}</dd></div>`;
   }
+  // Library 포즈로 만든 결과(NS-42) — 게시물 이름을 누르면 Library에서 그 게시물을 연다.
+  function poseRow(pose){
+    if(!pose || !Number.isInteger(pose.id)) return '';
+    const label = escapeHtml(pose.name || `#${pose.id}`);
+    return `<div class="am-kv"><dt>포즈</dt><dd><a href="#library" data-pose-link="${pose.id}">${label}</a></dd></div>`;
+  }
   function paintInfo(d){
     let params = {};
     try{ params = d.params_json ? JSON.parse(d.params_json) : {}; }catch(e){ /* 못 읽으면 빈 값 */ }
@@ -608,7 +614,8 @@ function createAssetMetaPanel(root, kind){
       ? `<details class="am-neg"><summary>네거티브 프롬프트</summary><div class="am-prompt">${escapeHtml(d.negative_prompt)}</div></details>`
       : '';
     const facts = row('작업', d.job_label) + row('워커', d.pod_name) + row('체크포인트', d.checkpoint)
-      + row('시드', d.seed) + row('샘플링', paramText) + row('LoRA', (params.loras || []).join(', ')) + row('해상도', dims);
+      + row('시드', d.seed) + row('샘플링', paramText) + row('LoRA', (params.loras || []).join(', ')) + row('해상도', dims)
+      + poseRow(params.pose);
     infoEl.innerHTML = (facts ? `<dl class="am-facts">${facts}</dl>` : '') + prompt + negative
       || '<span class="am-empty">ComfyUI가 남긴 생성 정보가 없어요(회전·편집으로 지워졌거나 직접 넣은 파일일 수 있어요).</span>';
     infoEl._detail = d;
@@ -676,6 +683,13 @@ function createAssetMetaPanel(root, kind){
   noteEl.addEventListener('blur', saveNote);
   noteEl.addEventListener('keydown', (e) => { if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); saveNote(); } });
   infoEl.addEventListener('click', async (e) => {
+    const poseLink = e.target.closest('[data-pose-link]');
+    if(poseLink){
+      e.preventDefault();
+      if(kind === 'video') closeVideoLightbox(); else closeLightbox();
+      openLibraryPose(Number(poseLink.dataset.poseLink));
+      return;
+    }
     const btn = e.target.closest('[data-copy]');
     if(!btn || !infoEl._detail) return;
     try{ await copyTextToClipboard(infoEl._detail.prompt || ''); say('복사됨'); }catch(err){ say('복사 실패'); }
