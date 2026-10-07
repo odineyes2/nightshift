@@ -90,6 +90,12 @@ RunPod 같은 pod는 보통 네트워크 볼륨을 `/workspace`에만 마운트�
 
 `bootstrap.sh`는 그걸 확인해서 없는 것만 골라 다시 설치한 뒤(Python 의존성 → Node.js(없으면 NodeSource로 설치) → `npm install`) 곧바로 `npm start`로 서버까지 띄웁니다. 이미 다 설치돼 있으면(같은 세션에서 다시 실행한 경우) 대부분 빠르게 지나가므로, **pod를 새로 시작할 때마다 이 스크립트 하나만 실행하면 됩니다.**
 
+#### 잡 종료 알림 (ntfy)
+
+관리자 전역 설정 API `GET/PUT /api/settings/notifications`로 잡 알림을 설정합니다. 기본값은 꺼짐이며, `enabled`, `mode`(`each` 또는 `all`), `server`(기본 `https://ntfy.sh`), `topic`, 선택 사항인 `token`을 저장합니다. 토픽 초기값은 환경변수 `NTFY_TOPIC`입니다. `each`는 완료·실패마다, `all`은 삭제되지 않은 queued/running 잡이 모두 끝날 때 완료·실패 수를 한 번 보냅니다(pending 제외). 사람이 멈춘 잡이나 재시작으로 중단된 잡에는 알림을 보내지 않습니다. 전송은 백그라운드에서 처리하며 실패하면 한 번 재시도합니다.
+
+`POST /api/settings/notifications/test`는 저장된 설정으로 시험 알림을 보내고 `ok`와 실패 시 `error`를 반환합니다(알림을 꺼둔 상태에서도 시험할 수 있습니다). 폰 ntfy 앱에서 같은 토픽을 구독하고, 공개 서버에서는 추측하기 어려운 토픽 이름을 사용하세요. 메시지에는 잡 이름·ID·걸린 시간만 보내며 프롬프트는 보내지 않습니다. 토큰은 DB에 평문으로 저장되지만 GET에는 `token_set`만 반환합니다. PUT의 빈 토큰은 기존 값을 유지하고 `clear_token: true`로 지웁니다. Settings의 Notification 화면은 별도 화면 Task에서 추가합니다.
+
 #### 웹앱 접속 주소를 폰으로 받기 (ntfy.sh, RunPod)
 
 RunPod는 pod를 재시작할 때마다 프록시 주소(`https://{POD_ID}-{PORT}.proxy.runpod.net/`)가 바뀝니다. `bootstrap.sh`는 서버를 띄우기 직전에 `scripts/notify_ntfy.sh`를 백그라운드로 실행해서, 서버가 완전히 뜬 걸 확인(최대 30초 헬스체크)한 뒤 그 주소를 [ntfy.sh](https://ntfy.sh/) 토픽으로 push합니다 — 폰에 ntfy 앱을 깔고 같은 토픽을 구독해두면 pod를 재시작할 때마다 알림을 탭해서 바로 접속할 수 있습니다.

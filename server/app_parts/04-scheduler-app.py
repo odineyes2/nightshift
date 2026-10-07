@@ -368,6 +368,9 @@ def _run_one_job(pod_id: str, job_id: str):
         job["status"] = "interrupted" if stopped else ("done" if returncode == 0 else "failed")
         job["returncode"] = returncode
         job["finished_at"] = now_iso()
+        # 같은 lock 안에서 마지막 종료와 집계를 판정하고, 전송만 백그라운드로 넘긴다.
+        import notify
+        notify.job_finished(job, jobs)
     save_state()
 
     # 워커가 원격이면 결과물은 그쪽 디스크에만 있다 — 갤러리/zip/이메일은 전부 로컬
