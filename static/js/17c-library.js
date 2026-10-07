@@ -20,6 +20,20 @@ async function openLibraryTab(){
     libraryPoses = data.items || [];
     renderLibraryPoses();
   }catch(err){ setLibraryError(err.message); }
+  const want = libraryPendingArticle;
+  libraryPendingArticle = null;
+  if(want != null){
+    if(libraryPoses.some(p => p.id === want)) openLibraryArticle(want);
+    else setLibraryError('게시물을 찾을 수 없어요');
+  }
+}
+
+// 갤러리 정보의 "포즈" 링크(NS-42) — Library 탭으로 가서 목록을 받은 뒤 그 게시물을 연다.
+// 볼 수 없거나 지워진 게시물은 목록에 없으므로 안내만 띄운다.
+let libraryPendingArticle = null;
+function openLibraryPose(id){
+  libraryPendingArticle = id;
+  showTab('library');
 }
 
 function syncLibraryDisplayToggle(){
