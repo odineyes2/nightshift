@@ -76,6 +76,8 @@
     border:1px solid var(--border); border-radius:var(--radius-sm);
   }
   .pose-add-preview[hidden], .pose-add-meta[hidden], #pose-add-image-field[hidden]{ display:none; }
+  #pose-add-gallery{ display:flex; align-items:center; flex-wrap:wrap; gap:var(--gap-sm); }
+  #pose-add-gallery[hidden]{ display:none; }
   #pose-add-file[hidden], #pose-add-url[hidden]{ display:none; }
   /* 갤러리에서 Library로 넣기(NS-45) — 같은 미리보기 줄을 쓰고 숨김만 맞춘다 */
   #library-from-gallery-modal .field[hidden], #lfg-done[hidden], #lfg-save[hidden]{ display:none; }

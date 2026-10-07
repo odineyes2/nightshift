@@ -220,15 +220,25 @@ function buildInputAudioControl(opt){
 // 결과 이미지 갤러리(output-images)의 썸네일을 격자로 보여주고, 하나를 클릭하면
 // onPick(name)을 불러 실제 가져오기(복사)를 맡긴다 — 호출부(업로드 vs 다른 용도)에
 // 따라 가져온 뒤 할 일이 다를 수 있어 이 모달 자체는 "고르기"에만 집중한다.
+// opts.multiple이면 클릭은 선택을 켜고 끄기만 하고, '선택 완료'에서 onPick(names[])를 한 번 부른다
+// (opts.max 장까지, opts.selected는 이미 고른 이름). 옵션이 없으면 예전처럼 한 장 클릭 즉시 닫힌다.
 let inputImageGalleryOnPick = null;
+let inputImageGalleryMulti = null;   // 여러 장 모드: { max, names: Set }
 
-async function openInputImageGalleryPicker(onPick){
+function updateInputImagePickerDone(){
+  document.getElementById('input-image-picker-done').textContent = `선택 완료 (${inputImageGalleryMulti.names.size}장)`;
+}
+
+async function openInputImageGalleryPicker(onPick, opts = {}){
   inputImageGalleryOnPick = onPick;
+  inputImageGalleryMulti = opts.multiple ? { max: opts.max || Infinity, names: new Set(opts.selected || []) } : null;
   const modal = document.getElementById('input-image-picker-modal');
   const grid = document.getElementById('input-image-picker-grid');
   const empty = document.getElementById('input-image-picker-empty');
   const errorEl = document.getElementById('input-image-picker-error');
   errorEl.textContent = '';
+  document.getElementById('input-image-picker-footer').style.display = inputImageGalleryMulti ? 'flex' : 'none';
+  if(inputImageGalleryMulti) updateInputImagePickerDone();
   grid.innerHTML = '<div class="empty">불러오는 중…</div>';
   modal.style.display = 'flex';
   try{
@@ -242,7 +252,7 @@ async function openInputImageGalleryPicker(onPick){
     }
     empty.style.display = 'none';
     grid.innerHTML = images.map(img => `
-      <div class="gallery-item" data-name="${escapeHtml(img.name)}" title="${escapeHtml(img.name)}">
+      <div class="gallery-item${inputImageGalleryMulti?.names.has(img.name) ? ' selected' : ''}" data-name="${escapeHtml(img.name)}" title="${escapeHtml(img.name)}">
         <img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(img.name)}/thumbnail?size=200`)}" alt="${escapeHtml(img.name)}" loading="lazy">
         <div class="gallery-item-name">${escapeHtml(img.name)}</div>
       </div>
@@ -250,6 +260,15 @@ async function openInputImageGalleryPicker(onPick){
     grid.querySelectorAll('.gallery-item').forEach(el => {
       el.addEventListener('click', async () => {
         errorEl.textContent = '';
+        const multi = inputImageGalleryMulti;
+        if(multi){
+          const name = el.dataset.name;
+          if(multi.names.has(name)) multi.names.delete(name);
+          else if(multi.names.size >= multi.max) return errorEl.textContent = `한 번에 ${multi.max}장까지 고를 수 있어요.`;
+          else multi.names.add(name);
+          el.classList.toggle('selected', multi.names.has(name));
+          return updateInputImagePickerDone();
+        }
         try{
           await inputImageGalleryOnPick(el.dataset.name);
           closeInputImageGalleryPicker();
@@ -267,8 +286,18 @@ async function openInputImageGalleryPicker(onPick){
 function closeInputImageGalleryPicker(){
   document.getElementById('input-image-picker-modal').style.display = 'none';
   inputImageGalleryOnPick = null;
+  inputImageGalleryMulti = null;
 }
 document.getElementById('input-image-picker-close').addEventListener('click', closeInputImageGalleryPicker);
+document.getElementById('input-image-picker-done').addEventListener('click', async () => {
+  if(!inputImageGalleryMulti) return;
+  try{
+    await inputImageGalleryOnPick([...inputImageGalleryMulti.names]);
+    closeInputImageGalleryPicker();
+  }catch(e){
+    document.getElementById('input-image-picker-error').textContent = e.message || '가져오지 못했어요.';
+  }
+});
 document.getElementById('input-image-picker-modal').addEventListener('click', (e) => {
   if(e.target.id === 'input-image-picker-modal') closeInputImageGalleryPicker();
 });

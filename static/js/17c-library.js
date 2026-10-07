@@ -389,8 +389,12 @@ function setPoseAddImageMode(mode){
     .forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   document.getElementById('pose-add-file').hidden = mode !== 'file';
   document.getElementById('pose-add-url').hidden = mode !== 'url';
+  document.getElementById('pose-add-gallery').hidden = mode !== 'gallery';
   updatePoseAddPreview();
 }
+
+// 갤러리 모드(NS-48): 결과 이미지 이름(job_id/파일.png)을 골라 output_name으로 보낸다 — 서버가 권한·경로를 검사한다.
+let poseAddGalleryNames = [];
 
 // 같은 모달을 두 가지로 쓴다 — 새 게시물(poseAddTargetId=null)과 열린 게시물에 이미지 추가(명칭·설명 칸 숨김).
 let poseAddTargetId = null;
@@ -408,6 +412,9 @@ function updatePoseAddPreview(){
   let srcs;
   if(poseAddImageMode === 'file'){
     srcs = poseAddBlobs = [...document.getElementById('pose-add-file').files].map(f => URL.createObjectURL(f));
+  }else if(poseAddImageMode === 'gallery'){
+    srcs = poseAddGalleryNames.map(n => window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(n)}/thumbnail?size=80&fit=cover`));
+    document.getElementById('pose-add-gallery-count').textContent = srcs.length ? `${srcs.length}장 골랐어요` : '';
   }else{
     srcs = poseAddUrls().filter(u => /^https?:\/\//i.test(u));
   }
@@ -433,6 +440,7 @@ function openPoseAddModal(targetId = null, edit = null){
     document.getElementById('pose-add-prompt').value = edit.danbooru_prompt || '';
   }
   setPoseAddError('');
+  poseAddGalleryNames = [];
   setPoseAddImageMode('file');
   poseAddModal.style.display = 'flex';
   if(!targetId) document.getElementById('pose-add-name').focus();
@@ -480,13 +488,16 @@ async function savePoseAdd(e){
     const files = [...document.getElementById('pose-add-file').files];
     files.forEach(f => fd.append('image', f));
     count = files.length;
+  }else if(poseAddImageMode === 'gallery'){
+    poseAddGalleryNames.forEach(n => fd.append('output_name', n));
+    count = poseAddGalleryNames.length;
   }else{
     const urls = poseAddUrls();
     urls.forEach(u => fd.append('image_url', u));
     count = urls.length;
   }
   if(!poseAddTargetId && !name) return setPoseAddError(`${isPositionTab() ? 'Position' : 'Pose'} 명칭을 적어주세요.`);
-  if(!count) return setPoseAddError('이미지를 올리거나 이미지 주소를 적어주세요.');
+  if(!count) return setPoseAddError('이미지를 올리거나, 주소를 적거나, 갤러리에서 골라주세요.');
   if(count > POSE_ADD_MAX) return setPoseAddError(`이미지는 한 번에 ${POSE_ADD_MAX}장까지 넣을 수 있어요.`);
   const btn = document.getElementById('pose-add-save');
   btn.disabled = true; btn.textContent = '저장 중…';
@@ -511,6 +522,10 @@ document.getElementById('pose-add-cancel').addEventListener('click', closePoseAd
 document.getElementById('pose-add-form').addEventListener('submit', savePoseAdd);
 document.getElementById('pose-add-file').addEventListener('change', updatePoseAddPreview);
 document.getElementById('pose-add-url').addEventListener('input', updatePoseAddPreview);
+document.getElementById('pose-add-gallery-btn').addEventListener('click', () => openInputImageGalleryPicker(names => {
+  poseAddGalleryNames = names;
+  updatePoseAddPreview();
+}, { multiple: true, max: POSE_ADD_MAX, selected: poseAddGalleryNames }));
 document.querySelectorAll('#pose-add-image-mode .enhance-mode-btn').forEach(btn => {
   btn.addEventListener('click', () => setPoseAddImageMode(btn.dataset.mode));
 });
