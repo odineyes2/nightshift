@@ -77,6 +77,7 @@ import model_download
 import model_registry
 import pod_registry
 import pose_library
+import position_library
 import projects as project_store
 import runpod_api
 import runpod_sessions
