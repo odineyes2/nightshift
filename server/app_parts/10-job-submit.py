@@ -180,7 +180,9 @@ def validate_pose_image(workflow_bytes: bytes, csv_bytes, option_value):
 
 def parse_pose_sequence(raw) -> list[dict] | None:
     """순차 생성 포즈 목록(NS-42) — JSON 배열 [{image, pose_id, pose_name, tags, width, height}].
-    비었으면 None. 각 image는 입력 이미지 풀에 있어야 한다(없으면 400)."""
+    비었으면 None. 각 image는 입력 이미지 풀에 있어야 한다(없으면 400).
+    Position 순차 실행(NS-43)은 image 없이 tags만 담는다 — 한 목록 안에서 모두 image가 있거나
+    모두 없어야 한다(섞이면 400)."""
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return None
     try:
@@ -189,15 +191,20 @@ def parse_pose_sequence(raw) -> list[dict] | None:
         raise HTTPException(400, "pose_sequence가 올바른 JSON이 아니에요.")
     if not isinstance(items, list) or not items:
         raise HTTPException(400, "pose_sequence는 포즈가 1개 이상 든 배열이어야 해요.")
+    if not all(isinstance(item, dict) for item in items):
+        raise HTTPException(400, "pose_sequence의 항목은 모두 객체여야 해요.")
+    has_image = [bool(str(item.get("image") or "").strip()) for item in items]
+    if any(has_image) and not all(has_image):
+        i = has_image.index(False) + 1
+        raise HTTPException(400, f"pose_sequence {i}번째 항목에 image가 없어요 — 포즈와 Position 항목을 섞을 수 없어요.")
     out = []
     for i, item in enumerate(items, start=1):
-        image = str(item.get("image") or "").strip() if isinstance(item, dict) else ""
-        if not image:
-            raise HTTPException(400, f"pose_sequence {i}번째 항목에 image가 없어요.")
-        try:
-            resolve_input_image(image)
-        except InputAssetError as e:
-            raise HTTPException(400, f"pose_sequence {i}번째 포즈 이미지를 확인하세요: {e}")
+        image = str(item.get("image") or "").strip()
+        if image:
+            try:
+                resolve_input_image(image)
+            except InputAssetError as e:
+                raise HTTPException(400, f"pose_sequence {i}번째 포즈 이미지를 확인하세요: {e}")
         size = {}
         for key in ("width", "height"):
             value = item.get(key)
@@ -205,13 +212,16 @@ def parse_pose_sequence(raw) -> list[dict] | None:
                 if isinstance(value, bool) or not isinstance(value, int) or not 64 <= value <= 4096:
                     raise HTTPException(400, f"pose_sequence {i}번째 항목의 {key}는 64~4096 정수여야 해요.")
                 size[key] = value
-        out.append({
+        entry = {
             "image": image,
             "pose_id": item.get("pose_id"),
             "pose_name": str(item.get("pose_name") or ""),
             "tags": str(item.get("tags") or ""),
             **size,
-        })
+        }
+        if not image:
+            entry["kind"] = "position"
+        out.append(entry)
     return out
 
 
@@ -401,7 +411,7 @@ async def create_job(
     pose_sequence = parse_pose_sequence(raw_options.pop("pose_sequence", None))
     if workflow_bytes is not None:
         validate_pose_image(workflow_bytes, csv_bytes,
-                            raw_options.get("pose_image") or (pose_sequence[0]["image"] if pose_sequence else None))
+                            raw_options.get("pose_image") or (pose_sequence[0]["image"] if pose_sequence else None) or None)
 
     # comfy_model 옵션(체크포인트/LoRA 드롭다운)을 쓰는 템플릿이면 설치 목록으로
     # 값을 검증해야 한다. coerce_option은 동기 함수라, 여기서 미리 스레드로 받아

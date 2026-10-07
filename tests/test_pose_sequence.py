@@ -88,6 +88,30 @@ class PoseSequenceTests(unittest.TestCase):
         seed = next(t for t in A.load_templates_list() if t["id"] == "seed_batch")
         self.assertIn("pose_sequence", [o["name"] for o in seed["options"]])
 
+    def test_parse_position_sequence(self):
+        # Position 순차 실행(NS-43) — image 없이 tags만, 섞인 목록은 400
+        items = A.parse_pose_sequence(json.dumps([{"kind": "position", "tags": "standing"}, {"tags": ""}]))
+        self.assertEqual(items[0], {"image": "", "pose_id": None, "pose_name": "", "tags": "standing", "kind": "position"})
+        self.assertEqual(len(items), 2)
+        name = A.save_input_image("seq_mix.png", png())
+        for bad in ([{"image": name}, {"tags": "x"}], [{"tags": "x"}, {"image": name}], [{"tags": "x"}, "y"]):
+            with self.assertRaises(HTTPException) as e:
+                A.parse_pose_sequence(json.dumps(bad))
+            self.assertEqual(e.exception.status_code, 400)
+
+    def test_template_position_loop(self):
+        positions = [{"image": "", "kind": "position", "tags": "standing"}, {"kind": "position", "tags": ""}]
+        calls, progress = self._run_template({"SEED_COUNT": "2", "WIDTH": "1024", "HEIGHT": "1024"}, positions)
+        self.assertEqual(len(calls), 4)
+        self.assertEqual([k["pose_image"] for _, k in calls], [""] * 4)
+        self.assertEqual([a[4] for a, _ in calls], ["1girl, standing"] * 2 + ["1girl"] * 2)
+        self.assertTrue(all((a[6], a[7]) == ("1024", "1024") for a, _ in calls))
+        self.assertEqual([p[2] for p in progress], ["Position 1/2"] * 2 + ["Position 2/2"] * 3)
+        # 빈 이름이면 포즈 이미지를 넣지 않는다(POSE_IMAGE 환경변수로 떨어지지 않음)
+        wf = {"1": {"class_type": "LoadImage", "_meta": {"title": "pose_image"}, "inputs": {"image": "keep.png"}}}
+        SB.apply_pose_image(wf, "http://x", "")
+        self.assertEqual(wf["1"]["inputs"]["image"], "keep.png")
+
     def test_progress_label(self):
         A.jobs["plabel"] = {"id": "plabel", "progress": None}
         self.assertEqual(call(A.update_job_progress, "plabel", req({"total": 6, "done": 2, "label": "포즈 2/3"}, internal=True))[0], 200)
