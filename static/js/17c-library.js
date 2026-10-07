@@ -46,7 +46,7 @@ function renderLibraryPoses(){
   const el = document.getElementById('library-list');
   const isDetails = libraryDisplayMode === 'details';
   el.className = isDetails ? 'library-details' : 'library-grid';
-  document.getElementById('library-count').textContent = libraryPoses.length ? `${libraryPoses.length}개` : '';
+  syncLibrarySelection();
   if(!libraryPoses.length){
     el.innerHTML = '<div class="dl-meta">아직 포즈가 없어요. 게시물 추가하기로 첫 포즈를 올려 보세요.</div>';
     return;
@@ -57,6 +57,7 @@ function renderLibraryPoses(){
         <img src="${escapeHtml(p.thumb_url)}" alt="${escapeHtml(p.name)}" loading="lazy">
         ${p.image_count > 1 ? `<span class="library-thumb-count">${ico('layout-grid')} ${p.image_count}</span>` : ''}
         ${p.images.length ? poseGenerateButton('library-card-pose-btn', p.images[0].id) : ''}
+        <button class="library-check-btn" type="button" aria-pressed="${librarySelected.has(p.id)}" title="순차 생성에 넣기" aria-label="순차 생성에 넣기">${ico('square-check-big')}</button>
       </span>
       <span class="library-info">
         <span class="library-name">${escapeHtml(p.name)}</span>
@@ -69,6 +70,36 @@ function renderLibraryPoses(){
 // "이 포즈로 생성"(NS-41) — 카드·아티클 격자에 얹는 작은 아이콘 버튼. 라이트박스 버튼은 index.html에 있다.
 function poseGenerateButton(cls, imageId){
   return `<button class="library-pose-btn ${cls}" type="button" data-image-id="${imageId}" title="이 포즈로 생성" aria-label="이 포즈로 생성">${ico('wand')}</button>`;
+}
+
+// 순차 생성(NS-42) — 카드 체크로 고른 게시물. 아무것도 없으면 지금 목록 전부를 쓴다.
+const librarySelected = new Set();
+function syncLibrarySelection(){
+  [...librarySelected].forEach(id => { if(!libraryPoses.some(p => p.id === id)) librarySelected.delete(id); });
+  const all = libraryPoses.length > 0 && librarySelected.size === libraryPoses.length;
+  const btn = document.getElementById('library-select-all-btn');
+  btn.innerHTML = `${ico('square-check-big')} ${all ? '선택 해제' : '전체선택'}`;
+  btn.disabled = !libraryPoses.length;
+  document.getElementById('library-sequence-btn').disabled = !libraryPoses.length;
+  document.getElementById('library-count').textContent = libraryPoses.length
+    ? (librarySelected.size ? `${librarySelected.size}/${libraryPoses.length}개 선택` : `${libraryPoses.length}개`) : '';
+}
+
+// 체크한 게시물(목록 순서)의 모든 이미지를 입력 풀로 복사하고 순차 생성 마법사를 연다.
+async function generatePoseSequence(){
+  setLibraryError('');
+  const ids = libraryPoses.filter(p => !librarySelected.size || librarySelected.has(p.id)).map(p => p.id);
+  if(!ids.length) return;
+  try{
+    const res = await fetch('/api/library/poses/to-input', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pose_ids: ids }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || `포즈 이미지를 가져오지 못했어요 (${res.status})`);
+    const items = Array.isArray(data) ? data : [];
+    if(!items.length) throw new Error('고른 게시물에 이미지가 없어요');
+    await startOpenPoseSequenceWizard(items);
+  }catch(err){ setLibraryError(err.message); }
 }
 
 // 고른 장을 입력 이미지 풀로 복사하고 OpenPose 마법사를 연다(danbooru prompt는 메인 프롬프트 끝에 붙는다).
@@ -117,6 +148,14 @@ function renderLibraryArticle(){
 document.getElementById('library-list').addEventListener('click', (e) => {
   const card = e.target.closest('.library-card');
   if(!card) return;
+  const check = e.target.closest('.library-check-btn');
+  if(check){
+    const id = Number(card.dataset.poseId);
+    if(librarySelected.has(id)) librarySelected.delete(id); else librarySelected.add(id);
+    check.setAttribute('aria-pressed', String(librarySelected.has(id)));
+    syncLibrarySelection();
+    return;
+  }
   const btn = e.target.closest('.library-pose-btn');
   if(btn) generateFromPose(Number(card.dataset.poseId), Number(btn.dataset.imageId));
   else openLibraryArticle(Number(card.dataset.poseId));
@@ -125,6 +164,13 @@ document.getElementById('library-list').addEventListener('keydown', (e) => {
   const card = e.target.closest('.library-card');
   if(card && e.target === card && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); openLibraryArticle(Number(card.dataset.poseId)); }
 });
+document.getElementById('library-select-all-btn').addEventListener('click', () => {
+  const all = librarySelected.size === libraryPoses.length;
+  librarySelected.clear();
+  if(!all) libraryPoses.forEach(p => librarySelected.add(p.id));
+  renderLibraryPoses();
+});
+document.getElementById('library-sequence-btn').addEventListener('click', generatePoseSequence);
 document.getElementById('library-article-back').addEventListener('click', closeLibraryArticle);
 document.getElementById('library-article-grid').addEventListener('click', (e) => {
   const btn = e.target.closest('.library-pose-btn');
