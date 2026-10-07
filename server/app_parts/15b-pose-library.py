@@ -8,12 +8,18 @@ def list_library_poses(request: Request):
 
 
 async def _library_form_images(form) -> list:
-    """multipart의 image 파일 여러 개와 image_url 여러 개(한 칸에 줄마다 하나도 됨)를 [(바이트, 원본 주소)]로."""
+    """multipart의 image 파일 여러 개, image_url 여러 개(한 칸에 줄마다 하나도 됨), output_name(갤러리 결과
+    이미지 "job_id/파일.png") 여러 개를 [(바이트, 원본 주소)]로. 갤러리 이름은 resolve_output_image가 경로 탈출(400)과
+    남의 것·없는 것·이미지가 아닌 것(404)을 막는다."""
     images = [(await f.read(pose_library.MAX_BYTES + 1), "")
               for f in form.getlist("image") if isinstance(f, UploadFile) and f.filename]
     urls = [u.strip() for v in form.getlist("image_url") for u in str(v).splitlines() if u.strip()]
-    if len(images) + len(urls) > pose_library.MAX_IMAGES:   # 주소를 받기 전에 막는다
+    names = [str(v).strip() for v in form.getlist("output_name") if str(v).strip()]
+    if len(images) + len(urls) + len(names) > pose_library.MAX_IMAGES:   # 읽거나 받기 전에 막는다
         raise pose_library.PoseError(f"이미지는 한 번에 {pose_library.MAX_IMAGES}장까지 넣을 수 있어요.")
+    for path in [resolve_output_image(n) for n in names]:   # 전부 검사한 뒤 읽는다
+        with path.open("rb") as fh:
+            images.append((fh.read(pose_library.MAX_BYTES + 1), ""))
     for url in urls:
         images.append((await asyncio.to_thread(pose_library.fetch_image, url), url))
     return images
@@ -28,7 +34,7 @@ def _library_pose(request: Request, pose_id: int) -> dict:
 
 @app.post("/api/library/poses")
 async def add_library_pose(request: Request):
-    """multipart: name, description, danbooru_prompt, image(파일 여러 개)·image_url(여러 개) — 합쳐 1~20장."""
+    """multipart: name, description, danbooru_prompt, image(파일 여러 개)·image_url(여러 개)·output_name(갤러리 이름 여러 개) — 합쳐 1~20장."""
     user = me(request)
     form = await request.form()
     try:
@@ -42,7 +48,7 @@ async def add_library_pose(request: Request):
 
 @app.post("/api/library/poses/{pose_id}/images")
 async def add_library_pose_images(request: Request, pose_id: int):
-    """기존 게시물에 이미지를 덧붙인다 — 주인 또는 admin만(아니면 404)."""
+    """기존 게시물에 이미지를 덧붙인다(입력은 추가와 같다) — 주인 또는 admin만(아니면 404)."""
     _library_pose(request, pose_id)
     form = await request.form()
     try:
