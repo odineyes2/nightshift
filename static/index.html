@@ -890,6 +890,11 @@
 <!-- 설정 — admin만(서버도 /api/base-models 변경을 admin에게만 연다). 서브탭은 지금 Base Model 하나. -->
 <main id="tab-library" style="display:none;">
   <div class="panel">
+    <!-- Pose/Position 서브탭은 Grid·Details 토글보다 위(NS-46) -->
+    <div class="new-job-tabs" id="library-subtabs">
+      <button class="pod-subtab-btn active" type="button" data-library-tab="pose">Pose</button>
+      <button class="pod-subtab-btn" type="button" data-library-tab="position">Position</button>
+    </div>
     <div class="panel-header">
       <div class="section-label"><svg class="ico"><use href="#i-library"/></svg> Library</div>
       <div class="panel-header-actions">
@@ -905,10 +910,6 @@
       </div>
     </div>
     <div class="panel-body">
-      <div class="new-job-tabs" id="library-subtabs">
-        <button class="pod-subtab-btn active" type="button" data-library-tab="pose">Pose</button>
-        <button class="pod-subtab-btn" type="button" data-library-tab="position">Position</button>
-      </div>
       <div class="upload-error" id="library-error"></div>
       <div id="library-list" class="library-grid"></div>
       <!-- 아티클 갤러리(NS-40) — 게시물 하나의 이미지 전부. 열려 있는 동안 #library-list는 숨긴다. -->
