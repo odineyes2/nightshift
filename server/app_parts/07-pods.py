@@ -139,7 +139,7 @@ async def runpod_create_worker_api(request: Request):
     pod, created, err = await asyncio.to_thread(_attach_new_runpod, _public_base_url(request), worker, tier)
     if err:
         pod_registry.delete_pod(worker["id"])
-        raise HTTPException(502, err)
+        raise HTTPException(UPSTREAM_ERROR, err)
     return {**pod_payload(pod), "runpod": created}
 
 
@@ -216,7 +216,7 @@ def delete_pod_api(pod_id: str, request: Request, terminate_runpod: bool = False
                 raise HTTPException(403, "RunPod 파드는 관리자만 지울 수 있어요.")
             err = runpod_api.terminate_pod(rpid)
             if err and "HTTP 404" not in err:   # 이미 없는 파드면 워커만 지운다
-                raise HTTPException(502, f"RunPod 파드를 지우지 못해 워커도 그대로 뒀어요 — {err}")
+                raise HTTPException(UPSTREAM_ERROR, f"RunPod 파드를 지우지 못해 워커도 그대로 뒀어요 — {err}")
             threading.Thread(target=_log_runpod_sessions_quietly, daemon=True).start()   # 지운 파드의 세션을 닫는다(NS-2)
     try:
         removed = pod_registry.delete_pod(pod_id)
@@ -432,7 +432,7 @@ async def _runpod_power_locked(user: dict, pod_id: str, action: str, request: Re
         raise HTTPException(400, "RunPod 파드 주소가 아니에요(https://{POD_ID}-{PORT}.proxy.runpod.net).")
     status, error = await asyncio.to_thread(runpod_api.pod_action, rp_id, action)
     if error:
-        raise HTTPException(502, error)
+        raise HTTPException(UPSTREAM_ERROR, error)
     if action == "start" and not pod.get("enabled"):
         # 사람이 일부러 켠 파드는 nightshift에서도 쓰는 게 당연하다(자동 등록 파드는 아래 동기화가 켠다).
         pod_registry.update_pod(pod_id, {"enabled": True})
@@ -455,7 +455,7 @@ async def _managed_runpod_power(request: Request, pod: dict, rp_id: str | None, 
     if rp_id:   # 켤 때 옛 파드가 남아 있으면(예전 방식으로 꺼 둔 것) 먼저 지운다
         err = await asyncio.to_thread(runpod_api.terminate_pod, rp_id)
         if err and "HTTP 404" not in err:
-            raise HTTPException(502, f"RunPod 파드를 지우지 못했어요 — {err}")
+            raise HTTPException(UPSTREAM_ERROR, f"RunPod 파드를 지우지 못했어요 — {err}")
     if action == "stop":
         pod = pod_registry.update_pod(pod_id, {"url": "", "enabled": False, "note": "runpod:off"})
         created = None
@@ -465,7 +465,7 @@ async def _managed_runpod_power(request: Request, pod: dict, rp_id: str | None, 
         pod, created, err = await asyncio.to_thread(_attach_new_runpod, _public_base_url(request), pod, tier)
         if err:
             pod_registry.update_pod(pod_id, {"url": "", "enabled": False, "note": "runpod:off"})
-            raise HTTPException(502, f"새 RunPod 파드를 만들지 못했어요 — {err}")
+            raise HTTPException(UPSTREAM_ERROR, f"새 RunPod 파드를 만들지 못했어요 — {err}")
     threading.Thread(target=_log_runpod_sessions_quietly, daemon=True).start()   # 지운 파드의 세션을 닫는다(NS-2)
     with _pod_card_lock:
         _pod_card_cache.pop(pod_id, None)
@@ -482,7 +482,7 @@ async def runpod_network_volumes_api(request: Request):
     (vols, err), (pods, _) = await asyncio.gather(asyncio.to_thread(runpod_api.list_network_volumes),
                                                     asyncio.to_thread(runpod_api.list_runpod_pods_verbose))
     if err:
-        raise HTTPException(502, err)
+        raise HTTPException(UPSTREAM_ERROR, err)
     for v in vols:
         v["pods"] = [p["name"] or p["id"] for p in (pods or []) if p.get("network_volume_id") == v["id"]]
     return {"volumes": vols, "usd_per_gb_month": runpod_api.NETWORK_VOLUME_USD_PER_GB_MONTH, "pods_known": pods is not None}
@@ -520,7 +520,7 @@ async def delete_runpod_network_volume_api(volume_id: str, request: Request):
     body = await read_json_object(request, allow_empty=False)
     vols, err = await asyncio.to_thread(runpod_api.list_network_volumes)
     if err:
-        raise HTTPException(502, err)
+        raise HTTPException(UPSTREAM_ERROR, err)
     vol = next((v for v in vols if v["id"] == volume_id), None)
     if vol is None:
         raise HTTPException(404, "없는 볼륨이에요(이미 지워졌을 수 있어요).")
@@ -528,13 +528,13 @@ async def delete_runpod_network_volume_api(volume_id: str, request: Request):
         raise HTTPException(400, "확인용 이름이 볼륨 이름과 달라요.")
     pods, pods_err = await asyncio.to_thread(runpod_api.list_runpod_pods_verbose)
     if pods_err:
-        raise HTTPException(502, f"이 볼륨을 쓰는 파드가 있는지 확인하지 못해 지우지 않았어요 — {pods_err}")
+        raise HTTPException(UPSTREAM_ERROR, f"이 볼륨을 쓰는 파드가 있는지 확인하지 못해 지우지 않았어요 — {pods_err}")
     users = [p["name"] or p["id"] for p in pods if p.get("network_volume_id") == volume_id]
     if users:
         raise HTTPException(409, f"이 볼륨을 쓰는 파드가 있어요({', '.join(users)}) — 파드를 먼저 지워 주세요.")
     err = await asyncio.to_thread(runpod_api.delete_network_volume, volume_id)
     if err:
-        raise HTTPException(502, err)
+        raise HTTPException(UPSTREAM_ERROR, err)
     return {"ok": True, "id": volume_id}
 
 
@@ -799,7 +799,7 @@ async def comfy_object_info(refresh: bool = False, pod_id: str | None = None):
         comfy_url, object_info = await asyncio.to_thread(
             fetch_comfy_object_info, refresh, object_info_pod(pod_id))
     except Exception as e:
-        raise HTTPException(502, f"ComfyUI 노드 목록을 가져오지 못했어요: {e}")
+        raise HTTPException(UPSTREAM_ERROR, f"ComfyUI 노드 목록을 가져오지 못했어요: {e}")
     # 파드가 없거나 꺼져 있어도 작업을 구상할 수 있게, 모델 등록부에 적힌 파일 이름도 종류별로 함께 준다.
     catalog: dict[str, list[str]] = {key: [] for key in MODEL_LIST_SOURCES}
     for entry in model_registry.list_entries():

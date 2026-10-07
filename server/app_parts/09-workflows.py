@@ -423,7 +423,7 @@ async def validate_workflow(request: Request, pod_id: str | None = None):
         comfy_url, object_info = await asyncio.to_thread(
             fetch_comfy_object_info, False, object_info_pod(pod_id))
     except Exception as e:
-        raise HTTPException(502, f"ComfyUI 노드 목록을 가져오지 못했어요: {e}")
+        raise HTTPException(UPSTREAM_ERROR, f"ComfyUI 노드 목록을 가져오지 못했어요: {e}")
     if object_info is None:
         # 연결이 안 됐으면 "문제 없음"이 아니라 "확인 못 함"이다 — 화면에서 구분해서 안내한다.
         return {

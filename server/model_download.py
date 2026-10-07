@@ -30,6 +30,7 @@ from drivers.comfyui import COMFY_USER_AGENT, ComfyUIDriver
 NODE_DIR = Path(__file__).resolve().parent.parent / "templates" / "comfy_nodes" / "nightshift_downloader"
 NODE_VERSION = 2   # 2: ultralytics 폴더
 FETCH_TIMEOUT = 15
+UNREACHABLE = 424   # 파드에 연결 못 함 — 응답 코드로 그대로 나간다
 MODEL_EXT = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf")
 # Civitai는 civitai.red 같은 다른 도메인도 같은 계정·API 토큰으로 쓴다 — 등록부에 그 주소가 적혀 있으면
 # 토큰이 안 붙어 401이 났다.
@@ -296,7 +297,7 @@ def call_node(pod: dict, method: str, path: str, body: dict | None = None, timeo
             raise DownloadError("다운로더 토큰이 맞지 않아요 — 이 파드에서 설치 스크립트를 다시 실행해 주세요.", 409)
         raise DownloadError(detail or f"파드가 오류를 돌려줬어요(HTTP {e.code}).", 409 if e.code == 409 else 400)
     except (urllib.error.URLError, TimeoutError, OSError):
-        raise DownloadError("파드에 연결하지 못했어요.", 502)
+        raise DownloadError("파드에 연결하지 못했어요.", UNREACHABLE)   # 502는 Cloudflare가 detail을 가린다(app_parts/01-config UPSTREAM_ERROR)
 
 
 def node_status(pod: dict) -> dict:
@@ -304,6 +305,6 @@ def node_status(pod: dict) -> dict:
     try:
         info = call_node(pod, "GET", "/nightshift/dl/ping", timeout=10)
     except DownloadError as e:
-        return {"installed": False, "connected": e.status != 502, "reason": str(e)}
+        return {"installed": False, "connected": e.status != UNREACHABLE, "reason": str(e)}
     return {"installed": True, "connected": True, "version": info.get("version"), "folders": info.get("folders") or {},
             "outdated": (info.get("version") or 0) < NODE_VERSION}

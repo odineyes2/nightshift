@@ -175,7 +175,7 @@ async def sync_comfy_outputs(request: Request):
     try:
         result = await asyncio.to_thread(sync_outputs, url, only_subfolder=job_id, force=force, pod_id=pod_id)
     except OutputSyncError as e:
-        raise HTTPException(502, str(e))
+        raise HTTPException(UPSTREAM_ERROR, str(e))
     return {"url": url, **result}
 
 

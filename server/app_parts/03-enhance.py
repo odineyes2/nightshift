@@ -125,9 +125,9 @@ def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
         with urllib.request.urlopen(req, timeout=30) as resp:
             submit_data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.URLError as e:
-        raise HTTPException(502, f"ComfyUI에 프롬프트를 제출하지 못했어요: {e}")
+        raise HTTPException(UPSTREAM_ERROR, f"ComfyUI에 프롬프트를 제출하지 못했어요: {e}")
     if "error" in submit_data:
-        raise HTTPException(502, f"ComfyUI가 프롬프트를 거부했어요: {submit_data['error']}")
+        raise HTTPException(UPSTREAM_ERROR, f"ComfyUI가 프롬프트를 거부했어요: {submit_data['error']}")
     prompt_id = submit_data["prompt_id"]
 
     deadline = time.time() + ENHANCE_TIMEOUT_SEC
@@ -138,7 +138,7 @@ def _enhance_prompt_sync(user_prompt: str, mode: str = "natural") -> str:
             with urllib.request.urlopen(hist_req, timeout=30) as resp:
                 history = json.loads(resp.read().decode("utf-8"))
         except urllib.error.URLError as e:
-            raise HTTPException(502, f"ComfyUI 히스토리 조회에 실패했어요: {e}")
+            raise HTTPException(UPSTREAM_ERROR, f"ComfyUI 히스토리 조회에 실패했어요: {e}")
         if prompt_id in history:
             text = _enhancer_extract_text(history[prompt_id], output_node_id)
             if text is None:

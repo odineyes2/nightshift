@@ -382,6 +382,10 @@ DELETED_JOBS_RETENTION = int(os.environ.get("NIGHTSHIFT_DELETED_JOBS_RETENTION",
 # NIGHTSHIFT_MAX_ACTIVE_JOBS가 있으면 그 값이 우선한다.
 MAX_ACTIVE_JOBS = int(os.environ.get("NIGHTSHIFT_MAX_ACTIVE_JOBS", "100"))
 
+# 바깥 서비스(RunPod·ComfyUI·파드)가 실패했을 때의 응답 코드. 502를 쓰면 Cloudflare 터널이 응답을 자기 오류 화면으로
+# 바꿔 detail(실패 이유)이 화면에 안 보였다(2026-10-07, RunPod 422가 "실패했어요(HTTP 502)."로만 보임). 4xx는 그대로 통과한다.
+UPSTREAM_ERROR = 424
+
 jobs: dict[str, dict] = {}
 lock = threading.Lock()
 
