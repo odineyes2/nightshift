@@ -35,9 +35,11 @@ db.init()
 import app as A
 import lighting_library as L
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from PIL import Image
 from data_paths import data_dir
 from starlette.datastructures import FormData, UploadFile
+from starlette.routing import Mount
 
 
 def png(size=(800, 600)) -> bytes:
@@ -76,6 +78,72 @@ def add(uid="u1", n=1, name="정면"):
     code, item = call(A.add_library_lighting, req(uid, form=form))
     assert code == 200, item
     return item
+
+
+class LightingHTTPTests(unittest.TestCase):
+    def test_routes_precede_root_static_mount(self):
+        routes = A.app.routes
+        root = next(i for i, route in enumerate(routes)
+                    if isinstance(route, Mount) and route.path == "")
+        for method in ("GET", "POST"):
+            with self.subTest(method=method):
+                matches = [i for i, route in enumerate(routes)
+                           if route.path == "/api/library/lightings"
+                           and method in getattr(route, "methods", set())]
+                self.assertEqual(len(matches), 1)
+                self.assertLess(matches[0], root)
+
+    def test_authenticated_http_lifecycle(self):
+        headers = {"X-Requested-With": "nightshift"}
+        password = "Test-Passw0rd-xyz!"
+        # lifespan 없이 실제 앱을 써서 스케줄러·외부 워커를 시작하지 않는다.
+        def client(name):
+            user = A.auth.register(name, f"{name}@example.test", password)
+            with db.connect() as conn:
+                conn.execute("UPDATE users SET status='active' WHERE id=?", (user["id"],))
+            c = TestClient(A.app)
+            self.addCleanup(c.close)
+            response = c.post("/api/auth/login", json={"username": name, "password": password}, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            return c, user
+
+        anonymous = TestClient(A.app)
+        self.addCleanup(anonymous.close)
+        self.assertEqual(anonymous.get("/api/library/lightings").status_code, 401)
+        owner, user = client("lighting-http-owner")
+        other, _ = client("lighting-http-other")
+        response = owner.get("/api/library/lightings")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"items": []})
+        fields = {"name": "HTTP 조명", "danbooru_prompt": "from_front"}
+        image = {"image": ("lighting.png", png((64, 48)), "image/png")}
+        self.assertEqual(owner.post("/api/library/lightings", data=fields, files=image).status_code, 403)
+        response = owner.post("/api/library/lightings", data=fields, files=image, headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        item = response.json()
+        self.assertEqual((item["name"], item["owner_id"], item["image_count"]), (fields["name"], str(user["id"]), 1))
+        response = owner.get("/api/library/lightings")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([entry["id"] for entry in response.json()["items"]], [item["id"]])
+        base = f"/api/library/lightings/{item['id']}"
+        image_base = f"{base}/images/{item['images'][0]['id']}"
+        for suffix in ("image", "thumb"):
+            response = owner.get(f"{image_base}/{suffix}")
+            self.assertEqual(response.status_code, 200, response.text)
+            expected = "PNG" if suffix == "image" else "WEBP"
+            self.assertEqual(response.headers["content-type"], f"image/{expected.lower()}")
+            with Image.open(io.BytesIO(response.content)) as decoded:
+                self.assertEqual(decoded.format, expected)
+            self.assertEqual(other.get(f"{image_base}/{suffix}").status_code, 404)
+        response = other.get("/api/library/lightings")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"items": []})
+        self.assertEqual(other.delete(base, headers=headers).status_code, 404)
+        self.assertEqual(other.delete(image_base, headers=headers).status_code, 404)
+        self.assertEqual(owner.delete(image_base, headers=headers).status_code, 400)
+        self.assertEqual(owner.get(f"{image_base}/image").status_code, 200)
+        self.assertEqual(owner.delete(base, headers=headers).status_code, 200)
+        self.assertEqual(owner.get("/api/library/lightings").json(), {"items": []})
 
 
 class LightingTests(unittest.TestCase):
