@@ -466,12 +466,15 @@
           <div class="email-hint" id="lora-trigger-hint"></div>
         </div>
 
-        <!-- Danbooru 태그 계열(Illustrious·NoobAI) 마법사일 때만 보이는 퀄리티 태그 — 제출할 때 프롬프트 뒤에 붙인다
-             (setQualityPromptField). 기본값은 매번 새로 채우고 기억하지 않는다. -->
+        <!-- 마법사 추천 조작부는 main prompt 바로 앞으로 옮긴다. -->
         <div class="field" id="quality-prompt-field" style="display:none;">
-          <label class="field-label" for="quality-prompt-input">퀄리티 프롬프트</label>
-          <input type="text" class="option-input" id="quality-prompt-input" autocomplete="off" spellcheck="false" placeholder="비워두면 붙이지 않아요">
-          <div class="email-hint">작업을 추가할 때 프롬프트 뒤에 붙어요(CSV 순회면 각 행의 메인 프롬프트). 이미 들어 있거나 프롬프트가 비어 있으면 붙이지 않고, 칸을 비우면 붙이지 않아요.</div>
+          <label class="field-label" for="quality-prompt-input">추천 Quality Prompt</label>
+          <textarea id="quality-prompt-input" rows="3" maxlength="1000" spellcheck="false" placeholder="예: masterpiece, best quality" aria-describedby="quality-prompt-hint"></textarea>
+          <div class="quality-prompt-actions">
+            <button type="button" class="load-btn" id="quality-prompt-add">추가</button>
+            <label><input type="checkbox" id="quality-prompt-disabled"> 사용하지 않음</label>
+          </div>
+          <div class="email-hint" id="quality-prompt-hint" role="status">추가를 누르면 메인 프롬프트 앞에 붙여요.</div>
         </div>
 
         <!-- 베이스 모델 스윗 포인트(Settings 탭)의 추천 positive 접두어·프롬프트 팁 — 마법사로 고른 계열에 값이 있을 때만

@@ -543,6 +543,11 @@ function buildPromptEnhanceControl(opt){
   function sync(){
     hidden.value = (applied && resultTextarea.value.trim()) ? resultTextarea.value : rawTextarea.value;
   }
+  // 추천 문구는 현재 적용 중인 화면 입력과 제출 필드를 함께 바꾼다.
+  wrap.qualityPromptControl = {
+    get: () => (applied && resultTextarea.value.trim()) ? resultTextarea : rawTextarea,
+    sync,
+  };
   function say(text, cls){ status.textContent = text; status.className = 'enhance-status' + (cls ? ' ' + cls : ''); }
   rawTextarea.addEventListener('input', () => { applied = false; sync(); });
   resultTextarea.addEventListener('input', sync);

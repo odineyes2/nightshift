@@ -362,6 +362,9 @@ function isWizardRefSlotHidden(optionName){
 }
 
 function renderOptionFields(template){
+  // 영구 조작부를 삭제 전에 옵션 폼 밖으로 보관한다.
+  const qualityField = document.getElementById('quality-prompt-field');
+  optionsFields.before(qualityField);
   optionsFields.innerHTML = '';
   // 템플릿을 바꿀 때마다 이전 템플릿이 등록해둔 "제출 직전 훅"(시드별 Danbooru
   // 프롬프트 재계산 등)을 비운다 — 안 그러면 이미 사라진 DOM을 참조하는 낡은
@@ -442,6 +445,7 @@ function renderOptionFields(template){
 
     field.appendChild(label);
     field.appendChild(buildOptionControl(opt));
+    if(opt.name === 'main_prompt') optionsFields.appendChild(qualityField);
     optionsFields.appendChild(field);
   }
 
@@ -827,22 +831,26 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   const loraField = document.getElementById('lora-trigger-field');
   const loraTrigger = loraField && loraField.style.display !== 'none'
     ? document.getElementById('lora-trigger-input').value.trim() : '';
-  // 퀄리티 프롬프트는 LoRA 트리거 뒤에, 스윗 포인트 접두어는 맨 앞에 붙인다 — "접두어, 트리거, 메인, 퀄리티".
-  const quality = currentQualityPrompt();
-  const prefix = currentSweetPrefix();
-  const withExtras = p => prependSweetPrefix(appendQualityPrompt(loraTrigger ? prependLoraTrigger(p, loraTrigger) : p, quality), prefix);
+  // 마법사는 명시적으로 추가한 문구만 사용한다. 직접 업로드 경로의 기존 결합은 보존한다.
+  const quality = wizardQuality.key ? '' : currentQualityPrompt();
+  const prefix = wizardQuality.key ? '' : currentSweetPrefix();
+  const withExtras = p => wizardQuality.key ? wizardPromptWithExtras(p, loraTrigger)
+    : prependSweetPrefix(appendQualityPrompt(loraTrigger ? prependLoraTrigger(p, loraTrigger) : p, quality), prefix);
   if(template && template.requires_csv){
-    let csv = loraTrigger ? await csvWithLoraTrigger(selectedFiles.csv, template, loraTrigger) : selectedFiles.csv;
-    if(quality || prefix) csv = await csvWithQualityPrompt(csv, quality, prefix);
+    let csv = selectedFiles.csv;
+    if(wizardQuality.key) csv = await csvWithWizardQuality(csv, loraTrigger, template);
+    else {
+      if(loraTrigger) csv = await csvWithLoraTrigger(csv, template, loraTrigger);
+      if(quality || prefix) csv = await csvWithQualityPrompt(csv, quality, prefix);
+    }
     form.append('csv', csv);
   }
   optionsFields.querySelectorAll('.option-input').forEach(input => {
     let value = input.value;
-    if(input.dataset.name === 'main_prompt' && value.trim()) value = withExtras(value);
-    else if(loraTrigger && input.dataset.name === 'main_prompt') value = prependLoraTrigger(value, loraTrigger);
-    if((loraTrigger || quality || prefix) && input.dataset.name === 'danbooru_seed_prompts' && value.trim()){
-      // 시드마다 다른 프롬프트(JSON 배열)는 MAIN_PROMPT를 대신하므로 각각에도 붙인다.
-      try{ value = JSON.stringify(JSON.parse(value).map(p => typeof p === 'string' && p.trim() ? withExtras(p) : p)); }catch(e){}
+    if(input.dataset.name === 'main_prompt') value = wizardQuality.key
+      ? wizardPromptWithExtras(value, loraTrigger, false) : withExtras(value);
+    if(input.dataset.name === 'danbooru_seed_prompts' && value.trim()){
+      try{ value = JSON.stringify(JSON.parse(value).map(p => typeof p === 'string' && (wizardQuality.key || p.trim()) ? withExtras(p) : p)); }catch(e){}
     }
     form.append(input.dataset.name, value);
   });
