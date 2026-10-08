@@ -738,7 +738,7 @@ async function wizardApply(){
   }
 
   setLoraTriggerField(wizard.loras.map(l => l.name));
-  setQualityPromptField((baseModelFamilies[wizard.familyId] || {}).label);
+  await setWizardQualityPrompt(baseModelFamilies[wizard.familyId] || {}, wizard.checkpoint);
   lastWizardModels = { checkpoint: wizard.checkpoint, loras: wizard.loras.map(l => l.name) };
 
   const builtIn = ['sdxl', 'unet'].includes(architecture);
@@ -833,6 +833,8 @@ async function goToNewJobDetails(){
     const ok = await wizardApply();
     if(!ok) return;   // #wizard-error에 이미 안내가 떴다 — 탭을 넘기지 않는다
     wizardAppliedSignature = JSON.stringify(wizard);
+  }else if(wizardQuality.key){
+    await setWizardQualityPrompt(baseModelFamilies[wizard.familyId] || {}, wizard.checkpoint);
   }
   if(quickRunReturn && selectedFiles.workflow){
     quickRunReturn = false;
