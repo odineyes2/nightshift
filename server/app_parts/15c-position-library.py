@@ -100,3 +100,60 @@ def get_library_position_image(request: Request, position_id: int, image_id: int
 @app.get("/api/library/positions/{position_id}/images/{image_id}/thumb")
 def get_library_position_thumb(request: Request, position_id: int, image_id: int):
     return _library_position_file(request, position_id, image_id, True)
+
+
+async def _position_to_input(position: dict, image: dict) -> tuple[str, bytes]:
+    """Position 한 장을 입력 이미지 풀로 복사하고 (풀의 이름, 바이트)를 돌려준다 — 15b의 _pose_to_input과 같다."""
+    try:
+        name, content = await asyncio.to_thread(position_library.input_copy, position, image)
+    except pose_library.PoseError as e:
+        raise HTTPException(400, str(e))
+    try:
+        same = await asyncio.to_thread(resolve_input_image(name).read_bytes) == content
+    except InputAssetError:
+        same = False
+    if not same:
+        name = await asyncio.to_thread(save_input_image, name, content)
+    return name, content
+
+
+@app.post("/api/library/positions/{position_id}/images/{image_id}/to-input")
+async def library_position_to_input(request: Request, position_id: int, image_id: int):
+    """"Openpose CN"으로 생성(NS-51) — 고른 장을 요청한 회원의 입력 이미지 풀로 복사하고 {name, danbooru_prompt}."""
+    position = _library_position(request, position_id)
+    image = position_library.get_image(position, image_id)
+    if not image or not position_library.image_path(image, False).is_file():
+        raise HTTPException(404, "이미지 파일이 없어요.")
+    name, _ = await _position_to_input(position, image)
+    return {"name": name, "danbooru_prompt": position.get("danbooru_prompt") or ""}
+
+
+@app.post("/api/library/positions/to-input")
+async def library_positions_to_input(request: Request):
+    """순차 생성(NS-51) — 본문 {"position_ids": [...]}의 게시물마다 모든 이미지를 입력 이미지 풀로 복사하고
+    목록 순서대로 [{position_id, position_name, image_id, name, danbooru_prompt, width, height, sdxl_width, sdxl_height}].
+    하나라도 볼 수 없는 게시물이면 404."""
+    try:
+        body = json.loads(await request.body())
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    ids = body.get("position_ids") if isinstance(body, dict) else None
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+        raise HTTPException(400, "position_ids는 게시물 번호 배열이어야 해요.")
+    positions = [_library_position(request, i) for i in ids]  # 복사 전에 전부 검사한다
+    out = []
+    for position in positions:
+        for image in position["images"]:
+            if not position_library.image_path(image, False).is_file():
+                continue
+            name, content = await _position_to_input(position, image)
+            try:
+                w, h = await asyncio.to_thread(pose_library.image_size, content)
+            except pose_library.PoseError as e:
+                raise HTTPException(400, str(e))
+            sw, sh = pose_library.sdxl_size(w, h)
+            out.append({"position_id": position["id"], "position_name": position.get("name") or "",
+                        "image_id": image["id"], "name": name,
+                        "danbooru_prompt": position.get("danbooru_prompt") or "",
+                        "width": w, "height": h, "sdxl_width": sw, "sdxl_height": sh})
+    return out

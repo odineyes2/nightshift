@@ -145,6 +145,54 @@ class PositionTests(unittest.TestCase):
         self.assertEqual(call(A.add_library_position_images, req("u1", form=[("image", upload(png()))]), mine["id"])[0], 404)
         self.assertEqual(call(A.delete_library_position, req("adm", "admin"), mine["id"])[0], 200)
 
+    def test_7_to_input(self):
+        """NS-51 "Openpose CN" — 고른 장·게시물 전체를 요청한 회원의 입력 이미지 풀로 복사한다."""
+        import auth
+        import input_assets
+
+        def as_user(uid="u1", role="user", body=None):
+            auth.current_user.set({"id": uid, "role": role})   # 미들웨어가 하는 일 — 회원별 풀을 고른다
+            return req(uid, role, body=body)
+        a = L.get_position(add(n=1)["id"])
+        gif = io.BytesIO()
+        Image.new("RGB", (100, 50)).save(gif, "GIF")
+        b = L.add_position("u1", "둘", "", "two", [(png((600, 900)), ""), (gif.getvalue(), "")])
+        img_a, (b1, b2) = a["images"][0], b["images"]
+        # 단일
+        code, out = call(A.library_position_to_input, as_user(), a["id"], img_a["id"])
+        self.assertEqual((code, out), (200, {"name": f"library_position_{a['id']}_{img_a['id']}.png",
+                                             "danbooru_prompt": "from_front"}))
+        self.assertIn(str(Path("users") / "u1"), str(input_assets.resolve_input_image(out["name"])))
+        code, gif_out = call(A.library_position_to_input, as_user(), b["id"], b2["id"])
+        self.assertEqual(gif_out["name"], f"library_position_{b['id']}_{b2['id']}.png")   # GIF → PNG
+        before = len(input_assets.list_input_images())
+        self.assertEqual(call(A.library_position_to_input, as_user(), b["id"], b2["id"]), (200, gif_out))   # 재사용
+        self.assertEqual(len(input_assets.list_input_images()), before)
+        self.assertEqual(call(A.library_position_to_input, as_user("u2"), a["id"], img_a["id"])[0], 404)
+        self.assertEqual(call(A.library_position_to_input, as_user(), a["id"], 99999)[0], 404)
+        self.assertEqual(call(A.library_position_to_input, as_user("adm", "admin"), a["id"], img_a["id"])[0], 200)
+        # 일괄 — 목록 순서, 게시물 안은 이미지 순서
+        code, rows = call(A.library_positions_to_input, as_user(body={"position_ids": [b["id"], a["id"]]}))
+        self.assertEqual(code, 200, rows)
+        self.assertEqual([(r["position_id"], r["image_id"]) for r in rows],
+                         [(b["id"], b1["id"]), (b["id"], b2["id"]), (a["id"], img_a["id"])])
+        self.assertEqual((rows[0]["position_name"], rows[0]["danbooru_prompt"], rows[0]["width"], rows[0]["height"],
+                          rows[0]["sdxl_width"], rows[0]["sdxl_height"]), ("둘", "two", 600, 900, 832, 1280))
+        self.assertEqual(rows[1]["name"], gif_out["name"])
+        for body in (b"{nope", {"position_ids": []}, {"position_ids": ["1"]}, {"position_ids": [True]}, [1]):
+            self.assertEqual(call(A.library_positions_to_input, as_user(body=body))[0], 400, body)
+        # 하나라도 못 보면 404이고 아무것도 복사하지 않는다
+        c = add("u2", name="남의 것")
+        before = len(input_assets.list_input_images())
+        self.assertEqual(call(A.library_positions_to_input, as_user(body={"position_ids": [c["id"], 99999]}))[0], 404)
+        self.assertEqual(call(A.library_positions_to_input, as_user(body={"position_ids": [a["id"], c["id"]]}))[0], 404)
+        self.assertEqual(len(input_assets.list_input_images()), before)
+        # 파일이 없는 장 — 단일은 404, 일괄은 건너뛴다
+        L.image_path(b1, False).unlink()
+        self.assertEqual(call(A.library_position_to_input, as_user(), b["id"], b1["id"])[0], 404)
+        code, rows = call(A.library_positions_to_input, as_user(body={"position_ids": [b["id"]]}))
+        self.assertEqual((code, [r["image_id"] for r in rows]), (200, [b2["id"]]))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
