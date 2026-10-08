@@ -1155,5 +1155,6 @@
 #quality-prompt-input { box-sizing: border-box; width: 100%; max-width: 100%; resize: vertical; padding: 12px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
 #quality-prompt-input:focus-visible { outline: 2px solid var(--queued); outline-offset: 2px; }
 .quality-prompt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; }
-.quality-prompt-actions button, .quality-prompt-actions label { min-height: 40px; }
-.quality-prompt-actions label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.quality-prompt-actions button { min-height: 40px; }
+/* 추가 전(미적용) 추천값은 점선·배경으로 구분하고 글자 대비는 그대로 둔다 */
+.quality-prompt-pending #quality-prompt-input { background: var(--bg); border-style: dashed; }
