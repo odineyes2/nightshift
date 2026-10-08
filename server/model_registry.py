@@ -8,7 +8,8 @@ DB(models 테이블)에 둔다. 파드와 무관한 기준 데이터다 — 어�
 
 필드: base_models(소속 베이스 모델 목록, 연결 표 model_base_models — 새 작업 마법사가 이 값으로 체크포인트를 묶고
 LoRA를 걸러낸다. base_model은 그 첫 값으로 호환용), page_url(소개 페이지),
-download_url(파일 받을 주소), trigger_keyword(LoRA), tags, notes.
+download_url(파일 받을 주소), trigger_keyword(LoRA), tags, notes,
+sweet(체크포인트·UNet·LoRA의 스윗 포인트, 칸은 MODEL_SWEET_FIELDS — 베이스 모델 스윗 포인트와 칸 이름을 맞춘다).
 
 정보를 하나도 안 채운 항목은 행을 만들지 않는다(비우면 지운다).
 """
@@ -41,7 +42,7 @@ NODEPACK_DIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 MAX_TEXT = 4000
 MAX_LIST = 50
-FIELDS = ("base_model", "base_models", "notes", "tags", "trigger_keyword", "page_url", "download_url")
+FIELDS = ("base_model", "base_models", "notes", "tags", "trigger_keyword", "page_url", "download_url", "sweet")
 
 
 def base_id(base_model: str) -> str:
@@ -114,6 +115,7 @@ def _row_to_entry(row, links: dict) -> dict:
         "trigger_keyword": row["trigger_keyword"],
         "page_url": row["page_url"],
         "download_url": row["download_url"],
+        "sweet": json.loads(row["sweet_json"] or "{}"),
         "updated_at": row["updated_at"],
     }
 
@@ -171,46 +173,72 @@ SWEET_TEXT_FIELDS = {"positive_prefix": 1000, "negative": 2000, "prompt_tips": 2
 _SAMPLER_RE = re.compile(r"^[A-Za-z0-9_.+-]{1,64}$")
 
 
-def set_base_sweet(name, sweet) -> dict:
-    """베이스 모델의 스윗 포인트 {cfg, steps, sampler_name, positive_prefix, negative, prompt_tips}를 저장한다."""
-    name = _clean_base_name(name)
+# 칸 → (int, 최소, 최대) / (float, 최소, 최대) / (str, 글자 수 상한) / ("name", None, None)(sampler·scheduler 이름).
+_SWEET_RULES = {
+    "cfg": (float, 0, 100), "steps": (int, 1, 1000), "sampler_name": ("name", None, None),
+    "scheduler": ("name", None, None), "clip_skip": (int, 1, 12),
+    **{k: (str, n, None) for k, n in SWEET_TEXT_FIELDS.items()},
+    "strength": (float, -10, 10), "strength_min": (float, -10, 10), "strength_max": (float, -10, 10),
+    "strength_clip": (float, -10, 10),
+}
+BASE_SWEET_FIELDS = ("cfg", "steps", "sampler_name", *SWEET_TEXT_FIELDS)
+_CKPT_SWEET = ("cfg", "steps", "sampler_name", "scheduler", "positive_prefix", "negative", "clip_skip")
+# 등록부 항목(모델 단위) 스윗 포인트 — 이 밖의 종류는 sweet를 받아도 {}로 둔다.
+MODEL_SWEET_FIELDS = {
+    "checkpoints": _CKPT_SWEET, "diffusion_models": _CKPT_SWEET,
+    "loras": ("strength", "strength_min", "strength_max", "strength_clip"),
+}
+
+
+def _clean_sweet(sweet, allowed) -> dict:
+    """스윗 포인트 칸을 검사한다. 빈 값은 빼고, 모르는 칸·범위 밖 값은 RegistryError."""
     if not isinstance(sweet, dict):
         raise RegistryError("sweet는 객체여야 해요.")
-    unknown = set(sweet) - {"cfg", "steps", "sampler_name", *SWEET_TEXT_FIELDS}
+    unknown = set(sweet) - set(allowed)
     if unknown:
         raise RegistryError(f"모르는 칸이에요: {', '.join(sorted(unknown))}")
     out: dict = {}
     for key, value in sweet.items():
         if value is None or (isinstance(value, str) and not value.strip()):
             continue
-        if key == "steps":
+        typ, lo, hi = _SWEET_RULES[key]
+        if typ is int:
             if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-                raise RegistryError("steps는 1 이상의 정수여야 해요.")
+                raise RegistryError(f"{key}는 {lo} 이상의 정수여야 해요.")
             try:
                 f = float(value)
             except ValueError:
-                raise RegistryError("steps는 1 이상의 정수여야 해요.")
-            if f != int(f) or not 1 <= f <= 1000:
-                raise RegistryError("steps는 1~1000 사이 정수여야 해요.")
+                raise RegistryError(f"{key}는 {lo} 이상의 정수여야 해요.")
+            if f != int(f) or not lo <= f <= hi:
+                raise RegistryError(f"{key}는 {lo}~{hi} 사이 정수여야 해요.")
             out[key] = int(f)
-        elif key == "cfg":
+        elif typ is float:
             try:
-                f = float(value) if not isinstance(value, bool) else -1
+                f = float(value) if not isinstance(value, bool) else lo - 1
             except (TypeError, ValueError):
-                f = -1
-            if not 0 <= f <= 100:
-                raise RegistryError("cfg는 0~100 사이 숫자여야 해요.")
+                f = lo - 1
+            if not lo <= f <= hi:   # NaN도 여기서 걸린다
+                raise RegistryError(f"{key}는 {lo}~{hi} 사이 숫자여야 해요.")
             out[key] = f
-        elif key == "sampler_name":
+        elif typ == "name":
             if not isinstance(value, str) or not _SAMPLER_RE.match(value.strip()):
-                raise RegistryError("sampler는 영문·숫자·_.+- 64자 이내여야 해요.")
+                raise RegistryError(f"{key}는 영문·숫자·_.+- 64자 이내여야 해요.")
             out[key] = value.strip()
         else:
             if not isinstance(value, str):
                 raise RegistryError(f"{key}는 문자열이어야 해요.")
-            if len(value) > SWEET_TEXT_FIELDS[key]:
-                raise RegistryError(f"{key}는 {SWEET_TEXT_FIELDS[key]}자 이내여야 해요.")
+            if len(value) > lo:
+                raise RegistryError(f"{key}는 {lo}자 이내여야 해요.")
             out[key] = value.strip()
+    if "strength_min" in out and "strength_max" in out and out["strength_min"] > out["strength_max"]:
+        raise RegistryError("권장 강도 범위의 최소가 최대보다 커요.")
+    return out
+
+
+def set_base_sweet(name, sweet) -> dict:
+    """베이스 모델의 스윗 포인트 {cfg, steps, sampler_name, positive_prefix, negative, prompt_tips}를 저장한다."""
+    name = _clean_base_name(name)
+    out = _clean_sweet(sweet, BASE_SWEET_FIELDS)
     with db.connect() as conn:
         cur = conn.execute("UPDATE base_models SET sweet_json=? WHERE name=?", (json.dumps(out), name))
         if not cur.rowcount:
@@ -442,7 +470,7 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
         row = conn.execute("SELECT * FROM models WHERE kind=? AND filename=?", (kind, filename)).fetchone()
         current = _row_to_entry(row, _links(conn, kind, filename)) if row else {
             "base_model": "", "base_models": [], "notes": "", "tags": [], "trigger_keyword": "",
-            "page_url": "", "download_url": ""}
+            "page_url": "", "download_url": "", "sweet": {}}
         # base_models(목록)가 우선이고, 예전처럼 base_model 문자열만 오면 [값]으로 본다.
         if "base_models" in fields or "base_model" in fields:
             raw = fields["base_models"] if "base_models" in fields else [fields["base_model"] or ""]
@@ -470,6 +498,10 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
             current["page_url"] = _clean_url(fields["page_url"], "페이지 주소")
         if "download_url" in fields:
             current["download_url"] = _clean_url(fields["download_url"], "다운로드 주소")
+        if "sweet" in fields and kind in MODEL_SWEET_FIELDS:
+            current["sweet"] = _clean_sweet(fields["sweet"] or {}, MODEL_SWEET_FIELDS[kind])
+        if kind not in MODEL_SWEET_FIELDS:   # 스윗 포인트는 체크포인트·UNet·LoRA만의 개념이다
+            current["sweet"] = {}
         if kind == NODEPACK_KIND:
             if not NODEPACK_DIR_RE.match(filename):
                 raise RegistryError("노드팩 폴더 이름은 영문·숫자·._-만 쓸 수 있어요.")
@@ -479,20 +511,22 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
         if kind != "loras":   # 트리거 키워드는 LoRA만의 개념이다
             current["trigger_keyword"] = ""
         empty = not (current["base_model"] or current["notes"] or current["tags"] or current["trigger_keyword"]
-                     or current["page_url"] or current["download_url"])
+                     or current["page_url"] or current["download_url"] or current["sweet"])
         if empty:
             conn.execute("DELETE FROM models WHERE kind=? AND filename=?", (kind, filename))
             return None
         updated = db.now_iso()
         conn.execute(
             "INSERT INTO models(kind, filename, base_model, notes, tags_json, trigger_keyword, "
-            "page_url, download_url, updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(kind, filename) DO UPDATE SET "
+            "page_url, download_url, sweet_json, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(kind, filename) DO UPDATE SET "
             "base_model=excluded.base_model, notes=excluded.notes, tags_json=excluded.tags_json, "
-            "trigger_keyword=excluded.trigger_keyword, "
-            "page_url=excluded.page_url, download_url=excluded.download_url, updated_at=excluded.updated_at",
+            "trigger_keyword=excluded.trigger_keyword, page_url=excluded.page_url, "
+            "download_url=excluded.download_url, sweet_json=excluded.sweet_json, updated_at=excluded.updated_at",
             (kind, filename, current["base_model"], current["notes"],
              json.dumps(current["tags"], ensure_ascii=False), current["trigger_keyword"],
-             current["page_url"], current["download_url"], updated),
+             current["page_url"], current["download_url"], json.dumps(current["sweet"], ensure_ascii=False),
+             updated),
         )
         conn.execute("DELETE FROM model_base_models WHERE kind=? AND filename=?", (kind, filename))
         conn.executemany("INSERT INTO model_base_models(kind, filename, base_model, position) VALUES(?,?,?,?)",

@@ -173,6 +173,8 @@ def delete_base_model(request: Request, name: str):
 
 @app.put("/api/models")
 async def put_model_registry_entry(request: Request):
+    """등록부 항목 저장 — model_registry.FIELDS의 칸만 받는다. sweet는 체크포인트·UNet·LoRA의 스윗 포인트
+    (칸은 model_registry.MODEL_SWEET_FIELDS, 그 밖의 종류는 {}로 저장)."""
     admin_only(request)
     try:
         data = json.loads((await request.body()).decode("utf-8"))
