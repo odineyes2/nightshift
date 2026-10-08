@@ -72,6 +72,23 @@ class ToInputTests(unittest.TestCase):
         self.assertEqual(call(req(), self.pose["id"], second["id"]), (200, out))   # 다시 넣으면 재사용
         self.assertEqual(len(input_assets.list_input_images()), before)
 
+    def test_bulk_and_position_name_split(self):
+        """기존 Pose 일괄 복사 회귀와, 같은 번호의 Position과 풀 이름이 겹치지 않는지(NS-51)."""
+        import json
+        import position_library as L
+        r = req()
+        r.body = lambda: asyncio.sleep(0, json.dumps({"pose_ids": [self.pose["id"]]}).encode())
+        rows = asyncio.run(A.library_poses_to_input(r))
+        self.assertEqual([x["image_id"] for x in rows], [i["id"] for i in self.pose["images"]])
+        self.assertEqual(rows[0]["name"], f"library_pose_{self.pose['id']}_{self.pose['images'][0]['id']}.png")
+        self.assertEqual((rows[0]["pose_name"], rows[0]["width"], rows[0]["height"]), ("앉기", 300, 400))
+        pos = L.add_position("u1", "같은 번호", "", "duo", [(img(), "")])
+        self.assertEqual(pos["id"], self.pose["id"])   # 빈 DB라 번호가 같다
+        out = asyncio.run(A.library_position_to_input(req(), pos["id"], pos["images"][0]["id"]))
+        self.assertEqual(out["name"], f"library_position_{pos['id']}_{pos['images'][0]['id']}.png")
+        names = {i["name"] for i in input_assets.list_input_images()}
+        self.assertTrue({rows[0]["name"], out["name"]} <= names, names)
+
     def test_ui_entry_points(self):
         lib = (ROOT / "static/js/17c-library.js").read_text(encoding="utf-8")
         wiz = (ROOT / "static/js/06-wizard.js").read_text(encoding="utf-8")

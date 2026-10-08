@@ -231,13 +231,19 @@ def image_path(image: dict, thumb: bool) -> Path:
 def input_copy(pose: dict, image: dict) -> tuple[str, bytes]:
     """입력 이미지 풀에 넣을 (파일 이름, 바이트) — "이 포즈로 생성"(NS-41). 이름은 게시물·이미지 번호로 정해
     같은 장을 다시 넣으면 같은 이름이 된다. 풀이 받지 않는 GIF·BMP는 PNG로 바꾼다."""
-    data = image_path(image, False).read_bytes()
-    ext = Path(image["image_file"]).suffix.lower()
+    data, ext = input_bytes(image_path(image, False))
+    return f"library_pose_{pose['id']}_{image['id']}{ext}", data
+
+
+def input_bytes(path: Path) -> tuple[bytes, str]:
+    """입력 이미지 풀에 넣을 (바이트, 확장자) — GIF·BMP는 PNG로 바꾼다(Position도 같이 쓴다)."""
+    data = path.read_bytes()
+    ext = path.suffix.lower()
     if ext not in (".png", ".jpg", ".webp"):
         buf = io.BytesIO()
         ImageOps.exif_transpose(_open_image(data)).convert("RGB").save(buf, "PNG")
         data, ext = buf.getvalue(), ".png"
-    return f"library_pose_{pose['id']}_{image['id']}{ext}", data
+    return data, ext
 
 
 def sdxl_size(width: int, height: int) -> tuple[int, int]:

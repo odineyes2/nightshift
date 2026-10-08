@@ -11,7 +11,7 @@ from PIL import ImageOps
 
 import db
 from data_paths import data_dir
-from pose_library import EXTS, THUMB_SIZE, PoseError, _check_images
+from pose_library import EXTS, THUMB_SIZE, PoseError, _check_images, input_bytes
 
 
 def _dir() -> Path:
@@ -149,3 +149,9 @@ def get_image(position: dict, image_id: int | None) -> dict | None:
 
 def image_path(image: dict, thumb: bool) -> Path:
     return _dir() / (image["thumb_file"] if thumb else image["image_file"])
+
+
+def input_copy(position: dict, image: dict) -> tuple[str, bytes]:
+    """입력 이미지 풀에 넣을 (파일 이름, 바이트) — Pose와 같은 번호의 게시물과 겹치지 않게 library_position_ 이름."""
+    data, ext = input_bytes(image_path(image, False))
+    return f"library_position_{position['id']}_{image['id']}{ext}", data
