@@ -1,4 +1,4 @@
-// ---- Library 탭 — 지금은 Pose 서브탭 하나(NS-39) ----
+// ---- Library 탭 — Pose·Position·Lighting 공용 화면 ----
 // 목록은 서버(/api/library/poses)가 기준이다. 회원은 자기가 올린 것만, admin은 전부 받는다.
 // 보기(Grid/Details)는 갤러리처럼 토글로 바꾸고 localStorage에 기억한다.
 const LIBRARY_DISPLAY_KEY = 'nightshift.libraryDisplay';
@@ -6,12 +6,13 @@ let libraryPoses = [];
 let libraryDisplayMode = (() => { try{ return localStorage.getItem(LIBRARY_DISPLAY_KEY) === 'details' ? 'details' : 'grid'; }catch(e){ return 'grid'; } })();
 let poseAddImageMode = 'file';   // 'file' | 'url'
 
-// 서브탭(NS-43) — Pose와 Position이 같은 목록·아티클·라이트박스·추가 모달을 쓰고 API 주소·문구·생성 동작만 다르다.
-let libraryTab = 'pose';   // 'pose' | 'position'
-const LIBRARY_API = { pose: '/api/library/poses', position: '/api/library/positions' };
+// 서브탭 — 세 종류가 같은 목록·아티클·라이트박스·추가 모달을 쓰고 API 주소·문구·생성 동작만 다르다.
+let libraryTab = 'pose';   // 'pose' | 'position' | 'lighting'
+const LIBRARY_API = { pose: '/api/library/poses', position: '/api/library/positions', lighting: '/api/library/lightings' };
 const libraryApi = () => LIBRARY_API[libraryTab];
 const isPositionTab = () => libraryTab === 'position';
-const libraryNoun = () => isPositionTab() ? 'Position' : '포즈';
+const libraryKindLabel = kind => ({ pose: 'Pose', position: 'Position', lighting: 'Lighting' })[kind];
+const libraryNoun = () => libraryTab === 'pose' ? '포즈' : libraryKindLabel(libraryTab);
 
 function setLibraryError(msg){ document.getElementById('library-error').textContent = msg || ''; }
 
@@ -87,7 +88,7 @@ function renderLibraryPoses(){
 
 // "이 포즈로 생성"(NS-41) — 카드·아티클 격자에 얹는 작은 아이콘 버튼. 라이트박스 버튼은 index.html에 있다.
 function poseGenerateButton(cls, imageId){
-  const label = isPositionTab() ? '이 Position으로 생성 (txt2img)' : '이 포즈로 생성';
+  const label = libraryTab === 'pose' ? '이 포즈로 생성' : `이 ${libraryNoun()}으로 생성 (txt2img)`;
   return `<button class="library-pose-btn ${cls}" type="button" data-image-id="${imageId}" title="${label}" aria-label="${label}">${ico('list-checks')}</button>`;
 }
 
@@ -154,9 +155,11 @@ function generatePoseSequence(){
   const kind = libraryTab;
   const posts = libraryPoses.filter(p => !librarySelected.size || librarySelected.has(p.id)).map(p => ({ ...p, images: p.images.map(im => ({ ...im })) }));
   if(!posts.length) return;
+  if(kind === 'lighting') return runLibrarySequence(kind, posts, 'prompt');
   askLibraryTransfer(mode => runLibrarySequence(kind, posts, mode));
 }
 async function runLibrarySequence(kind, posts, mode){
+  if(kind === 'lighting') mode = 'prompt';   // Lighting은 입력 이미지 복사·Openpose CN을 지원하지 않는다.
   if(mode === 'prompt'){
     // 프롬프트만 — 이미지 복사 없이 목록 응답으로 장마다 한 항목을 만든다(positionSequenceValue 모양).
     const items = posts.flatMap(p => p.images.map(im => ({
@@ -192,9 +195,11 @@ function generateFromPose(poseId, imageId){
   const kind = libraryTab;
   const p = libraryPoses.find(x => x.id === poseId);
   if(!p) return;
+  if(kind === 'lighting') return runLibrarySingle(kind, { ...p, images: p.images.map(im => ({ ...im })) }, imageId, 'prompt');
   askLibraryTransfer(mode => runLibrarySingle(kind, { ...p, images: p.images.map(im => ({ ...im })) }, imageId, mode));
 }
 async function runLibrarySingle(kind, p, imageId, mode){
+  if(kind === 'lighting') mode = 'prompt';
   try{
     const data = mode === 'prompt' ? null
       : await libraryToInput(`/api/library/${kind === 'position' ? 'positions' : 'poses'}/${p.id}/images/${imageId}/to-input`);
@@ -235,6 +240,8 @@ function renderLibraryArticle(){
   document.getElementById('library-article-edit-btn').hidden = false;
   document.getElementById('library-article-delete-btn').hidden = false;
   const moveBtn = document.getElementById('library-article-move-btn');
+  moveBtn.hidden = libraryTab === 'lighting';
+  moveBtn.style.display = moveBtn.hidden ? 'none' : '';   // 버튼의 display 규칙보다 우선해 숨긴다.
   const moveLabel = isPositionTab() ? 'Pose로 이동' : 'Position으로 이동';
   moveBtn.title = moveLabel;
   moveBtn.setAttribute('aria-label', moveLabel);
@@ -268,6 +275,7 @@ async function deleteLibraryPost(){
 // Pose↔Position 이동(NS-46) — 서버가 대상 쪽에 새 게시물을 만들고 원본을 지운다(id가 바뀐다).
 // 끝나면 대상 서브탭으로 바꾸고 새 게시물 아티클을 연다.
 async function moveLibraryPost(){
+  if(libraryTab === 'lighting') return;
   const p = libraryArticle();
   if(!p) return;
   const [target, path, label] = isPositionTab()
@@ -363,7 +371,7 @@ function renderLibraryLightbox(){
   document.getElementById('library-lightbox-info').textContent = `${p.name} · ${libraryLightboxIndex + 1}/${p.images.length}`;
   const many = p.images.length > 1;
   document.getElementById('library-lightbox-delete-btn').hidden = false;
-  document.querySelector('#library-lightbox-pose-btn .btn-label').textContent = isPositionTab() ? '이 Position으로 생성' : '이 포즈로 생성';
+  document.querySelector('#library-lightbox-pose-btn .btn-label').textContent = libraryTab === 'pose' ? '이 포즈로 생성' : `이 ${libraryNoun()}으로 생성`;
   document.getElementById('library-lightbox-prev').style.display = many ? '' : 'none';
   document.getElementById('library-lightbox-next').style.display = many ? '' : 'none';
 }
@@ -484,7 +492,7 @@ function openPoseAddModal(targetId = null, edit = null){
   poseAddTargetId = targetId;
   poseAddEdit = edit;
   document.getElementById('pose-add-form').reset();
-  const kind = isPositionTab() ? 'Position' : 'Pose';
+  const kind = libraryKindLabel(libraryTab);
   document.getElementById('pose-add-title').textContent = targetId ? '이미지 추가' : edit ? `${kind} 수정` : `${kind} 추가`;
   document.querySelector('label[for="pose-add-name"]').textContent = `${kind} 명칭`;
   document.querySelectorAll('#pose-add-form .pose-add-meta').forEach(el => { el.hidden = !!targetId; });
@@ -504,7 +512,7 @@ function openPoseAddModal(targetId = null, edit = null){
 
 async function savePoseEdit(){
   const name = document.getElementById('pose-add-name').value.trim();
-  if(!name) return setPoseAddError(`${isPositionTab() ? 'Position' : 'Pose'} 명칭을 적어주세요.`);
+  if(!name) return setPoseAddError(`${libraryKindLabel(libraryTab)} 명칭을 적어주세요.`);
   const id = poseAddEdit.id;
   const btn = document.getElementById('pose-add-save');
   btn.disabled = true; btn.textContent = '저장 중…';
@@ -552,7 +560,7 @@ async function savePoseAdd(e){
     urls.forEach(u => fd.append('image_url', u));
     count = urls.length;
   }
-  if(!poseAddTargetId && !name) return setPoseAddError(`${isPositionTab() ? 'Position' : 'Pose'} 명칭을 적어주세요.`);
+  if(!poseAddTargetId && !name) return setPoseAddError(`${libraryKindLabel(libraryTab)} 명칭을 적어주세요.`);
   if(!count) return setPoseAddError('이미지를 올리거나, 주소를 적거나, 갤러리에서 골라주세요.');
   if(count > POSE_ADD_MAX) return setPoseAddError(`이미지는 한 번에 ${POSE_ADD_MAX}장까지 넣을 수 있어요.`);
   const btn = document.getElementById('pose-add-save');
@@ -589,10 +597,10 @@ document.querySelectorAll('#pose-add-image-mode .enhance-mode-btn').forEach(btn 
 // ---- 갤러리에서 Library로 넣기(NS-45) — 결과 이미지 이름(output_name)만 보내고 서버가 경로·권한을 검사해 읽는다 ----
 const lfgModal = document.getElementById('library-from-gallery-modal');
 let lfgNames = [];
-let lfgKind = 'pose';       // 'pose' | 'position'
+let lfgKind = 'pose';       // 'pose' | 'position' | 'lighting'
 let lfgTarget = 'new';      // 'new' | 'existing'
 let lfgDone = null;         // 저장한 게시물 { id, kind }
-const lfgKindLabel = () => lfgKind === 'position' ? 'Position' : 'Pose';
+const lfgKindLabel = () => libraryKindLabel(lfgKind);
 function setLfgError(msg){ document.getElementById('lfg-error').textContent = msg || ''; }
 
 // 기존 게시물 목록은 Library 탭과 같은 API — 회원은 자기 것만, admin은 전부
