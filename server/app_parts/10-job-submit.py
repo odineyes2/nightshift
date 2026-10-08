@@ -221,8 +221,95 @@ def parse_pose_sequence(raw) -> list[dict] | None:
         }
         if not image:
             entry["kind"] = "position"
+        for key in ("source_kind", "article_id", "source_image_id", "generation_mode"):
+            if key in item:
+                entry[key] = item[key]
         out.append(entry)
     return out
+
+
+def parse_library_generation_context(raw, user):
+    """생성 방식과 분리한 출처를 소유자와 이미지 소속으로 검증한다."""
+    if raw is None or raw == "":
+        return None
+    try:
+        items = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        raise HTTPException(400, "생성원이 올바른 JSON이 아니에요.")
+    if not isinstance(items, list) or not items:
+        raise HTTPException(400, "생성원 목록을 확인하세요.")
+    out = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise HTTPException(400, "생성원 항목을 확인하세요.")
+        kind, mode = item.get("source_kind"), item.get("generation_mode")
+        if kind not in ("pose", "position") or mode not in ("prompt", "openpose"):
+            raise HTTPException(400, "생성원 종류와 생성 방식을 확인하세요.")
+        ids = [item.get("article_id"), item.get("source_image_id")]
+        if any(type(v) is not int or v <= 0 for v in ids):
+            raise HTTPException(400, "생성원 게시물과 이미지 번호를 확인하세요.")
+        lib = pose_library if kind == "pose" else position_library
+        article = (lib.get_pose if kind == "pose" else lib.get_position)(ids[0])
+        if not article or (user.get("role") != "admin" and article.get("owner_id") != user["id"]):
+            raise HTTPException(404, "생성원 게시물을 찾을 수 없어요.")
+        image = next((im for im in article["images"] if im["id"] == ids[1]), None)
+        if image is None:
+            raise HTTPException(400, "이미지가 생성원 게시물에 속하지 않아요.")
+        name = str(item.get("name") or "")
+        if mode == "openpose":
+            expected, data = lib.input_copy(article, image)
+            if name != expected:
+                raise HTTPException(400, "선택한 참조 이미지와 생성원이 달라요.")
+            try:
+                if resolve_input_image(name).read_bytes() != data:
+                    raise HTTPException(400, "참조 이미지 사본이 원본과 달라요.")
+            except InputAssetError as e:
+                raise HTTPException(400, str(e))
+        out.append({"source_kind": kind, "article_id": ids[0], "source_image_id": ids[1],
+                    "generation_mode": mode, "owner_id": article.get("owner_id"),
+                    "image": name if mode == "openpose" else "",
+                    "tags": str(item.get("danbooru_prompt") or ""), "selection_index": len(out)})
+    return out
+
+
+def seed_batch_contract():
+    # 실행기와 같은 저장 노드 선택·이름 규칙을 사용한다(네트워크 호출 없음).
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_seed_batch_contract", TEMPLATES_DIR / "seed_batch.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def build_library_output_origins(context, workflow_bytes, options):
+    if not context:
+        return None
+    module = seed_batch_contract()
+    node_id, node = module.output_save_node(json.loads(workflow_bytes))
+    # Websocket과 다른 결과 노드는 파일 자동 등록 대상이 아니다.
+    if not node or node.get("class_type") != "SaveImage":
+        return {"save_node_id": None, "executions": {}}
+    count = int(options["seed_count"])
+    return {"save_node_id": str(node_id), "executions": {
+        str(i * count + n): dict(origin)
+        for i, origin in enumerate(context) for n in range(1, count + 1)}}
+
+
+def library_origin_for_output(job, filename, subfolder="", node_id=None):
+    """예상 저장 노드의 실행 번호가 확인되는 PNG만 원본에 연결한다."""
+    mapping = job.get("library_output_origins") or {}
+    if not mapping.get("save_node_id") or (node_id is not None and str(node_id) != mapping["save_node_id"]):
+        return None
+    path = f"{subfolder}/{filename}" if subfolder else filename
+    match = re.fullmatch(re.escape(job["id"]) + r"/seed_batch_([1-9][0-9]*)_seed([0-9]+)_([0-9]+)_\.png", path)
+    if not match:
+        return None
+    seed = int(match[2])
+    if seed > 2**31 - 1 or int(match[3]) < 1:
+        return None
+    if job.get("options", {}).get("seed_mode") == "sequential" and seed != int(match[1]) - 1:
+        return None
+    return mapping.get("executions", {}).get(match[1])
 
 
 _recent_user_stores: dict[tuple[str, int], "RecentFileStore"] = {}
@@ -413,6 +500,23 @@ async def create_job(
     # 순차 생성 포즈 목록(NS-42)은 옵션(환경변수)으로 넘기지 않고 파일로 저장한다.
     raw_options = dict(raw_options)
     pose_sequence = parse_pose_sequence(raw_options.pop("pose_sequence", None))
+    origin_raw = raw_options.pop("library_generation_context", None)
+    if origin_raw is None and pose_sequence and any("source_kind" in p for p in pose_sequence):
+        origin_raw = [{**p, "name": p["image"], "danbooru_prompt": p["tags"]} for p in pose_sequence]
+    library_context = parse_library_generation_context(origin_raw, user)
+    if library_context:
+        if template_id != "seed_batch":
+            raise HTTPException(400, "라이브러리 생성원은 시드 배치에서만 지원해요.")
+        if pose_sequence:
+            if len(pose_sequence) != len(library_context):
+                raise HTTPException(400, "순차 입력과 생성원 개수가 달라요.")
+            for entry, origin in zip(pose_sequence, library_context):
+                if entry["image"] != origin["image"] or any(
+                    entry.get(k) != origin[k] for k in ("source_kind", "article_id", "source_image_id", "generation_mode")):
+                    raise HTTPException(400, "순차 입력과 생성원이 달라요.")
+                origin["tags"] = entry["tags"]
+        elif len(library_context) != 1 or str(raw_options.get("pose_image") or "") != library_context[0]["image"]:
+            raise HTTPException(400, "단일 입력과 생성원이 달라요.")
     if workflow_bytes is not None:
         validate_pose_image(workflow_bytes, csv_bytes,
                             raw_options.get("pose_image") or (pose_sequence[0]["image"] if pose_sequence else None) or None)
@@ -434,6 +538,8 @@ async def create_job(
         raw = raw_options.get(option["name"])
         # 파드를 안 정했으면 설치 목록으로 검증할 기준이 없다 — 값은 그대로 받고, 스케줄러가 배정할 때 그 파드에 있는지 본다.
         options[option["name"]] = coerce_option(option, raw, options, pod if pod is not None else NO_POD)
+
+    library_output_origins = build_library_output_origins(library_context, workflow_bytes, options)
 
     job_id = str(uuid.uuid4())[:8]
 
@@ -506,6 +612,8 @@ async def create_job(
             "csv_filename": csv_dest_name,
             "csv_original_name": csv_original_name,
             "pose_sequence_filename": pose_sequence_name,
+            "library_generation_context": library_context,
+            "library_output_origins": library_output_origins,
             "status": "pending",
             "queued_at": now_iso(),
             "started_at": None,
