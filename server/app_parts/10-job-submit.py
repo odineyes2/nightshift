@@ -686,6 +686,72 @@ async def create_job_from_json(request: Request):
                             parse_project_id(body.get("project_id")), user=user)
 
 
+def _read_recent_workflow(store, entry) -> dict | None:
+    try:
+        return json.loads((store.dir_path / entry["stored_filename"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+@app.get("/api/quick-run/presets")
+def quick_run_presets(request: Request):
+    # 백틱 빠른 실행창(NS-52)의 워크플로우 프리셋 — 최근 워크플로우 10개와 각 분류 결과.
+    store = recent_store("workflows", me(request))
+    out = []
+    for meta in store.list_meta()[:10]:
+        entry = store.get(meta["id"])
+        wf = _read_recent_workflow(store, entry) if entry else None
+        out.append({**meta, **quick_run.classify_workflow(wf)})
+    return {"presets": out}
+
+
+@app.post("/api/quick-run")
+async def quick_run_submit(request: Request):
+    # 빠른 실행창의 보내기 — 프리셋을 분류해 템플릿·옵션을 정하고 파드 없이 곧장 대기 큐(queued)에 넣는다.
+    # 받는 값: {workflow_id | workflow+workflow_filename, prompt, project_id, images[], library}
+    user = me(request)
+    try:
+        body = json.loads(await request.body())
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "요청 본문이 JSON 객체여야 해요.")
+
+    if body.get("workflow_id"):
+        store = recent_store("workflows", user)
+        entry = store.get(str(body["workflow_id"]))
+        workflow = _read_recent_workflow(store, entry) if entry else None
+        if workflow is None:
+            raise HTTPException(400, "고른 워크플로우를 찾을 수 없어요 — 프리셋을 다시 골라 주세요.")
+        workflow_filename = entry["filename"]
+        # 저장된 원본 바이트 그대로 보내야 같은 해시로 최근 목록 맨 앞에 올라간다(새 항목이 생기지 않는다).
+        workflow_bytes = (store.dir_path / entry["stored_filename"]).read_bytes()
+    else:
+        workflow = body.get("workflow")
+        workflow_filename = body.get("workflow_filename") or "workflow.json"
+        if not isinstance(workflow, dict):
+            raise HTTPException(400, "워크플로우 프리셋을 골라 주세요.")
+        if not isinstance(workflow_filename, str) or not workflow_filename.endswith(".json"):
+            raise HTTPException(400, "workflow_filename은 .json으로 끝나야 해요.")
+        workflow_bytes = json.dumps(workflow).encode("utf-8")
+
+    images = body.get("images") or []
+    library = body.get("library") or None
+    if not isinstance(images, list) or (library is not None and not isinstance(library, dict)):
+        raise HTTPException(400, "images는 배열, library는 객체여야 해요.")
+    cls = quick_run.classify_workflow(workflow)
+    try:
+        built = quick_run.build_quick_options(cls, body.get("prompt"), images, library)
+    except quick_run.QuickRunError as e:
+        raise HTTPException(400, str(e))
+
+    job = await create_job(resolve_template(cls["template_id"]), workflow_bytes, workflow_filename, None, None,
+                           {k: str(v) for k, v in built["options"].items()},
+                           project_id=parse_project_id(body.get("project_id")), user=user)
+    return {"job": job, "kind": cls["kind"], "ignored_images": built["ignored_images"],
+            "pose_skipped": built["pose_skipped"]}
+
+
 def start_pods(pod_ids: list[str]) -> int:
     """그 파드들의 자동 실행 모드를 켜고, 그 파드로 배정된 대기 작업을 전부 큐에 넣는다.
 
