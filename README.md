@@ -120,7 +120,7 @@ npm start
 `cd server && python3 app.py`를 터미널에 붙잡아두는 대신, [pm2](https://pm2.keymetrics.io/)가 서버를 백그라운드 프로세스로 띄우고 감독합니다.
 
 - **터미널을 닫거나 `Ctrl+C`를 눌러도 서버는 계속 돌아갑니다** — `npm start`는 서버를 띄운 뒤 로그를 그 자리에서 이어 보여주는(`pm2 logs`) 것뿐이라, 로그 보기를 그만둬도(`Ctrl+C`) 서버 프로세스 자체는 안 죽습니다. 아래 `npm run stop`을 실행해야 실제로 멈춥니다.
-- **코드를 고치면 자동으로 반영됩니다** — 내부적으로 `uvicorn --reload`로 띄우므로, `server/`(app.py 등)나 `templates/`/`static/`을 저장하는 순간 감지해서 그 부분만 다시 로드합니다. 서버를 껐다 켤 필요가 없습니다.
+- **서버 코드를 고치면 재시작이 필요합니다** — `ecosystem.config.js`는 `uvicorn --reload` 없이, pm2 `watch: false`로 실행합니다. `server/`(app.py·app_parts 등) 변경은 서버를 재시작해야 반영됩니다. `static/`의 HTML·CSS·JS는 요청마다 디스크에서 읽으므로 화면을 새로고침하면 반영됩니다. 새 화면만 반영되고 서버는 이전 코드인 경우 새 API 조회가 404, 생성이 405로 실패할 수 있습니다.
 - **로그가 지저분하게 쌓이지 않습니다** — pm2가 로그를 파일로 관리하고(`~/.pm2/logs/nightshift-*.log`), `npm run logs`로 필요할 때만 깔끔하게 tail해서 봅니다. 프론트엔드가 몇 초마다 자동으로 폴링하는 `GET /api/jobs`/`GET /api/comfy-status` 요청은 애초에 access log에 남기지 않도록 걸러뒀습니다(`app.py`) — 업로드/삭제/에러 같은 실제로 봐야 할 로그가 폴링 요청에 묻히지 않게 하기 위함입니다. 이건 pm2 여부와 무관하게 항상 적용됩니다.
 
 자주 쓰는 명령:
@@ -129,11 +129,17 @@ npm start
 |---|---|
 | `npm start` | 서버 시작(이미 떠 있으면 재시작) + 로그 tail 시작 |
 | `npm run stop` | 서버 완전히 중지 |
-| `npm run restart` | 서버 재시작 (코드 변경은 자동 반영되므로 보통 필요 없음 — `.env`를 바꿨을 때 등에 사용). `ecosystem.config.js --update-env`로 재시작해 `.env`를 다시 읽습니다 — `pm2 restart nightshift`나 `pm2 restart all`처럼 **이름으로** 재시작하면 pm2가 맨 처음 떴을 때 읽은 옛 환경변수를 그대로 재사용해서 `.env`를 고쳐도 반영되지 않으니 주의하세요 |
+| `npm run restart` | `ecosystem.config.js`의 앱 전체(jupyter·opencut 포함)를 재시작합니다. 서버 코드·환경변수 변경을 반영할 때 nightshift만 재시작하려면 아래 명령을 씁니다. 이름만으로 `pm2 restart nightshift`를 실행하면 설정 파일을 다시 읽지 않아 변경한 환경변수가 전달되지 않습니다 |
 | `npm run status` | 지금 떠 있는지, PID/메모리/재시작 횟수 등을 표로 확인 (`pm2 status`) |
 | `npm run logs` | 로그만 따로 열어보기 (`Ctrl+C`로 빠져나와도 서버는 안 멈춤) |
 
-내부적으로는 `ecosystem.config.js`에 정의된 pm2 앱 설정(`server/` 안에서 `python3 -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload`)을 그대로 실행합니다 — 필요하면 이 파일에서 포트나 옵션을 직접 조정할 수 있습니다.
+서버 변경을 반영하려면 진행 중 작업을 확인한 뒤 저장소 루트에서 필요한 앱만 재시작합니다. 재시작 시 `queued`/`running` 작업은 `interrupted`가 될 수 있으므로 작업 상태를 보고 시점을 정합니다.
+
+```bash
+npx pm2 restart ecosystem.config.js --only nightshift --update-env
+```
+
+내부적으로는 `ecosystem.config.js`에 정의된 pm2 앱 설정(`server/` 안에서 선택된 Python으로 `-m uvicorn app:app --host 0.0.0.0 --port 8000`, 자동 리로드 없음)을 그대로 실행합니다 — 필요하면 이 파일에서 포트나 옵션을 직접 조정할 수 있습니다. 재시작 뒤 로그인 상태에서 Lighting 목록 조회·파일 이미지로 아티클 생성·이미지 재조회와 Pose/Position 동작을 확인합니다.
 
 > **conda/venv를 쓴다면**: `ecosystem.config.js`는 `npm start`를 실행한 그 셸에서 `which python3`(윈도우는 `where python`)가 가리키는 인터프리터를 그대로 사용합니다. RunPod 등에서 conda/venv가 `~/.bashrc`에서만 활성화되도록 돼 있으면, pm2가 자식 프로세스를 로그인 셸이 아닌 방식으로 띄우면서 그 활성화가 빠져 `/usr/bin/python3: No module named uvicorn` 같은 에러가 로그에 쌓일 수 있습니다. 그런 경우엔 (1) `cd server && python3 app.py`(윈도우는 `python app.py`)가 정상 동작하는 바로 그 셸에서 `npm start`를 실행하고 (2) 예전에 다른 환경에서 이미 `pm2 start`를 한 적이 있다면 `npx pm2 delete nightshift`(또는 `npx pm2 kill`로 데몬 자체를 리셋)한 뒤 `npm start`를 다시 실행하세요 — pm2 데몬이 예전에 잘못 잡은 인터프리터 경로를 계속 재사용하기 때문입니다.
 >

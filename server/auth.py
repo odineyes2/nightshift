@@ -113,7 +113,8 @@ def can_access(user: dict | None, owner_id) -> bool:
     """이 소유자의 것을 이 회원이 볼 수 있나 — admin은 전부, 일반 회원은 자기 것만(주인 없음은 admin만)."""
     if user is None:
         return False
-    return is_admin(user) or (owner_id is not None and owner_id == user["id"])
+    # Library 표(poses·positions·lightings)는 owner_id가 TEXT라 문자열로 맞춰 비교한다.
+    return is_admin(user) or (owner_id is not None and str(owner_id) == str(user["id"]))
 
 
 def admin_id() -> int | None:
