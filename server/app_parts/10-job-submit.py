@@ -335,8 +335,6 @@ async def create_job(
         pod = pod_registry.get_pod(pod_id)
         if pod is None or pod.get("owner_id") != user["id"]:
             raise HTTPException(400, "없는 워커예요.")
-        if not pod.get("enabled"):
-            raise HTTPException(400, f"'{pod['name']}' 워커는 지금 사용 안 함 상태예요.")
 
     # 프로젝트는 파드와 무관하게 작업을 묶는다. 없으면 "미분류"(project_id=None). 자기 프로젝트만 쓸 수 있다.
     if project_id is not None and not project_store.project_exists(project_id, owner_id=user["id"]):
@@ -358,6 +356,12 @@ async def create_job(
             f"'{template['label']}' 템플릿은 {pod_registry.DEFAULT_KIND} 워커용이에요 "
             f"(고른 워커 '{pod['name']}'는 {pod['kind']}).",
         )
+    # 사용 안 함 워커를 골랐어도 작업은 대기 목록에 올린다(NS-53). 선택은 pinned_pod_id로만 남기고
+    # 그 뒤로는 파드를 안 정한 작업처럼 다룬다 — 꺼진 워커에 조회·직접 배정하지 않고, 스케줄러가
+    # 그 워커가 준비되면(사용 중·연결·모델) 거기에만 배정한다.
+    pinned_pod_id = pod["id"] if pod is not None else None
+    if pod is not None and not pod.get("enabled"):
+        pod = None
 
     with lock:
         active_count = sum(
@@ -512,7 +516,7 @@ async def create_job(
             "deleted_at": None,
             "pod_id": pod["id"] if pod is not None else None,
             # 파드를 정해서 만든 작업은 그 파드에서만 돈다(스케줄러도 다른 파드로 보내지 않는다).
-            "pinned_pod_id": pod["id"] if pod is not None else None,
+            "pinned_pod_id": pinned_pod_id,
             "waiting_reason": None,
             "project_id": project_id,
             "owner_id": user["id"],
