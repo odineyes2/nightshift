@@ -266,6 +266,11 @@ nightshift는 여러 사람이 함께 쓸 수 있는 **회원제**입니다. 예
 
 - API: `GET/POST /api/library/positions`, `PATCH|DELETE /api/library/positions/{id}`(수정은 JSON `{name, description, danbooru_prompt}` 중 바꿀 칸만), `POST /api/library/positions/{id}/images`, `DELETE /api/library/positions/{id}/images/{image_id}`, `GET /api/library/positions/{id}/images/{image_id}/image|thumb`.
 
+**Lighting**(`server/lighting_library.py`)은 조명 참고 이미지를 모으는 서브탭입니다. Pose·Position과 같은 Grid/Details·체크·전체선택·아티클 갤러리·라이트박스·추가·수정·삭제 화면을 쓰며, 파일은 `data/library/lightings`에 둡니다. 공개 범위와 이미지 제한도 같습니다. 파일·URL·갤러리에서 이미지를 넣거나, 갤러리의 **라이브러리** 모달에서 Lighting을 골라 새 게시물 또는 기존 게시물에 저장합니다.
+
+- **이 Lighting으로 생성 (txt2img)**과 **순차 생성**은 방식 선택 없이 프롬프트 마법사를 엽니다. danbooru prompt를 메인 프롬프트 끝에 붙이고 생성 결과를 원본 Lighting 게시물에 등록합니다. Openpose CN·입력 이미지 복사·Pose/Position으로 이동은 지원하지 않습니다.
+- API: `GET/POST /api/library/lightings`, `PATCH|DELETE /api/library/lightings/{id}`, `POST /api/library/lightings/{id}/images`, `DELETE /api/library/lightings/{id}/images/{image_id}`, `GET /api/library/lightings/{id}/images/{image_id}/image|thumb`.
+
 ### 프로젝트 보드 (Board 탭, `server/board_store.py`)
 
 프로젝트 안의 **Board** 서브탭은 이미지·영상·메모를 자유롭게 늘어놓고 선으로 이어 가며 구상하는 무한 캔버스(무드보드)입니다. 헤더와 프로젝트 바 아래 공간을 전부 캔버스로 씁니다. 보드는 프로젝트마다 하나이고, "미분류"에는 없습니다.
