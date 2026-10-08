@@ -139,6 +139,21 @@ const modelSweetNumbers = {
   strength: [-10, 10, 'any'], strength_min: [-10, 10, 'any'],
   strength_max: [-10, 10, 'any'], strength_clip: [-10, 10, 'any'],
 };
+const modelSweetChoices = {
+  sampler_name: ['er_sde', 'euler_ancestral', 'dpmpp_2m_sde_gpu', 'euler', 'dpmpp_2m',
+    'dpmpp_2m_sde', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2s_ancestral', 'heun', 'ddim', 'lcm', 'uni_pc'],
+  scheduler: ['simple', 'beta57', 'normal', 'karras', 'beta', 'exponential', 'sgm_uniform',
+    'ddim_uniform', 'linear_quadratic', 'kl_optimal'],
+};
+function modelSweetSelect(k, value, dis){
+  const choices = modelSweetChoices[k];
+  const labels = {euler_ancestral: 'euler_ancestral (euler_a)', beta57: 'beta57 (사용자 정의·워커 지원 확인 필요)'};
+  const option = (v, label) => `<option value="${escapeHtml(v)}"${v === value ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  return `<select class="option-input" data-field="sweet.${k}" ${dis}>`
+    + option('', '기본값 사용') + choices.map(v => option(v, labels[v] || v)).join('')
+    + (value && !choices.includes(value) ? option(value, `현재 저장값: ${value}`) : '') + '</select>'
+    + (k === 'scheduler' ? `<span class="email-hint" data-model-beta57-hint${value === 'beta57' ? '' : ' hidden'}>표준 ComfyUI에는 beta57이 없어요. 사용하는 워커의 지원 여부를 확인해 주세요.</span>` : '');
+}
 // 키 순서를 고정하고 숫자 응답을 입력 문자열로 바꿔 저장 후 변경 판정을 맞춘다.
 function modelSweetDraft(kind, sweet = {}){
   return Object.fromEntries((modelSweetFields[kind] || []).map(k => [k, String(sweet[k] ?? '')]));
@@ -158,7 +173,7 @@ function modelSweetHtml(d, dis){
       const value = escapeHtml(d.sweet[k] ?? '');
       const text = k === 'positive_prefix' || k === 'negative';
       const num = modelSweetNumbers[k];
-      const control = text
+      const control = modelSweetChoices[k] ? modelSweetSelect(k, String(d.sweet[k] ?? ''), dis) : text
         ? `<textarea class="option-input" data-field="sweet.${k}" rows="3" maxlength="${k === 'negative' ? 2000 : 1000}" ${dis}>${value}</textarea>`
         : `<input class="option-input" data-field="sweet.${k}" type="${num ? 'number' : 'text'}" ${num ? `min="${num[0]}" max="${num[1]}" step="${num[2]}"` : 'maxlength="64"'} value="${value}" ${dis}>`;
       return `<label class="model-field${text ? ' wide' : ''}"><span>${labels[k]}</span>${control}</label>`;
@@ -469,7 +484,7 @@ document.getElementById('lora-tab-list').addEventListener('click', (e) => {
   renderModelRegistry();
 });
 
-document.getElementById('lora-tab-list').addEventListener('input', (e) => {
+function updateModelDraftInput(e){
   const input = e.target.closest('[data-field]');
   const editor = e.target.closest('.model-editor');
   if(!input || !editor || !isAdminUser() || !modelEditDraft) return;
@@ -480,6 +495,10 @@ document.getElementById('lora-tab-list').addEventListener('input', (e) => {
     modelEditDraft.base_models = [...cur.filter(b => on.includes(b)), ...on.filter(b => !cur.includes(b))];
   }else if(field.startsWith('sweet.')){
     modelEditDraft.sweet[field.slice(6)] = input.value;
+    if(field === 'sweet.scheduler'){
+      const hint = editor.querySelector('[data-model-beta57-hint]');
+      if(hint) hint.hidden = input.value !== 'beta57';
+    }
   }else{
     if(field === 'kind') modelEditDraft.sweet = modelSweetDraft(input.value, modelEditDraft.sweet);
     modelEditDraft[field] = field === 'tags' ? input.value.split(',').map(t => t.trim()).filter(Boolean) : input.value;
@@ -487,6 +506,10 @@ document.getElementById('lora-tab-list').addEventListener('input', (e) => {
   if(field === 'kind'){ renderModelRegistry(); return; }
   const saveBtn = editor.querySelector('.model-save-btn');
   if(saveBtn) saveBtn.disabled = !modelDraftDirty();
+}
+document.getElementById('lora-tab-list').addEventListener('input', updateModelDraftInput);
+document.getElementById('lora-tab-list').addEventListener('change', (e) => {
+  if(e.target.matches('select[data-field]')) updateModelDraftInput(e);
 });
 
 // 파드별 설치 현황 — 등록부 목록에 "어느 파드에 있나"를 얹는 데 쓴다.
