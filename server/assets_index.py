@@ -22,6 +22,7 @@ from PIL import Image
 
 import auth
 import db
+import library_generated_outputs
 from output_images import OUTPUT_DIR, OutputFolderError, list_output_images
 from output_videos import VIDEO_EXTENSIONS, list_output_videos
 
@@ -444,6 +445,7 @@ def sync(force: bool = False) -> dict | None:
                         removed += 1
         _backfill_model_meta(found)
         _backfill_model_meta(found, _BACKFILL_VIDEO_PROMPT_KEY, " AND kind = 'video' AND (prompt IS NULL OR prompt = '')")
+        library_generated_outputs.sync(base, found)
         _last_sync = time.monotonic()
         return {"added": added, "updated": updated, "removed": removed, "total": len(found)}
     finally:

@@ -115,7 +115,7 @@ def _check_images(images: list) -> list:
     return [(data, (src or "").strip(), _open_image(data)) for data, src in images]
 
 
-def _save_images(conn, pose_id: int, checked: list) -> str:
+def _save_images(conn, pose_id: int, checked: list, created_files=None) -> str:
     """검사한 이미지를 이어지는 position으로 저장하고 첫 장의 파일 이름을 돌려준다."""
     pos = conn.execute("SELECT COALESCE(MAX(position) + 1, 0) FROM pose_images WHERE pose_id=?",
                        (pose_id,)).fetchone()[0]
@@ -125,6 +125,8 @@ def _save_images(conn, pose_id: int, checked: list) -> str:
             "INSERT INTO pose_images(pose_id, image_file, thumb_file, source_url, position, created_at)"
             " VALUES (?, '', '', ?, ?, ?)", (pose_id, src, pos, db.now_iso())).lastrowid
         filename, thumb_name = f"{pose_id}_{image_id}.{EXTS[img.format]}", f"{pose_id}_{image_id}_thumb.webp"
+        if created_files is not None:
+            created_files.extend([_dir() / filename, _dir() / thumb_name])
         (_dir() / filename).write_bytes(data)
         thumb = ImageOps.exif_transpose(img).convert("RGB")
         thumb.thumbnail((THUMB_SIZE, THUMB_SIZE))
