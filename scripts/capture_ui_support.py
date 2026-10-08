@@ -16,7 +16,7 @@ GLOBAL_TABS = ('dashboard', 'pods', 'jobs', 'gallery', 'video-gallery', 'danboor
 POD_TABS = ('pgallery', 'pvideo', 'pmodels', 'results', 'psettings')
 PROJECT_TABS = ('prboard', 'jobs', 'prgallery', 'prvideo')
 
-# 복사 대상: 이 세 폴더의 git 추적 파일만. .env·data/·output/·assets/·옛 루트 런타임 파일은 그 밖이다.
+# 복사 대상: 이 세 폴더의 추적 파일과 ignore되지 않은 새 파일. 비밀·런타임 파일은 제외한다.
 COPY_DIRS = ('server', 'static', 'templates')
 
 # 자식 프로세스(서버·Playwright driver·Chromium)가 물려받아도 되는 시스템 변수뿐이다.
@@ -76,11 +76,12 @@ def child_environment(directory, source_env=None):
 
 
 def tracked_files(root):
-    """COPY_DIRS 안의 git 추적 파일 상대 경로."""
-    out = subprocess.run(['git', 'ls-files', '-z', '--', *COPY_DIRS], cwd=root, capture_output=True)
+    """COPY_DIRS 안의 현재 소스 경로(커밋 전 새 파일도 포함한다)."""
+    out = subprocess.run(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', *COPY_DIRS],
+                         cwd=root, capture_output=True)
     if out.returncode:
         raise RuntimeError('git ls-files 실패: ' + out.stderr.decode('utf-8', 'replace')[:300])
-    return [p for p in out.stdout.decode('utf-8').split('\0') if p]
+    return sorted({p for p in out.stdout.decode('utf-8').split('\0') if p})
 
 
 def copy_sources(root, files, dest):
