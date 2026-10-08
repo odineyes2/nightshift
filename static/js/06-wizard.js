@@ -696,6 +696,7 @@ async function wizardApply(){
   if(wizardPendingPose && (pendingPosition || workflowHasOpenPose(workflow))){
     const poseEl = pendingPosition ? null : optionsFields.querySelector('[data-name="pose_image"]');
     const raw = optionsFields.querySelector('.enhance-raw');
+    restoreLibraryPrompt(raw);
     const origin = document.createElement('input');
     origin.type = 'hidden'; origin.className = 'option-input';
     origin.dataset.name = 'library_generation_context';
@@ -717,7 +718,8 @@ async function wizardApply(){
         if(!raw || !tags) return;
         const v = raw.value.trim();
         if(on && v !== tags && !v.endsWith(', ' + tags)) raw.value = [v, tags].filter(Boolean).join(', ');
-        else if(!on && v.endsWith(tags)) raw.value = v.slice(0, -tags.length).replace(/,\s*$/, '');
+        else if(!on && v === tags) raw.value = '';
+        else if(!on && v.endsWith(', ' + tags)) raw.value = v.slice(0, -tags.length - 2);
         else return;
         raw.dispatchEvent(new Event('input'));
       };
@@ -726,7 +728,10 @@ async function wizardApply(){
         const btn = addPoseTagSwitch(raw, on => { wizardPendingPose.tagsOn = on; setTags(on); });
         btn.setAttribute('aria-checked', String(wizardPendingPose.tagsOn !== false));
       }
-      const showPrompt = () => renderLibrarySelection(optionsFields, raw?.value || '', false);
+      const showPrompt = () => {
+        if(raw) wizardPendingPose.formPrompt = raw.value;
+        renderLibrarySelection(optionsFields, raw?.value || '', false);
+      };
       if(raw) raw.addEventListener('input', showPrompt);
       showPrompt();
     }
@@ -950,6 +955,7 @@ function addPoseTagSwitch(raw, onChange){
 // 순차 모드 폼 — 포즈 칸을 숨기고, 시드 개수 칸을 "포즈마다 생성 장수"(1)로 바꾸고, 총 장수를 보여 준다.
 // Position 순차(NS-43)는 noun='Position', toValue=positionSequenceValue로 같은 폼을 쓴다.
 function applyPoseSequenceForm(items, poseEl, raw, noun = '포즈', toValue = poseSequenceValue){
+  restoreLibraryPrompt(raw);
   const poseField = poseEl && poseEl.closest('.field');
   if(poseField) poseField.hidden = true;
   const countEl = optionsFields.querySelector('[data-name="seed_count"]');
@@ -973,6 +979,7 @@ function applyPoseSequenceForm(items, poseEl, raw, noun = '포즈', toValue = po
   const seqEl = optionsFields.querySelector('[data-name="pose_sequence"]');
   const sync = () => {
     if(!seqEl) return;
+    if(raw) wizardPendingPose.formPrompt = raw.value;
     // width/height를 사용자가 직접 적었으면(자동 제안값이 아니면) 모든 포즈에 그 크기를 쓴다.
     const wEl = optionsFields.querySelector('[data-name="width"]');
     const hEl = optionsFields.querySelector('[data-name="height"]');
@@ -1223,6 +1230,14 @@ workflowSaveBtn.addEventListener('click', async () => {
 
 
 // 라이브러리 선택은 출처 사본으로 보여 주고 다시 선택하지 않는다.
+// 폼을 다시 그려도 사용자가 편집한 프롬프트를 같은 선택 컨텍스트에 유지한다.
+function restoreLibraryPrompt(raw){
+  if(raw && wizardPendingPose && wizardPendingPose.formPrompt !== undefined){
+    raw.value = wizardPendingPose.formPrompt;
+    raw.dispatchEvent(new Event('input'));
+  }
+}
+
 function renderLibrarySelection(container = document.getElementById('load-notice').parentElement, common = '', tagsOn = true){
   document.getElementById('library-selection-preview')?.remove();
   const pending = wizardPendingPose;

@@ -69,8 +69,10 @@ console.log(JSON.stringify([
     assert auto[1]["pose_id"] == 2 and auto[1]["pose_name"] == "b"
     # 실제 순차 폼의 초기값·태그 토글·공통 프롬프트 편집·제출 훅을 함께 실행한다.
     form_fn = re.search(r"function applyPoseSequenceForm\(.*?\n}\n", wiz, re.S).group(0)
-    script = fn + form_fn + r'''
+    restore_fn = re.search(r"function restoreLibraryPrompt\(.*?\n}\n", wiz, re.S).group(0)
+    script = fn + restore_fn + form_fn + r'''
 const mk = value => ({value, dataset:{}, listeners:{},
+  dispatchEvent(e){this.listeners[e.type]?.();},
   addEventListener(k,f){this.listeners[k]=f;}, closest(){return {querySelector(){return {};}};}});
 const count = mk('1'), raw = mk('common'), seq = mk(''), width = mk(''), height = mk('');
 const fields = {seed_count:count, pose_sequence:seq, width, height};
@@ -91,6 +93,9 @@ const off = JSON.parse(seq.value);
 applyPoseSequenceForm(items, null, raw);
 if(switchState !== 'false' || JSON.parse(seq.value)[0].tags !== '') throw Error('reapply lost tag switch');
 raw.value='edited'; raw.listeners.input();
+raw.value='default after redraw';
+applyPoseSequenceForm(items, null, raw);
+if(raw.value !== 'edited') throw Error('reapply lost edited prompt');
 switchState='true'; onChange();
 danbooruPreSubmitHooks.forEach(f=>f());
 console.log(JSON.stringify({initial,off,final:JSON.parse(seq.value),shown,pending:wizardPendingPose}));
@@ -104,6 +109,20 @@ console.log(JSON.stringify({initial,off,final:JSON.parse(seq.value),shown,pendin
     assert state["final"][0]["source_image_id"] == 3
     assert state["shown"] == {"common": "edited", "on": True}
     assert state["pending"]["tagsOn"] is True
+    # 단일 태그 토글은 사용자 단어의 접미사를 라이브러리 태그로 오인하지 않는다.
+    toggle = re.search(r"      const setTags = on => \{.*?\n      };", wiz, re.S).group(0)
+    script = "const tags = 'standing'; const raw = {value:'understanding', dispatchEvent(){}};\n" + toggle + r'''
+setTags(false);
+if(raw.value !== 'understanding') throw Error('removed user prompt suffix');
+raw.value='common'; setTags(true); setTags(true);
+if(raw.value !== 'common, standing') throw Error('duplicate tags');
+setTags(false);
+if(raw.value !== 'common') throw Error('toggle did not remove tags');
+raw.value='standing'; setTags(false);
+if(raw.value !== '') throw Error('tag-only prompt was not cleared');
+'''
+    r = subprocess.run([node, "-e", script], capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stderr
     print("ok")
 
 
