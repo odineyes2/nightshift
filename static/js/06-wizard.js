@@ -87,6 +87,7 @@ async function openWizardFamilyModal(){
   openWizardModal('wizard-family-modal');
   await fetchBaseModelFamilies();
   renderWizardFamilyModal();
+  if(wizardPendingPose) renderLibrarySelection(body, '', wizardPendingPose.tagsOn !== false);
 }
 
 function renderWizardFamilyModal(){
@@ -143,6 +144,7 @@ document.getElementById('wizard-family-modal-body').addEventListener('click', (e
     // Openpose CN으로 골랐는데 OpenPose를 못 쓰는 family면(NS-51) 포즈·프롬프트를 적용하지 않고 알린다.
     if(wizardPendingPose && !keepTxt2img){
       wizardPendingPose = null;
+      document.getElementById('library-selection-preview')?.remove();
       document.getElementById('load-notice').textContent =
         '이 베이스 모델은 Openpose CN을 쓸 수 없어 고른 포즈 방식이 적용되지 않았어요. 체크포인트형 모델로 다시 열어 주세요.';
     }
@@ -694,22 +696,44 @@ async function wizardApply(){
   if(wizardPendingPose && (pendingPosition || workflowHasOpenPose(workflow))){
     const poseEl = pendingPosition ? null : optionsFields.querySelector('[data-name="pose_image"]');
     const raw = optionsFields.querySelector('.enhance-raw');
+    restoreLibraryPrompt(raw);
+    const origin = document.createElement('input');
+    origin.type = 'hidden'; origin.className = 'option-input';
+    origin.dataset.name = 'library_generation_context';
+    origin.value = JSON.stringify(wizardPendingPose.sequence || (wizardPendingPose.context ? [{ ...wizardPendingPose.context, name: wizardPendingPose.name, danbooru_prompt: wizardPendingPose.prompt }] : []));
+    optionsFields.appendChild(origin);
     if(wizardPendingPose.sequence){
       if(pendingPosition) applyPoseSequenceForm(wizardPendingPose.sequence, null, raw, '프롬프트', positionSequenceValue);
       else applyPoseSequenceForm(wizardPendingPose.sequence, poseEl, raw);
     }else{
-      if(poseEl){ poseEl.value = wizardPendingPose.name; suggestPoseSize(poseEl.value); }
+      if(poseEl){
+        if(!Array.from(poseEl.options).some(opt => opt.value === wizardPendingPose.name)) poseEl.add(new Option(wizardPendingPose.name, wizardPendingPose.name));
+        poseEl.value = wizardPendingPose.name; suggestPoseSize(poseEl.value);
+        const field = poseEl.closest('.field');
+        field.querySelectorAll('select, input, button').forEach(el => { el.disabled = true; });
+      }
+      renderLibrarySelection(optionsFields);
       const tags = wizardPendingPose.prompt;
       const setTags = on => {
         if(!raw || !tags) return;
         const v = raw.value.trim();
-        if(on && !v.includes(tags)) raw.value = [v, tags].filter(Boolean).join(', ');
-        else if(!on && v.endsWith(tags)) raw.value = v.slice(0, -tags.length).replace(/,\s*$/, '');
+        if(on && v !== tags && !v.endsWith(', ' + tags)) raw.value = [v, tags].filter(Boolean).join(', ');
+        else if(!on && v === tags) raw.value = '';
+        else if(!on && v.endsWith(', ' + tags)) raw.value = v.slice(0, -tags.length - 2);
         else return;
         raw.dispatchEvent(new Event('input'));
       };
-      setTags(true);
-      if(tags) addPoseTagSwitch(raw, setTags);
+      setTags(wizardPendingPose.tagsOn !== false);
+      if(tags){
+        const btn = addPoseTagSwitch(raw, on => { wizardPendingPose.tagsOn = on; setTags(on); });
+        btn.setAttribute('aria-checked', String(wizardPendingPose.tagsOn !== false));
+      }
+      const showPrompt = () => {
+        if(raw) wizardPendingPose.formPrompt = raw.value;
+        renderLibrarySelection(optionsFields, raw?.value || '', false);
+      };
+      if(raw) raw.addEventListener('input', showPrompt);
+      showPrompt();
     }
   }
 
@@ -849,13 +873,18 @@ async function startFaceDetailerWizard(stored){
     `'${stored}'을(를) Face Detailer 참조 이미지로 골랐어요. 베이스 모델을 고르고 "다음"을 누르세요.`;
   await openWizardFamilyModal();
 }
-document.getElementById('wizard-reset-btn').addEventListener('click', () => { wizardPendingInputImage = null; wizardPendingPose = null; });
+document.getElementById('wizard-reset-btn').addEventListener('click', () => {
+  wizardPendingInputImage = null;
+  wizardPendingPose = null;
+  wizardNextPoseSequence = null;
+  document.getElementById('library-selection-preview')?.remove();
+});
 
 // Library "이 포즈로 생성" — 입력 이미지 풀에 둔 사본(stored)과 게시물의 danbooru prompt를 기억하고, 마법사를
 // txt2img + OpenPose·시드 반복으로 채운 채 1단계(베이스 모델)를 연다. 포즈 칸·프롬프트는 wizardApply가 채운다.
 let wizardPendingPose = null;
 let wizardNextPoseSequence = null;   // startOpenPoseSequenceWizard가 넘기는 순차 목록(한 번 쓰고 비운다)
-async function startOpenPoseWizard(stored, prompt){
+async function startOpenPoseWizard(stored, prompt, context = null){
   const sequence = wizardNextPoseSequence;
   wizardNextPoseSequence = null;
   document.getElementById('load-error').textContent = '';
@@ -863,7 +892,8 @@ async function startOpenPoseWizard(stored, prompt){
   resetWizardAndWorkflow();
   resetForm();
   wizardPendingInputImage = null;
-  wizardPendingPose = sequence ? { sequence } : { name: stored, prompt: (prompt || '').trim() };
+  wizardPendingPose = sequence ? { sequence } : { name: stored, prompt: (prompt || '').trim(), context };
+  renderLibrarySelection();
   wizard.base = 'txt2img';
   wizard.post.openpose = true;
   wizard.batchMode = 'seed';
@@ -886,13 +916,14 @@ function startOpenPoseSequenceWizard(items){
 // Library "프롬프트"(NS-43, NS-51부터 Pose·Position 공통) — 이미지는 넘기지 않고 danbooru prompt만 메인 프롬프트 끝에
 // 붙이는 txt2img·시드 반복. wizardPendingPose.position은 원본 탭이 아니라 "프롬프트만" 방식의 표지다.
 // sequence(장마다 한 항목)가 있으면 순차 실행 — 작업 하나에서 seed_batch가 항목마다 돈다. 크기는 마법사 기본값.
-async function startPositionWizard(prompt, sequence = null){
+async function startPositionWizard(prompt, sequence = null, context = null){
   document.getElementById('load-error').textContent = '';
   openNewJobModal();
   resetWizardAndWorkflow();
   resetForm();
   wizardPendingInputImage = null;
-  wizardPendingPose = sequence ? { position: true, sequence } : { position: true, prompt: (prompt || '').trim() };
+  wizardPendingPose = sequence ? { position: true, sequence } : { position: true, prompt: (prompt || '').trim(), context };
+  renderLibrarySelection();
   wizard.base = 'txt2img';
   wizard.post.openpose = false;
   wizard.batchMode = 'seed';
@@ -924,6 +955,7 @@ function addPoseTagSwitch(raw, onChange){
 // 순차 모드 폼 — 포즈 칸을 숨기고, 시드 개수 칸을 "포즈마다 생성 장수"(1)로 바꾸고, 총 장수를 보여 준다.
 // Position 순차(NS-43)는 noun='Position', toValue=positionSequenceValue로 같은 폼을 쓴다.
 function applyPoseSequenceForm(items, poseEl, raw, noun = '포즈', toValue = poseSequenceValue){
+  restoreLibraryPrompt(raw);
   const poseField = poseEl && poseEl.closest('.field');
   if(poseField) poseField.hidden = true;
   const countEl = optionsFields.querySelector('[data-name="seed_count"]');
@@ -942,17 +974,23 @@ function applyPoseSequenceForm(items, poseEl, raw, noun = '포즈', toValue = po
   renderHint();
   if(countEl) countEl.addEventListener('input', renderHint);
   if(poseField) poseField.after(hint); else optionsFields.prepend(hint);
-  const tagSwitch = addPoseTagSwitch(raw, () => {});
+  const tagSwitch = addPoseTagSwitch(raw, () => { wizardPendingPose.tagsOn = tagSwitch.getAttribute('aria-checked') === 'true'; sync(); });
+  tagSwitch.setAttribute('aria-checked', String(wizardPendingPose.tagsOn !== false));
   const seqEl = optionsFields.querySelector('[data-name="pose_sequence"]');
-  danbooruPreSubmitHooks.push(() => {
+  const sync = () => {
     if(!seqEl) return;
+    if(raw) wizardPendingPose.formPrompt = raw.value;
     // width/height를 사용자가 직접 적었으면(자동 제안값이 아니면) 모든 포즈에 그 크기를 쓴다.
     const wEl = optionsFields.querySelector('[data-name="width"]');
     const hEl = optionsFields.querySelector('[data-name="height"]');
     const typed = el => el && el.value.trim() && el.dataset.poseAuto !== el.value.trim();
     const fixed = typed(wEl) && typed(hEl) ? { width: Number(wEl.value), height: Number(hEl.value) } : null;
-    seqEl.value = toValue(items, tagSwitch.getAttribute('aria-checked') === 'true', fixed);   // poseSequenceValue(items, …)
-  });
+    seqEl.value = toValue(items, tagSwitch.getAttribute('aria-checked') === 'true', fixed);
+    renderLibrarySelection(hint, raw?.value || '', tagSwitch.getAttribute('aria-checked') === 'true');
+  };
+  [raw, countEl, optionsFields.querySelector('[data-name="width"]'), optionsFields.querySelector('[data-name="height"]')].filter(Boolean).forEach(el => el.addEventListener('input', sync));
+  danbooruPreSubmitHooks.push(sync);
+  sync();
 }
 
 // 베이스 모델별 Face Detailer 기본값(GET /api/face-detailer-defaults)으로 spec.face_detailer를 만든다.
@@ -1190,3 +1228,35 @@ workflowSaveBtn.addEventListener('click', async () => {
   }
 });
 
+
+// 라이브러리 선택은 출처 사본으로 보여 주고 다시 선택하지 않는다.
+// 폼을 다시 그려도 사용자가 편집한 프롬프트를 같은 선택 컨텍스트에 유지한다.
+function restoreLibraryPrompt(raw){
+  if(raw && wizardPendingPose && wizardPendingPose.formPrompt !== undefined){
+    raw.value = wizardPendingPose.formPrompt;
+    raw.dispatchEvent(new Event('input'));
+  }
+}
+
+function renderLibrarySelection(container = document.getElementById('load-notice').parentElement, common = '', tagsOn = true){
+  document.getElementById('library-selection-preview')?.remove();
+  const pending = wizardPendingPose;
+  if(!pending) return;
+  const items = pending.sequence || [{ ...pending.context, danbooru_prompt: pending.prompt }];
+  const panel = document.createElement('div');
+  panel.id = 'library-selection-preview'; panel.className = 'library-selection-preview';
+  items.forEach((it, index) => {
+    const row = document.createElement('div'); row.className = 'library-selection-row';
+    if(it.preview_url){
+      const img = document.createElement('img'); img.src = it.preview_url;
+      img.alt = it.article_name || '선택한 참조 이미지'; row.appendChild(img);
+    }
+    const text = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = `${index + 1}. ${it.article_name || it.pose_name || it.position_name || '라이브러리 선택'} · 선택한 참조를 유지해요`;
+    const prompt = document.createElement('div');
+    prompt.textContent = [common.trim(), tagsOn ? (it.danbooru_prompt || '').trim() : ''].filter(Boolean).join(', ') || '추가 프롬프트가 없어요';
+    text.append(title, prompt); row.appendChild(text); panel.appendChild(row);
+  });
+  container.appendChild(panel);
+}

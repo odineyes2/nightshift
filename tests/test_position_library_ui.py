@@ -26,7 +26,7 @@ def main():
         assert needle in HTML, needle
     lib = read("17c-library.js")
     for needle in ["'/api/library/positions'", "method: 'PATCH'", "method: 'DELETE'", "confirm(",
-                   "startPositionWizard(p.danbooru_prompt)", "startPositionSequenceWizard(items)",
+                   "startPositionWizard(p.danbooru_prompt, null, context)", "startPositionSequenceWizard(items)",
                    "library-image-delete-btn", "function setLibraryTab"]:
         assert needle in lib, needle
     wiz = read("06-wizard.js")
