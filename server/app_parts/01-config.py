@@ -80,6 +80,7 @@ import pod_registry
 import pose_library
 import position_library
 import projects as project_store
+import quick_run
 import runpod_api
 import runpod_sessions
 import runpod_sync
