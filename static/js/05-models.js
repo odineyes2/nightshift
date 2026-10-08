@@ -98,7 +98,7 @@ function usageHtml(kind, name){
 
 function modelEntry(kind, name){
   return modelRegistry.items[modelKey(kind, name)]
-    || { kind, filename: name, base_model: '', base_models: [], notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '' };
+    || { kind, filename: name, base_model: '', base_models: [], notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '', sweet: {} };
 }
 
 // 베이스 모델은 자유 입력이 아니라 서버가 정해 둔 기준 목록(modelRegistry.base_models, DB base_models 표)에서만
@@ -129,10 +129,46 @@ async function putModelEntry(payload){
 }
 
 // ---- 편집 패널 임시 값(저장 버튼을 눌러야 반영) ----
+const modelSweetFields = {
+  checkpoints: ['cfg', 'steps', 'sampler_name', 'scheduler', 'positive_prefix', 'negative', 'clip_skip'],
+  diffusion_models: ['cfg', 'steps', 'sampler_name', 'scheduler', 'positive_prefix', 'negative', 'clip_skip'],
+  loras: ['strength', 'strength_min', 'strength_max', 'strength_clip'],
+};
+const modelSweetNumbers = {
+  cfg: [0, 100, 'any'], steps: [1, 1000, 1], clip_skip: [1, 12, 1],
+  strength: [-10, 10, 'any'], strength_min: [-10, 10, 'any'],
+  strength_max: [-10, 10, 'any'], strength_clip: [-10, 10, 'any'],
+};
+// 키 순서를 고정하고 숫자 응답을 입력 문자열로 바꿔 저장 후 변경 판정을 맞춘다.
+function modelSweetDraft(kind, sweet = {}){
+  return Object.fromEntries((modelSweetFields[kind] || []).map(k => [k, String(sweet[k] ?? '')]));
+}
+function modelSweetPayload(d){
+  return Object.fromEntries((modelSweetFields[d.kind] || []).filter(k => String(d.sweet[k] ?? '').trim() !== '')
+    .map(k => [k, modelSweetNumbers[k] ? Number(d.sweet[k]) : d.sweet[k]]));
+}
+function modelSweetHtml(d, dis){
+  const keys = modelSweetFields[d.kind];
+  if(!keys) return '';
+  const labels = {cfg: 'CFG', steps: 'Steps', sampler_name: 'Sampler', scheduler: 'Scheduler',
+    positive_prefix: '추천 Quality Prompt', negative: '추천 negative', clip_skip: 'Clip skip',
+    strength: '권장 강도', strength_min: '권장 범위 최소', strength_max: '권장 범위 최대', strength_clip: 'CLIP 강도'};
+  return '<div class="model-field wide"><span>스윗 포인트</span><div class="email-hint">모델의 추천 값을 기록해요. 빈 칸은 저장하지 않아요.</div></div>'
+    + keys.map(k => {
+      const value = escapeHtml(d.sweet[k] ?? '');
+      const text = k === 'positive_prefix' || k === 'negative';
+      const num = modelSweetNumbers[k];
+      const control = text
+        ? `<textarea class="option-input" data-field="sweet.${k}" rows="3" maxlength="${k === 'negative' ? 2000 : 1000}" ${dis}>${value}</textarea>`
+        : `<input class="option-input" data-field="sweet.${k}" type="${num ? 'number' : 'text'}" ${num ? `min="${num[0]}" max="${num[1]}" step="${num[2]}"` : 'maxlength="64"'} value="${value}" ${dis}>`;
+      return `<label class="model-field${text ? ' wide' : ''}"><span>${labels[k]}</span>${control}</label>`;
+    }).join('');
+}
 function modelDraftFromEntry(kind, name){
   const e = modelEntry(kind, name);
   return { origKind: kind, kind, origName: name, filename: name, base_models: [...basesOf(e)], notes: e.notes,
-           tags: [...(e.tags || [])], trigger_keyword: e.trigger_keyword, page_url: e.page_url, download_url: e.download_url };
+           tags: [...(e.tags || [])], trigger_keyword: e.trigger_keyword, page_url: e.page_url, download_url: e.download_url,
+           sweet: modelSweetDraft(kind, e.sweet) };
 }
 
 function modelDraftDirty(){
@@ -158,12 +194,12 @@ async function saveModelDraft(){
     return;
   }
   const fields = { base_models: d.base_models, notes: d.notes, tags: d.tags,
-                    trigger_keyword: d.trigger_keyword, page_url: d.page_url, download_url: d.download_url };
+                    trigger_keyword: d.trigger_keyword, page_url: d.page_url, download_url: d.download_url, sweet: modelSweetPayload(d) };
   try{
     await putModelEntry({ kind: d.kind, filename: newName, ...fields });
     if(moved){
       await putModelEntry({ kind: d.origKind, filename: d.origName, base_models: [], notes: '', tags: [],
-                             trigger_keyword: '', page_url: '', download_url: '' });
+                             trigger_keyword: '', page_url: '', download_url: '', sweet: {} });
       modelKindActive = d.kind;   // 종류를 옮겼으면 그 종류 탭으로 같이 옮겨야 보인다
       modelExpandedKey = modelKey(d.kind, newName);
     }
@@ -237,7 +273,7 @@ function modelRowHtml(kind, name, isAdmin){
         <input type="text" class="option-input" data-field="filename" ${dis} placeholder="${d.kind === 'ultralytics' ? '예: bbox/face_yolov8m.pt' : '예: mmh3/my_style_v2.safetensors'}" value="${escapeHtml(d.filename)}"></label>`}
       <div class="model-field"><span>베이스 모델 <span style="opacity:.6">(여럿 고를 수 있어요)</span></span>
         ${baseModelChecks(d.base_models, dis)}</div>
-      ${isLora ? `<label class="model-field"><span>트리거 키워드</span>
+      ${d.kind === 'loras' ? `<label class="model-field"><span>트리거 키워드</span>
         <input type="text" class="option-input" data-field="trigger_keyword" ${dis} placeholder="없으면 비워둠 — 워크플로우에서 고르면 프롬프트에 자동으로 붙어요" value="${escapeHtml(d.trigger_keyword)}"></label>` : ''}
       <label class="model-field"><span>페이지 주소${link(d.page_url)}</span>
         <input type="url" class="option-input" data-field="page_url" ${dis} placeholder="https://civitai.com/models/… 또는 https://huggingface.co/…" value="${escapeHtml(d.page_url)}"></label>
@@ -245,6 +281,7 @@ function modelRowHtml(kind, name, isAdmin){
         <input type="url" class="option-input" data-field="download_url" ${dis} placeholder="https://civitai.com/api/download/models/… 또는 https://huggingface.co/…/resolve/…" value="${escapeHtml(d.download_url)}"></label>
       <label class="model-field"><span>태그 (쉼표로 구분)</span>
         <input type="text" class="option-input" data-field="tags" ${dis} placeholder="예: 캐릭터, 스타일, 실사" value="${escapeHtml((d.tags || []).join(', '))}"></label>
+      ${modelSweetHtml(d, dis)}
       <label class="model-field wide"><span>메모</span>
         <textarea class="option-input" data-field="notes" rows="3" ${dis} placeholder="권장 가중치, 잘 어울리는 조합 등" style="max-width:none;">${escapeHtml(d.notes)}</textarea></label>
       <div class="email-hint model-full">워커마다 설치됐는지는 각 워커의 Models 탭에서 보고 받아요.</div>
@@ -291,7 +328,7 @@ function renderModelRegistry(){
     const e = modelEntry(modelKindActive, n);
     if(modelBaseFilter && !basesOf(e).some(b => b.toLowerCase() === modelBaseFilter.toLowerCase())) return false;
     if(!filter) return true;
-    return (n + ' ' + basesText(e) + ' ' + (e.tags || []).join(' ') + ' ' + e.notes + ' ' + e.trigger_keyword + ' ' + e.page_url).toLowerCase().includes(filter);
+    return (n + ' ' + basesText(e) + ' ' + (e.tags || []).join(' ') + ' ' + e.notes + ' ' + e.trigger_keyword + ' ' + e.page_url + ' ' + (e.sweet?.positive_prefix || '') + ' ' + (e.sweet?.sampler_name || '')).toLowerCase().includes(filter);
   });
   if(modelSort !== 'name'){
     const val = n => {
@@ -399,9 +436,9 @@ document.getElementById('lora-tab-list').addEventListener('click', (e) => {
   const clearBtn = e.target.closest('.model-clear-btn');
   if(clearBtn){
     const editor = clearBtn.closest('.model-editor');
-    if(!confirm('이 모델의 등록 정보(주소·베이스 모델·트리거 키워드·태그·메모)를 모두 지울까요? 파일은 그대로예요.')) return;
+    if(!confirm('이 모델의 등록 정보(주소·베이스 모델·트리거 키워드·태그·스윗 포인트·메모)를 모두 지울까요? 파일은 그대로예요.')) return;
     const kind = editor.dataset.kind, name = editor.dataset.name;
-    putModelEntry({ kind, filename: name, base_models: [], notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '' })
+    putModelEntry({ kind, filename: name, base_models: [], notes: '', tags: [], trigger_keyword: '', page_url: '', download_url: '', sweet: {} })
       .then(() => { modelExpandedKey = null; modelEditDraft = null; renderModelRegistry(); })
       .catch(err => setModelError(err.message));
     return;
@@ -441,9 +478,13 @@ document.getElementById('lora-tab-list').addEventListener('input', (e) => {
     // 이미 고른 것의 순서는 지키고 새로 고른 것만 끝에 붙인다 — 첫 값이 호환용 base_model이 된다
     const on = checkedBases(input), cur = modelEditDraft.base_models;
     modelEditDraft.base_models = [...cur.filter(b => on.includes(b)), ...on.filter(b => !cur.includes(b))];
+  }else if(field.startsWith('sweet.')){
+    modelEditDraft.sweet[field.slice(6)] = input.value;
   }else{
+    if(field === 'kind') modelEditDraft.sweet = modelSweetDraft(input.value, modelEditDraft.sweet);
     modelEditDraft[field] = field === 'tags' ? input.value.split(',').map(t => t.trim()).filter(Boolean) : input.value;
   }
+  if(field === 'kind'){ renderModelRegistry(); return; }
   const saveBtn = editor.querySelector('.model-save-btn');
   if(saveBtn) saveBtn.disabled = !modelDraftDirty();
 });
