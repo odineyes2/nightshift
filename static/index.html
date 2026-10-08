@@ -88,6 +88,7 @@
   <symbol id="i-boxes" viewBox="0 0 24 24"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></symbol>
   <symbol id="i-calendar-days" viewBox="0 0 24 24"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M8 13h.01"/><path d="M12 13h.01"/><path d="M16 13h.01"/><path d="M8 17h.01"/><path d="M12 17h.01"/><path d="M16 17h.01"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
   <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
   <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
   <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
@@ -1875,6 +1876,23 @@
     <div class="modal-footer">
       <button class="modal-btn-secondary" id="wizard-batchmode-modal-cancel"><svg class="ico"><use href="#i-x"/></svg> 닫기</button>
     </div>
+  </div>
+</div>
+
+<!-- 백틱 빠른 실행창(NS-52, DESIGN.md 8절 "빠른 입력창") — 17d-composer.js -->
+<div class="composer" id="composer" hidden role="dialog" aria-label="빠른 실행">
+  <div class="cmp-files" id="cmp-files"></div>
+  <textarea id="cmp-input" rows="1" placeholder="예: 1girl, sitting on a bench, sunset — Enter로 보내요" aria-label="프롬프트"></textarea>
+  <p class="cmp-error" id="cmp-error" role="alert"></p>
+  <div class="cmp-bar">
+    <button class="cmp-icon" id="cmp-attach" type="button" title="이미지 첨부" aria-label="이미지 첨부"><svg class="ico"><use href="#i-plus"/></svg></button>
+    <input type="file" id="cmp-file" accept="image/*" multiple hidden>
+    <select id="cmp-project" class="cmp-pill" title="프로젝트" aria-label="프로젝트"></select>
+    <div class="cmp-menu-wrap">
+      <button class="cmp-pill" id="cmp-preset" type="button" aria-haspopup="menu" aria-expanded="false" title="워크플로우 프리셋">프리셋 고르기</button>
+      <div class="cmp-menu" id="cmp-preset-menu" role="menu" hidden></div>
+    </div>
+    <button class="cmp-send" id="cmp-send" type="button" title="대기열에 넣기 (Enter)" aria-label="대기열에 넣기" disabled><svg class="ico"><use href="#i-arrow-up"/></svg></button>
   </div>
 </div>
 
