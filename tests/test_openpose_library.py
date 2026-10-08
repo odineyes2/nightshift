@@ -98,7 +98,7 @@ class ToInputTests(unittest.TestCase):
         for marker in ("library-card-pose-btn", "library-item-pose-btn", "library-lightbox-pose-btn"):
             self.assertIn(marker, lib + html, marker)
         self.assertNotIn('<button class="library-card"', lib)   # 카드 안에 버튼을 넣으려고 div로
-        self.assertIn("async function startOpenPoseWizard(stored, prompt)", wiz)
+        self.assertIn("async function startOpenPoseWizard(stored, prompt, context = null)", wiz)
         body = wiz[wiz.index("async function startOpenPoseWizard"):]
         self.assertIn("wizard.post.openpose = true", body)
         apply = wiz[wiz.index("wizardPendingPose"):]

@@ -847,7 +847,7 @@ optionsFields.addEventListener('change', e => {
 // 모든 포즈에 그 크기를, 없으면 포즈마다 이미지 비율에 맞춘 SDXL 크기를 쓴다.
 function poseSequenceValue(items, tagsOn, fixed){
   return JSON.stringify(items.map(it => ({
-    image: it.name, pose_id: it.pose_id, pose_name: it.pose_name,
+    ...(it.source_kind ? { source_kind: it.source_kind, article_id: it.article_id, source_image_id: it.source_image_id, generation_mode: it.generation_mode } : {}), image: it.name, pose_id: it.pose_id ?? it.position_id, pose_name: it.pose_name ?? it.position_name,
     tags: tagsOn ? (it.danbooru_prompt || '').trim() : '',
     width: fixed ? fixed.width : it.sdxl_width,
     height: fixed ? fixed.height : it.sdxl_height,
@@ -858,7 +858,7 @@ function poseSequenceValue(items, tagsOn, fixed){
 // 크기는 넣지 않아 폼의 width/height를 그대로 쓴다.
 function positionSequenceValue(items, tagsOn){
   return JSON.stringify(items.map(it => ({
-    pose_id: it.position_id, pose_name: it.position_name,
+    ...(it.source_kind ? { source_kind: it.source_kind, article_id: it.article_id, source_image_id: it.source_image_id, generation_mode: it.generation_mode } : {}), pose_id: it.pose_id ?? it.position_id, pose_name: it.pose_name ?? it.position_name,
     tags: tagsOn ? (it.danbooru_prompt || '').trim() : '',
   })));
 }

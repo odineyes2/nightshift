@@ -96,3 +96,10 @@
     #library-add-btn .btn-label, #library-article-add-btn .btn-label,
     #library-article-edit-btn .btn-label, #library-article-delete-btn .btn-label{ display:none; }
   }
+
+.library-selection-preview { border:1px solid var(--border); border-radius:8px; padding:12px; margin:12px 0; background:var(--panel-2); }
+.library-selection-row { display:flex; gap:12px; align-items:flex-start; font-size:13px; line-height:1.6; }
+.library-selection-row + .library-selection-row { margin-top:12px; }
+.library-selection-row img { width:64px; height:64px; object-fit:contain; border-radius:6px; flex-shrink:0; }
+.library-selection-row > div { min-width:0; overflow-wrap:anywhere; }
+.library-selection-row strong { font-weight:600; }

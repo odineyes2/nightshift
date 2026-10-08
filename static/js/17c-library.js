@@ -152,14 +152,16 @@ async function libraryToInput(url, body){
 function generatePoseSequence(){
   setLibraryError('');
   const kind = libraryTab;
-  const posts = libraryPoses.filter(p => !librarySelected.size || librarySelected.has(p.id));
+  const posts = libraryPoses.filter(p => !librarySelected.size || librarySelected.has(p.id)).map(p => ({ ...p, images: p.images.map(im => ({ ...im })) }));
   if(!posts.length) return;
   askLibraryTransfer(mode => runLibrarySequence(kind, posts, mode));
 }
 async function runLibrarySequence(kind, posts, mode){
   if(mode === 'prompt'){
     // 프롬프트만 — 이미지 복사 없이 목록 응답으로 장마다 한 항목을 만든다(positionSequenceValue 모양).
-    const items = posts.flatMap(p => p.images.map(() => ({
+    const items = posts.flatMap(p => p.images.map(im => ({
+      source_kind: kind, article_id: p.id, source_image_id: im.id, generation_mode: mode,
+      preview_url: im.thumb_url || im.image_url, article_name: p.name,
       position_id: p.id, position_name: p.name, danbooru_prompt: p.danbooru_prompt || '',
     })));
     if(!items.length) return setLibraryError('고른 게시물에 이미지가 없어요');
@@ -171,8 +173,13 @@ async function runLibrarySequence(kind, posts, mode){
       ? await libraryToInput('/api/library/positions/to-input', { position_ids: ids })
       : await libraryToInput('/api/library/poses/to-input', { pose_ids: ids });
     // Position 응답은 Pose 순차 항목(poseSequenceValue가 읽는 pose_id/pose_name) 모양으로 바꾼다.
-    const items = (Array.isArray(data) ? data : []).map(it => kind === 'position'
-      ? { ...it, pose_id: it.position_id, pose_name: it.position_name } : it);
+    const items = (Array.isArray(data) ? data : []).map(it => {
+      const articleId = kind === 'position' ? it.position_id : it.pose_id;
+      const post = posts.find(p => p.id === articleId);
+      const im = post?.images.find(im => im.id === it.image_id);
+      return { ...it, source_kind: kind, article_id: articleId, source_image_id: it.image_id,
+        generation_mode: mode, article_name: post?.name, preview_url: im?.thumb_url || im?.image_url };
+    });
     if(!items.length) throw new Error('고른 게시물에 이미지가 없어요');
     await startOpenPoseSequenceWizard(items);
   }catch(err){ setLibraryError(err.message); }
@@ -185,15 +192,18 @@ function generateFromPose(poseId, imageId){
   const kind = libraryTab;
   const p = libraryPoses.find(x => x.id === poseId);
   if(!p) return;
-  askLibraryTransfer(mode => runLibrarySingle(kind, p, imageId, mode));
+  askLibraryTransfer(mode => runLibrarySingle(kind, { ...p, images: p.images.map(im => ({ ...im })) }, imageId, mode));
 }
 async function runLibrarySingle(kind, p, imageId, mode){
   try{
     const data = mode === 'prompt' ? null
       : await libraryToInput(`/api/library/${kind === 'position' ? 'positions' : 'poses'}/${p.id}/images/${imageId}/to-input`);
     if(libraryLightbox.style.display !== 'none') closeLibraryLightbox();
-    if(data) await startOpenPoseWizard(data.name, data.danbooru_prompt);
-    else await startPositionWizard(p.danbooru_prompt);
+    const im = p.images.find(im => im.id === imageId);
+    const context = { source_kind: kind, article_id: p.id, source_image_id: imageId,
+      generation_mode: mode, article_name: p.name, preview_url: im?.thumb_url || im?.image_url };
+    if(data) await startOpenPoseWizard(data.name, data.danbooru_prompt, context);
+    else await startPositionWizard(p.danbooru_prompt, null, context);
   }catch(err){ setLibraryError(err.message); }
 }
 
