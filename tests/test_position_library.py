@@ -81,7 +81,7 @@ def add(uid="u1", n=1, name="정면"):
 class PositionTests(unittest.TestCase):
     def test_1_migration(self):
         with db.connect() as conn:
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 21)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], db.MIGRATIONS[-1][0])
             cols = {r[1] for r in conn.execute("PRAGMA table_info(positions)")}
             self.assertEqual(conn.execute("SELECT name FROM poses WHERE id=7").fetchone()[0], "옛 포즈")
         self.assertTrue({"name", "description", "danbooru_prompt", "owner_id"} <= cols)
