@@ -146,9 +146,10 @@ function resolvePodId(podId){
 // "지금 새 작업을 만들면 어느 파드로 가는가". 새 작업 폼은 파드 스코프 안에만 있어서
 // 보통 currentPodId와 같지만, Danbooru → "메인 프롬프트로 보내기"처럼 파드 밖에서
 // 폼을 건드리는 경로가 있어서 별도 함수로 둔다.
-// 파드를 정하지 않은 "자동" 상태인가 — 전역 작업 화면이나 프로젝트 안에서 실행 파드를 안 골랐을 때.
+// 파드를 정하지 않은 "자동" 상태인가 — 전역 작업 화면·라이브러리·프로젝트 안에서 실행 파드를 안 골랐을 때.
+// 라이브러리 순차 실행이 마지막 워커(사용 안 함일 수 있다)로 암묵 지정되지 않게 한다(NS-53).
 function formAutoMode(){
-  return currentPodId === null && (currentTab === 'jobs' || currentProjectId !== null) && !formPodChoice;
+  return currentPodId === null && (currentTab === 'jobs' || currentTab === 'library' || currentProjectId !== null) && !formPodChoice;
 }
 function formPodId(){
   if(formAutoMode()) return null;
