@@ -798,6 +798,9 @@ function renderNewJobTabs(){
   document.getElementById('new-job-details-panel').style.display = newJobActiveTab === 'details' ? '' : 'none';
 }
 
+// 빠른 실행창 "(새로 만들기)"(NS-52-3)로 연 마법사면 참 — "다음"에서 세부 설정 대신 빠른 실행창으로 돌아간다.
+let quickRunReturn = false;
+
 // "다음" 버튼과 "세부 설정" 탭이 똑같이 이 함수로 넘어간다 — 그래야 탭을 직접 눌러
 // 옛 폼을 보는 우회로가 안 생긴다.
 async function goToNewJobDetails(){
@@ -806,6 +809,13 @@ async function goToNewJobDetails(){
     const ok = await wizardApply();
     if(!ok) return;   // #wizard-error에 이미 안내가 떴다 — 탭을 넘기지 않는다
     wizardAppliedSignature = JSON.stringify(wizard);
+  }
+  if(quickRunReturn && selectedFiles.workflow){
+    quickRunReturn = false;
+    closeNewJobModal();
+    try{ await cmpUseNewWorkflow(selectedFiles.workflow); }
+    catch(e){ document.getElementById('wizard-error').textContent = '만든 워크플로우를 읽지 못했어요'; openNewJobModal(); }
+    return;
   }
   newJobActiveTab = 'details';
   renderNewJobTabs();

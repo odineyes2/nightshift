@@ -1892,7 +1892,29 @@
       <button class="cmp-pill" id="cmp-preset" type="button" aria-haspopup="menu" aria-expanded="false" title="워크플로우 프리셋">프리셋 고르기</button>
       <div class="cmp-menu" id="cmp-preset-menu" role="menu" hidden></div>
     </div>
+    <div class="cmp-menu-wrap">
+      <button class="cmp-pill" id="cmp-library" type="button" aria-haspopup="menu" aria-expanded="false" title="라이브러리 프리셋 (없음)">라이브러리</button>
+      <div class="cmp-menu" id="cmp-library-menu" role="menu" hidden>
+        <button type="button" role="menuitemradio" data-library=""><svg class="ico cmp-check"><use href="#i-check"/></svg><span class="cmp-name">(없음)</span></button>
+        <button type="button" role="menuitemradio" data-library="pose"><svg class="ico cmp-check"><use href="#i-check"/></svg><span class="cmp-name">Pose</span></button>
+        <button type="button" role="menuitemradio" data-library="position"><svg class="ico cmp-check"><use href="#i-check"/></svg><span class="cmp-name">Position</span></button>
+      </div>
+    </div>
     <button class="cmp-send" id="cmp-send" type="button" title="대기열에 넣기 (Enter)" aria-label="대기열에 넣기" disabled><svg class="ico"><use href="#i-arrow-up"/></svg></button>
+  </div>
+</div>
+
+<!-- 빠른 실행창 라이브러리 고르기(NS-52-3) — 한 장을 고르면 NS-51 생성 방식 모달로 넘어간다 -->
+<div class="modal-overlay" id="cmp-library-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title" id="cmp-library-title">Pose 고르기</div>
+      <button class="modal-close" id="cmp-library-close" type="button" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="upload-error" id="cmp-library-error"></div>
+      <div class="cmp-library-grid" id="cmp-library-grid"></div>
+    </div>
   </div>
 </div>
 
