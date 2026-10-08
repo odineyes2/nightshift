@@ -7,6 +7,7 @@ from unittest import mock
 
 from test_pose_sequence import A, P, SB, png
 import position_library as Q
+import lighting_library as L
 from fastapi import HTTPException
 
 
@@ -66,6 +67,22 @@ class GenerationOriginTests(unittest.TestCase):
         A.resolve_input_image(item["name"]).write_bytes(png((32, 32)))
         with self.assertRaises(HTTPException):
             A.parse_library_generation_context([item], self.user)
+
+    def test_lighting_prompt_only_and_access(self):
+        lighting = L.add_lighting("u1", "조명", "", "soft lighting", [(png(), "")])
+        item = self.origin(lighting, "lighting")
+        job = self.create([item])
+        origin = job["library_generation_context"][0]
+        self.assertEqual((origin["source_kind"], origin["generation_mode"]), ("lighting", "prompt"))
+        self.assertEqual(job["library_output_origins"]["executions"]["1"], origin)
+        for changed, user, status in (
+            ({**item, "generation_mode": "openpose"}, self.user, 400),
+            (item, {"id": "u2", "role": "user"}, 404),
+        ):
+            with self.assertRaises(HTTPException) as e:
+                A.parse_library_generation_context([changed], user)
+            self.assertEqual(e.exception.status_code, status)
+        self.assertEqual(A.parse_library_generation_context([item], {"id": "admin", "role": "admin"})[0]["owner_id"], "u1")
 
     def test_single_cn_and_same_article_sequence(self):
         item = self.origin(self.position, "position", "openpose")

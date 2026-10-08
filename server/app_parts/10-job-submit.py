@@ -243,13 +243,18 @@ def parse_library_generation_context(raw, user):
         if not isinstance(item, dict):
             raise HTTPException(400, "생성원 항목을 확인하세요.")
         kind, mode = item.get("source_kind"), item.get("generation_mode")
-        if kind not in ("pose", "position") or mode not in ("prompt", "openpose"):
+        if (kind not in ("pose", "position", "lighting") or mode not in ("prompt", "openpose")
+                or (kind == "lighting" and mode != "prompt")):
             raise HTTPException(400, "생성원 종류와 생성 방식을 확인하세요.")
         ids = [item.get("article_id"), item.get("source_image_id")]
         if any(type(v) is not int or v <= 0 for v in ids):
             raise HTTPException(400, "생성원 게시물과 이미지 번호를 확인하세요.")
-        lib = pose_library if kind == "pose" else position_library
-        article = (lib.get_pose if kind == "pose" else lib.get_position)(ids[0])
+        lib, get_article = {
+            "pose": (pose_library, pose_library.get_pose),
+            "position": (position_library, position_library.get_position),
+            "lighting": (lighting_library, lighting_library.get_lighting),
+        }[kind]
+        article = get_article(ids[0])
         # 라이브러리 owner_id는 TEXT 열이라 회원 id(int)와 문자열로 맞춰 비교한다.
         if not article or (user.get("role") != "admin" and str(article.get("owner_id")) != str(user["id"])):
             raise HTTPException(404, "생성원 게시물을 찾을 수 없어요.")
