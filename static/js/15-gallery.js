@@ -995,6 +995,7 @@ function preloadLightboxNeighbors(){
 }
 
 function renderLightbox(){
+  resetLightboxZoom(galleryLightbox);
   const img = displayedGalleryImages[lightboxIndex];
   if(!img) return;
   document.getElementById('gallery-lightbox-error').textContent = '';
@@ -1033,6 +1034,7 @@ function openLightbox(index){
 }
 
 function closeLightbox(){
+  resetLightboxZoom(galleryLightbox);
   if(isLightboxFullscreen(galleryLightbox)) setLightboxFullscreen(galleryLightbox, false);
   galleryLightbox.style.display = 'none';
   lightboxIndex = -1;
@@ -1061,6 +1063,7 @@ const lightboxFullscreenPending = new WeakSet();
 function lightboxFullscreenElement(){ return document.fullscreenElement || document.webkitFullscreenElement; }
 function isLightboxFullscreen(overlay){ return overlay.classList.contains('lightbox-fullscreen'); }
 function paintLightboxFullscreen(overlay, on){
+  if(!on) resetLightboxZoom(overlay);
   const btn = overlay.querySelector('.lightbox-fs-btn');
   overlay.classList.toggle('lightbox-fullscreen', on);
   if(btn){
@@ -1118,10 +1121,19 @@ function toggleLightboxFullscreen(overlay){ setLightboxFullscreen(overlay, !isLi
 // 보기 회전(NS-24) — 각도는 overlay의 data-rot(0/90/180/270)에만 둔다. 저장하지 않으므로 새로고침하면 0이고,
 // 그 전까지는 넘김·닫았다 열기에도 남는다. CSS가 전체 화면일 때만 돌려 보여 준다(원본 파일은 그대로).
 function rotateLightboxView(overlay, delta){
+  resetLightboxZoom(overlay);
   overlay.dataset.rot = (((Number(overlay.dataset.rot) || 0) + delta) % 360 + 360) % 360;
 }
 document.querySelectorAll('.lightbox-rot-btn').forEach(btn => btn.addEventListener('click', () =>
   rotateLightboxView(btn.closest('.lightbox-overlay'), Number(btn.dataset.rotDelta))));
+// 확대는 화면 좌표의 translate를 써 보기 회전과 분리한다.
+const lightboxZoomStates = new WeakMap();
+function resetLightboxZoom(overlay){
+  lightboxZoomStates.delete(overlay);
+  const media = overlay.querySelector('.lightbox-img');
+  if(media){ media.style.scale = ''; media.style.translate = ''; media.style.transform = ''; media.classList.remove('dragging'); }
+}
+function lightboxZoomed(overlay){ return (lightboxZoomStates.get(overlay)?.scale || 1) > 1; }
 // 화면 기준 손가락 이동(dx, dy)을 돌려 보는 이미지 기준으로 바꾼다 — 기기를 돌려 들고 이미지의 좌우로 밀면 넘어가게.
 function lightboxLocalDelta(overlay, dx, dy){
   const rad = (isLightboxFullscreen(overlay) ? Number(overlay.dataset.rot) || 0 : 0) * Math.PI / 180;
@@ -1134,31 +1146,76 @@ const SWIPE_THRESHOLD = 50;
 // 이미지·영상 라이트박스 공용 — overlay 안에서 한 손가락으로 좌우로 밀면 onNext/onPrev를 부른다.
 // ignore(e)가 true를 돌려주는 터치(스크롤·조작 의도)는 무시한다.
 function setupLightboxSwipe(overlay, mediaEl, { onNext, onPrev, ignore }){
-  let startX = null, startY = null;
+  let startX = null, startY = null, gesture = null;
   const settle = () => { mediaEl.classList.remove('dragging'); mediaEl.style.transform = ''; };
+  const state = () => lightboxZoomStates.get(overlay) || { scale:1, tx:0, ty:0 };
+  const midpoint = t => ({ x:(t[0].clientX+t[1].clientX)/2, y:(t[0].clientY+t[1].clientY)/2,
+    distance:Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY) });
+  const paint = zoom => {
+    // 회전 후 표시 크기로 범위를 제한해 미디어가 화면 밖으로 사라지지 않게 한다.
+    const rotated = (Number(overlay.dataset.rot) || 0) % 180 !== 0;
+    const width = rotated ? mediaEl.offsetHeight : mediaEl.offsetWidth;
+    const height = rotated ? mediaEl.offsetWidth : mediaEl.offsetHeight;
+    const maxX = Math.max(0, (width*zoom.scale-overlay.clientWidth)/2);
+    const maxY = Math.max(0, (height*zoom.scale-overlay.clientHeight)/2);
+    zoom.tx = Math.max(-maxX, Math.min(maxX, zoom.tx));
+    zoom.ty = Math.max(-maxY, Math.min(maxY, zoom.ty));
+    lightboxZoomStates.set(overlay, zoom);
+    mediaEl.style.scale = String(zoom.scale);
+    mediaEl.style.translate = `${zoom.tx}px ${zoom.ty}px`;
+  };
+  const beginZoom = touches => {
+    startX = startY = null; settle(); mediaEl.classList.add('dragging');
+    gesture = touches.length === 2 ? { type:'pinch', ...midpoint(touches), ...state() } :
+      { type:'pan', x:touches[0].clientX, y:touches[0].clientY, ...state() };
+  };
   overlay.addEventListener('touchstart', (e) => {
-    if(e.touches.length !== 1 || e.target.closest('.asset-meta') || (ignore && ignore(e))){ startX = startY = null; return; }
+    gesture = null;
+    if(e.target.closest('.asset-meta, button, a, input, select, textarea') || (ignore && ignore(e))){ startX = startY = null; settle(); return; }
+    if(isLightboxFullscreen(overlay) && (e.touches.length === 2 || (e.touches.length === 1 && lightboxZoomed(overlay)))){
+      beginZoom(e.touches); e.preventDefault(); return;
+    }
+    if(e.touches.length !== 1){ startX = startY = null; settle(); return; }
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
     mediaEl.classList.add('dragging');
-  }, { passive: true });
+  }, { passive: false });
   overlay.addEventListener('touchmove', (e) => {
+    if(gesture){
+      // 회전·넘김·전체 화면 해제로 초기화되면 진행 중 제스처도 버린다.
+      if(!isLightboxFullscreen(overlay) || !mediaEl.classList.contains('dragging')){ gesture = null; return; }
+      if(gesture.type === 'pinch' && e.touches.length === 2){
+        const m = midpoint(e.touches), g = gesture;
+        const scale = Math.max(1, Math.min(5, g.scale*m.distance/Math.max(1,g.distance)));
+        const rect = overlay.getBoundingClientRect(), cx = rect.left+rect.width/2, cy = rect.top+rect.height/2;
+        paint({ scale, tx:m.x-cx-(scale/g.scale)*(g.x-cx-g.tx), ty:m.y-cy-(scale/g.scale)*(g.y-cy-g.ty) });
+      }else if(gesture.type === 'pan' && e.touches.length === 1){
+        paint({ scale:gesture.scale, tx:gesture.tx+e.touches[0].clientX-gesture.x, ty:gesture.ty+e.touches[0].clientY-gesture.y });
+      }
+      e.preventDefault(); return;
+    }
     if(startX === null || e.touches.length !== 1) return;
     const [dx, dy] = lightboxLocalDelta(overlay, e.touches[0].clientX - startX, e.touches[0].clientY - startY);
     if(Math.abs(dx) < Math.abs(dy)) return; // 세로 스크롤 의도로 보이면 따라가지 않음
     // transform은 CSS rotate보다 안쪽에 적용되므로 translateX가 돌려 본 이미지의 가로축을 따라간다.
     mediaEl.style.transform = `translateX(${dx * DRAG_DAMPING}px)`;
-  }, { passive: true });
+  }, { passive: false });
   overlay.addEventListener('touchend', (e) => {
+    if(gesture){
+      if(state().scale < 1.05) resetLightboxZoom(overlay);
+      if(e.touches.length === 1 && lightboxZoomed(overlay)){ beginZoom(e.touches); return; }
+      gesture = null; startX = startY = null; settle(); return;
+    }
     settle();
     if(startX === null) return;
     const touch = e.changedTouches[0];
     const [dx, dy] = lightboxLocalDelta(overlay, touch.clientX - startX, touch.clientY - startY);
     startX = startY = null;
     if(Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy)) return;
+    resetLightboxZoom(overlay);
     if(dx < 0) onNext(); else onPrev();
   }, { passive: true });
-  overlay.addEventListener('touchcancel', () => { startX = startY = null; settle(); }, { passive: true });
+  overlay.addEventListener('touchcancel', () => { gesture = null; startX = startY = null; settle(); }, { passive: true });
 }
 
 // 모바일에서 화살표 버튼 대신 스와이프로도 이미지를 넘길 수 있게 — 왼쪽으로 밀면 다음, 오른쪽으로
