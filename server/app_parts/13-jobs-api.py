@@ -1,4 +1,19 @@
 # app.py가 app_parts/*.py를 번호 순서대로 한 네임스페이스에서 실행한다 — 앞 파일의 이름을 import 없이 쓴다.
+@app.get("/api/health")
+def health():
+    """dev 오케스트레이터가 재시작 뒤 살아났는지 본다 — 로그인 없이 200."""
+    return {"ok": True}
+
+
+@app.get("/api/jobs/busy")
+def jobs_busy():
+    """재시작하면 끊기는 작업이 있나 — running만 interrupted가 되고 queued는 재시작 뒤에도 남는다(04 startup).
+    로그인 없이 열려 있어 개수·내용 없이 참/거짓만 준다.
+    ponytail: 모델 다운로드 등 작업 밖 진행은 안 본다 — 재시작으로 끊기는 일이 생기면 여기에 더한다."""
+    with lock:
+        return {"busy": any(j["status"] == "running" and not j.get("deleted") for j in jobs.values())}
+
+
 @app.post("/api/queue/start")
 def start_queue(request: Request, project_id: str | None = None):
     # 자동 실행 모드를 켠다 — 지금 대기 중인 작업을 전부 큐에 넣는 것은 물론,

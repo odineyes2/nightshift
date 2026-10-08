@@ -37,7 +37,8 @@ OPENCUT_ORIGINS = {o for o in ([OPENCUT_URL] + [x.strip().rstrip("/") for x in
                                                 os.environ.get("NIGHTSHIFT_OPENCUT_EXTRA_ORIGINS", "").split(",")]) if o}
 SHARED_API_RE = re.compile(r"^/api/shared/")
 SHARE_UPLOAD_MAX_BYTES = int(os.environ.get("NIGHTSHIFT_SHARE_UPLOAD_MAX_MB", "2048")) * 1024 * 1024
-PUBLIC_API_PATHS = {"/api/auth/register", "/api/auth/login", "/api/auth/logout", "/api/auth/me"}
+PUBLIC_API_PATHS = {"/api/auth/register", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
+                    "/api/health", "/api/jobs/busy"}   # 뒤 둘은 dev 오케스트레이터의 병합 후 재시작용(로그인 없음)
 # 새 RunPod 파드가 부팅하며 다운로더 설치 스크립트를 받아 가는 길 — 로그인 대신 워커별 열쇠(model_download.bootstrap_token)로 지킨다.
 BOOTSTRAP_PATH_RE = re.compile(r"^/api/bootstrap/[A-Za-z0-9_-]{1,40}/[0-9a-f]{40}$")
 INTERNAL_PROGRESS_RE = re.compile(r"^/api/jobs/[^/]+/progress$")
