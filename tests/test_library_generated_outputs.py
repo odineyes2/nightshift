@@ -49,6 +49,7 @@ class GeneratedOutputsTests(unittest.TestCase):
                     "library_output_origins": {"save_node_id": "1", "executions": {
                         str(i): self.origins[(i - 1) // 2] for i in range(1, 5)}}}
         self.save_job()
+        G._warned.clear()
 
     def origin(self, article, kind):
         return {"source_kind": kind, "article_id": article["id"], "source_image_id": article["images"][0]["id"],
@@ -218,6 +219,72 @@ class GeneratedOutputsTests(unittest.TestCase):
             list(pool.map(lambda _: G._register(Path(A.OUTPUT_DIR), relative), range(2)))
         self.assertEqual(self.count(), 2)
         self.assertEqual(self.record(path)["status"], "registered")
+
+    # NS-56-5: 누락 사유를 작업 ID·사유 코드로 구분하고 일반 작업에는 경고하지 않는다.
+    def logs(self):
+        """이 작업의 경고만 모은다(다른 검사 작업의 경고는 제외)."""
+        with self.assertLogs(G.log, "WARNING") as cm:
+            G.log.warning("marker")
+            self.sync()
+        return [m.split(":", 2)[2] for m in cm.output if self.jid in m]
+
+    def reason(self, code, extra="registration"):
+        return f"라이브러리 자동 {'등록 누락' if extra == 'registration' else extra}: job={self.jid} reason={code}"
+
+    def test_normal_job_no_warning_and_registered_quiet(self):
+        self.job.pop("library_generation_context")
+        self.job.pop("library_output_origins")
+        self.save_job()
+        self.output()
+        self.output(name="unexpected.png")
+        self.assertEqual(self.logs(), [])
+        self.job["library_generation_context"] = self.origins
+        self.job["library_output_origins"] = {"save_node_id": "1", "executions": {"1": self.origins[0]}}
+        self.save_job()
+        self.output(name="other.png")
+        self.assertEqual(self.logs(), [self.reason("output_name_mismatch")])
+        self.assertEqual(self.count(), 2)
+
+    def test_missing_origin_mapping_and_name_reasons_logged_once(self):
+        self.job.pop("library_generation_context")
+        self.save_job()
+        self.output()
+        self.assertEqual(self.logs(), [self.reason("missing_origin")])
+        self.assertEqual(self.logs(), [])  # 반복 색인에서 같은 진단을 되풀이하지 않는다.
+        self.job["library_generation_context"] = self.origins
+        self.job["library_output_origins"] = {}
+        self.save_job()
+        self.assertEqual(self.logs(), [self.reason("no_save_node_mapping")])
+        self.job["library_output_origins"] = {"save_node_id": "1", "executions": {"1": self.origins[0]}}
+        self.save_job()
+        self.output(3)
+        self.output(name="seed_batch_1_seed7_00001_.png")
+        self.assertEqual(sorted(self.logs()), [self.reason("execution_unmapped"), self.reason("output_name_mismatch")])
+        self.assertEqual(self.count(), 2)
+        with db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM assets WHERE job_id=? AND deleted_at IS NULL",
+                                          (self.jid,)).fetchone()[0], 3)
+
+    def test_source_deleted_permission_and_copy_failure_reasons(self):
+        self.output()
+        pospath = self.output(3)
+        P.delete_pose(P.get_pose(self.pose["id"]))
+        with db.connect() as conn:
+            conn.execute("UPDATE positions SET owner_id=? WHERE id=?", (self.other, self.position["id"]))
+        self.assertEqual(sorted(self.logs()), [self.reason("permission_mismatch"), self.reason("source_deleted")])
+        self.assertEqual(self.record(pospath)["status"], "skipped")
+        with db.connect() as conn:
+            conn.execute("UPDATE positions SET owner_id=? WHERE id=?", (self.user, self.position["id"]))
+        original = Path.write_bytes
+        def fail(file, data):
+            if file.parent == Q._dir():
+                raise OSError("fixture copy failure")
+            return original(file, data)
+        with mock.patch.object(Path, "write_bytes", fail):
+            self.assertEqual(self.logs(), [self.reason("copy_failed:OSError", "등록 실패")])
+        self.assertEqual(self.record(pospath)["status"], "retry")
+        self.assertEqual(self.logs(), [])
+        self.assertEqual(self.count("position"), 2)
 
 
 if __name__ == "__main__":

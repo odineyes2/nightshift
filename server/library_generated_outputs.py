@@ -10,26 +10,43 @@ import pose_library
 import position_library
 
 log = logging.getLogger(__name__)
+# 색인은 주기적으로 반복되므로 같은 (작업, 사유) 진단은 프로세스마다 한 번만 남긴다.
+_warned = set()
 
 
-def origin_for_path(job, path):
-    """seed_batch 실행기의 전용 저장 이름만 받아 다른 결과를 추측하지 않는다."""
+def _diagnose(job_id, reason):
+    """작업 ID와 사유 코드만 남긴다(프롬프트·이미지·경로는 기록하지 않는다)."""
+    if (job_id, reason) not in _warned:
+        _warned.add((job_id, reason))
+        log.warning("라이브러리 자동 등록 누락: job=%s reason=%s", job_id, reason)
+
+
+def match_path(job, path):
+    """(생성원, 사유 코드)를 돌려준다. 생성원이 없고 사유도 None이면 라이브러리 생성이 아닌 일반 작업이다.
+    seed_batch 실행기의 전용 저장 이름만 받아 다른 결과를 추측하지 않는다."""
     mapping = job.get("library_output_origins") or {}
+    context = job.get("library_generation_context") or []
+    if not context:
+        return None, ("missing_origin" if mapping else None)
     if not mapping.get("save_node_id"):
-        return None
+        return None, "no_save_node_mapping"
     match = re.fullmatch(re.escape(job["id"]) +
                         r"/seed_batch_([1-9][0-9]*)_seed([0-9]+)_([0-9]+)_\.png", path)
     if not match or int(match[2]) > 2**31 - 1 or int(match[3]) < 1:
-        return None
+        return None, "output_name_mismatch"
     if job.get("options", {}).get("seed_mode") == "sequential" and int(match[2]) != int(match[1]) - 1:
-        return None
+        return None, "output_name_mismatch"
     origin = mapping.get("executions", {}).get(match[1])
+    if not origin:
+        return None, "execution_unmapped"
     # 실행 매핑과 제출 시 검증된 선택 스냅샷을 함께 확인한다.
-    if not origin or origin not in (job.get("library_generation_context") or []):
-        return None
-    if origin.get("source_kind") not in ("pose", "position"):
-        return None
-    return origin
+    if origin not in context or origin.get("source_kind") not in ("pose", "position"):
+        return None, "origin_mismatch"
+    return origin, None
+
+
+def origin_for_path(job, path):
+    return match_path(job, path)[0]
 
 
 def _record(conn, path, origin, status, reason="", image_id=None):
@@ -58,10 +75,10 @@ def _register(base, path):
                 return
             job = json.loads(row["data_json"])
             job["id"] = asset["job_id"]
-            origin = origin_for_path(job, path)
+            origin, reason = match_path(job, path)
             if origin is None:
-                if job.get("library_generation_context"):
-                    log.warning("라이브러리 결과 매핑 불가: %s", path)
+                if reason:
+                    _diagnose(job["id"], reason)
                 return
             key = (path, origin["source_kind"], origin["article_id"])
             previous = conn.execute("SELECT status, reason FROM library_generated_outputs"
@@ -86,6 +103,7 @@ def _register(base, path):
                 reason = "source_image_deleted"
             if reason:
                 _record(conn, path, origin, "skipped", reason)
+                _diagnose(job["id"], reason)
                 return
             source = (base / path).resolve()
             if not source.is_relative_to(base.resolve()):
@@ -104,13 +122,16 @@ def _register(base, path):
     except Exception as exc:
         # DB 롤백과 함께 이번 시도에서 만든 파일만 지운다. 실패 이력은 다음 색인에서 재시도한다.
         _cleanup(created_files)
-        log.warning("라이브러리 결과 등록 실패: %s (%s)", path, type(exc).__name__)
         if origin is not None:
+            # 실패는 재시도되므로 반복될 때마다 남긴다.
+            log.warning("라이브러리 자동 등록 실패: job=%s reason=copy_failed:%s", job["id"], type(exc).__name__)
             try:
                 with db.connect() as conn:
                     _record(conn, path, origin, "retry", type(exc).__name__)
             except Exception:
                 log.exception("라이브러리 실패 이력 기록 불가: %s", path)
+        else:
+            log.warning("라이브러리 결과 확인 실패: %s (%s)", path, type(exc).__name__)
 
 
 def _cleanup(files):
