@@ -250,7 +250,8 @@ def parse_library_generation_context(raw, user):
             raise HTTPException(400, "생성원 게시물과 이미지 번호를 확인하세요.")
         lib = pose_library if kind == "pose" else position_library
         article = (lib.get_pose if kind == "pose" else lib.get_position)(ids[0])
-        if not article or (user.get("role") != "admin" and article.get("owner_id") != user["id"]):
+        # 라이브러리 owner_id는 TEXT 열이라 회원 id(int)와 문자열로 맞춰 비교한다.
+        if not article or (user.get("role") != "admin" and str(article.get("owner_id")) != str(user["id"])):
             raise HTTPException(404, "생성원 게시물을 찾을 수 없어요.")
         image = next((im for im in article["images"] if im["id"] == ids[1]), None)
         if image is None:
@@ -701,6 +702,10 @@ async def upload(request: Request):
     for option in template.get("options", []):
         value = form.get(option["name"])
         raw_options[option["name"]] = value if isinstance(value, str) else None
+    # 라이브러리 생성원은 템플릿 옵션이 아닌 내부 필드라 따로 넘긴다(검증은 create_job).
+    origin = form.get("library_generation_context")
+    if isinstance(origin, str) and origin:
+        raw_options["library_generation_context"] = origin
 
     pod_id = form.get("pod_id")
     return await create_job(
