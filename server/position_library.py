@@ -40,7 +40,7 @@ def _with_images(conn, rows) -> list[dict]:
     return items
 
 
-def _save_images(conn, position_id: int, checked: list) -> None:
+def _save_images(conn, position_id: int, checked: list, created_files=None) -> None:
     """검사한 이미지를 이어지는 position으로 저장한다."""
     pos = conn.execute("SELECT COALESCE(MAX(position) + 1, 0) FROM position_images WHERE position_id=?",
                        (position_id,)).fetchone()[0]
@@ -49,6 +49,8 @@ def _save_images(conn, position_id: int, checked: list) -> None:
             "INSERT INTO position_images(position_id, image_file, thumb_file, source_url, position, created_at)"
             " VALUES (?, '', '', ?, ?, ?)", (position_id, src, pos, db.now_iso())).lastrowid
         filename, thumb_name = f"{position_id}_{image_id}.{EXTS[img.format]}", f"{position_id}_{image_id}_thumb.webp"
+        if created_files is not None:
+            created_files.extend([_dir() / filename, _dir() / thumb_name])
         (_dir() / filename).write_bytes(data)
         thumb = ImageOps.exif_transpose(img).convert("RGB")
         thumb.thumbnail((THUMB_SIZE, THUMB_SIZE))
