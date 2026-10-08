@@ -109,47 +109,91 @@ function syncLibrarySelection(){
     ? (librarySelected.size ? `${librarySelected.size}/${libraryPoses.length}개 선택` : `${libraryPoses.length}개`) : '';
 }
 
-// 체크한 게시물(목록 순서)의 모든 이미지를 입력 풀로 복사하고 순차 생성 마법사를 연다.
-async function generatePoseSequence(){
+// 생성 방식 고르기(NS-51) — Pose·Position 공통. 요청(탭·게시물·장)을 누른 순간에 고정해 두고,
+// 사람이 "프롬프트"(프롬프트만) 또는 "Openpose CN"(이미지를 포즈로 + 프롬프트)을 누른 뒤에만 복사·마법사를 연다.
+// 닫으면 아무것도 하지 않는다.
+const libraryTransferModal = document.getElementById('library-transfer-modal');
+let libraryTransferRun = null;     // 고른 방식('prompt' | 'openpose')으로 진행하는 함수
+let libraryTransferFocus = null;   // 닫을 때 포커스를 돌려줄 버튼
+function askLibraryTransfer(run){
+  libraryTransferRun = run;
+  libraryTransferFocus = document.activeElement;
+  libraryTransferModal.style.display = 'flex';
+  libraryTransferModal.querySelector('.library-transfer-btn').focus();
+}
+function closeLibraryTransfer(){
+  libraryTransferRun = null;
+  libraryTransferModal.style.display = 'none';
+  if(libraryTransferFocus && libraryTransferFocus.isConnected) libraryTransferFocus.focus();
+  libraryTransferFocus = null;
+}
+libraryTransferModal.querySelectorAll('.library-transfer-btn').forEach(b => b.addEventListener('click', () => {
+  const run = libraryTransferRun;
+  if(!run) return;   // 중복 클릭은 한 번만 진행한다
+  closeLibraryTransfer();
+  run(b.dataset.transfer);
+}));
+document.getElementById('library-transfer-close').addEventListener('click', closeLibraryTransfer);
+libraryTransferModal.addEventListener('click', e => { if(e.target === libraryTransferModal) closeLibraryTransfer(); });
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && libraryTransferModal.style.display !== 'none') closeLibraryTransfer();
+});
+
+async function libraryToInput(url, body){
+  const res = await fetch(url, body
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+    : { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok) throw new Error(data.detail || `이미지를 가져오지 못했어요 (${res.status})`);
+  return data;
+}
+
+// 체크한 게시물(목록 순서)로 순차 생성 마법사를 연다 — 장마다 한 항목.
+function generatePoseSequence(){
   setLibraryError('');
-  const ids = libraryPoses.filter(p => !librarySelected.size || librarySelected.has(p.id)).map(p => p.id);
-  if(!ids.length) return;
-  if(isPositionTab()){
-    // Position(NS-43)은 이미지를 쓰지 않으므로 서버 복사 없이 목록 응답으로 장마다 한 항목을 만든다.
-    const items = libraryPoses.filter(p => ids.includes(p.id)).flatMap(p => p.images.map(() => ({
+  const kind = libraryTab;
+  const posts = libraryPoses.filter(p => !librarySelected.size || librarySelected.has(p.id));
+  if(!posts.length) return;
+  askLibraryTransfer(mode => runLibrarySequence(kind, posts, mode));
+}
+async function runLibrarySequence(kind, posts, mode){
+  if(mode === 'prompt'){
+    // 프롬프트만 — 이미지 복사 없이 목록 응답으로 장마다 한 항목을 만든다(positionSequenceValue 모양).
+    const items = posts.flatMap(p => p.images.map(() => ({
       position_id: p.id, position_name: p.name, danbooru_prompt: p.danbooru_prompt || '',
     })));
     if(!items.length) return setLibraryError('고른 게시물에 이미지가 없어요');
     return startPositionSequenceWizard(items);
   }
+  const ids = posts.map(p => p.id);
   try{
-    const res = await fetch('/api/library/poses/to-input', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pose_ids: ids }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if(!res.ok) throw new Error(data.detail || `포즈 이미지를 가져오지 못했어요 (${res.status})`);
-    const items = Array.isArray(data) ? data : [];
+    const data = kind === 'position'
+      ? await libraryToInput('/api/library/positions/to-input', { position_ids: ids })
+      : await libraryToInput('/api/library/poses/to-input', { pose_ids: ids });
+    // Position 응답은 Pose 순차 항목(poseSequenceValue가 읽는 pose_id/pose_name) 모양으로 바꾼다.
+    const items = (Array.isArray(data) ? data : []).map(it => kind === 'position'
+      ? { ...it, pose_id: it.position_id, pose_name: it.position_name } : it);
     if(!items.length) throw new Error('고른 게시물에 이미지가 없어요');
     await startOpenPoseSequenceWizard(items);
   }catch(err){ setLibraryError(err.message); }
 }
 
-// 고른 장을 입력 이미지 풀로 복사하고 OpenPose 마법사를 연다(danbooru prompt는 메인 프롬프트 끝에 붙는다).
-// Position(NS-43)은 이미지를 넘기지 않고 danbooru prompt만 들고 txt2img 시드 배치 마법사를 연다.
-async function generateFromPose(poseId, imageId){
+// 고른 장 하나로 생성 — 프롬프트만이면 txt2img 시드 배치, Openpose CN이면 장을 입력 풀로 복사하고 OpenPose 마법사.
+// 어느 쪽이든 danbooru prompt는 메인 프롬프트 끝에 붙는다.
+function generateFromPose(poseId, imageId){
   setLibraryError('');
-  if(isPositionTab()){
-    const p = libraryPoses.find(x => x.id === poseId);
-    if(!p) return;
-    if(libraryLightbox.style.display !== 'none') closeLibraryLightbox();
-    return startPositionWizard(p.danbooru_prompt);
-  }
+  const kind = libraryTab;
+  const p = libraryPoses.find(x => x.id === poseId);
+  if(!p) return;
+  askLibraryTransfer(mode => runLibrarySingle(kind, p, imageId, mode));
+}
+async function runLibrarySingle(kind, p, imageId, mode){
   try{
-    const res = await fetch(`/api/library/poses/${poseId}/images/${imageId}/to-input`, { method: 'POST' });
-    const data = await res.json().catch(() => ({}));
-    if(!res.ok) throw new Error(data.detail || `포즈 이미지를 가져오지 못했어요 (${res.status})`);
+    const data = mode === 'prompt' ? null
+      : await libraryToInput(`/api/library/${kind === 'position' ? 'positions' : 'poses'}/${p.id}/images/${imageId}/to-input`);
     if(libraryLightbox.style.display !== 'none') closeLibraryLightbox();
-    await startOpenPoseWizard(data.name, data.danbooru_prompt);
+    if(data) await startOpenPoseWizard(data.name, data.danbooru_prompt);
+    else await startPositionWizard(p.danbooru_prompt);
   }catch(err){ setLibraryError(err.message); }
 }
 
@@ -356,7 +400,7 @@ document.getElementById('library-lightbox-original-btn').addEventListener('click
   if(im) window.open(im.image_url, '_blank', 'noopener');
 });
 document.addEventListener('keydown', (e) => {
-  if(libraryLightbox.style.display === 'none') return;
+  if(libraryLightbox.style.display === 'none' || libraryTransferModal.style.display !== 'none') return;
   if(e.target.closest && e.target.closest('input, textarea, select')) return;
   if(e.key === 'Escape'){ if(isLightboxFullscreen(libraryLightbox)) setLightboxFullscreen(libraryLightbox, false); else closeLibraryLightbox(); }
   else if(e.key === 'f' || e.key === 'F') toggleLightboxFullscreen(libraryLightbox);
