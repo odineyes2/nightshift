@@ -480,11 +480,34 @@ CREATE TABLE library_generated_outputs (
 )
 """
 
+# v24: Library > Lighting — 게시물·이미지 표만 추가한다.
+SCHEMA_V24 = """
+CREATE TABLE lightings (
+  id              INTEGER PRIMARY KEY,
+  name            TEXT NOT NULL,
+  description     TEXT NOT NULL DEFAULT '',
+  danbooru_prompt TEXT NOT NULL DEFAULT '',
+  owner_id        TEXT,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX idx_lightings_owner ON lightings(owner_id);
+CREATE TABLE lighting_images (
+  id          INTEGER PRIMARY KEY,
+  lighting_id INTEGER NOT NULL REFERENCES lightings(id) ON DELETE CASCADE,
+  image_file  TEXT NOT NULL,
+  thumb_file  TEXT NOT NULL,
+  source_url  TEXT NOT NULL DEFAULT '',
+  position    INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_lighting_images_position ON lighting_images(lighting_id, position)
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
               (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16), (17, SCHEMA_V17), (18, SCHEMA_V18),
-              (19, SCHEMA_V19), (20, SCHEMA_V20), (21, SCHEMA_V21), (22, SCHEMA_V22), (23, SCHEMA_V23)]
+              (19, SCHEMA_V19), (20, SCHEMA_V20), (21, SCHEMA_V21), (22, SCHEMA_V22), (23, SCHEMA_V23), (24, SCHEMA_V24)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}

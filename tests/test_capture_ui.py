@@ -69,6 +69,26 @@ def test_copy_sources():
     assert all(p.split('/')[0] in s.COPY_DIRS for p in s.tracked_files(ROOT))
 
 
+def test_uncommitted_sources():
+    """커밋 전 새 서버 모듈도 복사하되 ignore 파일과 비밀 파일은 빠진다."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root, dest = Path(tmp) / 'repo', Path(tmp) / 'copy'
+        root.mkdir()
+        subprocess.run(['git', 'init', '-q', str(root)], check=True)
+        for rel in ('server/app.py', 'server/lighting_library.py', 'server/.env',
+                    'server/ignored.py', 'data/nightshift.db'):
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('x', encoding='utf-8')
+        (root / '.gitignore').write_text('server/ignored.py\n', encoding='utf-8')
+        subprocess.run(['git', 'add', '-A'], cwd=root, check=True)
+        # 새 모듈을 untracked로 남겨 실제 Task의 커밋 전 상태를 재현한다.
+        subprocess.run(['git', 'rm', '--cached', 'server/lighting_library.py'], cwd=root, check=True,
+                       capture_output=True)
+        copied = s.copy_sources(root, s.tracked_files(root), dest)
+        assert copied == ['server/app.py', 'server/lighting_library.py'], copied
+
+
 def test_network_guard():
     """자식 프로세스에서 허용 포트만 붙고 다른 localhost 포트·외부 이름은 막히는지 본다."""
     listener = socket.socket()

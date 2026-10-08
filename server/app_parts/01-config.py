@@ -79,6 +79,7 @@ import model_registry
 import pod_registry
 import pose_library
 import position_library
+import lighting_library
 import projects as project_store
 import quick_run
 import runpod_api
