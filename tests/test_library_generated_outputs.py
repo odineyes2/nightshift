@@ -22,6 +22,7 @@ import assets_index as A
 import library_generated_outputs as G
 import pose_library as P
 import position_library as Q
+import lighting_library as L
 
 
 def png():
@@ -90,6 +91,34 @@ class GeneratedOutputsTests(unittest.TestCase):
         with db.connect() as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM assets WHERE job_id=? AND deleted_at IS NULL",
                                           (self.jid,)).fetchone()[0], 13)
+
+    def test_lighting_registration_once_and_deleted_source(self):
+        lighting = L.add_lighting(self.user, "조명", "", "soft lighting", [(png(), "")])
+        origin = self.origin(lighting, "lighting")
+        self.job["library_generation_context"] = [origin]
+        self.job["library_output_origins"]["executions"] = {"1": origin, "2": origin}
+        self.save_job()
+        path = self.output()
+        self.sync()
+        self.sync()
+        self.assertEqual(len(L.get_lighting(lighting["id"])["images"]), 2)
+        record = self.record(path)
+        self.assertEqual((record["source_kind"], record["article_id"], record["status"]),
+                         ("lighting", lighting["id"], "registered"))
+        self.assertEqual(record["image_id"], L.get_lighting(lighting["id"])["images"][-1]["id"])
+        L.delete_lighting(L.get_lighting(lighting["id"]))
+        deleted_path = self.output(2)
+        self.sync()
+        self.sync()
+        self.assertEqual((self.record(deleted_path)["status"], self.record(deleted_path)["reason"]),
+                         ("skipped", "source_deleted"))
+
+    def test_lighting_openpose_origin_rejected(self):
+        origin = {**self.origins[0], "source_kind": "lighting", "generation_mode": "openpose"}
+        self.job["library_generation_context"] = [origin]
+        self.job["library_output_origins"]["executions"] = {"1": origin}
+        self.assertEqual(G.match_path(self.job, f"{self.jid}/seed_batch_1_seed0_00001_.png"),
+                         (None, "origin_mismatch"))
 
     def test_repeat_restart_redownload_and_user_delete(self):
         path = self.output()

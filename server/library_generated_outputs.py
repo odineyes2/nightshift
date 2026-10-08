@@ -8,6 +8,7 @@ from pathlib import Path
 import db
 import pose_library
 import position_library
+import lighting_library
 
 log = logging.getLogger(__name__)
 # 색인은 주기적으로 반복되므로 같은 (작업, 사유) 진단은 프로세스마다 한 번만 남긴다.
@@ -40,7 +41,8 @@ def match_path(job, path):
     if not origin:
         return None, "execution_unmapped"
     # 실행 매핑과 제출 시 검증된 선택 스냅샷을 함께 확인한다.
-    if origin not in context or origin.get("source_kind") not in ("pose", "position"):
+    if (origin not in context or origin.get("source_kind") not in ("pose", "position", "lighting")
+            or (origin.get("source_kind") == "lighting" and origin.get("generation_mode") != "prompt")):
         return None, "origin_mismatch"
     return origin, None
 
@@ -87,8 +89,11 @@ def _register(base, path):
                              previous["reason"] in ("source_deleted", "source_image_deleted")):
                 return  # 사용자가 등록 이미지를 지운 경우도 완료 이력을 유지한다.
             kind = origin["source_kind"]
-            table, images, column, lib = (("poses", "pose_images", "pose_id", pose_library) if kind == "pose"
-                                          else ("positions", "position_images", "position_id", position_library))
+            table, images, column, lib = {
+                "pose": ("poses", "pose_images", "pose_id", pose_library),
+                "position": ("positions", "position_images", "position_id", position_library),
+                "lighting": ("lightings", "lighting_images", "lighting_id", lighting_library),
+            }[kind]
             article = conn.execute(f"SELECT owner_id FROM {table} WHERE id=?", (origin["article_id"],)).fetchone()
             user = conn.execute("SELECT role, status FROM users WHERE id=?", (row["owner_id"],)).fetchone()
             reason = None
