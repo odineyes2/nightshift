@@ -37,7 +37,15 @@
   .pose-sequence-hint{ font-size:14px; color:var(--text); margin:var(--gap-xs) 0; }
   .pose-tag-toggle{ display:inline-flex; align-items:center; gap:8px; margin-top:var(--gap-xs); font-size:12.5px; color:var(--text-dim); cursor:pointer; }
   .library-details .library-pose-btn{ width:24px; height:24px; left:2px; top:2px; }
-  .library-info > span{ display:block; }
+  /* 생성 방식 고르기(NS-51) — 두 버튼을 같은 크기로 나란히(좁으면 위아래) */
+  .library-transfer-choices{ display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--gap-sm); }
+  .library-transfer-btn{
+    display:flex; flex-direction:column; align-items:flex-start; gap:var(--gap-xs); min-height:44px; padding:var(--gap-sm);
+    background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:var(--radius-md);
+    font:inherit; text-align:left; cursor:pointer;
+  }
+  .library-transfer-btn span{ font-size:12.5px; color:var(--text-dim); }
+  .library-transfer-btn:hover, .library-transfer-btn:focus-visible{ border-color:var(--accent, var(--queued)); }  .library-info > span{ display:block; }
   .library-thumb{ display:block; aspect-ratio:1; background:var(--bg); position:relative; }
   .library-thumb-count{
     position:absolute; right:var(--gap-xs); bottom:var(--gap-xs); padding:2px 6px; border-radius:var(--radius-sm);

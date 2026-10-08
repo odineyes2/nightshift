@@ -140,6 +140,12 @@ document.getElementById('wizard-family-modal-body').addEventListener('click', (e
     const keepOpenPose = !!wizardPendingPose && wizard.post.openpose && family.kind === 'checkpoints';
     // Library Position(NS-43)은 단순 txt2img라 어떤 family(체크포인트형·UNet형)에서도 유지한다.
     const keepTxt2img = keepOpenPose || !!(wizardPendingPose && wizardPendingPose.position);
+    // Openpose CN으로 골랐는데 OpenPose를 못 쓰는 family면(NS-51) 포즈·프롬프트를 적용하지 않고 알린다.
+    if(wizardPendingPose && !keepTxt2img){
+      wizardPendingPose = null;
+      document.getElementById('load-notice').textContent =
+        '이 베이스 모델은 Openpose CN을 쓸 수 없어 고른 포즈 방식이 적용되지 않았어요. 체크포인트형 모델로 다시 열어 주세요.';
+    }
     wizard.base = keepFaceDetailer ? 'face_detailer' : keepTxt2img ? 'txt2img' : null;
     wizard.post = freshWizardPost();
     wizard.post.openpose = keepOpenPose;
@@ -689,7 +695,7 @@ async function wizardApply(){
     const poseEl = pendingPosition ? null : optionsFields.querySelector('[data-name="pose_image"]');
     const raw = optionsFields.querySelector('.enhance-raw');
     if(wizardPendingPose.sequence){
-      if(pendingPosition) applyPoseSequenceForm(wizardPendingPose.sequence, null, raw, 'Position', positionSequenceValue);
+      if(pendingPosition) applyPoseSequenceForm(wizardPendingPose.sequence, null, raw, '프롬프트', positionSequenceValue);
       else applyPoseSequenceForm(wizardPendingPose.sequence, poseEl, raw);
     }else{
       if(poseEl){ poseEl.value = wizardPendingPose.name; suggestPoseSize(poseEl.value); }
@@ -867,7 +873,8 @@ function startOpenPoseSequenceWizard(items){
   return startOpenPoseWizard(items[0].name, '');
 }
 
-// Library Position(NS-43) — 이미지는 넘기지 않고 danbooru prompt만 메인 프롬프트 끝에 붙이는 txt2img·시드 반복.
+// Library "프롬프트"(NS-43, NS-51부터 Pose·Position 공통) — 이미지는 넘기지 않고 danbooru prompt만 메인 프롬프트 끝에
+// 붙이는 txt2img·시드 반복. wizardPendingPose.position은 원본 탭이 아니라 "프롬프트만" 방식의 표지다.
 // sequence(장마다 한 항목)가 있으면 순차 실행 — 작업 하나에서 seed_batch가 항목마다 돈다. 크기는 마법사 기본값.
 async function startPositionWizard(prompt, sequence = null){
   document.getElementById('load-error').textContent = '';
@@ -883,8 +890,8 @@ async function startPositionWizard(prompt, sequence = null){
   newJobActiveTab = 'select';
   wizardUpdateStepButtons();
   document.getElementById('load-notice').textContent = sequence
-    ? `Position ${sequence.length}개를 목록 순서대로 생성해요. 베이스 모델을 고르고 "다음"을 누르세요.`
-    : 'Position의 danbooru prompt를 메인 프롬프트에 붙여 생성해요. 베이스 모델을 고르고 "다음"을 누르세요.';
+    ? `프롬프트 ${sequence.length}개를 목록 순서대로 생성해요. 베이스 모델을 고르고 "다음"을 누르세요.`
+    : 'danbooru prompt를 메인 프롬프트에 붙여 생성해요. 베이스 모델을 고르고 "다음"을 누르세요.';
   await openWizardFamilyModal();
 }
 function startPositionSequenceWizard(items){ return startPositionWizard('', items); }

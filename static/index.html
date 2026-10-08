@@ -1392,6 +1392,20 @@
   </div>
 </div>
 
+<!-- Library 생성 방식 고르기(NS-51) — Pose·Position 공통. 버튼을 누르면 그 방식으로 바로 진행한다. 동작은 17c-library.js -->
+<div class="modal-overlay" id="library-transfer-modal" style="display:none;">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title" id="library-transfer-title">생성 방식</div>
+      <button class="modal-close" id="library-transfer-close" type="button" aria-label="닫기">&times;</button>
+    </div>
+    <div class="modal-body library-transfer-choices">
+      <button class="library-transfer-btn" type="button" data-transfer="prompt"><b>프롬프트</b><span>danbooru prompt만 메인 프롬프트에 붙여 생성해요</span></button>
+      <button class="library-transfer-btn" type="button" data-transfer="openpose"><b>Openpose CN</b><span>이미지를 포즈로 쓰고 프롬프트도 함께 붙여 생성해요</span></button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="base-model-modal"style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">
