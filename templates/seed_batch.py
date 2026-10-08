@@ -442,22 +442,27 @@ def report_progress(job_id, nightshift_url, total, done, label=None):
         print(f"[seed_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
 
 
+def output_filename_prefix(index, seed, job_id=""):
+    """서버의 생성원 매핑과 실행기가 공유하는 결과 이름 계약."""
+    prefix = f"seed_batch_{index}_seed{seed}"
+    return f"{job_id}/{prefix}" if job_id else prefix
+
+
+def output_save_node(workflow, title="Save"):
+    return find_node(workflow, title_substring=title,
+                     class_types=("SaveImage", "SaveImageWebsocket"))
+
+
 def apply_filename_prefix(workflow, index, seed):
-    node_id, node = find_node(
-        workflow,
-        title_substring=env("SAVE_NODE_TITLE", "Save"),
-        class_types=("SaveImage", "SaveImageWebsocket"),
-    )
+    node_id, node = output_save_node(workflow, env("SAVE_NODE_TITLE", "Save"))
     if node is None:
         return
-    prefix = f"seed_batch_{index}_seed{seed}"
     # JOB_ID가 있으면(nightshift가 큐로 실행할 때는 항상 있음) ComfyUI 출력 폴더 밑에
     # 그 job_id 이름의 하위 폴더를 만들어 그 안에 저장한다 — filename_prefix에 "/"가
     # 있으면 ComfyUI SaveImage가 하위 폴더로 해석해 자동으로 만들어준다. nightshift
     # 갤러리는 이 하위 폴더 이름으로 "작업별 보기"를 구성한다(output_images.py 참고).
     job_id = env("JOB_ID")
-    if job_id:
-        prefix = f"{job_id}/{prefix}"
+    prefix = output_filename_prefix(index, seed, job_id)
     node.setdefault("inputs", {})["filename_prefix"] = prefix
 
 
