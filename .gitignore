@@ -38,3 +38,6 @@ graphify-out/
 
 # 화면 테스트가 실행마다 다시 찍는 캡처 — 픽셀이 매번 달라 커밋하면 자동 병합 검사가 사본 변경으로 실패한다(NS-32-1)
 tests/shots/
+
+# 실행 에이전트 화면 캡처(scripts/capture_ui.py)의 PNG·manifest·로그·임시 코드/DB 사본(NS-55-1)
+.ui-captures/
