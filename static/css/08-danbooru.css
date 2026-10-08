@@ -276,7 +276,7 @@
   /* 전체 화면 — 여백·정보·버튼 줄을 걷어내고 이미지/영상이 화면을 꽉 채운다(닫기 ×와 전체 화면 해제 버튼만 남는다).
      브라우저 전체 화면에서도 같은 배치를 사용하고, 미지원 환경은 창 안을 채운다. */
   .lightbox-overlay.lightbox-fullscreen{ padding:0; background:#000; }
-  .lightbox-overlay.lightbox-fullscreen .lightbox-img-wrap{ width:100%; height:100%; max-width:none; max-height:none; gap:0; }
+  .lightbox-overlay.lightbox-fullscreen .lightbox-img-wrap{ width:100%; height:100%; max-width:none; max-height:none; gap:0; touch-action:none; overflow:hidden; }
   .lightbox-overlay.lightbox-fullscreen .lightbox-img-wrap .lightbox-img{
     width:100%; height:100%; max-width:none; max-height:none; object-fit:contain; border-radius:0; box-shadow:none;
   }

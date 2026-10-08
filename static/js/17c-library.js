@@ -351,6 +351,7 @@ const libraryLightboxImg = document.getElementById('library-lightbox-img');
 let libraryLightboxIndex = 0;
 
 function renderLibraryLightbox(){
+  resetLightboxZoom(libraryLightbox);
   const p = libraryArticle();
   const im = p && p.images[libraryLightboxIndex];
   if(!im) return closeLibraryLightbox();
@@ -374,6 +375,7 @@ function openLibraryLightbox(i){
 }
 
 function closeLibraryLightbox(){
+  resetLightboxZoom(libraryLightbox);
   if(isLightboxFullscreen(libraryLightbox)) setLightboxFullscreen(libraryLightbox, false);
   libraryLightbox.style.display = 'none';
   libraryLightboxImg.removeAttribute('src');

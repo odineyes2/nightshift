@@ -650,6 +650,7 @@ function hideVideoLightboxLoading(){
 })();
 
 function renderVideoLightbox(){
+  resetLightboxZoom(videoGalleryLightbox);
   const vid = displayedGalleryVideos[vLightboxIndex];
   if(!vid) return;
   document.getElementById('video-gallery-lightbox-error').textContent = '';
@@ -675,6 +676,7 @@ function openVideoLightbox(index){
 }
 
 function closeVideoLightbox(){
+  resetLightboxZoom(videoGalleryLightbox);
   if(isLightboxFullscreen(videoGalleryLightbox)) setLightboxFullscreen(videoGalleryLightbox, false);
   videoGalleryLightbox.style.display = 'none';
   vLightboxIndex = -1;
@@ -755,7 +757,7 @@ setupLightboxSwipe(videoGalleryLightbox, document.getElementById('video-gallery-
     const videoEl = document.getElementById('video-gallery-lightbox-video');
     if(document.fullscreenElement === videoEl || document.webkitFullscreenElement === videoEl) return true;   // 네이티브 영상 전체 화면
     if(e.target !== videoEl) return false;
-    return e.touches[0].clientY > videoEl.getBoundingClientRect().bottom - VIDEO_CONTROLS_STRIP;
+    return Array.from(e.touches).some(touch => touch.clientY > videoEl.getBoundingClientRect().bottom - VIDEO_CONTROLS_STRIP);
   },
 });
 
