@@ -291,7 +291,7 @@ async function openCsvEditor(){
     }catch(e){ /* 못 읽으면 빈 표로 시작 */ }
   }
   while(csvEditorRows.length < 3) csvEditorRows.push(csvEditorEmptyRow());
-  if(wizardQuality.key && !wizardQuality.disabled) updateQualityCsvRows(wizardQuality.applied);
+  if(wizardQuality.key && !qualityCsvFiles.get(selectedFiles.csv)?.has(wizardQuality.applied)) updateQualityCsvRows(wizardQuality.applied);
 
   renderCsvEditorTable();
   document.getElementById('csv-editor-hint').textContent =
@@ -324,16 +324,13 @@ document.getElementById('csv-editor-save-btn').addEventListener('click', () => {
     document.getElementById('csv-editor-error').textContent = '값이 채워진 행이 하나도 없어요.';
     return;
   }
-  // 미리보기의 시스템 접두어는 제출 단계에서 붙이므로 파일에는 원문 사본을 저장한다.
-  const originals = rows.map(row => {
-    const copy = { ...row };
-    const target = 'main_prompt' in copy ? 'main_prompt' : 'prompt';
-    const prefix = qualityCsvCopies.get(row);
-    if(prefix) copy[target] = qualityRemove(copy[target], prefix);
-    return copy;
-  });
-  const text = stringifyCsvRows(csvEditorSchema, originals);
-  setCsvFile(new File([text], csvEditorFilename(), { type: 'text/csv' }));
+  // 편집 결과와 반영한 문구를 기록해 사용자가 지운 문구를 제출에서 복원하지 않는다.
+  const text = stringifyCsvRows(csvEditorSchema, rows);
+  const file = new File([text], csvEditorFilename(), { type: 'text/csv' });
+  const reflected = new Set(qualityCsvFiles.get(selectedFiles.csv) || []);
+  for(const row of rows) for(const value of qualityCsvCopies.get(row) || []) reflected.add(value);
+  qualityCsvFiles.set(file, reflected);
+  setCsvFile(file);
   closeCsvEditor();
   document.getElementById('load-notice').textContent = `표에서 작성한 CSV(${rows.length}행)를 CSV 슬롯에 채웠어요.`;
 });
@@ -591,53 +588,38 @@ function appendQualityPrompt(text, quality){
 
 // CSV 사본의 각 행 main_prompt(또는 prompt)에 퀄리티 태그를 뒤에, 추천 접두어를 앞에 붙인다 —
 // quality_prompt 칸을 직접 채운 행은 퀄리티만 건너뛴다.
-async function csvWithQualityPrompt(file, quality, prefix, wizardMode = false){
+async function csvWithQualityPrompt(file, quality, prefix){
   const { header, rows } = parseCsvText(await file.text());
   const target = header.includes('main_prompt') ? 'main_prompt' : (header.includes('prompt') ? 'prompt' : null);
   if(!target) return file;
   const lines = [header.map(csvFieldEscape).join(',')];
   for(const row of rows){
     if(!(row.quality_prompt || '').trim()) row[target] = appendQualityPrompt(row[target] || '', quality);
-    row[target] = wizardMode ? qualityPrepend(row[target], prefix) : prependSweetPrefix(row[target] || '', prefix);
+    row[target] = prependSweetPrefix(row[target] || '', prefix);
     lines.push(header.map(h => csvFieldEscape(row[h])).join(','));
   }
   return new File([lines.join('\r\n') + '\r\n'], file.name, { type: 'text/csv' });
 }
 
-// 종류+파일명으로 편집 상태를 구분하고, 버튼으로 삽입한 선두만 추적한다.
-let wizardQuality = { key: '', applied: '', disabled: false, loaded: false, edited: false };
+// 종류+파일명으로 추천 상태를 구분하고 CSV에 이미 반영한 문구를 추적한다.
+let wizardQuality = { key: '', applied: '', loaded: false, edited: false };
 let wizardQualityRequest = 0;
-const qualityInsertions = new Map();
 const qualityCsvCopies = new WeakMap();
-function qualityHead(text, prefix){
-  const value = String(text || '').trim();
-  return value === prefix || value.startsWith(prefix + ',');
-}
-function qualityPrepend(text, prefix){
-  const value = String(text || '').trim();
-  if(!prefix || qualityHead(value, prefix)) return value;
-  return prefix + (value ? ', ' + value : '');
-}
-function qualityRemove(text, prefix){
-  const value = String(text || '');
-  if(value === prefix) return '';
-  return value.startsWith(prefix + ', ') ? value.slice(prefix.length + 2) : value;
+const qualityCsvFiles = new WeakMap();
+const WIZARD_QUALITY_HINT = '추가를 누르기 전에는 적용되지 않아요. 누르면 메인 프롬프트 끝에 붙여요.';
+function qualityAppend(text, quality){
+  if(!quality) return text || '';
+  const value = String(text || '').trim().replace(/[\s,]+$/, '');
+  if(value === quality || value.endsWith(', ' + quality) || value.endsWith(',' + quality)) return value;
+  return value ? value + ', ' + quality : quality;
 }
 function qualityMainControl(){
   return optionsFields.querySelector('.prompt-enhance')?.qualityPromptControl;
 }
-function removeQualityInsertions(){
-  for(const [input, prefix] of qualityInsertions) input.value = qualityRemove(input.value, prefix);
-  qualityInsertions.clear();
-  qualityMainControl()?.sync();
-  updateQualityCsvRows('');
-}
 function clearWizardQuality(){
   wizardQualityRequest++;
-  removeQualityInsertions();
-  wizardQuality = { key: '', applied: '', disabled: false, loaded: false, edited: false };
-  document.getElementById('quality-prompt-disabled').checked = false;
-  document.getElementById('quality-prompt-add').disabled = false;
+  wizardQuality = { key: '', applied: '', loaded: false, edited: false };
+  document.getElementById('quality-prompt-field').classList.remove('quality-prompt-pending');
 }
 async function setWizardQualityPrompt(family, filename){
   const kind = family.kind || 'checkpoints';
@@ -651,8 +633,9 @@ async function setWizardQualityPrompt(family, filename){
   document.getElementById('quality-prompt-field').style.display = '';
   document.querySelector('.quality-prompt-actions').style.display = '';
   document.getElementById('sweet-prefix-field').style.display = 'none';
+  document.getElementById('quality-prompt-field').classList.add('quality-prompt-pending');
   const hint = document.getElementById('quality-prompt-hint');
-  hint.textContent = '추천값을 읽고 있어요…';
+  hint.textContent = '추천값을 읽고 있어요… ' + WIZARD_QUALITY_HINT;
   const token = ++wizardQualityRequest;
   const before = document.getElementById('quality-prompt-input').value;
   try{
@@ -667,72 +650,59 @@ async function setWizardQualityPrompt(family, filename){
     wizardQuality.loaded = true;
     document.getElementById('sweet-tips-field').style.display = sweet.prompt_tips ? '' : 'none';
     document.getElementById('sweet-tips-text').textContent = sweet.prompt_tips || '';
-    hint.textContent = '추가를 누르면 메인 프롬프트 앞에 붙여요. CSV는 각 행에 적용해요.';
+    hint.textContent = WIZARD_QUALITY_HINT;
   }catch(e){
     if(token !== wizardQualityRequest) return;
     document.getElementById('sweet-tips-field').style.display = 'none';
-    hint.textContent = '모델 추천값을 읽지 못했어요 — 직접 입력하거나 세부 설정을 다시 열어 주세요.';
+    hint.textContent = '모델 추천값을 읽지 못했어요 — 직접 입력하거나 세부 설정을 다시 열어 주세요. ' + WIZARD_QUALITY_HINT;
   }
 }
-function updateQualityCsvRows(prefix){
+function updateQualityCsvRows(quality){
+  if(!quality) return;
   for(const row of csvEditorRows){
     const target = 'main_prompt' in row ? 'main_prompt' : ('prompt' in row ? 'prompt' : null);
-    if(!target) continue;
-    const old = qualityCsvCopies.get(row);
-    if(old) row[target] = qualityRemove(row[target], old);
-    qualityCsvCopies.delete(row);
-    if(prefix && !csvEditorRowIsBlank(row) && !qualityHead(row[target], prefix)){
-      row[target] = qualityPrepend(row[target], prefix);
-      qualityCsvCopies.set(row, prefix);
-    }
+    if(!target || csvEditorRowIsBlank(row)) continue;
+    row[target] = qualityAppend(row[target], quality);
+    const reflected = qualityCsvCopies.get(row) || new Set();
+    reflected.add(quality);
+    qualityCsvCopies.set(row, reflected);
   }
 }
 function addWizardQuality(){
-  if(!wizardQuality.key || wizardQuality.disabled) return;
-  const prefix = document.getElementById('quality-prompt-input').value.trim().replace(/[\s,]+$/, '').slice(0, 1000);
-  if(!prefix) return;
-  if(wizardQuality.applied !== prefix) removeQualityInsertions();
-  wizardQuality.applied = prefix;
+  if(!wizardQuality.key) return;
+  const quality = document.getElementById('quality-prompt-input').value.trim().replace(/[\s,]+$/, '').slice(0, 1000);
+  if(!quality) return;
+  wizardQuality.applied = quality;
   const control = qualityMainControl();
   const input = control?.get();
-  if(input && !qualityHead(input.value, prefix)){
-    input.value = qualityPrepend(input.value, prefix);
-    qualityInsertions.set(input, prefix);
+  if(input){
+    input.value = qualityAppend(input.value, quality);
     control.sync();
+    control.focusEnd();
   }
-  updateQualityCsvRows(prefix);
+  if(qualityCsvFiles.has(selectedFiles.csv)) qualityCsvFiles.get(selectedFiles.csv).delete(quality);
+  updateQualityCsvRows(quality);
+  document.getElementById('quality-prompt-field').classList.remove('quality-prompt-pending');
   if(document.getElementById('csv-editor-modal').style.display === 'flex') renderCsvEditorTable();
 }
 document.getElementById('quality-prompt-add').addEventListener('click', addWizardQuality);
-document.getElementById('quality-prompt-input').addEventListener('input', () => { wizardQuality.edited = true; });
-document.getElementById('quality-prompt-disabled').addEventListener('change', e => {
-  wizardQuality.disabled = e.target.checked;
-  document.getElementById('quality-prompt-add').disabled = e.target.checked;
-  if(e.target.checked){
-    removeQualityInsertions();
-    wizardQuality.applied = '';
-    if(document.getElementById('csv-editor-modal').style.display === 'flex') renderCsvEditorTable();
-  }
+document.getElementById('quality-prompt-input').addEventListener('input', () => {
+  wizardQuality.edited = true;
+  document.getElementById('quality-prompt-field').classList.add('quality-prompt-pending');
 });
 function wizardPromptWithExtras(text, trigger, apply = true){
-  const prefix = !wizardQuality.disabled ? wizardQuality.applied : '';
-  const hasPrefix = prefix && qualityHead(text, prefix);
-  const body = hasPrefix ? String(text).trim().slice(prefix.length).replace(/^[,\s]+/, '') : text;
-  const withTrigger = trigger ? prependLoraTrigger(body, trigger) : body;
-  return (hasPrefix || apply) ? qualityPrepend(withTrigger, prefix) : withTrigger;
+  const withTrigger = trigger ? prependLoraTrigger(text, trigger) : text;
+  return apply ? qualityAppend(withTrigger, wizardQuality.applied) : withTrigger;
 }
 async function csvWithWizardQuality(file, trigger, template){
-  const prefix = !wizardQuality.disabled ? wizardQuality.applied : '';
-  // 파일 원본을 덮어쓰지 않고 제출 사본만 변환한다.
-  let copy = file;
-  if(prefix){
-    const { header, rows } = parseCsvText(await file.text());
-    const target = header.includes('main_prompt') ? 'main_prompt' : 'prompt';
-    for(const row of rows) row[target] = qualityRemove(row[target], prefix);
-    copy = new File([stringifyCsvRows(header.map(name => ({ name })), rows)], file.name, { type: 'text/csv' });
-  }
-  if(trigger) copy = await csvWithLoraTrigger(copy, template, trigger);
-  return prefix ? csvWithQualityPrompt(copy, '', prefix, true) : copy;
+  const quality = wizardQuality.applied;
+  const copy = trigger ? await csvWithLoraTrigger(file, template, trigger) : file;
+  if(!quality || qualityCsvFiles.get(file)?.has(quality)) return copy;
+  const { header, rows } = parseCsvText(await copy.text());
+  const target = header.includes('main_prompt') ? 'main_prompt' : (header.includes('prompt') ? 'prompt' : null);
+  if(!target) return copy;
+  for(const row of rows) row[target] = qualityAppend(row[target], quality);
+  return new File([stringifyCsvRows(header.map(name => ({ name })), rows)], file.name, { type: 'text/csv' });
 }
 
 // ---- 베이스 모델 그룹 ----

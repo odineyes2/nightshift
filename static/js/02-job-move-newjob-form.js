@@ -547,6 +547,11 @@ function buildPromptEnhanceControl(opt){
   wrap.qualityPromptControl = {
     get: () => (applied && resultTextarea.value.trim()) ? resultTextarea : rawTextarea,
     sync,
+    focusEnd(){
+      const input = this.get();
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    },
   };
   function say(text, cls){ status.textContent = text; status.className = 'enhance-status' + (cls ? ' ' + cls : ''); }
   rawTextarea.addEventListener('input', () => { applied = false; sync(); });
