@@ -482,6 +482,39 @@ def sanitize_stem(text):
     return text[:40] or "pose"
 
 
+def merge_trigger_into_main(workflow, row):
+    """trigger_prompt 노드가 없는 워크플로우(마법사가 만든 것 등)면 행의 trigger_prompt를 본문 앞에 붙인
+    새 행을 돌려준다(원본 row는 건드리지 않음). 본문은 main_prompt → prompt → main_prompt 노드의 현재
+    텍스트 순으로 고르고, 본문에 이미 들어 있으면(대소문자 무시) 다시 붙이지 않는다 — 화면
+    prependLoraTrigger와 같은 규칙. 전용 노드가 있으면 apply_prompts가 지금처럼 그 노드에 넣는다."""
+    global _TRIGGER_MERGE_NOTED
+    trigger = (row.get("trigger_prompt") or "").strip()
+    if not trigger:
+        return row
+    node_id, node = find_node(workflow, title_substring="trigger_prompt", allow_class_fallback=False)
+    if node is not None and primitive_value_field(node):
+        return row
+    key = "prompt" if not (row.get("main_prompt") or "").strip() and (row.get("prompt") or "").strip() else "main_prompt"
+    main = (row.get(key) or "").strip()
+    if not main:
+        node_id, node = find_node(workflow, title_substring="main_prompt", allow_class_fallback=False)
+        field = primitive_value_field(node) if node is not None else None
+        value = node.get("inputs", {}).get(field) if field else None
+        main = value.strip() if isinstance(value, str) else ""
+    merged = dict(row, trigger_prompt="")
+    if trigger.lower() in main.lower():
+        merged[key] = main
+    else:
+        merged[key] = f"{trigger}, {main}" if main else trigger
+    if not _TRIGGER_MERGE_NOTED:
+        print("[템플릿] 안내: trigger_prompt 노드가 없어 main_prompt 앞에 붙였습니다", file=sys.stderr)
+        _TRIGGER_MERGE_NOTED = True
+    return merged
+
+
+_TRIGGER_MERGE_NOTED = False
+
+
 def apply_prompts(workflow, row):
     applied = False
     for field, title_substring in PROMPT_FIELD_TITLES.items():
@@ -1069,6 +1102,7 @@ def build_plan(base_workflow, rows, poses_dir, pose_mode, secondary_kind=None, s
 def run_once(base_workflow, comfy_url, row, title, seed, char_no, pose_path, index, job_id, output_dir,
              secondary_kind=None, secondary_path=None):
     workflow = copy.deepcopy(base_workflow)
+    row = merge_trigger_into_main(workflow, row)
     apply_prompts(workflow, row)
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
