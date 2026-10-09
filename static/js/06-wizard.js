@@ -875,12 +875,24 @@ async function startFaceDetailerWizard(stored){
     `'${stored}'을(를) Face Detailer 참조 이미지로 골랐어요. 베이스 모델을 고르고 "다음"을 누르세요.`;
   await openWizardFamilyModal();
 }
-document.getElementById('wizard-reset-btn').addEventListener('click', () => {
+// 두 초기화 버튼과 성공 제출이 같은 초기 상태를 사용한다.
+async function resetNewJobWizard(){
+  resetWizardAndWorkflow();
   wizardPendingInputImage = null;
   wizardPendingPose = null;
   wizardNextPoseSequence = null;
   document.getElementById('library-selection-preview')?.remove();
-});
+  quickRunReturn = false;
+  resetForm();
+  templateSelect.selectedIndex = templateSelect.options.length ? 0 : -1;
+  await onTemplateChange();
+  for(const id of ['load-error', 'load-notice', 'upload-error', 'wizard-error']){
+    document.getElementById(id).textContent = '';
+  }
+  newJobActiveTab = 'select';
+  renderNewJobTabs();
+}
+document.getElementById('wizard-reset-btn').addEventListener('click', resetNewJobWizard);
 
 // Library "이 포즈로 생성" — 입력 이미지 풀에 둔 사본(stored)과 게시물의 danbooru prompt를 기억하고, 마법사를
 // txt2img + OpenPose·시드 반복으로 채운 채 1단계(베이스 모델)를 연다. 포즈 칸·프롬프트는 wizardApply가 채운다.

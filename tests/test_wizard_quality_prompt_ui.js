@@ -17,7 +17,7 @@ class Element {
 }
 const ids = new Map();
 const el = id => { assert.notEqual(id, 'quality-prompt-disabled'); if(!ids.has(id)) ids.set(id, new Element()); return ids.get(id); };
-let items = [], failed = false, submitted;
+let items = [], failed = false, submitted, uploadFailed = false, resetCount = 0;
 const optionsFields = new Element();
 const context = vm.createContext({console, File, Event, optionsFields, escapeHtml: String,
   document: {getElementById: el, querySelector: el, createElement: () => new Element(), addEventListener(){}},
@@ -27,12 +27,13 @@ const context = vm.createContext({console, File, Event, optionsFields, escapeHtm
   templatesById: {test: {id: 'test', requires_workflow: false, options: []}},
   templateSelect: {value: 'test'}, selectedFiles: {csv: null}, uploadError: el('error'), lastWizardModels: null,
   formPodId: () => '', formProjectId: () => null, closeNewJobModal(){}, fetchJobs(){}, flashNotice(){},
+  resetNewJobWizard: async () => {resetCount++;},
   FormData: class { constructor(){this.values = new Map();} append(k,v){ this.values.set(k,v); } },
   fetch: async url => {
     if(url === '/api/models') return {ok: !failed, json: async () => ({items})};
     if(url === '/api/enhance-prompt') return {ok: true, json: async () => ({enhanced: 'enhanced body'})};
     assert.equal(url, '/api/upload'); submitted = context.lastForm;
-    return {ok: true, json: async () => null};
+    return {ok: !uploadFailed, json: async () => uploadFailed ? {detail: 'test failure'} : null};
   },
 });
 context.FormData = class {constructor(){this.values = new Map(); context.lastForm = this;} append(k,v){this.values.set(k,v);} };
@@ -52,7 +53,11 @@ function prompt(value = ''){
   context.opt = {name: 'main_prompt', default: value};
   const wrap = run('buildPromptEnhanceControl(opt)'); optionsFields.appendChild(wrap); return wrap;
 }
-const submit = () => el('submit-btn').fire('click');
+const submit = async () => {
+  const before = resetCount;
+  await el('submit-btn').fire('click');
+  assert.equal(resetCount, before + (uploadFailed ? 0 : 1));
+};
 const add = () => el('quality-prompt-add').fire('click');
 async function model(kind, filename){ context.family = {kind}; context.filename = filename; await run('setWizardQualityPrompt(family, filename)'); }
 async function main(){
@@ -132,6 +137,18 @@ async function main(){
   context.csv = await direct.text();
   assert.equal(run('parseCsvText(csv).rows[0].prompt'), 'prefix, body');
   assert.equal(run('parseCsvText(csv).rows[1].prompt'), 'prefix, other, Q');
+  uploadFailed = true; await submit();
+  assert.ok(resetCount > 0);
+  assert.equal(el('error').textContent, 'test failure');
+  const beforeCancel = resetCount, previousForm = submitted, previousCsv = context.selectedFiles.csv;
+  context.lastWizardModels = {checkpoint: 'missing', loras: []};
+  context.fetchModelInventory = async () => {};
+  context.podsWithModel = () => [];
+  context.confirm = () => false;
+  await el('submit-btn').fire('click');
+  assert.equal(resetCount, beforeCancel);
+  assert.equal(submitted, previousForm);
+  assert.equal(context.selectedFiles.csv, previousCsv);
   console.log('Quality Prompt 클릭·순서·편집 보존·Enhance·CSV·시드 실제 제출 검사 통과');
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });

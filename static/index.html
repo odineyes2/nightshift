@@ -442,8 +442,8 @@
 
         <!-- 마법사 4단계를 다 고르거나(또는 워크플로우를 직접 올리거나) 준비되면 "다음"으로
              넘어간다 — 그 시점의 상태 기준으로 다시 만든 뒤(필요할 때만, goToNewJobDetails
-             참고) 세부 설정 탭으로 자동 전환된다. "초기화"는 마법사 스텝과 업로드된
-             워크플로우를 모두 처음 상태로 되돌린다(resetWizardAndWorkflow). -->
+             참고) 세부 설정 탭으로 자동 전환된다. "초기화"는 첨부·옵션을 포함한
+             마법사 전체를 처음 상태로 되돌린다(resetNewJobWizard). -->
         <div class="new-job-next-row">
           <button type="button" class="modal-btn-secondary" id="wizard-reset-btn"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 초기화</button>
           <button type="button" class="submit-btn" id="new-job-next-btn" disabled
@@ -554,7 +554,7 @@
           <!-- 워크플로우 설정 서브탭의 하단 버튼 줄(초기화 왼쪽/다음 오른쪽, .new-job-next-row)과
                위치·크기가 똑같도록 같은 클래스를 그대로 쓴다. -->
           <div class="new-job-next-row">
-            <button class="modal-btn-secondary" id="reset-form-btn" type="button" title="초기화"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 초기화</button>
+            <button class="modal-btn-secondary" id="reset-form-btn" type="button" title="마법사 전체 초기화"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 초기화</button>
             <div class="new-job-next-right">
               <button class="modal-btn-secondary" id="save-board-preset-btn" type="button" title="지금 설정을 프로젝트 보드의 생성 카드 프리셋으로 저장"><svg class="ico"><use href="#i-network"/></svg><span class="btn-label"> 보드 프리셋으로 저장</span><span class="btn-label-short"> 프리셋</span></button>
               <button class="submit-btn" id="submit-btn" title="큐에 추가"><svg class="ico"><use href="#i-plus"/></svg> 추가</button>
