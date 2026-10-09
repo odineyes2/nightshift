@@ -40,6 +40,7 @@ context.setCsvFile = file => { context.selectedFiles.csv = file; };
 const run = code => vm.runInContext(code, context);
 const source = file => fs.readFileSync(require('node:path').join(__dirname, '../static/js/', file), 'utf8');
 const tools = source('04-newjob-tools.js');
+run(source('04a-csv-formula.js'));
 run(tools.slice(tools.indexOf('let csvEditorSchema'), tools.indexOf('async function fetchComfyStatus')));
 run(tools.slice(tools.indexOf('function prependLoraTrigger'), tools.indexOf('async function fetchBaseModelFamilies')));
 const form = source('02-job-move-newjob-form.js');
