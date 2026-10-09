@@ -239,15 +239,121 @@ function renderCsvEditorTable(){
 
   document.getElementById('csv-editor-tbody').innerHTML = csvEditorRows.map((row, rIdx) =>
     `<tr>` +
-    csvEditorSchema.map(col =>
-      `<td><input type="text" data-row="${rIdx}" data-col="${escapeHtml(col.name)}" value="${escapeHtml(row[col.name] || '')}"></td>`
+    csvEditorSchema.map((col, cIdx) =>
+      `<td><input type="text" data-row="${rIdx}" data-ci="${cIdx}" data-col="${escapeHtml(col.name)}" value="${escapeHtml(row[col.name] || '')}"></td>`
     ).join('') +
     `<td class="csv-editor-row-actions"><button type="button" class="csv-editor-del-btn" data-row="${rIdx}" title="이 행 삭제">&times;</button></td>` +
     `</tr>`
   ).join('');
 
   document.getElementById('csv-editor-row-count').textContent = `${csvEditorRows.length}행`;
+  paintCsvEditorSelection();
 }
+
+// 블록 선택 — 앵커(처음 누른 칸)와 끝 칸. 사각형은 csvEditorSelRect()로 구한다.
+let csvEditorSel = null;   // {ar, ac, er, ec}
+let csvEditorDragging = false;
+
+function csvEditorSelRect(){
+  if(!csvEditorSel) return null;
+  const {ar, ac, er, ec} = csvEditorSel;
+  return {r1: Math.min(ar, er), r2: Math.max(ar, er), c1: Math.min(ac, ec), c2: Math.max(ac, ec)};
+}
+
+function paintCsvEditorSelection(){
+  const rect = csvEditorSelRect();
+  const multi = rect && (rect.r1 !== rect.r2 || rect.c1 !== rect.c2);
+  for(const input of document.getElementById('csv-editor-tbody').querySelectorAll('input[data-ci]')){
+    const r = Number(input.dataset.row), c = Number(input.dataset.ci);
+    const on = multi && r >= rect.r1 && r <= rect.r2 && c >= rect.c1 && c <= rect.c2;
+    input.parentElement.classList.toggle('csv-cell-selected', !!on);
+  }
+}
+
+function csvEditorInput(r, c){
+  return document.getElementById('csv-editor-tbody').querySelector(`input[data-row="${r}"][data-ci="${c}"]`);
+}
+
+function csvEditorFocus(r, c){
+  const input = csvEditorInput(r, c);
+  if(!input) return;
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
+// 스프레드시트의 "아래로 채우기" — 블록이 2행 이상이면 열마다 맨 윗행 값을 아래로,
+// 한 행이면 바로 위 행 값을 가져온다.
+function csvEditorFillDown(rect){
+  let top = rect.r1, from = rect.r1 + 1;
+  if(rect.r1 === rect.r2){
+    if(rect.r1 === 0) return;
+    top = rect.r1 - 1; from = rect.r1;
+  }
+  for(let c = rect.c1; c <= rect.c2; c++){
+    const name = csvEditorSchema[c].name;
+    for(let r = from; r <= rect.r2; r++){
+      csvEditorRows[r][name] = csvEditorRows[top][name];
+      const input = csvEditorInput(r, c);
+      if(input) input.value = csvEditorRows[r][name];
+    }
+  }
+}
+
+function csvEditorKeydown(e){
+  const input = e.target.closest && e.target.closest('input[data-ci]');
+  if(!input || e.isComposing) return;
+  const r = Number(input.dataset.row), c = Number(input.dataset.ci);
+  const lastR = csvEditorRows.length - 1, lastC = csvEditorSchema.length - 1;
+  if((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'd'){
+    e.preventDefault();
+    // Tab 등으로 블록 밖 칸에 와 있으면 지금 칸만 채운다
+    const rect = csvEditorSelRect();
+    const inside = rect && r >= rect.r1 && r <= rect.r2 && c >= rect.c1 && c <= rect.c2;
+    csvEditorFillDown(inside ? rect : {r1: r, r2: r, c1: c, c2: c});
+    return;
+  }
+  const dr = {ArrowDown: 1, ArrowUp: -1}[e.key] || 0;
+  let dc = 0;
+  // 좌우는 칸 안의 커서 이동과 겹치므로 Shift+커서가 칸 처음/끝일 때만 블록을 늘린다
+  if(e.shiftKey && e.key === 'ArrowLeft' && input.selectionStart === 0 && input.selectionEnd === 0) dc = -1;
+  if(e.shiftKey && e.key === 'ArrowRight' && input.selectionStart === input.value.length) dc = 1;
+  if(!dr && !dc) return;
+  if(e.shiftKey){
+    e.preventDefault();
+    if(!csvEditorSel) csvEditorSel = {ar: r, ac: c, er: r, ec: c};
+    csvEditorSel.er = Math.min(lastR, Math.max(0, csvEditorSel.er + dr));
+    csvEditorSel.ec = Math.min(lastC, Math.max(0, csvEditorSel.ec + dc));
+    paintCsvEditorSelection();
+    return;
+  }
+  e.preventDefault();
+  const nr = Math.min(lastR, Math.max(0, r + dr));
+  csvEditorSel = {ar: nr, ac: c, er: nr, ec: c};
+  paintCsvEditorSelection();
+  csvEditorFocus(nr, c);
+}
+
+document.getElementById('csv-editor-tbody').addEventListener('keydown', csvEditorKeydown);
+document.getElementById('csv-editor-tbody').addEventListener('mousedown', (e) => {
+  const input = e.target.closest('input[data-ci]');
+  if(!input || e.button !== 0) return;
+  const r = Number(input.dataset.row), c = Number(input.dataset.ci);
+  if(e.shiftKey && csvEditorSel){
+    csvEditorSel.er = r; csvEditorSel.ec = c;
+  }else{
+    csvEditorSel = {ar: r, ac: c, er: r, ec: c};
+    csvEditorDragging = true;
+  }
+  paintCsvEditorSelection();
+});
+document.getElementById('csv-editor-tbody').addEventListener('mouseover', (e) => {
+  if(!csvEditorDragging) return;
+  const input = e.target.closest('input[data-ci]');
+  if(!input) return;
+  csvEditorSel.er = Number(input.dataset.row); csvEditorSel.ec = Number(input.dataset.ci);
+  paintCsvEditorSelection();
+});
+document.addEventListener('mouseup', () => { csvEditorDragging = false; });
 
 document.getElementById('csv-editor-tbody').addEventListener('input', (e) => {
   const input = e.target.closest('input[data-col]');
@@ -258,6 +364,7 @@ document.getElementById('csv-editor-tbody').addEventListener('click', (e) => {
   const btn = e.target.closest('.csv-editor-del-btn');
   if(!btn) return;
   csvEditorRows.splice(Number(btn.dataset.row), 1);
+  csvEditorSel = null;
   renderCsvEditorTable();
 });
 document.getElementById('csv-editor-add-row-btn').addEventListener('click', () => {
@@ -293,9 +400,10 @@ async function openCsvEditor(){
   while(csvEditorRows.length < 3) csvEditorRows.push(csvEditorEmptyRow());
   if(wizardQuality.key && !qualityCsvFiles.get(selectedFiles.csv)?.has(wizardQuality.applied)) updateQualityCsvRows(wizardQuality.applied);
 
+  csvEditorSel = null;
   renderCsvEditorTable();
   document.getElementById('csv-editor-hint').textContent =
-    '* 표시된 열은 값이 있어야 그 행이 처리돼요. 첫 줄(열 이름)은 이 템플릿에 맞게 고정돼 있어 편집할 수 없어요 — 열에 마우스를 올리면 설명이 떠요.';
+    '* 표시된 열은 값이 있어야 그 행이 처리돼요. 첫 줄(열 이름)은 이 템플릿에 맞게 고정돼 있어 편집할 수 없어요 — 열에 마우스를 올리면 설명이 떠요. ↓↑로 칸을 옮기고, 드래그나 Shift로 블록을 고른 뒤 Ctrl+D를 누르면 맨 위 값으로 아래를 채워요.';
   document.getElementById('csv-editor-modal').style.display = 'flex';
 }
 
