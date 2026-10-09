@@ -75,7 +75,6 @@ function renderLibraryPoses(){
       <span class="library-thumb">
         <img src="${escapeHtml(p.thumb_url)}" alt="${escapeHtml(p.name)}" loading="lazy">
         ${p.image_count > 1 ? `<span class="library-thumb-count">${ico('layout-grid')} ${p.image_count}</span>` : ''}
-        ${p.cover_image_id ? poseGenerateButton('library-card-pose-btn', p.cover_image_id) : ''}
         <button class="library-check-btn" type="button" aria-pressed="${librarySelected.has(p.id)}" title="순차 생성에 넣기" aria-label="순차 생성에 넣기">${ico('square-check-big')}</button>
       </span>
       <span class="library-info">
@@ -84,12 +83,6 @@ function renderLibraryPoses(){
         ${isDetails && p.danbooru_prompt ? `<span class="library-prompt">${escapeHtml(p.danbooru_prompt)}</span>` : ''}
       </span>
     </div>`).join('');
-}
-
-// "이 포즈로 생성"(NS-41) — 카드·아티클 격자에 얹는 작은 아이콘 버튼. 라이트박스 버튼은 index.html에 있다.
-function poseGenerateButton(cls, imageId){
-  const label = libraryTab === 'pose' ? '이 포즈로 생성' : `이 ${libraryNoun()}으로 생성 (txt2img)`;
-  return `<button class="library-pose-btn ${cls}" type="button" data-image-id="${imageId}" title="${label}" aria-label="${label}">${ico('list-checks')}</button>`;
 }
 
 // 아티클 격자의 "이 장 삭제"(NS-43, Pose는 NS-44) — 썸네일 오른쪽 위
@@ -188,30 +181,6 @@ async function runLibrarySequence(kind, posts, mode){
   }catch(err){ setLibraryError(err.message); }
 }
 
-// 고른 장 하나로 생성 — 프롬프트만이면 txt2img 시드 배치, Openpose CN이면 장을 입력 풀로 복사하고 OpenPose 마법사.
-// 어느 쪽이든 danbooru prompt는 메인 프롬프트 끝에 붙는다.
-function generateFromPose(poseId, imageId){
-  setLibraryError('');
-  const kind = libraryTab;
-  const p = libraryPoses.find(x => x.id === poseId);
-  if(!p) return;
-  if(kind === 'lighting') return runLibrarySingle(kind, { ...p, images: p.images.map(im => ({ ...im })) }, imageId, 'prompt');
-  askLibraryTransfer(mode => runLibrarySingle(kind, { ...p, images: p.images.map(im => ({ ...im })) }, imageId, mode));
-}
-async function runLibrarySingle(kind, p, imageId, mode){
-  if(kind === 'lighting') mode = 'prompt';
-  try{
-    const data = mode === 'prompt' ? null
-      : await libraryToInput(`/api/library/${kind === 'position' ? 'positions' : 'poses'}/${p.id}/images/${imageId}/to-input`);
-    if(libraryLightbox.style.display !== 'none') closeLibraryLightbox();
-    const im = p.images.find(im => im.id === imageId);
-    const context = { source_kind: kind, article_id: p.id, source_image_id: imageId,
-      generation_mode: mode, article_name: p.name, preview_url: im?.thumb_url || im?.image_url };
-    if(data) await startOpenPoseWizard(data.name, data.danbooru_prompt, context);
-    else await startPositionWizard(p.danbooru_prompt, null, context);
-  }catch(err){ setLibraryError(err.message); }
-}
-
 // ---- 아티클 갤러리 — 목록을 숨기고 게시물 하나의 이미지를 갤러리 격자로 ----
 let libraryArticleId = null;
 const libraryArticle = () => libraryPoses.find(p => p.id === libraryArticleId);
@@ -250,7 +219,6 @@ function renderLibraryArticle(){
   document.getElementById('library-article-grid').innerHTML = p.images.map((im, i) => `
     <div class="gallery-item" data-index="${i}" role="button" tabindex="0" title="크게 보기">
       <img src="${escapeHtml(im.thumb_url)}" alt="${escapeHtml(p.name)} ${i + 1}" loading="lazy">
-      ${poseGenerateButton('library-item-pose-btn', im.id)}
       ${libraryImageDeleteButton(im.id)}
       ${im.id === p.cover_image_id ? `<span class="library-cover-badge">${ico('star')} 대표</span>` : ''}
       <button class="library-check-btn library-cover-check" type="button" data-image-id="${im.id}" aria-pressed="${im.id === libraryCoverPick}" title="대표 이미지 후보로 체크" aria-label="대표 이미지 후보로 체크">${ico('square-check-big')}</button>
@@ -339,9 +307,7 @@ document.getElementById('library-list').addEventListener('click', (e) => {
     syncLibrarySelection();
     return;
   }
-  const btn = e.target.closest('.library-pose-btn');
-  if(btn) generateFromPose(Number(card.dataset.poseId), Number(btn.dataset.imageId));
-  else openLibraryArticle(Number(card.dataset.poseId));
+  openLibraryArticle(Number(card.dataset.poseId));
 });
 document.getElementById('library-list').addEventListener('keydown', (e) => {
   const card = e.target.closest('.library-card');
@@ -366,13 +332,11 @@ document.getElementById('library-article-grid').addEventListener('click', (e) =>
       .forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.imageId) === libraryCoverPick)));
     return syncLibraryCoverBtn();
   }
-  const btn = e.target.closest('.library-pose-btn');
-  if(btn) return generateFromPose(libraryArticleId, Number(btn.dataset.imageId));
   const item = e.target.closest('.gallery-item');
   if(item) openLibraryLightbox(Number(item.dataset.index));
 });
 document.getElementById('library-article-grid').addEventListener('keydown', (e) => {
-  if(e.target.closest('.library-pose-btn, .library-image-delete-btn, .library-cover-check')) return;   // 버튼의 Enter는 버튼 자신의 click으로
+  if(e.target.closest('.library-image-delete-btn, .library-cover-check')) return;   // 버튼의 Enter는 버튼 자신의 click으로
   const item = e.target.closest('.gallery-item');
   if(item && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); openLibraryLightbox(Number(item.dataset.index)); }
 });
@@ -408,7 +372,6 @@ function renderLibraryLightbox(){
   const coverBtn = document.getElementById('library-lightbox-cover-btn');
   coverBtn.disabled = isCover;
   coverBtn.querySelector('.btn-label').textContent = isCover ? '대표 이미지' : '대표 이미지로 선택';
-  document.querySelector('#library-lightbox-pose-btn .btn-label').textContent = libraryTab === 'pose' ? '이 포즈로 생성' : `이 ${libraryNoun()}으로 생성`;
   document.getElementById('library-lightbox-prev').style.display = many ? '' : 'none';
   document.getElementById('library-lightbox-next').style.display = many ? '' : 'none';
 }
@@ -443,10 +406,6 @@ document.getElementById('library-lightbox-next').addEventListener('click', () =>
 document.getElementById('library-lightbox-download-btn').addEventListener('click', () => {
   const p = libraryArticle(), im = p && p.images[libraryLightboxIndex];
   if(im) triggerAnchorDownload(im.image_url, `${p.name}-${libraryLightboxIndex + 1}`);
-});
-document.getElementById('library-lightbox-pose-btn').addEventListener('click', () => {
-  const im = libraryArticle()?.images[libraryLightboxIndex];
-  if(im) generateFromPose(libraryArticleId, im.id);
 });
 document.getElementById('library-lightbox-cover-btn').addEventListener('click', () => {
   const im = libraryArticle()?.images[libraryLightboxIndex];

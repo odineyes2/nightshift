@@ -94,9 +94,9 @@ class ToInputTests(unittest.TestCase):
         wiz = (ROOT / "static/js/06-wizard.js").read_text(encoding="utf-8")
         html = (ROOT / "static/index.html").read_text(encoding="utf-8")
         self.assertIn("/to-input", lib)
-        self.assertEqual(lib.count("startOpenPoseWizard("), 1)   # 그리드·상세·라이트박스가 한 함수로
+        # 장 하나로 생성하는 버튼은 뺐다(NS-62) — 체크 후 순차 생성이 같은 일을 한다
         for marker in ("library-card-pose-btn", "library-item-pose-btn", "library-lightbox-pose-btn"):
-            self.assertIn(marker, lib + html, marker)
+            self.assertNotIn(marker, lib + html, marker)
         self.assertNotIn('<button class="library-card"', lib)   # 카드 안에 버튼을 넣으려고 div로
         self.assertIn("async function startOpenPoseWizard(stored, prompt, context = null)", wiz)
         body = wiz[wiz.index("async function startOpenPoseWizard"):]

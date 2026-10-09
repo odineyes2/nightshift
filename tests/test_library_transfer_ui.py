@@ -1,5 +1,5 @@
 """Library 생성 방식 고르기(NS-51) — 17c-library.js의 모달 구간을 모의 DOM·fetch로 node에서 실행해 검사한다.
-- 두 탭 × 프롬프트/Openpose CN × 단일/순차의 API 호출과 마법사 전달값
+- 두 탭 × 프롬프트/Openpose CN 순차 생성의 API 호출과 마법사 전달값
 - 닫기(취소)·중복 클릭·요청 뒤 탭 전환·복사 실패
 """
 import json
@@ -55,18 +55,14 @@ const tick = () => new Promise(r => setTimeout(r, 0));
 (async () => {
   const out = {};
   const run = async (name, fn) => { calls.length = 0; lastError = ''; await fn(); await tick(); await tick(); out[name] = { calls: JSON.parse(JSON.stringify(calls)), error: lastError, open: modal.style.display }; };
-  await run('pose_single_prompt', async () => { libraryTab = 'pose'; generateFromPose(7, 3); handlers.prompt(); });
-  await run('pose_single_openpose', async () => { libraryTab = 'pose'; generateFromPose(7, 3); handlers.openpose(); });
-  await run('position_single_prompt', async () => { libraryTab = 'position'; generateFromPose(7, 3); handlers.prompt(); });
-  await run('position_single_openpose', async () => { libraryTab = 'position'; generateFromPose(7, 4); handlers.openpose(); });
   await run('pose_seq_prompt', async () => { libraryTab = 'pose'; generatePoseSequence(); handlers.prompt(); });
   await run('pose_seq_openpose', async () => { libraryTab = 'pose'; generatePoseSequence(); handlers.openpose(); });
   await run('position_seq_prompt', async () => { libraryTab = 'position'; generatePoseSequence(); handlers.prompt(); });
   await run('position_seq_openpose', async () => { libraryTab = 'position'; generatePoseSequence(); handlers.openpose(); });
-  await run('cancel', async () => { generateFromPose(7, 3); out.openedBeforeCancel = modal.style.display; handlers.close(); handlers.openpose(); handlers.prompt(); });
-  await run('escape', async () => { generateFromPose(7, 3); handlers.key({ key: 'Escape' }); handlers.prompt(); });
-  await run('double_click', async () => { libraryTab = 'pose'; generateFromPose(7, 3); handlers.openpose(); handlers.openpose(); });
-  await run('tab_switch', async () => { libraryTab = 'position'; generateFromPose(7, 3); libraryTab = 'pose'; handlers.openpose(); });
+  await run('cancel', async () => { generatePoseSequence(); out.openedBeforeCancel = modal.style.display; handlers.close(); handlers.openpose(); handlers.prompt(); });
+  await run('escape', async () => { generatePoseSequence(); handlers.key({ key: 'Escape' }); handlers.prompt(); });
+  await run('double_click', async () => { libraryTab = 'pose'; generatePoseSequence(); handlers.openpose(); handlers.openpose(); });
+  await run('tab_switch', async () => { libraryTab = 'position'; generatePoseSequence(); libraryTab = 'pose'; handlers.openpose(); });
   await run('fail', async () => { libraryTab = 'position'; failNext = true; generatePoseSequence(); handlers.openpose(); });
   console.log(JSON.stringify(out));
 })();
@@ -82,19 +78,6 @@ def main():
     assert r.returncode == 0, r.stderr
     o = json.loads(r.stdout)
     c = lambda k: o[k]["calls"]
-
-    assert c("pose_single_prompt")[0][:2] == ["prompt", "tag a"]
-    for kind in ("pose", "position"):
-        for mode in ("prompt", "openpose"):
-            context = c(f"{kind}_single_{mode}")[-1][-1]
-            assert context["source_kind"] == kind and context["article_id"] == 7
-            assert context["source_image_id"] == (4 if kind == "position" and mode == "openpose" else 3)
-            assert context["generation_mode"] == mode
-    assert c("pose_single_openpose")[0] == ["fetch", "/api/library/poses/7/images/3/to-input", None]
-    assert c("pose_single_openpose")[1][:3] == ["openpose", "copied.png", "tag a"]
-    assert c("position_single_prompt")[0][:2] == ["prompt", "tag a"]
-    assert c("position_single_openpose")[0][1] == "/api/library/positions/7/images/4/to-input"
-    assert c("position_single_openpose")[1][0] == "openpose"
 
     seq = c("pose_seq_prompt")
     assert len(seq) == 1 and seq[0][0] == "promptSeq", seq   # 프롬프트만은 복사 없음
