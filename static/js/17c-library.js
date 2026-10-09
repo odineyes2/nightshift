@@ -22,7 +22,7 @@ function setLibraryTab(tab){
   document.querySelectorAll('#library-subtabs [data-library-tab]')
     .forEach(b => b.classList.toggle('active', b.dataset.libraryTab === tab));
   document.getElementById('library-sequence-btn').title =
-    `체크한 게시물(없으면 지금 목록 전부)의 모든 이미지를 ${libraryNoun()}로 차례로 생성`;
+    `체크한 게시물(없으면 지금 목록 전부)의 대표 이미지를 ${libraryNoun()}로 차례로 생성`;
 }
 
 // 탭 진입·새로고침은 목록으로 돌아간다(아티클 갤러리는 닫힌다).
@@ -75,7 +75,7 @@ function renderLibraryPoses(){
       <span class="library-thumb">
         <img src="${escapeHtml(p.thumb_url)}" alt="${escapeHtml(p.name)}" loading="lazy">
         ${p.image_count > 1 ? `<span class="library-thumb-count">${ico('layout-grid')} ${p.image_count}</span>` : ''}
-        ${p.images.length ? poseGenerateButton('library-card-pose-btn', p.images[0].id) : ''}
+        ${p.cover_image_id ? poseGenerateButton('library-card-pose-btn', p.cover_image_id) : ''}
         <button class="library-check-btn" type="button" aria-pressed="${librarySelected.has(p.id)}" title="순차 생성에 넣기" aria-label="순차 생성에 넣기">${ico('square-check-big')}</button>
       </span>
       <span class="library-info">
@@ -149,7 +149,7 @@ async function libraryToInput(url, body){
   return data;
 }
 
-// 체크한 게시물(목록 순서)로 순차 생성 마법사를 연다 — 장마다 한 항목.
+// 체크한 게시물(목록 순서)로 순차 생성 마법사를 연다 — 게시물마다 대표 이미지 한 항목(NS-61).
 function generatePoseSequence(){
   setLibraryError('');
   const kind = libraryTab;
@@ -161,12 +161,12 @@ function generatePoseSequence(){
 async function runLibrarySequence(kind, posts, mode){
   if(kind === 'lighting') mode = 'prompt';   // Lighting은 입력 이미지 복사·Openpose CN을 지원하지 않는다.
   if(mode === 'prompt'){
-    // 프롬프트만 — 이미지 복사 없이 목록 응답으로 장마다 한 항목을 만든다(positionSequenceValue 모양).
-    const items = posts.flatMap(p => p.images.map(im => ({
+    // 프롬프트만 — 이미지 복사 없이 목록 응답으로 게시물마다 대표 한 항목을 만든다(positionSequenceValue 모양).
+    const items = posts.map(p => [p, p.images.find(im => im.id === p.cover_image_id)]).filter(([, im]) => im).map(([p, im]) => ({
       source_kind: kind, article_id: p.id, source_image_id: im.id, generation_mode: mode,
       preview_url: im.thumb_url || im.image_url, article_name: p.name,
       position_id: p.id, position_name: p.name, danbooru_prompt: p.danbooru_prompt || '',
-    })));
+    }));
     if(!items.length) return setLibraryError('고른 게시물에 이미지가 없어요');
     return startPositionSequenceWizard(items);
   }
@@ -218,6 +218,7 @@ const libraryArticle = () => libraryPoses.find(p => p.id === libraryArticleId);
 
 function openLibraryArticle(id){
   libraryArticleId = id;
+  libraryCoverPick = null;
   document.getElementById('library-list').hidden = true;
   document.getElementById('library-article').hidden = false;
   renderLibraryArticle();
@@ -251,7 +252,30 @@ function renderLibraryArticle(){
       <img src="${escapeHtml(im.thumb_url)}" alt="${escapeHtml(p.name)} ${i + 1}" loading="lazy">
       ${poseGenerateButton('library-item-pose-btn', im.id)}
       ${libraryImageDeleteButton(im.id)}
+      ${im.id === p.cover_image_id ? `<span class="library-cover-badge">${ico('star')} 대표</span>` : ''}
+      <button class="library-check-btn library-cover-check" type="button" data-image-id="${im.id}" aria-pressed="${im.id === libraryCoverPick}" title="대표 이미지 후보로 체크" aria-label="대표 이미지 후보로 체크">${ico('square-check-big')}</button>
     </div>`).join('');
+  syncLibraryCoverBtn();
+}
+
+// 대표 이미지(NS-61) — 아티클 격자에서 한 장만 체크하고 헤더 버튼으로 저장한다. 참조·순차 생성은 이 장을 쓴다.
+let libraryCoverPick = null;
+function syncLibraryCoverBtn(){
+  const p = libraryArticle();
+  document.getElementById('library-article-cover-btn').disabled = !p || !libraryCoverPick || libraryCoverPick === p.cover_image_id;
+}
+async function setLibraryCover(imageId){
+  const p = libraryArticle();
+  if(!p || !imageId || imageId === p.cover_image_id) return;
+  setLibraryError('');
+  try{
+    await libraryRequest(`${libraryApi()}/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cover_image_id: imageId }) }, '대표 이미지를 바꾸지 못했어요');
+    libraryCoverPick = null;
+    await openLibraryTab();
+    openLibraryArticle(p.id);
+    if(libraryLightbox.style.display !== 'none') renderLibraryLightbox();
+  }catch(err){ setLibraryError(err.message); }
 }
 
 // ---- Position 수정·삭제(NS-43) — 삭제는 confirm을 거친다. 마지막 한 장은 서버가 400으로 막는다 ----
@@ -334,19 +358,28 @@ document.getElementById('library-article-back').addEventListener('click', closeL
 document.getElementById('library-article-grid').addEventListener('click', (e) => {
   const del = e.target.closest('.library-image-delete-btn');
   if(del) return deleteLibraryImage(Number(del.dataset.imageId));
+  const pick = e.target.closest('.library-cover-check');
+  if(pick){
+    const id = Number(pick.dataset.imageId);
+    libraryCoverPick = libraryCoverPick === id ? null : id;
+    document.querySelectorAll('#library-article-grid .library-cover-check')
+      .forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.imageId) === libraryCoverPick)));
+    return syncLibraryCoverBtn();
+  }
   const btn = e.target.closest('.library-pose-btn');
   if(btn) return generateFromPose(libraryArticleId, Number(btn.dataset.imageId));
   const item = e.target.closest('.gallery-item');
   if(item) openLibraryLightbox(Number(item.dataset.index));
 });
 document.getElementById('library-article-grid').addEventListener('keydown', (e) => {
-  if(e.target.closest('.library-pose-btn, .library-image-delete-btn')) return;   // 버튼의 Enter는 버튼 자신의 click으로
+  if(e.target.closest('.library-pose-btn, .library-image-delete-btn, .library-cover-check')) return;   // 버튼의 Enter는 버튼 자신의 click으로
   const item = e.target.closest('.gallery-item');
   if(item && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); openLibraryLightbox(Number(item.dataset.index)); }
 });
 document.getElementById('library-article-edit-btn').addEventListener('click', () => openPoseAddModal(null, libraryArticle()));
 document.getElementById('library-article-delete-btn').addEventListener('click', deleteLibraryPost);
 document.getElementById('library-article-move-btn').addEventListener('click', moveLibraryPost);
+document.getElementById('library-article-cover-btn').addEventListener('click', () => setLibraryCover(libraryCoverPick));
 document.querySelectorAll('#library-subtabs [data-library-tab]').forEach(btn => btn.addEventListener('click', () => {
   if(btn.dataset.libraryTab === libraryTab) return closeLibraryArticle();
   setLibraryTab(btn.dataset.libraryTab);
@@ -371,6 +404,10 @@ function renderLibraryLightbox(){
   document.getElementById('library-lightbox-info').textContent = `${p.name} · ${libraryLightboxIndex + 1}/${p.images.length}`;
   const many = p.images.length > 1;
   document.getElementById('library-lightbox-delete-btn').hidden = false;
+  const isCover = im.id === p.cover_image_id;
+  const coverBtn = document.getElementById('library-lightbox-cover-btn');
+  coverBtn.disabled = isCover;
+  coverBtn.querySelector('.btn-label').textContent = isCover ? '대표 이미지' : '대표 이미지로 선택';
   document.querySelector('#library-lightbox-pose-btn .btn-label').textContent = libraryTab === 'pose' ? '이 포즈로 생성' : `이 ${libraryNoun()}으로 생성`;
   document.getElementById('library-lightbox-prev').style.display = many ? '' : 'none';
   document.getElementById('library-lightbox-next').style.display = many ? '' : 'none';
@@ -410,6 +447,10 @@ document.getElementById('library-lightbox-download-btn').addEventListener('click
 document.getElementById('library-lightbox-pose-btn').addEventListener('click', () => {
   const im = libraryArticle()?.images[libraryLightboxIndex];
   if(im) generateFromPose(libraryArticleId, im.id);
+});
+document.getElementById('library-lightbox-cover-btn').addEventListener('click', () => {
+  const im = libraryArticle()?.images[libraryLightboxIndex];
+  if(im) setLibraryCover(im.id);
 });
 document.getElementById('library-lightbox-delete-btn').addEventListener('click', () => {
   const im = libraryArticle()?.images[libraryLightboxIndex];

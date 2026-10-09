@@ -927,6 +927,8 @@
           <button class="load-btn" id="library-article-edit-btn" type="button" title="수정" aria-label="수정" hidden><svg class="ico"><use href="#i-pencil"/></svg><span class="btn-label">수정</span></button>
           <!-- Pose↔Position 이동(NS-46) — 문구는 서브탭에 따라 JS가 바꾼다 -->
           <button class="load-btn" id="library-article-move-btn" type="button" title="Position으로 이동" aria-label="Position으로 이동"><svg class="ico"><use href="#i-repeat"/></svg><span class="btn-label">Position으로 이동</span></button>
+          <!-- 대표 이미지(NS-61) — 격자에서 한 장을 체크한 뒤 누른다 -->
+          <button class="load-btn" id="library-article-cover-btn" type="button" title="체크한 장을 대표 이미지로 선택" aria-label="대표 이미지로 선택" disabled><svg class="ico"><use href="#i-star"/></svg><span class="btn-label">대표 이미지로 선택</span></button>
           <button class="load-btn" id="library-article-delete-btn" type="button" title="게시물 삭제" aria-label="게시물 삭제" hidden><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">삭제</span></button>
         </div>
         <div class="library-desc" id="library-article-desc"></div>
@@ -1167,6 +1169,7 @@
     <div class="lightbox-actions">
       <button class="modal-btn-secondary" id="library-lightbox-download-btn" type="button" title="다운로드" aria-label="다운로드"><svg class="ico"><use href="#i-download"/></svg><span class="btn-label">다운로드</span></button>
       <button class="modal-btn-secondary" id="library-lightbox-pose-btn" type="button" title="이 포즈로 생성 (OpenPose)" aria-label="이 포즈로 생성"><svg class="ico"><use href="#i-list-checks"/></svg><span class="btn-label">이 포즈로 생성</span></button>
+      <button class="modal-btn-secondary" id="library-lightbox-cover-btn" type="button" title="이 장을 대표 이미지로 선택" aria-label="대표 이미지로 선택"><svg class="ico"><use href="#i-star"/></svg><span class="btn-label">대표 이미지로 선택</span></button>
       <button class="modal-btn-secondary" id="library-lightbox-delete-btn" type="button" title="이 장 삭제" aria-label="이 장 삭제" hidden><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label">이 장 삭제</span></button>
       <button class="modal-btn-secondary" id="library-lightbox-original-btn" type="button" title="원본 보기" aria-label="원본 보기"><svg class="ico"><use href="#i-zoom-in"/></svg><span class="btn-label">원본 보기</span></button>
     </div>

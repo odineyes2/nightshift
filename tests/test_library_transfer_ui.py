@@ -29,8 +29,8 @@ const document = {
 };
 let libraryTab = 'pose';
 let libraryPoses = [
-  { id: 7, name: 'A', danbooru_prompt: 'tag a', images: [{ id: 3 }, { id: 4 }] },
-  { id: 8, name: 'B', danbooru_prompt: 'tag b', images: [{ id: 5 }] },
+  { id: 7, name: 'A', danbooru_prompt: 'tag a', cover_image_id: 4, images: [{ id: 3 }, { id: 4 }] },
+  { id: 8, name: 'B', danbooru_prompt: 'tag b', cover_image_id: 5, images: [{ id: 5 }] },
 ];
 const librarySelected = new Set();
 let lastError = '';
@@ -98,9 +98,9 @@ def main():
 
     seq = c("pose_seq_prompt")
     assert len(seq) == 1 and seq[0][0] == "promptSeq", seq   # 프롬프트만은 복사 없음
-    assert [it["position_id"] for it in seq[0][1]] == [7, 7, 8]   # 장마다 한 항목, 목록 순서
-    assert [it["source_kind"] for it in seq[0][1]] == ["pose"] * 3
-    assert [it["source_image_id"] for it in seq[0][1]] == [3, 4, 5]
+    assert [it["position_id"] for it in seq[0][1]] == [7, 8]   # 게시물마다 대표 한 항목(NS-61), 목록 순서
+    assert [it["source_kind"] for it in seq[0][1]] == ["pose"] * 2
+    assert [it["source_image_id"] for it in seq[0][1]] == [4, 5]
     assert all(it["source_kind"] == "position" for it in c("position_seq_prompt")[0][1])
 
     assert c("pose_seq_openpose")[0] == ["fetch", "/api/library/poses/to-input", {"pose_ids": [7, 8]}]
