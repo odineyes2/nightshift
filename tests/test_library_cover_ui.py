@@ -27,6 +27,10 @@ def main():
     # 격자 체크·대표 배지
     assert "library-cover-check" in JS and "library-cover-badge" in JS
     assert ".library-cover-badge" in CSS and ".library-cover-check" in CSS
+    # 마법사 참조 목록은 높이를 제한하고 스크롤한다 — 베이스 모델 목록을 가리지 않는다(NS-61-3)
+    rule = CSS.split(".library-selection-preview {", 1)[1].split("}", 1)[0]
+    assert "max-height:" in rule and "overflow-y:auto" in rule and "flex-shrink:0" in rule, rule
+    assert "#wizard-family-modal-body > .wizard-pick-list { flex-shrink:0; }" in CSS
     node = shutil.which("node")
     if node:
         r = subprocess.run([node, "--check", str(JS_PATH)], capture_output=True, text=True)
