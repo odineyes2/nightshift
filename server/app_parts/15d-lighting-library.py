@@ -42,7 +42,7 @@ async def add_library_lighting_images(request: Request, lighting_id: int):
 
 @app.patch("/api/library/lightings/{lighting_id}")
 async def update_library_lighting(request: Request, lighting_id: int):
-    """본문 JSON {name?, description?, danbooru_prompt?} — 온 칸만 바꾼다."""
+    """본문 JSON {name?, description?, danbooru_prompt?, cover_image_id?} — 온 칸만 바꾼다(대표는 NS-61)."""
     _library_lighting(request, lighting_id)
     try:
         body = json.loads(await request.body())

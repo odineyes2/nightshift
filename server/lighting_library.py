@@ -11,7 +11,7 @@ from PIL import ImageOps
 
 import db
 from data_paths import data_dir
-from pose_library import EXTS, THUMB_SIZE, PoseError, _check_images
+from pose_library import EXTS, THUMB_SIZE, PoseError, _check_images, apply_cover, cover_value
 
 
 def _dir() -> Path:
@@ -34,9 +34,8 @@ def _with_images(conn, rows) -> list[dict]:
             by_id[d["lighting_id"]]["images"].append(d)
     for p in items:
         p["image_count"] = len(p["images"])
-        first = p["images"][0] if p["images"] else {}
-        p["image_url"], p["thumb_url"] = first.get("image_url", ""), first.get("thumb_url", "")
-        p["source_url"] = first.get("source_url", "")
+        apply_cover(p)
+        p["source_url"] = p["images"][0]["source_url"] if p["images"] else ""
     return items
 
 
@@ -88,10 +87,12 @@ def add_images(lighting_id: int, images: list) -> dict:
 
 
 def update_lighting(lighting_id: int, fields: dict) -> dict:
-    """명칭·설명·danbooru prompt 중 온 것만 바꾼다(명칭은 비울 수 없다)."""
+    """명칭·설명·danbooru prompt·대표 이미지(cover_image_id) 중 온 것만 바꾼다(명칭은 비울 수 없다)."""
     sets = {k: (str(fields[k] or "")).strip() for k in ("name", "description", "danbooru_prompt") if k in fields}
     if "name" in sets:
         sets["name"] = _name(sets["name"])
+    if "cover_image_id" in fields:
+        sets["cover_image_id"] = cover_value(get_lighting(lighting_id), fields["cover_image_id"])
     if sets:
         with db.connect() as conn:
             conn.execute(f"UPDATE lightings SET {', '.join(f'{k}=?' for k in sets)} WHERE id=?",
@@ -122,6 +123,9 @@ def delete_image(lighting: dict, image_id: int) -> dict:
         raise PoseError("마지막 이미지는 지울 수 없어요. 게시물을 지워주세요.")
     with db.connect() as conn:
         conn.execute("DELETE FROM lighting_images WHERE id=?", (image_id,))
+        # 대표를 지우면 첫 장으로 돌아간다(pose_library.delete_image와 같다).
+        conn.execute("UPDATE lightings SET cover_image_id=NULL WHERE id=? AND cover_image_id=?",
+                     (lighting["id"], image_id))
     _unlink(image)
     return get_lighting(lighting["id"])
 
@@ -144,7 +148,8 @@ def get_lighting(lighting_id: int) -> dict | None:
 
 
 def get_image(lighting: dict, image_id: int | None) -> dict | None:
-    """게시물의 이미지 하나 — image_id가 None이면 첫 장."""
+    """게시물의 이미지 하나 — image_id가 None이면 대표 장."""
+    image_id = lighting["cover_image_id"] if image_id is None else image_id
     images = lighting["images"] if image_id is None else [i for i in lighting["images"] if i["id"] == image_id]
     return images[0] if images else None
 

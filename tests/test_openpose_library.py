@@ -79,7 +79,7 @@ class ToInputTests(unittest.TestCase):
         r = req()
         r.body = lambda: asyncio.sleep(0, json.dumps({"pose_ids": [self.pose["id"]]}).encode())
         rows = asyncio.run(A.library_poses_to_input(r))
-        self.assertEqual([x["image_id"] for x in rows], [i["id"] for i in self.pose["images"]])
+        self.assertEqual([x["image_id"] for x in rows], [self.pose["images"][0]["id"]])   # 대표 1장(NS-61)
         self.assertEqual(rows[0]["name"], f"library_pose_{self.pose['id']}_{self.pose['images'][0]['id']}.png")
         self.assertEqual((rows[0]["pose_name"], rows[0]["width"], rows[0]["height"]), ("앉기", 300, 400))
         pos = L.add_position("u1", "같은 번호", "", "duo", [(img(), "")])
