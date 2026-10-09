@@ -265,7 +265,7 @@ nightshift는 여러 사람이 함께 쓸 수 있는 **회원제**입니다. 예
 - 게시물을 누르면 **아티클 갤러리**가 열려 그 게시물의 이미지를 모두 갤러리 격자로 보여 줍니다(`← 목록`·서브탭·새로고침으로 돌아감). 이미지를 누르면 갤러리와 같은 라이트박스가 열립니다 — 좌우 넘김(←/→·스와이프), 전체 화면(F), 전체 화면에서 보기 회전(`[`/`]`), Esc 닫기, 다운로드·원본 보기.
 - **게시물 추가하기**(모바일은 아이콘만)를 누르면 모달에서 Pose 명칭(필수)·이미지(파일 여러 장 또는 URL 한 줄에 하나)·설명·danbooru prompt를 적어 저장합니다. 한 번에 20장까지. 아티클 갤러리의 **이미지 추가**로 기존 게시물에 이미지를 덧붙입니다. URL로 넣으면 서버가 이미지를 받아 `data/library/poses`에 저장하므로 원본이 사라져도 썸네일이 깨지지 않습니다(공인 주소만, 장당 20MB까지).
 - **갤러리에서 바로 넣기**: 갤러리 선택 도구줄이나 라이트박스의 **라이브러리** 버튼(Pose·Position 라이브러리에 넣기)으로 모달을 열어 Pose/Position과 새 게시물/기존 게시물을 고르고 저장합니다. 서버가 결과 이미지 이름(`output_name`)으로 원본을 읽어 사본을 저장하며(자기 결과물만, 관리자는 전부), 20장 상한은 같습니다. 저장 뒤 **Library에서 보기**로 그 게시물을 엽니다.
-- 게시물의 명칭·설명·danbooru prompt를 **수정**하고, 게시물이나 이미지 한 장을 **삭제**할 수 있습니다(주인 또는 관리자). 게시물을 지우면 이미지 파일도 함께 지워지고, 이미지 한 장 지우기는 마지막 한 장이면 거절합니다(게시물을 지워야 합니다). "이 포즈로 생성"·순차 생성으로 입력 이미지 풀에 복사한 사본은 지우지 않습니다.
+- 게시물의 명칭·설명·danbooru prompt를 **수정**하고, 게시물이나 이미지 한 장을 **삭제**할 수 있습니다(주인 또는 관리자). 게시물을 지우면 이미지 파일도 함께 지워지고, 이미지 한 장 지우기는 마지막 한 장이면 거절합니다(게시물을 지워야 합니다). 순차 생성으로 입력 이미지 풀에 복사한 사본은 지우지 않습니다.
 - API: `GET/POST /api/library/poses`, `PATCH|DELETE /api/library/poses/{id}`(수정은 JSON `{name, description, danbooru_prompt}` 중 바꿀 칸만), `POST /api/library/poses/{id}/images`, `DELETE /api/library/poses/{id}/images/{image_id}`, `GET /api/library/poses/{id}/images/{image_id}/image|thumb`, `GET /api/library/poses/{id}/image|thumb`(첫 장).
 
 **Position**(`server/position_library.py`)은 Pose와 같은 구조의 게시물(명칭·설명·danbooru prompt·이미지 여러 장)이고 파일은 `data/library/positions`에 둡니다. 공개 범위·이미지 추가·수정·삭제 규칙은 Pose와 같습니다.
@@ -274,7 +274,7 @@ nightshift는 여러 사람이 함께 쓸 수 있는 **회원제**입니다. 예
 
 **Lighting**(`server/lighting_library.py`)은 조명 참고 이미지를 모으는 서브탭입니다. Pose·Position과 같은 Grid/Details·체크·전체선택·아티클 갤러리·라이트박스·추가·수정·삭제 화면을 쓰며, 파일은 `data/library/lightings`에 둡니다. 공개 범위와 이미지 제한도 같습니다. 파일·URL·갤러리에서 이미지를 넣거나, 갤러리의 **라이브러리** 모달에서 Lighting을 골라 새 게시물 또는 기존 게시물에 저장합니다.
 
-- **이 Lighting으로 생성 (txt2img)**과 **순차 생성**은 방식 선택 없이 프롬프트 마법사를 엽니다. danbooru prompt를 메인 프롬프트 끝에 붙이고 생성 결과를 원본 Lighting 게시물에 등록합니다. Openpose CN·입력 이미지 복사·Pose/Position으로 이동은 지원하지 않습니다.
+- **순차 생성**은 방식 선택 없이 프롬프트 마법사를 엽니다. danbooru prompt를 메인 프롬프트 끝에 붙이고 생성 결과를 원본 Lighting 게시물에 등록합니다. Openpose CN·입력 이미지 복사·Pose/Position으로 이동은 지원하지 않습니다.
 - API: `GET/POST /api/library/lightings`, `PATCH|DELETE /api/library/lightings/{id}`, `POST /api/library/lightings/{id}/images`, `DELETE /api/library/lightings/{id}/images/{image_id}`, `GET /api/library/lightings/{id}/images/{image_id}/image|thumb`.
 
 ### 프로젝트 보드 (Board 탭, `server/board_store.py`)

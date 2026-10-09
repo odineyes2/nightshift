@@ -6,16 +6,9 @@
     background:var(--panel); border:1px solid var(--border); border-radius:var(--radius-md);
     overflow:hidden; display:flex; flex-direction:column;
   }
-  /* 카드 전체가 버튼(NS-40, 안에 "이 포즈로 생성" 버튼을 넣으려고 div role=button) — 누르면 아티클 갤러리 */
+  /* 카드 전체가 버튼(NS-40, 안에 순차 생성 체크 버튼을 넣으려고 div role=button) — 누르면 아티클 갤러리 */
   .library-card[role="button"]{ cursor:pointer; width:100%; }
   .library-card[role="button"]:hover{ border-color:var(--accent, var(--queued)); }
-  /* "이 포즈로 생성"(NS-41) — 썸네일 왼쪽 위 아이콘 버튼 */
-  .library-pose-btn{
-    position:absolute; left:var(--gap-xs); top:var(--gap-xs); z-index:1;
-    display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0;
-    border:none; border-radius:var(--radius-sm); background:rgba(0,0,0,0.6); color:#fff; cursor:pointer;
-  }
-  .library-pose-btn:hover, .library-pose-btn:focus-visible{ background:var(--accent, var(--queued)); }
   #library-article-grid .gallery-item{ position:relative; }
   /* 순차 생성 체크(NS-42) — 썸네일 오른쪽 위. 체크하면 강조색 */
   .library-check-btn{
@@ -44,7 +37,6 @@
   /* 순차 생성 폼 — 총 장수 안내와 포즈 태그 스위치 */
   .pose-sequence-hint{ font-size:14px; color:var(--text); margin:var(--gap-xs) 0; }
   .pose-tag-toggle{ display:inline-flex; align-items:center; gap:8px; margin-top:var(--gap-xs); font-size:12.5px; color:var(--text-dim); cursor:pointer; }
-  .library-details .library-pose-btn{ width:24px; height:24px; left:2px; top:2px; }
   /* 생성 방식 고르기(NS-51) — 두 버튼을 같은 크기로 나란히(좁으면 위아래) */
   .library-transfer-choices{ display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--gap-sm); }
   .library-transfer-btn{

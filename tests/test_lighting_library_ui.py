@@ -34,20 +34,13 @@ document.getElementById = element;
 const libraryArticle = () => libraryPoses[0];
 let libraryCoverPick = null;
 const syncLibraryCoverBtn = () => {};
-''' + function('poseGenerateButton') + function('libraryImageDeleteButton') + function('renderLibraryArticle') + function('moveLibraryPost') + r'''
+''' + function('libraryImageDeleteButton') + function('renderLibraryArticle') + function('moveLibraryPost') + r'''
 const ico = () => '';
 const escapeHtml = s => s;
 (async () => {
   libraryTab = 'lighting';
   assert.equal(libraryApi(), '/api/library/lightings');
   assert.equal(libraryNoun(), 'Lighting');
-  assert(poseGenerateButton('test',3).includes('이 Lighting으로 생성 (txt2img)'));
-  await generateFromPose(7,3);
-  assert.equal(modal.style.display, 'none');
-  assert.deepEqual(calls[0].slice(0,2), ['prompt','tag a']);
-  assert.equal(calls[0][2].source_kind, 'lighting');
-  assert.equal(calls[0][2].generation_mode, 'prompt');
-  calls.length = 0;
   librarySelected.add(8);
   await generatePoseSequence();
   assert.equal(modal.style.display, 'none');
@@ -56,9 +49,8 @@ const escapeHtml = s => s;
   assert(calls[0][1].every(i=>i.source_kind==='lighting' && i.generation_mode==='prompt'));
   calls.length = 0;
   // 내부 실행 함수에 잘못된 모드를 넘겨도 Openpose 경로로 가지 않는다.
-  await runLibrarySingle('lighting', libraryPoses[0], 4, 'openpose');
   await runLibrarySequence('lighting', libraryPoses, 'openpose');
-  assert(calls.every(c=>c[0]==='prompt' || c[0]==='promptSeq'));
+  assert(calls.every(c=>c[0]==='promptSeq'));
   renderLibraryArticle();
   assert.equal(element('library-article-move-btn').hidden, true);
   calls.length = 0;
@@ -68,7 +60,7 @@ const escapeHtml = s => s;
     libraryTab=kind; renderLibraryArticle();
     assert.equal(element('library-article-move-btn').hidden,false);
   }
-  console.log('ok: Lighting prompt single/sequence, origin, no transfer/copy/move');
+  console.log('ok: Lighting prompt sequence, origin, no transfer/copy/move');
 })();
 '''
     node = shutil.which('node')

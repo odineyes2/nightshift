@@ -18,8 +18,7 @@ def main():
     # 저장은 기존 PATCH에 cover_image_id
     assert "JSON.stringify({ cover_image_id: imageId })" in JS
     assert "method: 'PATCH'" in JS
-    # 참조 생성(목록 카드)·순차 생성은 대표를 쓴다
-    assert "poseGenerateButton('library-card-pose-btn', p.cover_image_id)" in JS
+    # 순차 생성은 대표를 쓴다
     assert "p.images[0].id" not in JS
     assert "flatMap(p => p.images" not in JS
     assert "im.id === p.cover_image_id" in JS
