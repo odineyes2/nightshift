@@ -63,7 +63,7 @@ class PoseSequenceTests(unittest.TestCase):
         code, out = call(A.library_poses_to_input, req({"pose_ids": [b["id"], a["id"]]}))
         self.assertEqual(code, 200, out)
         self.assertEqual([(o["pose_id"], o["image_id"]) for o in out],
-                         [(b["id"], b["images"][0]["id"])] + [(a["id"], i["id"]) for i in a["images"]])
+                         [(b["id"], b["images"][0]["id"]), (a["id"], a["images"][0]["id"])])   # 대표 1장(NS-61)
         self.assertEqual(out[0]["name"], f"library_pose_{b['id']}_{b['images'][0]['id']}.png")
         self.assertEqual((out[1]["width"], out[1]["sdxl_width"], out[1]["sdxl_height"]), (800, 1152, 896))
         self.assertEqual((out[1]["danbooru_prompt"], out[1]["pose_name"]), ("sitting", "앉기"))

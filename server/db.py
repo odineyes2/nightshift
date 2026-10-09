@@ -503,11 +503,19 @@ CREATE TABLE lighting_images (
 CREATE INDEX idx_lighting_images_position ON lighting_images(lighting_id, position)
 """
 
+# v25: 아티클 대표 이미지(NS-61) — NULL이거나 그 아티클에 없는 장이면 첫 장이 대표다(외래 키 없음).
+SCHEMA_V25 = """
+ALTER TABLE poses ADD COLUMN cover_image_id INTEGER;
+ALTER TABLE positions ADD COLUMN cover_image_id INTEGER;
+ALTER TABLE lightings ADD COLUMN cover_image_id INTEGER
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
               (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16), (17, SCHEMA_V17), (18, SCHEMA_V18),
-              (19, SCHEMA_V19), (20, SCHEMA_V20), (21, SCHEMA_V21), (22, SCHEMA_V22), (23, SCHEMA_V23), (24, SCHEMA_V24)]
+              (19, SCHEMA_V19), (20, SCHEMA_V20), (21, SCHEMA_V21), (22, SCHEMA_V22), (23, SCHEMA_V23), (24, SCHEMA_V24),
+              (25, SCHEMA_V25)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}

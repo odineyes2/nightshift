@@ -130,7 +130,7 @@ async def library_position_to_input(request: Request, position_id: int, image_id
 
 @app.post("/api/library/positions/to-input")
 async def library_positions_to_input(request: Request):
-    """순차 생성(NS-51) — 본문 {"position_ids": [...]}의 게시물마다 모든 이미지를 입력 이미지 풀로 복사하고
+    """순차 생성(NS-51) — 본문 {"position_ids": [...]}의 게시물마다 대표 이미지 1장(NS-61)을 입력 이미지 풀로 복사하고
     목록 순서대로 [{position_id, position_name, image_id, name, danbooru_prompt, width, height, sdxl_width, sdxl_height}].
     하나라도 볼 수 없는 게시물이면 404."""
     try:
@@ -143,7 +143,7 @@ async def library_positions_to_input(request: Request):
     positions = [_library_position(request, i) for i in ids]  # 복사 전에 전부 검사한다
     out = []
     for position in positions:
-        for image in position["images"]:
+        for image in pose_library.cover_first(position):   # 대표 1장만(15b와 같다, NS-61)
             if not position_library.image_path(image, False).is_file():
                 continue
             name, content = await _position_to_input(position, image)
@@ -156,4 +156,5 @@ async def library_positions_to_input(request: Request):
                         "image_id": image["id"], "name": name,
                         "danbooru_prompt": position.get("danbooru_prompt") or "",
                         "width": w, "height": h, "sdxl_width": sw, "sdxl_height": sh})
+            break
     return out

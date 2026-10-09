@@ -60,7 +60,8 @@ async def add_library_pose_images(request: Request, pose_id: int):
 
 @app.patch("/api/library/poses/{pose_id}")
 async def update_library_pose(request: Request, pose_id: int):
-    """본문 JSON {name?, description?, danbooru_prompt?} — 온 칸만 바꾼다(NS-44)."""
+    """본문 JSON {name?, description?, danbooru_prompt?, cover_image_id?} — 온 칸만 바꾼다(NS-44). 대표 이미지는
+    이 게시물의 이미지 번호만 받는다(아니면 400, NS-61)."""
     _library_pose(request, pose_id)
     try:
         body = json.loads(await request.body())
@@ -159,7 +160,7 @@ async def _pose_to_input(pose: dict, image: dict) -> tuple[str, bytes]:
 
 @app.post("/api/library/poses/to-input")
 async def library_poses_to_input(request: Request):
-    """순차 생성(NS-42) — 본문 {"pose_ids": [...]}의 게시물마다 모든 이미지를 입력 이미지 풀로 복사하고
+    """순차 생성(NS-42) — 본문 {"pose_ids": [...]}의 게시물마다 대표 이미지 1장(NS-61)을 입력 이미지 풀로 복사하고
     목록 순서대로 [{pose_id, pose_name, image_id, name, danbooru_prompt, width, height, sdxl_width, sdxl_height}]를
     돌려준다. 하나라도 볼 수 없는 게시물이면 404."""
     try:
@@ -172,7 +173,8 @@ async def library_poses_to_input(request: Request):
     poses = [_library_pose(request, i) for i in ids]  # 복사 전에 전부 검사한다
     out = []
     for pose in poses:
-        for image in pose["images"]:
+        # 같은 게시물은 뼈대·프롬프트가 같아 대표 1장만 쓴다(NS-61). 대표 파일이 없으면 파일 있는 다음 장.
+        for image in pose_library.cover_first(pose):
             if not pose_library.image_path(image, False).is_file():
                 continue
             name, content = await _pose_to_input(pose, image)
@@ -184,4 +186,5 @@ async def library_poses_to_input(request: Request):
             out.append({"pose_id": pose["id"], "pose_name": pose.get("name") or "", "image_id": image["id"],
                         "name": name, "danbooru_prompt": pose.get("danbooru_prompt") or "",
                         "width": w, "height": h, "sdxl_width": sw, "sdxl_height": sh})
+            break
     return out

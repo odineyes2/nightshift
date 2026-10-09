@@ -175,10 +175,10 @@ class PositionTests(unittest.TestCase):
         code, rows = call(A.library_positions_to_input, as_user(body={"position_ids": [b["id"], a["id"]]}))
         self.assertEqual(code, 200, rows)
         self.assertEqual([(r["position_id"], r["image_id"]) for r in rows],
-                         [(b["id"], b1["id"]), (b["id"], b2["id"]), (a["id"], img_a["id"])])
+                         [(b["id"], b1["id"]), (a["id"], img_a["id"])])   # 게시물마다 대표 1장(NS-61)
         self.assertEqual((rows[0]["position_name"], rows[0]["danbooru_prompt"], rows[0]["width"], rows[0]["height"],
                           rows[0]["sdxl_width"], rows[0]["sdxl_height"]), ("둘", "two", 600, 900, 832, 1280))
-        self.assertEqual(rows[1]["name"], gif_out["name"])
+        self.assertEqual(rows[1]["name"], out["name"])
         for body in (b"{nope", {"position_ids": []}, {"position_ids": ["1"]}, {"position_ids": [True]}, [1]):
             self.assertEqual(call(A.library_positions_to_input, as_user(body=body))[0], 400, body)
         # 하나라도 못 보면 404이고 아무것도 복사하지 않는다

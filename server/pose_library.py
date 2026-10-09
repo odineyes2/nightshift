@@ -100,10 +100,30 @@ def _with_images(conn, rows) -> list[dict]:
             by_id[r["pose_id"]]["images"].append(_image(r))
     for p in poses:
         p["image_count"] = len(p["images"])
-        p["image_url"] = f"/api/library/poses/{p['id']}/image"
-        p["thumb_url"] = f"/api/library/poses/{p['id']}/thumb"
+        apply_cover(p)
         p["source_url"] = p["images"][0]["source_url"] if p["images"] else ""
     return poses
+
+
+def apply_cover(p: dict) -> None:
+    """실제 대표(NS-61)를 정한다 — cover_image_id가 이 게시물의 장이면 그 장, 아니면 첫 장. 게시물의
+    cover_image_id·image_url·thumb_url을 대표 장으로 바꾼다(Position·Lighting도 같이 쓴다)."""
+    images = p["images"]
+    cover = next((i for i in images if i["id"] == p.get("cover_image_id")), images[0] if images else None)
+    p["cover_image_id"] = cover["id"] if cover else None
+    p["image_url"], p["thumb_url"] = (cover["image_url"], cover["thumb_url"]) if cover else ("", "")
+
+
+def cover_value(article: dict, value) -> int:
+    """PATCH의 cover_image_id 검사 — 이 게시물의 이미지 번호(정수)만 받는다."""
+    if not isinstance(value, int) or isinstance(value, bool) or value not in {i["id"] for i in article["images"]}:
+        raise PoseError("대표 이미지는 이 게시물의 이미지 중에서 골라주세요.")
+    return value
+
+
+def cover_first(article: dict) -> list:
+    """대표 장을 맨 앞에 둔 이미지 목록 — 순차 생성이 대표 파일이 없을 때 다음 장을 쓰게."""
+    return sorted(article["images"], key=lambda i: i["id"] != article["cover_image_id"])
 
 
 def _check_images(images: list) -> list:
@@ -163,10 +183,12 @@ def add_images(pose_id: int, images: list) -> dict:
 
 
 def update_pose(pose_id: int, fields: dict) -> dict:
-    """명칭·설명·danbooru prompt 중 온 것만 바꾼다(명칭은 비울 수 없다)."""
+    """명칭·설명·danbooru prompt·대표 이미지(cover_image_id) 중 온 것만 바꾼다(명칭은 비울 수 없다)."""
     sets = {k: (str(fields[k] or "")).strip() for k in ("name", "description", "danbooru_prompt") if k in fields}
     if "name" in sets and not sets["name"]:
         raise PoseError("Pose 명칭을 적어주세요.")
+    if "cover_image_id" in fields:
+        sets["cover_image_id"] = cover_value(get_pose(pose_id), fields["cover_image_id"])
     if sets:
         with db.connect() as conn:
             conn.execute(f"UPDATE poses SET {', '.join(f'{k}=?' for k in sets)} WHERE id=?", [*sets.values(), pose_id])
@@ -197,6 +219,8 @@ def delete_image(pose: dict, image_id: int) -> dict:
     rest = [i for i in pose["images"] if i["id"] != image_id]
     with db.connect() as conn:
         conn.execute("DELETE FROM pose_images WHERE id=?", (image_id,))
+        # 대표를 지우면 첫 장으로 돌아간다 — 번호가 다시 쓰여도 대표가 엉뚱한 장으로 옮겨 가지 않게 비운다.
+        conn.execute("UPDATE poses SET cover_image_id=NULL WHERE id=? AND cover_image_id=?", (pose["id"], image_id))
         if pose.get("image_file") == image["image_file"]:   # 옛 코드용 첫 장 칸을 새 첫 장으로 맞춘다
             conn.execute("UPDATE poses SET image_file=?, source_url=? WHERE id=?",
                          (rest[0]["image_file"], rest[0]["source_url"], pose["id"]))
@@ -221,7 +245,8 @@ def get_pose(pose_id: int) -> dict | None:
 
 
 def get_pose_image(pose: dict, image_id: int | None) -> dict | None:
-    """게시물의 이미지 하나 — image_id가 None이면 첫 장(옛 /image·/thumb 주소용)."""
+    """게시물의 이미지 하나 — image_id가 None이면 대표 장(옛 /image·/thumb 주소용)."""
+    image_id = pose["cover_image_id"] if image_id is None else image_id
     images = pose["images"] if image_id is None else [i for i in pose["images"] if i["id"] == image_id]
     return images[0] if images else None
 

@@ -103,7 +103,7 @@ class PoseTests(unittest.TestCase):
         self.assertEqual(code, 200, b)
         items = call(A.list_library_poses, req())[1]["items"]
         self.assertEqual([i["name"] for i in items[:2]], ["서기", "앉기"])   # 최신순
-        self.assertEqual(items[0]["thumb_url"], f"/api/library/poses/{b['id']}/thumb")
+        self.assertEqual(items[0]["thumb_url"], b["images"][0]["thumb_url"])   # 대표 장 주소(NS-61)
         self.assertEqual(call(A.get_library_pose_thumb, req(), a["id"])[0], 200)
 
     def test_3_owner_scope(self):
@@ -164,7 +164,7 @@ class PoseTests(unittest.TestCase):
             self.assertEqual(im.size, (101, 100))   # position 순
         first = a["images"][0]
         self.assertEqual(first["thumb_url"], f"/api/library/poses/{a['id']}/images/{first['id']}/thumb")
-        self.assertEqual(a["thumb_url"], f"/api/library/poses/{a['id']}/thumb")
+        self.assertEqual(a["thumb_url"], first["thumb_url"])   # 대표(지정 전엔 첫 장) 주소(NS-61)
         # 덧붙이기 — 주인·admin만, 남은 404
         self.assertEqual(call(A.add_library_pose_images, req("u2", form=[("image", upload(png()))]), a["id"])[0], 404)
         code, b = call(A.add_library_pose_images, req(form=[("image", upload(png()))]), a["id"])

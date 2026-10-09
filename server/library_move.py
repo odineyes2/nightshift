@@ -28,6 +28,13 @@ def _cleanup(target_dir, new_id) -> None:
             f.unlink(missing_ok=True)
 
 
+def _keep_cover(conn, src: dict, table: str, fk: str, new_id: int) -> None:
+    """원본 대표의 순번 장을 새 게시물의 대표로 둔다(NS-61) — 이미지는 같은 순서로 옮겨진다."""
+    index = [i["id"] for i in src["images"]].index(src["cover_image_id"])
+    ids = [r[0] for r in conn.execute(f"SELECT id FROM {table}_images WHERE {fk}=? ORDER BY position, id", (new_id,))]
+    conn.execute(f"UPDATE {table}s SET cover_image_id=? WHERE id=?", (ids[index], new_id))
+
+
 def move_pose_to_position(pose: dict) -> dict:
     checked = _checked(pose["images"], pose_library.image_path)
     new_id = None
@@ -38,6 +45,7 @@ def move_pose_to_position(pose: dict) -> dict:
                 (pose["name"], pose["description"] or "", pose["danbooru_prompt"] or "", pose["owner_id"],
                  db.now_iso())).lastrowid
             position_library._save_images(conn, new_id, checked)
+            _keep_cover(conn, pose, "position", "position_id", new_id)
     except Exception:
         _cleanup(position_library._dir(), new_id)
         raise
@@ -58,6 +66,7 @@ def move_position_to_pose(position: dict) -> dict:
             # 옛 코드용 첫 장 칸(poses.image_file)도 채운다 — add_pose와 같다.
             conn.execute("UPDATE poses SET image_file=? WHERE id=?",
                          (pose_library._save_images(conn, new_id, checked), new_id))
+            _keep_cover(conn, position, "pose", "pose_id", new_id)
     except Exception:
         _cleanup(pose_library._dir(), new_id)
         raise
