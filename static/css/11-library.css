@@ -105,7 +105,9 @@
     #library-article-edit-btn .btn-label, #library-article-delete-btn .btn-label{ display:none; }
   }
 
-.library-selection-preview { border:1px solid var(--border); border-radius:8px; padding:12px; margin:12px 0; background:var(--panel-2); }
+/* 참조 아티클이 많아도 행 약 3개 높이에서 스크롤하고, 모달 본문(flex 세로)에서 베이스 모델 목록을 눌러 줄이지 않는다(NS-61). */
+.library-selection-preview { border:1px solid var(--border); border-radius:8px; padding:12px; margin:12px 0; background:var(--panel-2); max-height:240px; overflow-y:auto; flex-shrink:0; }
+#wizard-family-modal-body > .wizard-pick-list { flex-shrink:0; }
 .library-selection-row { display:flex; gap:12px; align-items:flex-start; font-size:13px; line-height:1.6; }
 .library-selection-row + .library-selection-row { margin-top:12px; }
 .library-selection-row img { width:64px; height:64px; object-fit:contain; border-radius:6px; flex-shrink:0; }
