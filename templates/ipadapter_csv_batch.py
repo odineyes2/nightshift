@@ -218,6 +218,37 @@ def merge_trigger_into_main(workflow, row):
 _TRIGGER_MERGE_NOTED = False
 
 
+def merge_quality_into_main(workflow, row):
+    """quality_prompt 전용 노드가 없으면 본문 뒤에 합친 새 행을 돌려준다."""
+    global _QUALITY_MERGE_NOTED
+    quality = (row.get("quality_prompt") or "").strip()
+    if not quality:
+        return row
+    node_id, node = find_node(workflow, title_substring="quality_prompt", allow_class_fallback=False)
+    if node is not None and primitive_value_field(node):
+        return row
+    key = "prompt" if not (row.get("main_prompt") or "").strip() and (row.get("prompt") or "").strip() else "main_prompt"
+    main = (row.get(key) or "").strip()
+    if not main:
+        node_id, node = find_node(workflow, title_substring="main_prompt", allow_class_fallback=False)
+        field = primitive_value_field(node) if node is not None else None
+        value = node.get("inputs", {}).get(field) if field else None
+        main = value.strip() if isinstance(value, str) else ""
+    merged = dict(row, quality_prompt="")
+    if quality.lower() in main.lower():
+        merged[key] = main
+    else:
+        main = main.rstrip(", \t\r\n")
+        merged[key] = f"{main}, {quality}" if main else quality
+    if not _QUALITY_MERGE_NOTED:
+        print("[템플릿] 안내: quality_prompt 노드가 없어 main_prompt 뒤에 붙였습니다", file=sys.stderr)
+        _QUALITY_MERGE_NOTED = True
+    return merged
+
+
+_QUALITY_MERGE_NOTED = False
+
+
 def apply_prompts(workflow, row):
     applied = False
     for field, title_substring in PROMPT_FIELD_TITLES.items():
@@ -507,6 +538,7 @@ def wait_for_completion(comfy_url, prompt_id):
 def run_once(base_workflow, comfy_url, row, title, seed, index, image_path):
     workflow = copy.deepcopy(base_workflow)
     row = merge_trigger_into_main(workflow, row)
+    row = merge_quality_into_main(workflow, row)
     apply_prompts(workflow, row)
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
