@@ -25,6 +25,8 @@ import input_assets
 import pose_library as P
 from fastapi import HTTPException
 from PIL import Image
+from fastapi.testclient import TestClient
+import db
 
 
 def img(fmt="PNG", size=(300, 400)) -> bytes:
@@ -103,8 +105,43 @@ class ToInputTests(unittest.TestCase):
         self.assertIn("wizard.post.openpose = true", body)
         apply = wiz[wiz.index("wizardPendingPose"):]
         self.assertTrue(re.search(r'data-name="pose_image"', apply))
-        self.assertIn("suggestPoseSize", apply)
+        self.assertIn("setPoseImageValue(poseEl, wizardPendingPose.name)", apply)
         self.assertIn(".enhance-raw", apply)
+
+    def test_authenticated_image_selection(self):
+        headers = {"X-Requested-With": "nightshift"}
+        password = "Test-Passw0rd-xyz!"
+        def client(name):
+            user = auth.register(name, f"{name}@example.test", password)
+            with db.connect() as conn:
+                conn.execute("UPDATE users SET status='active' WHERE id=?", (user["id"],))
+            c = TestClient(A.app)
+            self.addCleanup(c.close)
+            response = c.post('/api/auth/login', json={"username": name, "password": password}, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            return c, user
+        owner, user = client('pose-http-owner')
+        other, _ = client('pose-http-other')
+        anonymous = TestClient(A.app)
+        self.addCleanup(anonymous.close)
+        pose = P.add_pose(str(user['id']), '두 장', '', 'do not append', [(img(), ''), (img(size=(80, 120)), '')])
+        url = f"/api/library/poses/{pose['id']}/images/{pose['images'][1]['id']}/to-input"
+        self.assertEqual(anonymous.get('/api/library/poses').status_code, 401)
+        self.assertEqual(anonymous.post(url, headers=headers).status_code, 401)
+        self.assertEqual(other.get('/api/library/poses').json(), {'items': []})
+        self.assertEqual(other.post(url, headers=headers).status_code, 404)
+        listing = owner.get('/api/library/poses')
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual([i['id'] for i in listing.json()['items'][0]['images']], [i['id'] for i in pose['images']])
+        response = owner.post(url, headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        name = response.json()['name']
+        raw = owner.get(f'/api/input-images/{name}/raw')
+        self.assertEqual(raw.status_code, 200, raw.text if raw.status_code != 200 else '')
+        with Image.open(io.BytesIO(raw.content)) as image:
+            self.assertEqual(image.size, (80, 120))
+        self.assertEqual(other.get(f'/api/input-images/{name}/raw').status_code, 404)
+        self.assertEqual(owner.post(url, headers=headers).json()['name'], name)
 
 
 if __name__ == "__main__":
