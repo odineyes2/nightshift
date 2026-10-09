@@ -329,25 +329,25 @@ function buildPoseImageControl(opt){
     }else holder.textContent = '포즈 이미지를 선택해 주세요.';
     clear.hidden = !input.value;
   });
-  function button(label, fn){
+  function button(label, fn, icon){
     const b = document.createElement('button'); b.type = 'button'; b.className = 'load-btn';
-    b.textContent = label; b.addEventListener('click', fn); actions.appendChild(b); return b;
+    b.innerHTML = `<svg class="ico" aria-hidden="true"><use href="#i-${icon}"/></svg><span>${label}</span>`; b.addEventListener('click', fn); actions.appendChild(b); return b;
   }
-  const upload = button('업로드', () => file.click());
-  button('갤러리에서 선택', () => openPoseImagePicker('gallery', input, live));
-  button('라이브러리에서 선택', () => openPoseImagePicker('library', input, live));
-  const clear = button('선택 해제', () => setPoseImageValue(input, ''));
+  const upload = button('업로드', () => file.click(), 'upload');
+  button('갤러리', () => openPoseImagePicker('gallery', input, live), 'images');
+  button('라이브러리', () => openPoseImagePicker('library', input, live), 'library');
+  const clear = button('선택 해제', () => setPoseImageValue(input, ''), 'x');
   file.addEventListener('change', async () => {
     const chosen = file.files[0]; file.value = ''; if(!chosen) return;
     const token = ++revision, epoch = poseImageFormEpoch; upload.disabled = true; error.textContent = '';
-    upload.textContent = '업로드 중…';
+    upload.querySelector('span').textContent = '업로드 중…';
     try{
       const body = new FormData(); body.append('image', chosen);
       const data = await poseImageRequest('/api/input-images', { method: 'POST', body });
       if(!data.name) throw new Error('이미지를 가져오지 못했어요. 다시 선택해 주세요.');
       if(live() && epoch === poseImageFormEpoch && token === revision) setPoseImageValue(input, data.name);
     }catch(e){ if(live() && epoch === poseImageFormEpoch && token === revision) error.textContent = e.message; }
-    finally{ upload.disabled = false; upload.textContent = '업로드'; }
+    finally{ upload.disabled = false; upload.querySelector('span').textContent = '업로드'; }
   });
   wrap.append(holder, actions, input, file, error);
   setPoseImageValue(input, opt.default);
@@ -372,50 +372,141 @@ new MutationObserver(records => {
 function closePoseImagePicker(){
   const session = poseImagePickerSession;
   poseImagePickerSession = null;
+  session?.dispose?.();
   document.getElementById('pose-image-picker-modal').style.display = 'none';
   if(session?.focus?.isConnected) session.focus.focus();
 }
 
 async function openPoseImagePicker(kind, input, live){
-  const modal = document.getElementById('pose-image-picker-modal');
-  const grid = document.getElementById('pose-image-picker-grid');
-  const error = document.getElementById('pose-image-picker-error');
-  const session = { focus: document.activeElement, busy: false };
+  const el = id => document.getElementById('pose-image-' + id);
+  const modal = el('picker-modal'), grid = el('picker-grid'), error = el('picker-error');
+  const project = el('project'), job = el('job'), search = el('search');
+  const session = { focus: document.activeElement, busy: false, generation: 0, timer: null,
+    library: 'poses', items: [], images: [], article: null, selected: null, projects: [] };
   poseImagePickerSession = session;
   const current = () => poseImagePickerSession === session && live();
-  document.getElementById('pose-image-picker-title').textContent = kind === 'library' ? '라이브러리에서 포즈 한 장 선택' : '갤러리에서 포즈 한 장 선택';
-  error.textContent = ''; grid.innerHTML = '<div class="empty" aria-busy="true">불러오는 중…</div>';
-  modal.style.display = 'flex'; document.getElementById('pose-image-picker-close').focus();
-  try{
-    const data = await poseImageRequest(kind === 'library' ? '/api/library/poses' : '/api/output-images');
-    if(!current()) return;
-    const choices = kind === 'library' ? (data.items || []).flatMap(p => (p.images || []).map((im, i) => ({
-      label: `${p.name} · ${i + 1}번째 이미지`, thumb: im.thumb_url,
-      url: `/api/library/poses/${p.id}/images/${im.id}/to-input`
-    }))) : (data.images || []).map(im => ({ label: im.name,
-      thumb: `/api/output-images/${encodeURIComponent(im.name)}/thumbnail?size=200`, name: im.name }));
-    grid.replaceChildren();
-    if(!choices.length) grid.textContent = '선택할 이미지가 없어요.';
-    for(const choice of choices){
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'pose-image-choice';
-      const im = document.createElement('img'); im.src = window.__nightshiftMediaUrl(choice.thumb); im.alt = ''; im.loading = 'lazy';
-      const label = document.createElement('span'); label.textContent = choice.label; b.append(im, label);
-      b.addEventListener('click', async () => {
-        if(!current() || session.busy) return;
-        session.busy = true; error.textContent = '가져오는 중…';
-        grid.querySelectorAll('button').forEach(el => { el.disabled = true; });
-        try{
-          const result = await poseImageRequest(choice.url || '/api/input-images/import-from-output', choice.url
-            ? { method: 'POST' } : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: [choice.name] }) });
-          const name = choice.url ? result.name : result.added?.[0];
-          if(!name) throw new Error('이미지를 가져오지 못했어요. 다시 선택해 주세요.');
-          if(current()){ setPoseImageValue(input, name); closePoseImagePicker(); }
-        }catch(e){ if(current()) error.textContent = e.message; }
-        finally{ session.busy = false; if(current()) grid.querySelectorAll('button').forEach(el => { el.disabled = false; }); }
+  const key = value => value == null || value === '' ? '__none' : String(value);
+  const option = (value, label) => { const o = document.createElement('option'); o.value = value; o.textContent = label; return o; };
+  function options(select, rows, all){
+    const old = select.value;
+    select.replaceChildren(option('', all), ...rows.map(([id, label]) => option(id, label)));
+    select.value = rows.some(([id]) => id === old) ? old : '';
+  }
+  function card(label, thumb, click){
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'pose-image-choice';
+    const im = document.createElement('img'); im.src = window.__nightshiftMediaUrl(thumb); im.alt = ''; im.loading = 'lazy';
+    const text = document.createElement('span'); text.textContent = label; b.append(im, text);
+    b.insertAdjacentHTML('beforeend', '<svg class="ico pose-image-check" aria-hidden="true"><use href="#i-check"/></svg>');
+    b.addEventListener('click', () => { if(current() && !session.busy) click(b); });
+    grid.appendChild(b); return b;
+  }
+  function selection(choice, button){
+    session.selected = choice;
+    grid.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+    el('preview').src = window.__nightshiftMediaUrl(choice.thumb);
+    el('selected-label').textContent = '선택: ' + choice.label;
+    el('apply').disabled = false;
+  }
+  function render(){
+    grid.replaceChildren(); grid.scrollTop = 0; session.selected = null; el('apply').disabled = true;
+    el('selection').hidden = !session.article;
+    el('back').hidden = !session.article;
+    el('context').textContent = session.article ? session.article.name : kind === 'gallery' ? '조건에 맞는 이미지 한 장을 선택해 주세요.' : '아티클을 열고 이미지 한 장을 골라 주세요.';
+    if(kind === 'gallery'){
+      const scoped = session.images.filter(im => !project.value || key(im.project_id) === project.value);
+      const ids = [...new Set(scoped.map(im => key(im.job_id)))];
+      options(job, ids.map(id => [id, id === '__none' ? '작업 정보 없음' :
+        (typeof lastJobs !== 'undefined' && lastJobs.find(j => String(j.id) === id)?.template_label) || id]), '모든 잡');
+      const images = scoped.filter(im => !job.value || key(im.job_id) === job.value);
+      for(const im of images) card(im.name, `/api/output-images/${encodeURIComponent(im.name)}/thumbnail?size=200`, () => apply({name:im.name}));
+    }else if(!session.article){
+      for(const article of session.items) card(`${article.name} · ${article.image_count ?? article.images?.length ?? 0}장`, article.thumb_url || article.images?.[0]?.thumb_url || '', () => {
+        session.article = article; render(); el('back').focus();
       });
-      grid.appendChild(b);
+    }else{
+      const article = session.article;
+      const images = article.images || [];
+      const cover = images.find(im => String(im.id) === String(article.cover_image_id)) || images[0];
+      for(const [i, im] of images.entries()){
+        const choice = {label:`${article.name} · ${i + 1}번째 이미지`, thumb:im.thumb_url,
+          url:`/api/library/${session.library}/${article.id}/images/${im.id}/to-input`};
+        const b = card(choice.label, choice.thumb, button => selection(choice, button));
+        b.setAttribute('aria-pressed', 'false');
+        if(im === cover) selection(choice, b);
+      }
     }
-  }catch(e){ if(current()){ grid.replaceChildren(); error.textContent = e.message; } }
+    if(!grid.children.length) grid.innerHTML = '<div class="empty">선택할 이미지가 없어요.</div>';
+  }
+  async function load(){
+    if(!current() || session.busy) return;
+    const generation = ++session.generation;
+    session.article = null; session.selected = null;
+    el('back').hidden = true; el('selection').hidden = true; el('retry').hidden = true;
+    error.textContent = ''; grid.innerHTML = '<div class="empty" aria-busy="true">불러오는 중…</div>';
+    const url = kind === 'gallery' ? '/api/output-images' + (search.value.trim() ? '?q=' + encodeURIComponent(search.value.trim()) : '') : '/api/library/' + session.library;
+    try{
+      const data = await poseImageRequest(url);
+      if(!current() || generation !== session.generation) return;
+      if(kind === 'gallery') session.images = data.images || []; else session.items = data.items || [];
+      render();
+    }catch(e){ if(current() && generation === session.generation){ grid.replaceChildren(); error.textContent = e.message; el('retry').hidden = false; } }
+  }
+  async function apply(choice){
+    if(!current() || session.busy || !choice) return;
+    session.busy = true; ++session.generation; clearTimeout(session.timer); error.textContent = '가져오는 중…';
+    modal.querySelectorAll('button,input,select').forEach(b => { if(b !== el('picker-close')) b.disabled = true; });
+    try{
+      const result = await poseImageRequest(choice.url || '/api/input-images/import-from-output', choice.url
+        ? {method:'POST'} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({names:[choice.name]})});
+      const name = choice.url ? result.name : result.added?.[0];
+      if(!name) throw new Error('이미지를 가져오지 못했어요. 다시 선택해 주세요.');
+      if(current()){ setPoseImageValue(input, name); closePoseImagePicker(); }
+    }catch(e){ if(current()) error.textContent = e.message; }
+    finally{
+      session.busy = false;
+      if(current()){
+        modal.querySelectorAll('button,input,select').forEach(b => { b.disabled = false; });
+        el('apply').disabled = !session.selected;
+      }
+    }
+  }
+  session.dispose = () => clearTimeout(session.timer);
+  el('picker-title').textContent = kind === 'library' ? '라이브러리에서 포즈 한 장 선택' : '갤러리에서 포즈 한 장 선택';
+  el('gallery-filters').hidden = kind !== 'gallery'; el('library-tabs').hidden = kind !== 'library';
+  modal.querySelectorAll('button,input,select').forEach(b => { b.disabled = false; });
+  search.value = ''; project.replaceChildren(option('', '모든 프로젝트')); job.replaceChildren(option('', '모든 잡'));
+  project.onchange = () => { if(current() && !session.busy) render(); };
+  job.onchange = () => { if(current() && !session.busy) render(); };
+  search.oninput = () => {
+    if(!current() || session.busy) return;
+    ++session.generation; clearTimeout(session.timer);
+    // 새 검색 결과가 도착할 때까지 이전 결과를 선택하지 못하게 한다.
+    grid.innerHTML = '<div class="empty" aria-busy="true">불러오는 중…</div>';
+    session.timer = setTimeout(load, 250);
+  };
+  el('back').onclick = () => { if(current() && !session.busy){ session.article = null; render(); grid.querySelector('button')?.focus(); } };
+  el('apply').onclick = () => apply(session.selected);
+  el('retry').onclick = () => { if(kind === 'gallery') loadProjects(); load(); };
+  el('library-tabs').querySelectorAll('button').forEach(b => {
+    b.setAttribute('aria-selected', String(b.dataset.kind === session.library));
+    b.onclick = () => {
+      if(!current() || session.busy) return;
+      session.library = b.dataset.kind;
+      el('library-tabs').querySelectorAll('button').forEach(tab => tab.setAttribute('aria-selected', String(tab === b)));
+      load();
+    };
+  });
+  modal.style.display = 'flex'; el('picker-close').focus();
+  function loadProjects(){
+    // 프로젝트 목록은 모달 상태에만 보관하고 전역 갤러리 조건은 건드리지 않는다.
+    poseImageRequest('/api/projects').then(data => {
+      if(!current() || session.busy) return;
+      session.projects = data.projects || [];
+      options(project, [['__none', '미분류 프로젝트'], ...session.projects.map(p => [String(p.id), p.name])], '모든 프로젝트');
+    }).catch(e => { if(current()){ error.textContent = '프로젝트 목록을 불러오지 못했어요. 다시 불러와 주세요.'; el('retry').hidden = false; } });
+  }
+  if(kind === 'gallery') loadProjects();
+  await load();
 }
 
 document.getElementById('pose-image-picker-close').addEventListener('click', closePoseImagePicker);
@@ -425,7 +516,7 @@ document.getElementById('pose-image-picker-modal').addEventListener('click', e =
 document.getElementById('pose-image-picker-modal').addEventListener('keydown', e => {
   if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); closePoseImagePicker(); }
   if(e.key === 'Tab'){
-    const buttons = [...e.currentTarget.querySelectorAll('button:not(:disabled)')];
+    const buttons = [...e.currentTarget.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]')].filter(b => b.getClientRects().length && !b.hidden);
     const first = buttons[0], last = buttons[buttons.length - 1];
     if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
     else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }

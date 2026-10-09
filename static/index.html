@@ -361,7 +361,17 @@
 <div class="modal-overlay" id="pose-image-picker-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="pose-image-picker-title">
   <div class="modal-panel pose-image-picker">
     <div class="modal-header"><div class="modal-title" id="pose-image-picker-title">포즈 한 장 선택</div><button type="button" class="modal-close" id="pose-image-picker-close" aria-label="취소하고 닫기">&times;</button></div>
-    <div id="pose-image-picker-grid" class="pose-image-picker-grid"></div>
+    <div id="pose-image-gallery-filters" class="pose-image-filters">
+      <label>프로젝트<select id="pose-image-project" aria-label="프로젝트 조건"></select></label>
+      <label>잡<select id="pose-image-job" aria-label="잡 조건"></select></label>
+      <label class="pose-image-search">검색<input id="pose-image-search" type="search" placeholder="예: 프롬프트, 태그, 파일명" aria-label="이미지 검색"></label>
+    </div>
+    <div id="pose-image-library-tabs" class="pose-image-tabs" role="tablist" aria-label="라이브러리 종류">
+      <button type="button" role="tab" data-kind="poses">Pose</button><button type="button" role="tab" data-kind="positions">Position</button>
+    </div>
+    <div class="pose-image-navigation"><button type="button" class="load-btn" id="pose-image-back" hidden>목록으로</button><span id="pose-image-context" role="status"></span><button type="button" class="load-btn" id="pose-image-retry" hidden>다시 불러오기</button></div>
+    <div id="pose-image-picker-grid" class="pose-image-picker-grid" tabindex="0" role="region" aria-label="선택할 이미지 목록"></div>
+    <div id="pose-image-selection" class="pose-image-selection" hidden><img id="pose-image-preview" alt="적용할 포즈 이미지"><span id="pose-image-selected-label"></span><button type="button" class="submit-btn" id="pose-image-apply" disabled>적용</button></div>
     <div id="pose-image-picker-error" class="error" role="status"></div>
   </div>
 </div>

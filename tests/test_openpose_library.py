@@ -23,6 +23,7 @@ import app as A
 import auth
 import input_assets
 import pose_library as P
+import position_library as L
 from fastapi import HTTPException
 from PIL import Image
 from fastapi.testclient import TestClient
@@ -52,6 +53,7 @@ class ToInputTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.pose = P.add_pose("u1", "앉기", "", "sitting, 1girl", [(img(), ""), (img("GIF", (100, 50)), "")])
+        cls.position = L.add_position("u1", "같은 번호", "", "duo", [(img(), "")])
 
     def test_owner_only(self):
         first = self.pose["images"][0]["id"]
@@ -84,7 +86,7 @@ class ToInputTests(unittest.TestCase):
         self.assertEqual([x["image_id"] for x in rows], [self.pose["images"][0]["id"]])   # 대표 1장(NS-61)
         self.assertEqual(rows[0]["name"], f"library_pose_{self.pose['id']}_{self.pose['images'][0]['id']}.png")
         self.assertEqual((rows[0]["pose_name"], rows[0]["width"], rows[0]["height"]), ("앉기", 300, 400))
-        pos = L.add_position("u1", "같은 번호", "", "duo", [(img(), "")])
+        pos = self.position
         self.assertEqual(pos["id"], self.pose["id"])   # 빈 DB라 번호가 같다
         out = asyncio.run(A.library_position_to_input(req(), pos["id"], pos["images"][0]["id"]))
         self.assertEqual(out["name"], f"library_position_{pos['id']}_{pos['images'][0]['id']}.png")
@@ -124,24 +126,32 @@ class ToInputTests(unittest.TestCase):
         other, _ = client('pose-http-other')
         anonymous = TestClient(A.app)
         self.addCleanup(anonymous.close)
-        pose = P.add_pose(str(user['id']), '두 장', '', 'do not append', [(img(), ''), (img(size=(80, 120)), '')])
-        url = f"/api/library/poses/{pose['id']}/images/{pose['images'][1]['id']}/to-input"
-        self.assertEqual(anonymous.get('/api/library/poses').status_code, 401)
-        self.assertEqual(anonymous.post(url, headers=headers).status_code, 401)
-        self.assertEqual(other.get('/api/library/poses').json(), {'items': []})
-        self.assertEqual(other.post(url, headers=headers).status_code, 404)
-        listing = owner.get('/api/library/poses')
-        self.assertEqual(listing.status_code, 200)
-        self.assertEqual([i['id'] for i in listing.json()['items'][0]['images']], [i['id'] for i in pose['images']])
-        response = owner.post(url, headers=headers)
-        self.assertEqual(response.status_code, 200, response.text)
-        name = response.json()['name']
-        raw = owner.get(f'/api/input-images/{name}/raw')
-        self.assertEqual(raw.status_code, 200, raw.text if raw.status_code != 200 else '')
-        with Image.open(io.BytesIO(raw.content)) as image:
-            self.assertEqual(image.size, (80, 120))
-        self.assertEqual(other.get(f'/api/input-images/{name}/raw').status_code, 404)
-        self.assertEqual(owner.post(url, headers=headers).json()['name'], name)
+        for kind, add, update in [('poses', P.add_pose, P.update_pose), ('positions', L.add_position, L.update_position)]:
+            with self.subTest(kind=kind):
+                article = add(str(user['id']), '두 장', '', 'do not append', [(img(), ''), (img(size=(80, 120)), '')])
+                second = article['images'][1]['id']
+                update(article['id'], {'cover_image_id': second})
+                url = f"/api/library/{kind}/{article['id']}/images/{second}/to-input"
+                self.assertEqual(anonymous.get(f'/api/library/{kind}').status_code, 401)
+                self.assertEqual(anonymous.post(url, headers=headers).status_code, 401)
+                self.assertEqual(other.get(f'/api/library/{kind}').json(), {'items': []})
+                self.assertEqual(other.post(url, headers=headers).status_code, 404)
+                self.assertEqual(owner.post(f'/api/library/{kind}/{article["id"]}/images/999999/to-input', headers=headers).status_code, 404)
+                self.assertEqual(owner.post(f'/api/library/{kind}/999999/images/{second}/to-input', headers=headers).status_code, 404)
+                listing = owner.get(f'/api/library/{kind}')
+                self.assertEqual(listing.status_code, 200)
+                row = listing.json()['items'][0]
+                self.assertEqual(row['cover_image_id'], second)
+                self.assertEqual({i['id'] for i in row['images']}, {i['id'] for i in article['images']})
+                response = owner.post(url, headers=headers)
+                self.assertEqual(response.status_code, 200, response.text)
+                name = response.json()['name']
+                raw = owner.get(f'/api/input-images/{name}/raw')
+                self.assertEqual(raw.status_code, 200)
+                with Image.open(io.BytesIO(raw.content)) as image:
+                    self.assertEqual(image.size, (80, 120))
+                self.assertEqual(other.get(f'/api/input-images/{name}/raw').status_code, 404)
+                self.assertEqual(owner.post(url, headers=headers).json()['name'], name)
 
 
 if __name__ == "__main__":
