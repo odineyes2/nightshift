@@ -43,7 +43,7 @@ def main():
     for name in TEMPLATES:
         mod = load(name)
         src = (ROOT / "templates" / f"{name}.py").read_text(encoding="utf-8")
-        assert "row = merge_trigger_into_main(workflow, row)\n    apply_prompts(workflow, row)" in src, name
+        assert "row = merge_trigger_into_main(workflow, row)\n    row = merge_quality_into_main(workflow, row)\n    apply_prompts(workflow, row)" in src, name
 
         row = {"trigger_prompt": "ohwx style", "main_prompt": "a cat"}
         wf, merged = apply(mod, built, row)

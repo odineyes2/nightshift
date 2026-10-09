@@ -956,6 +956,7 @@ for d in */; do [ "$d" != "1/" ] && mv "$d" 1/; done
   - Anima처럼 UNet·텍스트 인코더·VAE 세 파일로 된 계열은 같은 베이스 모델로 지정된 텍스트 인코더·VAE를 먼저 쓰고, 없으면 알려진 기본 파일(Anima: `qwen_3_06b_base.safetensors`, `qwen_image_vae.safetensors`)로 채웁니다. 그래도 빠진 부품이 있으면 마법사의 범용 베이스(Text to Image·Image to Image·Face Detailer)가 비활성으로 보이고 "모델 탭에서 그 파일의 베이스 모델을 지정해 주세요" 안내가 뜹니다.
 - **3단계(LoRA)**: LoRA의 `base_model`이 고른 그룹과 같을 때만 보이고, LoRA의 `base_model`이 비어 있으면 모든 그룹에서 보입니다(호환 정보를 안 적은 LoRA는 항상 보임). 트리거 키워드도 등록부 값입니다.
 - **퀄리티 프롬프트**: 베이스 모델이 Illustrious·NoobAI면 세부 설정에 "퀄리티 프롬프트" 칸이 `masterpiece, best quality, amazing quality, very aesthetic, absurdres`로 채워져 보입니다(Pony·그 밖의 계열은 안 보임). 제출할 때 메인 프롬프트·시드별 Danbooru 프롬프트 **뒤**에 붙고(CSV 순회면 사본의 각 행 `main_prompt`에, `quality_prompt` 칸을 채운 행은 그대로), 프롬프트가 비었거나 이미 들어 있으면 붙이지 않습니다. 고친 값은 기억하지 않아 다음 작업은 다시 기본값으로 시작합니다.
+  - CSV의 `quality_prompt` 값은 전용 노드가 없으면 실행 템플릿이 `main_prompt` 뒤에 붙입니다. 이미 들어 있으면 대소문자와 무관하게 중복하지 않으며, 전용 노드가 있으면 그 노드에만 넣습니다.
 - **ControlNet/IPAdapter 프리셋 워크플로우**: 위 "워크플로우 유형의 조합 규칙" 절에서 설명한 프리셋 그룹(`openpose_cn`/`depth_cn`/`lineart_cn`/`ipadapter`) — 베이스 모델 그룹(위 `id`, 예: `illustrious`)별로 미리 만들어둔 워크플로우 JSON을 `PUT /api/workflow-presets/{그룹 id}/{유형}`으로 올려 두면(관리 화면은 없음) `workflow_presets/<그룹 id>__<유형>.json`에 저장되고 그대로 재사용합니다. 그룹에 프리셋이 없는 유형은 마법사의 "워크플로우 유형" 목록에서 아예 숨겨집니다(LoRA 호환성 필터링과 같은 원칙 — 골라봤자 실행할 워크플로우가 없으므로).
 
 ### 모델 등록부 · 파드별 설치 현황 · 사용 통계 · 내려받기 (`🎛 모델` 탭, 전역)
