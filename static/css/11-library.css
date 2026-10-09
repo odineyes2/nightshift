@@ -33,6 +33,14 @@
     border:none; border-radius:var(--radius-sm); background:rgba(0,0,0,0.6); color:#fff; cursor:pointer;
   }
   .library-image-delete-btn:hover, .library-image-delete-btn:focus-visible{ background:var(--danger, var(--failed)); }
+  /* 대표 이미지(NS-61) — 아티클 격자의 체크는 오른쪽 아래(위는 삭제 버튼), 대표 배지는 왼쪽 아래 */
+  #library-article-grid .library-cover-check{ top:auto; bottom:var(--gap-xs); }
+  .library-cover-badge{
+    position:absolute; left:var(--gap-xs); bottom:var(--gap-xs); z-index:1;
+    display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:var(--radius-sm);
+    background:var(--accent, var(--queued)); color:#fff; font-size:12px; pointer-events:none;
+  }
+  .library-cover-badge .ico{ width:12px; height:12px; }
   /* 순차 생성 폼 — 총 장수 안내와 포즈 태그 스위치 */
   .pose-sequence-hint{ font-size:14px; color:var(--text); margin:var(--gap-xs) 0; }
   .pose-tag-toggle{ display:inline-flex; align-items:center; gap:8px; margin-top:var(--gap-xs); font-size:12.5px; color:var(--text-dim); cursor:pointer; }

@@ -32,6 +32,8 @@ const element = id => {
 };
 document.getElementById = element;
 const libraryArticle = () => libraryPoses[0];
+let libraryCoverPick = null;
+const syncLibraryCoverBtn = () => {};
 ''' + function('poseGenerateButton') + function('libraryImageDeleteButton') + function('renderLibraryArticle') + function('moveLibraryPost') + r'''
 const ico = () => '';
 const escapeHtml = s => s;
