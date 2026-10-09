@@ -582,16 +582,6 @@ async function onTemplateChange(){
   updateNewJobTabs();
 }
 
-// "초기화" 버튼 — 템플릿 선택은 그대로 두고, 첨부한 파일과 옵션 입력값만 그
-// 템플릿의 기본값으로 되돌린다(onTemplateChange가 옵션 필드를 다시 그리므로
-// 자연스럽게 기본값으로 리셋된다).
-async function resetNewJobForm(){
-  resetForm();
-  await onTemplateChange();
-  document.getElementById('load-error').textContent = '';
-  document.getElementById('load-notice').textContent = '';
-}
-
 async function fetchTemplates(){
   const res = await fetch('/api/templates');
   // 페이지를 열 때 한 번만 부르는데, 401이면(키가 아직 없거나 틀림) 템플릿
@@ -861,12 +851,10 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
     uploadError.textContent = data.detail || '업로드에 실패했어요.';
     return;
   }
-  // 워크플로우/CSV/옵션 값은 일부러 그대로 둔다 — 같은 워크플로우로 옵션만 바꿔가며
-  // 여러 개를 잇달아 추가하는 경우가 많아서, 다시 열었을 때(+ 카드) 매번 파일을
-  // 다시 첨부하지 않아도 되게 하기 위함이다. 필요할 때는 "↺ 초기화" 버튼으로
-  // 직접 비운다.
+  // 대기열 추가가 성공한 뒤에만 마법사를 처음 상태로 되돌린다.
   const createdJob = await res.json().catch(() => null);
   closeNewJobModal();
+  await resetNewJobWizard();
   if(createdJob && preflightCount(createdJob.preflight) > 0){
     flashNotice('대기 칸에 추가했어요 — 이 워커에 없는 모델이 있어요: ' + preflightLines(createdJob.preflight).slice(0, 3).join(' / '));
   }else if(createdJob){
@@ -875,7 +863,5 @@ document.getElementById('submit-btn').addEventListener('click', async () => {
   fetchJobs();
 });
 
-document.getElementById('reset-form-btn').addEventListener('click', () => {
-  resetNewJobForm();
-});
+document.getElementById('reset-form-btn').addEventListener('click', resetNewJobWizard);
 

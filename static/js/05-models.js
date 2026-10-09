@@ -709,5 +709,4 @@ function resetWizardAndWorkflow(){
   wizardUpdateStepButtons();
   setWorkflowFile(null);
 }
-document.getElementById('wizard-reset-btn').addEventListener('click', resetWizardAndWorkflow);
 
