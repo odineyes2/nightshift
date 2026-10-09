@@ -6,6 +6,11 @@
     flex-wrap:wrap;
   }
   .csv-editor-hint{ font-size:11.5px; color:var(--text-dim); }
+  /* 행 번호 칸 — 헤더가 1행, 첫 데이터 행이 2행(수식 참조 번호와 같다) */
+  .csv-editor-table .csv-row-number{ text-align:right; color:var(--text-dim); }
+  .csv-editor-table tbody .csv-row-number{ position:static; background:var(--panel); }
+  .csv-editor-table td.csv-formula input{ font-family:var(--mono); }
+  .csv-editor-table td.csv-formula{ box-shadow:inset 3px 0 rgba(var(--queued-rgb),0.6); }
   .csv-editor-table-wrap{
     overflow-x:auto;
     max-height:50vh;

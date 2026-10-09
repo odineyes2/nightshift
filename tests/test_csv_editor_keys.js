@@ -23,6 +23,7 @@ const ids = new Map([['csv-editor-tbody', tbody]]);
 const el = id => { if(!ids.has(id)) ids.set(id, new Element()); return ids.get(id); };
 const context = vm.createContext({console, escapeHtml: String,
   document: {getElementById: el, querySelector: el, addEventListener(){}}});
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../static/js/04a-csv-formula.js'), 'utf8'), context);
 const tools = fs.readFileSync(path.join(__dirname, '../static/js/04-newjob-tools.js'), 'utf8');
 vm.runInContext(tools.slice(tools.indexOf('let csvEditorSchema'), tools.indexOf('async function fetchComfyStatus')), context);
 const run = code => vm.runInContext(code, context);

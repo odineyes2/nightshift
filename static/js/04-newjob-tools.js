@@ -169,6 +169,7 @@ setupRecentFilePicker({
 // 화면에서 아예 입력 불가능한 <th>로만 그리고, 실제 입력은 행의 <input>에만 있다.
 let csvEditorSchema = [];
 let csvEditorRows = [];
+const csvFormulaFiles = new WeakMap();
 
 function csvEditorEmptyRow(){
   const row = {};
@@ -233,12 +234,12 @@ function stringifyCsvRows(schema, rows){
 
 function renderCsvEditorTable(){
   document.getElementById('csv-editor-thead-row').innerHTML =
-    csvEditorSchema.map(col =>
-      `<th title="${escapeHtml(col.note || '')}">${escapeHtml(col.label)}${col.required ? '<span class="csv-col-required" title="필수">*</span>' : ''}</th>`
+    '<th class="csv-row-number">1</th>' + csvEditorSchema.map((col, c) =>
+      `<th title="${escapeHtml(col.note || '')}">${csvColumnLabel(c)} · ${escapeHtml(col.label)}${col.required ? '<span class="csv-col-required" title="필수">*</span>' : ''}</th>`
     ).join('') + '<th></th>';
 
   document.getElementById('csv-editor-tbody').innerHTML = csvEditorRows.map((row, rIdx) =>
-    `<tr>` +
+    `<tr><th class="csv-row-number" scope="row">${rIdx + 2}</th>` +
     csvEditorSchema.map((col, cIdx) =>
       `<td><input type="text" data-row="${rIdx}" data-ci="${cIdx}" data-col="${escapeHtml(col.name)}" value="${escapeHtml(row[col.name] || '')}"></td>`
     ).join('') +
@@ -248,6 +249,7 @@ function renderCsvEditorTable(){
 
   document.getElementById('csv-editor-row-count').textContent = `${csvEditorRows.length}행`;
   paintCsvEditorSelection();
+  refreshCsvFormulaDisplay();
 }
 
 // 블록 선택 — 앵커(처음 누른 칸)와 끝 칸. 사각형은 csvEditorSelRect()로 구한다.
@@ -292,11 +294,12 @@ function csvEditorFillDown(rect){
   for(let c = rect.c1; c <= rect.c2; c++){
     const name = csvEditorSchema[c].name;
     for(let r = from; r <= rect.r2; r++){
-      csvEditorRows[r][name] = csvEditorRows[top][name];
+      csvEditorRows[r][name] = shiftFormulaRows(csvEditorRows[top][name], r - top);
       const input = csvEditorInput(r, c);
       if(input) input.value = csvEditorRows[r][name];
     }
   }
+  refreshCsvFormulaDisplay();
 }
 
 function csvEditorKeydown(e){
@@ -312,6 +315,7 @@ function csvEditorKeydown(e){
     csvEditorFillDown(inside ? rect : {r1: r, r2: r, c1: c, c2: c});
     return;
   }
+  if(e.key === 'Enter'){ e.preventDefault(); input.blur(); return; }
   const dr = {ArrowDown: 1, ArrowUp: -1}[e.key] || 0;
   let dc = 0;
   // 좌우는 칸 안의 커서 이동과 겹치므로 Shift+커서가 칸 처음/끝일 때만 블록을 늘린다
@@ -355,6 +359,31 @@ document.getElementById('csv-editor-tbody').addEventListener('mouseover', (e) =>
 });
 document.addEventListener('mouseup', () => { csvEditorDragging = false; });
 
+// csvEditorRows에는 수식 원문을 둔다. 포커스 없는 칸은 계산 결과를, 포커스한 칸은 원문을 보인다.
+function refreshCsvFormulaDisplay(){
+  const result = evaluateCsvFormulas(csvEditorSchema, csvEditorRows);
+  for(const input of document.getElementById('csv-editor-tbody').querySelectorAll('input[data-ci]')){
+    const r = Number(input.dataset.row), c = Number(input.dataset.ci), name = csvEditorSchema[c].name;
+    const raw = csvEditorRows[r][name] || '';
+    input.parentElement.classList.toggle('csv-formula', raw.startsWith('='));
+    input.title = raw.startsWith('=') ? raw : '';
+    input.value = document.activeElement === input ? raw : result.rows[r][name];
+  }
+}
+
+document.getElementById('csv-editor-tbody').addEventListener('focusin', e => {
+  const input = e.target.closest('input[data-col]');
+  if(input) input.value = csvEditorRows[Number(input.dataset.row)][input.dataset.col] || '';
+});
+document.getElementById('csv-editor-tbody').addEventListener('focusout', e => {
+  const input = e.target.closest('input[data-col]');
+  if(!input) return;
+  csvEditorRows[Number(input.dataset.row)][input.dataset.col] = input.value;
+  // focusout 중에는 activeElement가 아직 이 칸일 수 있어 이 칸은 결과로 직접 바꾼다.
+  refreshCsvFormulaDisplay();
+  input.value = evaluateCsvFormulas(csvEditorSchema, csvEditorRows).rows[Number(input.dataset.row)][input.dataset.col];
+});
+
 document.getElementById('csv-editor-tbody').addEventListener('input', (e) => {
   const input = e.target.closest('input[data-col]');
   if(!input) return;
@@ -388,7 +417,8 @@ async function openCsvEditor(){
     try{
       const text = await selectedFiles.csv.text();
       const parsed = parseCsvText(text);
-      csvEditorRows = parsed.rows.map(r => {
+      const saved = csvFormulaFiles.get(selectedFiles.csv);
+      csvEditorRows = (saved || parsed.rows).map(r => {
         const row = csvEditorEmptyRow();
         for(const col of csvEditorSchema){
           if(r[col.name] !== undefined) row[col.name] = r[col.name];
@@ -403,7 +433,7 @@ async function openCsvEditor(){
   csvEditorSel = null;
   renderCsvEditorTable();
   document.getElementById('csv-editor-hint').textContent =
-    '* 표시된 열은 값이 있어야 그 행이 처리돼요. 첫 줄(열 이름)은 이 템플릿에 맞게 고정돼 있어 편집할 수 없어요 — 열에 마우스를 올리면 설명이 떠요. ↓↑로 칸을 옮기고, 드래그나 Shift로 블록을 고른 뒤 Ctrl+D를 누르면 맨 위 값으로 아래를 채워요.';
+    '* 표시된 열은 값이 있어야 그 행이 처리돼요. 첫 줄(열 이름)은 이 템플릿에 맞게 고정돼 있어 편집할 수 없어요 — 열에 마우스를 올리면 설명이 떠요. ↓↑로 칸을 옮기고, 드래그나 Shift로 블록을 고른 뒤 Ctrl+D를 누르면 맨 위 값으로 아래를 채워요. =로 시작하면 수식이에요 — 예: =$B$2, =B2&", "&C2, =CONCAT(A2,B2), =TEXTJOIN(", ",B2:D2). 행을 지워도 수식의 참조 번호는 바뀌지 않아요.';
   document.getElementById('csv-editor-modal').style.display = 'flex';
 }
 
@@ -426,17 +456,29 @@ function csvEditorFilename(){
   return `${(template && template.id) || 'edited'}.csv`;
 }
 
-document.getElementById('csv-editor-save-btn').addEventListener('click', () => {
-  const rows = csvEditorRows.filter(r => !csvEditorRowIsBlank(r));
-  if(rows.length === 0){
-    document.getElementById('csv-editor-error').textContent = '값이 채워진 행이 하나도 없어요.';
-    return;
+// 빈 행을 거르기 전에 전체를 값으로 계산한다(행 번호가 밀리지 않게). 오류 칸이 있으면 null.
+function csvEditorExportRows(){
+  const result = evaluateCsvFormulas(csvEditorSchema, csvEditorRows);
+  const error = document.getElementById('csv-editor-error');
+  if(result.errors.length){
+    error.textContent = '수식을 확인해 주세요: ' + result.errors.map(e => `${e.address} ${e.value}`).join(', ');
+    return null;
   }
+  const rows = result.rows.filter(r => !csvEditorRowIsBlank(r));
+  if(!rows.length){ error.textContent = '값이 채워진 행이 하나도 없어요.'; return null; }
+  error.textContent = '';
+  return rows;
+}
+
+document.getElementById('csv-editor-save-btn').addEventListener('click', () => {
+  const rows = csvEditorExportRows();
+  if(!rows) return;
   // 편집 결과와 반영한 문구를 기록해 사용자가 지운 문구를 제출에서 복원하지 않는다.
   const text = stringifyCsvRows(csvEditorSchema, rows);
   const file = new File([text], csvEditorFilename(), { type: 'text/csv' });
   const reflected = new Set(qualityCsvFiles.get(selectedFiles.csv) || []);
-  for(const row of rows) for(const value of qualityCsvCopies.get(row) || []) reflected.add(value);
+  for(const row of csvEditorRows) for(const value of qualityCsvCopies.get(row) || []) reflected.add(value);
+  csvFormulaFiles.set(file, csvEditorRows.map(row => ({...row})));
   qualityCsvFiles.set(file, reflected);
   setCsvFile(file);
   closeCsvEditor();
@@ -444,11 +486,8 @@ document.getElementById('csv-editor-save-btn').addEventListener('click', () => {
 });
 
 document.getElementById('csv-editor-download-btn').addEventListener('click', () => {
-  const rows = csvEditorRows.filter(r => !csvEditorRowIsBlank(r));
-  if(rows.length === 0){
-    document.getElementById('csv-editor-error').textContent = '값이 채워진 행이 하나도 없어요.';
-    return;
-  }
+  const rows = csvEditorExportRows();
+  if(!rows) return;
   const text = stringifyCsvRows(csvEditorSchema, rows);
   triggerBlobDownload(new Blob([text], { type: 'text/csv' }), csvEditorFilename());
 });
