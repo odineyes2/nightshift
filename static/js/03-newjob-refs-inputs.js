@@ -302,6 +302,136 @@ document.getElementById('input-image-picker-modal').addEventListener('click', (e
   if(e.target.id === 'input-image-picker-modal') closeInputImageGalleryPicker();
 });
 
+// 값·표시·크기 제안은 같은 change 경로로 갱신한다.
+function setPoseImageValue(input, name){
+  input.value = name || '';
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function buildPoseImageControl(opt){
+  const wrap = document.createElement('div');
+  wrap.className = 'pose-image-control';
+  const input = document.createElement('input');
+  input.type = 'hidden'; input.className = 'option-input'; input.dataset.name = opt.name;
+  const holder = document.createElement('div'); holder.className = 'pose-image-holder';
+  const actions = document.createElement('div'); actions.className = 'pose-image-actions';
+  const error = document.createElement('div'); error.className = 'error'; error.setAttribute('role', 'status');
+  const file = document.createElement('input'); file.type = 'file'; file.accept = '.png,.jpg,.jpeg,.webp'; file.hidden = true;
+  let revision = 0;
+  const live = () => input.isConnected && document.getElementById('new-job-modal').style.display !== 'none';
+  input.addEventListener('change', () => {
+    revision++;
+    holder.replaceChildren();
+    if(input.value){
+      const image = document.createElement('img'); image.alt = '선택한 포즈 이미지';
+      image.src = window.__nightshiftMediaUrl(`/api/input-images/${encodeURIComponent(input.value)}/raw`);
+      holder.appendChild(image);
+    }else holder.textContent = '포즈 이미지를 선택해 주세요.';
+    clear.hidden = !input.value;
+  });
+  function button(label, fn){
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'load-btn';
+    b.textContent = label; b.addEventListener('click', fn); actions.appendChild(b); return b;
+  }
+  const upload = button('업로드', () => file.click());
+  button('갤러리에서 선택', () => openPoseImagePicker('gallery', input, live));
+  button('라이브러리에서 선택', () => openPoseImagePicker('library', input, live));
+  const clear = button('선택 해제', () => setPoseImageValue(input, ''));
+  file.addEventListener('change', async () => {
+    const chosen = file.files[0]; file.value = ''; if(!chosen) return;
+    const token = ++revision, epoch = poseImageFormEpoch; upload.disabled = true; error.textContent = '';
+    upload.textContent = '업로드 중…';
+    try{
+      const body = new FormData(); body.append('image', chosen);
+      const data = await poseImageRequest('/api/input-images', { method: 'POST', body });
+      if(!data.name) throw new Error('이미지를 가져오지 못했어요. 다시 선택해 주세요.');
+      if(live() && epoch === poseImageFormEpoch && token === revision) setPoseImageValue(input, data.name);
+    }catch(e){ if(live() && epoch === poseImageFormEpoch && token === revision) error.textContent = e.message; }
+    finally{ upload.disabled = false; upload.textContent = '업로드'; }
+  });
+  wrap.append(holder, actions, input, file, error);
+  setPoseImageValue(input, opt.default);
+  return wrap;
+}
+
+async function poseImageRequest(url, opts){
+  const response = await fetch(url, opts);
+  const data = await response.json();
+  if(!response.ok) throw new Error('이미지를 가져오지 못했어요. 다시 선택해 주세요.');
+  return data;
+}
+
+let poseImagePickerSession = null;
+let poseImageFormEpoch = 0;
+new MutationObserver(records => {
+  if(records.some(r => r.oldValue?.includes('display: flex') || r.oldValue?.includes('display:flex'))){
+    poseImageFormEpoch++;
+    closePoseImagePicker();
+  }
+}).observe(document.getElementById('new-job-modal'), { attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+function closePoseImagePicker(){
+  const session = poseImagePickerSession;
+  poseImagePickerSession = null;
+  document.getElementById('pose-image-picker-modal').style.display = 'none';
+  if(session?.focus?.isConnected) session.focus.focus();
+}
+
+async function openPoseImagePicker(kind, input, live){
+  const modal = document.getElementById('pose-image-picker-modal');
+  const grid = document.getElementById('pose-image-picker-grid');
+  const error = document.getElementById('pose-image-picker-error');
+  const session = { focus: document.activeElement, busy: false };
+  poseImagePickerSession = session;
+  const current = () => poseImagePickerSession === session && live();
+  document.getElementById('pose-image-picker-title').textContent = kind === 'library' ? '라이브러리에서 포즈 한 장 선택' : '갤러리에서 포즈 한 장 선택';
+  error.textContent = ''; grid.innerHTML = '<div class="empty" aria-busy="true">불러오는 중…</div>';
+  modal.style.display = 'flex'; document.getElementById('pose-image-picker-close').focus();
+  try{
+    const data = await poseImageRequest(kind === 'library' ? '/api/library/poses' : '/api/output-images');
+    if(!current()) return;
+    const choices = kind === 'library' ? (data.items || []).flatMap(p => (p.images || []).map((im, i) => ({
+      label: `${p.name} · ${i + 1}번째 이미지`, thumb: im.thumb_url,
+      url: `/api/library/poses/${p.id}/images/${im.id}/to-input`
+    }))) : (data.images || []).map(im => ({ label: im.name,
+      thumb: `/api/output-images/${encodeURIComponent(im.name)}/thumbnail?size=200`, name: im.name }));
+    grid.replaceChildren();
+    if(!choices.length) grid.textContent = '선택할 이미지가 없어요.';
+    for(const choice of choices){
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'pose-image-choice';
+      const im = document.createElement('img'); im.src = window.__nightshiftMediaUrl(choice.thumb); im.alt = ''; im.loading = 'lazy';
+      const label = document.createElement('span'); label.textContent = choice.label; b.append(im, label);
+      b.addEventListener('click', async () => {
+        if(!current() || session.busy) return;
+        session.busy = true; error.textContent = '가져오는 중…';
+        grid.querySelectorAll('button').forEach(el => { el.disabled = true; });
+        try{
+          const result = await poseImageRequest(choice.url || '/api/input-images/import-from-output', choice.url
+            ? { method: 'POST' } : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: [choice.name] }) });
+          const name = choice.url ? result.name : result.added?.[0];
+          if(!name) throw new Error('이미지를 가져오지 못했어요. 다시 선택해 주세요.');
+          if(current()){ setPoseImageValue(input, name); closePoseImagePicker(); }
+        }catch(e){ if(current()) error.textContent = e.message; }
+        finally{ session.busy = false; if(current()) grid.querySelectorAll('button').forEach(el => { el.disabled = false; }); }
+      });
+      grid.appendChild(b);
+    }
+  }catch(e){ if(current()){ grid.replaceChildren(); error.textContent = e.message; } }
+}
+
+document.getElementById('pose-image-picker-close').addEventListener('click', closePoseImagePicker);
+document.getElementById('pose-image-picker-modal').addEventListener('click', e => {
+  if(e.target.id === 'pose-image-picker-modal') closePoseImagePicker();
+});
+document.getElementById('pose-image-picker-modal').addEventListener('keydown', e => {
+  if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); closePoseImagePicker(); }
+  if(e.key === 'Tab'){
+    const buttons = [...e.currentTarget.querySelectorAll('button:not(:disabled)')];
+    const first = buttons[0], last = buttons[buttons.length - 1];
+    if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+  }
+});
+
 function buildOptionControl(opt){
   if(opt.name === 'main_prompt' && opt.type === 'textarea'){
     return buildPromptEnhanceControl(opt);
@@ -310,7 +440,8 @@ function buildOptionControl(opt){
     return buildComfyModelControl(opt);
   }
   // 포즈 이미지는 선택 칸이지만 업로드·갤러리에서 선택이 있는 입력 이미지 컨트롤로 그린다(NS-41).
-  if(opt.type === 'input_image' || opt.name === 'pose_image'){
+  if(opt.name === 'pose_image') return buildPoseImageControl(opt);
+  if(opt.type === 'input_image'){
     return buildInputImageControl(opt);
   }
   if(opt.type === 'input_image_optional'){
@@ -696,6 +827,10 @@ async function loadJobSettings(job, prepared){
       continue;
     }
 
+    if(opt.name === 'pose_image'){
+      setPoseImageValue(el, savedValue);
+      continue;
+    }
     if(opt.type === 'select'){
       if(!(opt.choices || []).includes(savedValue)){
         warnings.push(`'${opt.label}' 값이 더 이상 유효하지 않아 기본값으로 되돌렸어요.`);

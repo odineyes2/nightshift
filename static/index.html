@@ -358,6 +358,13 @@
      마법사/워크플로우 업로드/옵션 폼 관련 JS는 그대로 동작한다. #tab-jobs 안에 두지
      않고 다른 모달들처럼 최상위 형제로 뺐다 — 안 그러면 다른 탭(갤러리 등)에서
      "불러오기"로 열 때 #tab-jobs의 display:none에 가려 안 보인다. -->
+<div class="modal-overlay" id="pose-image-picker-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="pose-image-picker-title">
+  <div class="modal-panel pose-image-picker">
+    <div class="modal-header"><div class="modal-title" id="pose-image-picker-title">포즈 한 장 선택</div><button type="button" class="modal-close" id="pose-image-picker-close" aria-label="취소하고 닫기">&times;</button></div>
+    <div id="pose-image-picker-grid" class="pose-image-picker-grid"></div>
+    <div id="pose-image-picker-error" class="error" role="status"></div>
+  </div>
+</div>
 <div class="modal-overlay" id="new-job-modal" style="display:none;">
   <div class="modal-panel modal-panel-wide">
     <div class="modal-header">

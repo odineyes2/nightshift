@@ -1070,7 +1070,8 @@ function ratioLabel(w, h){
 // 칸이 비었거나 전에 자동으로 채운 값일 때만 채운다 — 사용자가 직접 적은 값은 덮지 않는다.
 // img2img(입력 이미지 칸이 있음)는 크기가 입력 이미지를 따르므로 비율이 10% 넘게 다르면 경고만 한다.
 async function suggestPoseSize(poseName){
-  const field = optionsFields.querySelector('[data-name="pose_image"]')?.closest('.field');
+  const poseInput = optionsFields.querySelector('[data-name="pose_image"]');
+  const field = poseInput?.closest('.field');
   if(!field) return;
   let hint = document.getElementById('pose-size-hint');
   if(!hint){ hint = document.createElement('div'); hint.id = 'pose-size-hint'; hint.className = 'email-hint'; field.appendChild(hint); }
@@ -1078,11 +1079,14 @@ async function suggestPoseSize(poseName){
   if(!poseName) return;
   let pose;
   try{ pose = await inputImageSize(poseName); }catch(e){ return; }
+  // 연속 선택·설정 복원 중 이전 이미지의 늦은 크기 응답은 버린다.
+  if(!poseInput.isConnected || poseInput.value !== poseName) return;
   const ratio = ratioLabel(pose.w, pose.h);
   const inputName = optionsFields.querySelector('[data-name="input_image"]')?.value;
   if(inputName){
     try{
       const input = await inputImageSize(inputName);
+      if(!poseInput.isConnected || poseInput.value !== poseName) return;
       if(Math.abs((input.w / input.h) / (pose.w / pose.h) - 1) > 0.1)
         hint.textContent = `입력 이미지와 포즈 이미지(${ratio})의 비율이 달라 자세가 찌그러질 수 있어요.`;
     }catch(e){ /* 입력 이미지를 못 읽으면 경고 없이 둔다 */ }

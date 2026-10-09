@@ -707,8 +707,7 @@ async function wizardApply(){
       else applyPoseSequenceForm(wizardPendingPose.sequence, poseEl, raw);
     }else{
       if(poseEl){
-        if(!Array.from(poseEl.options).some(opt => opt.value === wizardPendingPose.name)) poseEl.add(new Option(wizardPendingPose.name, wizardPendingPose.name));
-        poseEl.value = wizardPendingPose.name; suggestPoseSize(poseEl.value);
+        setPoseImageValue(poseEl, wizardPendingPose.name);
         const field = poseEl.closest('.field');
         field.querySelectorAll('select, input, button').forEach(el => { el.disabled = true; });
       }

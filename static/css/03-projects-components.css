@@ -1158,3 +1158,17 @@
 .quality-prompt-actions button { min-height: 40px; }
 /* 추가 전(미적용) 추천값은 점선·배경으로 구분하고 글자 대비는 그대로 둔다 */
 .quality-prompt-pending #quality-prompt-input { background: var(--bg); border-style: dashed; }
+.pose-image-control{display:flex;flex-direction:column;gap:8px;min-width:0;}
+.pose-image-holder{height:160px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:13px;overflow:hidden;background:var(--panel-2);}
+.pose-image-holder img{width:100%;height:100%;object-fit:contain;}
+.pose-image-actions{display:flex;flex-wrap:wrap;gap:8px;}
+.pose-image-actions button{min-height:40px;}
+.pose-image-picker{width:min(640px,calc(100vw - 32px));max-height:80vh;overflow:auto;}
+#pose-image-picker-modal{z-index:1100;}
+.pose-image-picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:12px;padding:16px;}
+.pose-image-choice{min-width:0;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px;cursor:pointer;font-size:13px;}
+.pose-image-choice img{width:100%;height:128px;object-fit:contain;}
+.pose-image-choice span{display:block;overflow-wrap:anywhere;}
+.pose-image-choice:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.pose-image-picker .modal-close{min-width:40px;min-height:40px;}
+.pose-image-picker .error{padding:0 16px 16px;}
