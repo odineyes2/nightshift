@@ -546,9 +546,8 @@ document.getElementById('wizard-step-batchmode').addEventListener('click', openW
 // ---- "적용" — 아래 템플릿 선택/옵션 폼/워크플로우 슬롯을 채운다 ----
 // goToNewJobDetails()가 "다음"(또는 "세부 설정" 탭)을 눌렀을 때, 마법사가 마지막 적용
 // 이후로 바뀌었으면(wizardStale()) 이 함수를 불러 지금 상태 기준으로 다시 만든다 — 그
-// 말고는 절대 자동으로 안 불린다. renderOptionFields가 옵션 폼을 통째로 다시 그려서 이미
-// 입력해둔 프롬프트/시드수 등을 지워버리므로, 자동으로 재실행하면 방금 쓴 값이 조용히
-// 날아갈 수 있어서다 — 그래서 "다음"을 명시적으로 눌러야만 일어난다.
+// 말고는 절대 자동으로 안 불린다. 옵션 폼을 다시 그리므로 "다음"을 명시적으로 눌러야만
+// 일어난다. 같은 템플릿을 재적용할 때는 긍정·부정 프롬프트와 개선 결과의 적용 상태를 보존한다.
 // 성공하면 true, 실패하면(#wizard-error에 안내를 남기고) false를 돌려준다 — 호출부가
 // 이 값을 보고 세부 설정 탭으로 넘어갈지 말지, wizardAppliedSignature를 갱신할지 정한다.
 async function wizardApply(){
@@ -650,6 +649,10 @@ async function wizardApply(){
     return false;
   }
 
+  // 같은 템플릿을 재적용할 때 본문을 잃으면 LoRA 트리거만 제출될 수 있다.
+  const sameTemplate = templateSelect.value === templateId;
+  const promptDraft = sameTemplate ? optionsFields.querySelector('.prompt-enhance')?.qualityPromptControl?.snapshot() : null;
+  const negativeDraft = sameTemplate ? optionsFields.querySelector('[data-name="negative_prompt"]')?.value : undefined;
   resetForm();
   templateSelect.value = templateId;
   // 이 템플릿 그래프에 실제로 있는 참조 슬롯만 옵션 폼에 그려지도록(isWizardRefSlotHidden
@@ -663,6 +666,9 @@ async function wizardApply(){
         : { useFirstFrame: wizard.useFirstFrame, useLastFrame: wizard.useLastFrame })
     : null;
   await onTemplateChange();
+  if(promptDraft) optionsFields.querySelector('.prompt-enhance')?.qualityPromptControl?.restore(promptDraft);
+  const negativeInput = optionsFields.querySelector('[data-name="negative_prompt"]');
+  if(negativeInput && negativeDraft !== undefined) negativeInput.value = negativeDraft;
   // 마법사가 템플릿을 정했으니, 직접 고르는 펼침 토글은 접어 둔다(둘이 동시에 열려 있으면 헷갈림).
   const manualToggle = document.getElementById('manual-template-toggle');
   if(manualToggle) manualToggle.open = false;

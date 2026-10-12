@@ -30,6 +30,7 @@ const context = vm.createContext({console, File, Event, optionsFields, escapeHtm
   resetNewJobWizard: async () => {resetCount++;},
   FormData: class { constructor(){this.values = new Map();} append(k,v){ this.values.set(k,v); } },
   fetch: async url => {
+    if(url.startsWith('/api/workflow-presets/')) return {ok: true, json: async () => ({})};
     if(url === '/api/models') return {ok: !failed, json: async () => ({items})};
     if(url === '/api/enhance-prompt') return {ok: true, json: async () => ({enhanced: 'enhanced body'})};
     assert.equal(url, '/api/upload'); submitted = context.lastForm;
@@ -149,6 +150,48 @@ async function main(){
   assert.equal(resetCount, beforeCancel);
   assert.equal(submitted, previousForm);
   assert.equal(context.selectedFiles.csv, previousCsv);
-  console.log('Quality Prompt 클릭·순서·편집 보존·Enhance·CSV·시드 실제 제출 검사 통과');
+  // 실제 wizardApply가 같은 시드 템플릿을 다시 그린 뒤 제출해도 본문이 남아야 한다.
+  uploadFailed = false;
+  context.lastWizardModels = null;
+  context.podsWithModel = () => null;
+  context.wizard = {familyId:'family', checkpoint:'a', base:'txt2img', preset:'hires', batchMode:'seed', post:{prompt_enhance:true}, loras:[{name:'TRexStudio',strength:1}]};
+  context.baseModelFamilies = {family:{kind:'checkpoints'}};
+  context.templatesById.test = {id:'test',requires_workflow:false,options:[]};
+  context.wizardTypeChosen = () => true;
+  context.wizardTemplateIds = () => ({seed:'test'});
+  context.wizardIsPreset = () => true;
+  context.wizardBaseMeta = () => ({});
+  context.wizardPendingInputImage = context.wizardPendingPose = null;
+  context.setLoraTriggerField = names => {el('lora-trigger-field').style.display=''; el('lora-trigger-input').value=names.join(', ');};
+  context.setWorkflowFile = file => {context.selectedFiles.workflow=file;};
+  context.setVideoWorkflowFile = () => {};
+  context.onTemplateChange = async () => {
+    prompt();
+    const negative=new Element(); negative.className='option-input'; negative.dataset.name='negative_prompt'; negative.value='default negative'; optionsFields.appendChild(negative);
+  };
+  run(form.slice(form.indexOf('function resetForm()'),form.indexOf('const templateSelect')));
+  const wizardSource=source('06-wizard.js');
+  run(wizardSource.slice(wizardSource.indexOf('async function wizardApply()'),wizardSource.indexOf('wizardUpdateStepButtons();',wizardSource.indexOf('async function wizardApply()'))));
+  wrap=prompt('a red robot beside a blue car');
+  const negative=new Element(); negative.className='option-input'; negative.dataset.name='negative_prompt'; negative.value='bad lighting'; optionsFields.appendChild(negative);
+  assert.equal(await run('wizardApply()'),true);
+  await submit();
+  assert.equal(submitted.values.get('main_prompt'),'TRexStudio, a red robot beside a blue car');
+  assert.equal(submitted.values.get('negative_prompt'),'bad lighting');
+  wrap=prompt('original body');
+  await wrap.all().find(c => c.className === 'enhance-btn').fire('click');
+  await wrap.all().find(c => c.textContent === '적용').fire('click');
+  assert.equal(await run('wizardApply()'),true);
+  await submit(); assert.equal(submitted.values.get('main_prompt'),'TRexStudio, enhanced body');
+  wrap=prompt('raw body with preview');
+  await wrap.all().find(c => c.className === 'enhance-btn').fire('click');
+  assert.equal(await run('wizardApply()'),true);
+  await submit(); assert.equal(submitted.values.get('main_prompt'),'TRexStudio, raw body with preview');
+  // 처음 적용하거나 다른 템플릿으로 바꾸면 이전 템플릿의 본문을 복사하지 않는다.
+  context.templateSelect.value='different';
+  prompt('previous template body');
+  assert.equal(await run('wizardApply()'),true);
+  await submit(); assert.equal(submitted.values.get('main_prompt'),'TRexStudio');
+  console.log('Quality Prompt 클릭·순서·편집 보존·Enhance·CSV·시드·마법사 재적용 실제 제출 검사 통과');
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });

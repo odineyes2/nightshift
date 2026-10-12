@@ -547,6 +547,14 @@ function buildPromptEnhanceControl(opt){
   wrap.qualityPromptControl = {
     get: () => (applied && resultTextarea.value.trim()) ? resultTextarea : rawTextarea,
     sync,
+    snapshot(){ return {raw:rawTextarea.value, result:resultTextarea.value, applied}; },
+    restore(draft){
+      rawTextarea.value = draft.raw;
+      resultTextarea.value = draft.result;
+      applied = draft.applied;
+      decide.hidden = !draft.result;
+      sync();
+    },
     focusEnd(){
       const input = this.get();
       input.focus();
