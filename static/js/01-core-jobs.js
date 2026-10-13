@@ -563,9 +563,81 @@ function buildJobCard(j){
 // 수정·프로젝트·파드 이동 버튼/로그를 여기 모아 보여준다. jobMoveTargetId와 같은
 // 패턴으로 지금 열려 있는 작업의 id만 들고 있는다.
 let openJobDetailId = null;
+let jobDetailLora = { status: 'loading', entries: [] };
+let jobDetailLoraRequest = 0;
+
+function jobLoraValue(workflow, value){
+  if(!Array.isArray(value) || value.length !== 2) return value;
+  const source = workflow[String(value[0])];
+  if(!source || !source.inputs) return null;
+  const field = ['PrimitiveStringMultiline', 'PrimitiveString', 'PrimitiveInt', 'PrimitiveFloat'].includes(source.class_type)
+    ? 'value' : ('text' in source.inputs ? 'text' : 'value');
+  return source.inputs[field] ?? null;
+}
+
+function jobLoraEntries(workflow, options){
+  if(!workflow || typeof workflow !== 'object' || Array.isArray(workflow)) throw new Error('잘못된 워크플로우');
+  const nodes = Object.entries(workflow).filter(([, node]) =>
+    node && ['LoraLoader', 'LoraLoaderModelOnly'].includes(node.class_type));
+  if(!nodes.length) return [];
+  const nameOverride = String(options?.lora_name ?? '').trim();
+  const strengthOverride = String(options?.lora_strength ?? '').trim();
+  const title = String(options?.lora_node_title ?? '').trim().toLowerCase();
+  const connected = new Set();
+  Object.values(workflow).forEach(node => Object.values(node?.inputs || {}).forEach(value => {
+    if(Array.isArray(value) && value.length === 2) connected.add(String(value[0]));
+  }));
+  const target = nodes.find(([, node]) => title && String(node._meta?.title ?? '').toLowerCase().includes(title))
+    || nodes.find(([id]) => connected.has(id)) || nodes[0];
+  return nodes.map(([id, node]) => {
+    const inputs = node.inputs || {};
+    const overridden = id === target[0];
+    const name = overridden && nameOverride ? nameOverride : jobLoraValue(workflow, inputs.lora_name);
+    const model = overridden && strengthOverride && Number.isFinite(Number(strengthOverride))
+      ? Number(strengthOverride) : jobLoraValue(workflow, inputs.strength_model);
+    const clip = 'strength_clip' in inputs ? jobLoraValue(workflow, inputs.strength_clip) : null;
+    if(name == null || name === '' || model == null || model === '' || ('strength_clip' in inputs && clip == null))
+      throw new Error('LoRA 값을 해석할 수 없음');
+    return { name, model, clip };
+  });
+}
+
+function jobDetailLoraHtml(){
+  const state = jobDetailLora;
+  if(state.status === 'loading') return '<div class="field"><label class="field-label">LoRA 적용 여부</label><div>확인 중…</div></div>';
+  if(state.status === 'error') return '<div class="field"><label class="field-label">LoRA 적용 여부</label><div>확인할 수 없어요</div></div>';
+  if(!state.entries.length) return '<div class="field"><label class="field-label">LoRA 적용 여부</label><div>적용 안 함</div></div>';
+  const names = state.entries.map(entry => escapeHtml(entry.name == null || entry.name === '' ? '확인할 수 없어요' : entry.name));
+  const strengths = state.entries.map(entry => {
+    const model = entry.model == null || entry.model === '' ? '확인할 수 없어요' : escapeHtml(entry.model);
+    return entry.clip == null || entry.clip === '' ? model : `${model} (CLIP ${escapeHtml(entry.clip)})`;
+  });
+  return `<div class="field"><label class="field-label">LoRA 적용 여부</label><div>적용 (${state.entries.length}개)</div></div>
+    <div class="field"><label class="field-label">LoRA 이름</label><div class="job-detail-prompt">${names.map((name, i) => `${i + 1}. ${name}`).join('<br>')}</div></div>
+    <div class="field"><label class="field-label">LoRA 강도</label><div class="job-detail-prompt">${strengths.map((value, i) => `${i + 1}. ${value}`).join('<br>')}</div></div>
+    <div class="field"><div class="text-dim">저장된 워크플로우와 실행 옵션 기준이에요.</div></div>`;
+}
+
+async function loadJobDetailLora(job, request){
+  try{
+    if(!job.workflow_filename) throw new Error('워크플로우 없음');
+    const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/workflow`);
+    if(!response.ok) throw new Error('조회 실패');
+    const workflow = await response.json();
+    const entries = jobLoraEntries(workflow, (job.template_id || '').includes('csv_batch') ? job.options : {});
+    if(request !== jobDetailLoraRequest || openJobDetailId !== job.id) return;
+    jobDetailLora = { status: 'ready', entries };
+  }catch(e){
+    if(request !== jobDetailLoraRequest || openJobDetailId !== job.id) return;
+    jobDetailLora = { status: 'error', entries: [] };
+  }
+  renderJobDetailModalBody();
+}
 
 function openJobDetailModal(jobId){
   openJobDetailId = jobId;
+  jobDetailLora = { status: 'loading', entries: [] };
+  const request = ++jobDetailLoraRequest;
   renderJobDetailModalBody();
   // 이전에 열었던 다른 작업의 로그/생성물이 잠깐 남아 보이지 않도록, 새로 받아오는
   // 동안은 안내 문구/빈 상태로 되돌려 둔다 — <pre>는 재생성하지 않고(위 HTML 주석
@@ -576,11 +648,14 @@ function openJobDetailModal(jobId){
   document.getElementById('job-detail-modal').style.display = 'flex';
   loadLog(jobId);
   loadJobDetailOutputs(jobId);
+  const job = lastJobs.find(j => j.id === jobId);
+  if(job) loadJobDetailLora(job, request);
 }
 
 function closeJobDetailModal(){
   document.getElementById('job-detail-modal').style.display = 'none';
   openJobDetailId = null;
+  jobDetailLoraRequest++;
 }
 
 // 목록 위 "새 작업" 버튼이나 "불러오기"류 진입점들이 이 모달을 연다 —
@@ -621,6 +696,7 @@ function renderJobDetailModalBody(){
     <div class="field"><label class="field-label">옵션</label><div>${escapeHtml(otherOptionsText)}</div></div>
     <div class="field"><label class="field-label">워크플로우</label><div>${escapeHtml(job.workflow_original_name || '-')}</div></div>
     <div class="field"><label class="field-label">CSV</label><div>${escapeHtml(job.csv_original_name || '-')}</div></div>
+    ${(job.template_id || '').includes('csv_batch') ? jobDetailLoraHtml() : ''}
     ${job.owner_name ? `<div class="field"><label class="field-label">만든 사람</label><div>${escapeHtml(job.owner_name)}</div></div>` : ''}
     ${job.pod_id ? `<div class="field"><label class="field-label">워커</label><div>${escapeHtml(podName(job.pod_id) || job.pod_id)}</div></div>` : ''}
     ${job.project_id != null && projectsById[job.project_id] ? `<div class="field"><label class="field-label">프로젝트</label><div>${escapeHtml(projectName(job.project_id))}</div></div>` : ''}
