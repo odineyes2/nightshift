@@ -343,18 +343,25 @@
         <button class="collapse-btn" type="button" aria-label="섹션 접기/펼치기" aria-expanded="true"><svg class="ico"><use href="#i-chevron-down"/></svg></button>
         <div class="section-label">Job Queue</div>
       </div>
+      <button type="button" id="job-add-btn" class="submit-btn">+ 새 작업</button>
       <button type="button" id="clear-done-jobs" disabled>완료 잡 청소 (0)</button>
     </div>
     <div class="panel-body">
       <div id="clear-done-jobs-result" class="job-cleanup-result" role="status" aria-live="polite"></div>
+      <div class="job-list-toolbar">
+        <label for="job-search">작업 검색</label>
+        <input id="job-search" type="search" placeholder="작업 ID, 템플릿, 모델 검색" autocomplete="off">
+        <label for="job-status-filter">상태</label>
+        <select id="job-status-filter"><option value="all">전체 상태</option><option value="pending">일시정지</option><option value="queued">대기</option><option value="running">실행</option><option value="done">완료</option><option value="failed">실패</option><option value="interrupted">중단</option></select>
+      </div>
       <div class="job-board" id="job-board"></div>
     </div>
   </div>
 </main>
 
-<!-- New Job은 항상 붙박이로 보이던 패널이었지만, 대기 칸의 카드 개수가 늘면서 화면을
-     너무 많이 차지해 모달로 옮겼다 — Job Queue의 대기 칸 맨 끝 "+" 카드(job-card-add,
-     render() 참고)를 눌러야 열린다(openNewJobModal). 안의 id들은 하나도 안 바꿨으므로
+<!-- New Job은 항상 붙박이로 보이던 패널이었지만, 작업 목록에서 공간을 많이 차지해
+     모달로 옮겼다 — Job Queue의 "새 작업" 버튼으로 연다(openNewJobModal).
+     안의 id들은 하나도 안 바꿨으므로
      마법사/워크플로우 업로드/옵션 폼 관련 JS는 그대로 동작한다. #tab-jobs 안에 두지
      않고 다른 모달들처럼 최상위 형제로 뺐다 — 안 그러면 다른 탭(갤러리 등)에서
      "불러오기"로 열 때 #tab-jobs의 display:none에 가려 안 보인다. -->
