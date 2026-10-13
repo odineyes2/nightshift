@@ -118,6 +118,69 @@
     width:22px; height:22px; padding:0;
     background:none; border:none; border-radius:var(--radius-sm);
   }
+  /* Jobs 게시판: 넓은 화면은 열을 맞추고 좁은 화면은 각 행 안에 필드명을 둔다. */
+  #tab-jobs .panel-header{ align-items:center; }
+  #job-add-btn{ min-height:40px; margin-left:auto; }
+  #clear-done-jobs{ margin-left:0; }
+  .job-list-toolbar{ display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  .job-list-toolbar label{ font-size:12px; font-weight:500; color:var(--text-dim); }
+  .job-list-toolbar input, .job-list-toolbar select{
+    min-height:40px; border:1px solid var(--border); border-radius:6px; background:var(--panel);
+    color:var(--text); font:inherit; font-size:13px; padding:8px 12px;
+  }
+  .job-list-toolbar input{ flex:1 1 220px; min-width:0; }
+  .job-list-toolbar :focus-visible, .job-card:focus-visible, .job-card-actions button:focus-visible{
+    outline:2px solid var(--accent); outline-offset:2px;
+  }
+  .job-board{ display:block; width:100%; overflow-x:visible; border:1px solid var(--border); border-radius:8px; }
+  .job-list-head, .job-card{
+    display:grid; grid-template-columns:minmax(170px,2fr) minmax(150px,1.7fr) minmax(105px,1.2fr) minmax(100px,1fr) minmax(120px,1.2fr) minmax(145px,1.4fr);
+    align-items:center; gap:12px; width:100%; min-width:0;
+  }
+  .job-list-head{
+    padding:10px 16px; background:var(--panel-2); color:var(--text-dim);
+    font-family:var(--mono); font-size:11px; font-weight:600;
+  }
+  .job-card{
+    aspect-ratio:auto; border:0; border-top:1px solid var(--border); border-radius:0;
+    border-left:3px solid transparent; padding:12px 13px; min-height:66px;
+    background:var(--panel); user-select:text; -webkit-user-select:text;
+  }
+  .job-card[data-status="pending"]{ background:var(--panel); border-style:solid; }
+  .job-card[data-status="pending"] > :not(.job-card-actions){ opacity:1; filter:none; }
+  .job-card .preflight-badge{ position:static; }
+  .job-cell{ min-width:0; overflow-wrap:anywhere; }
+  .job-card-title{ padding-right:0; font-size:13px; font-weight:500; }
+  .job-card-title span:last-child{ min-width:0; }
+  .job-card-id{ flex:none; font-size:12px; color:var(--text-dim); font-variant-numeric:tabular-nums; }
+  .job-card-base{ font-size:12px; margin:3px 0 0 20px; }
+  .job-state{ display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; }
+  .job-card-wait{ flex-basis:100%; margin-top:0; font-size:12px; }
+  .job-card-wait span{ white-space:normal; overflow-wrap:anywhere; }
+  .job-scope{ display:flex; flex-direction:column; gap:2px; font-size:12px; }
+  .job-scope span:last-child{ color:var(--text-dim); }
+  .job-progress .progress-wrap{ margin-top:0; }
+  .job-finished{ color:var(--text-dim); font-family:var(--mono); font-size:12px; font-variant-numeric:tabular-nums; }
+  .job-card-actions{ flex-wrap:wrap; justify-content:flex-start; gap:4px; }
+  .job-card-elapsed{ width:100%; margin-right:0; }
+  .job-card-actions button{ width:40px; height:40px; border:1px solid var(--border); cursor:pointer; }
+  .job-card-actions button:disabled{ cursor:not-allowed; opacity:.5; }
+  .job-list-empty{ padding:24px 16px; text-align:center; font-size:13px; color:var(--text-dim); border-top:1px solid var(--border); }
+  @media(max-width:900px){
+    .job-list-head{ display:none; }
+    .job-card{ grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 16px; }
+    .job-main, .job-state, .job-card-actions{ grid-column:1 / -1; }
+    .job-cell:not(.job-main)::before{ content:attr(data-label); display:block; font-size:11px; color:var(--text-dim); margin-bottom:4px; }
+    .job-card-actions{ align-items:center; }
+    .job-card-elapsed{ width:auto; margin-right:auto; }
+  }
+  @media(max-width:640px){
+    .job-card{ grid-template-columns:1fr 1fr; padding:14px; }
+    .job-progress, .job-finished{ grid-column:auto; }
+    .job-list-toolbar input{ flex-basis:100%; }
+    .job-list-toolbar select{ flex:1; }
+    #job-add-btn{ margin-left:0; }
+  }
   .job-detail-actions{ display:flex; flex-wrap:wrap; gap:8px; }
   .job-detail-grid{ display:flex; flex-direction:column; gap:10px; }
   .job-detail-preflight{ font-size:12px; color:var(--text-dim); line-height:1.6; white-space:pre-line; }
