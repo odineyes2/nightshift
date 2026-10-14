@@ -688,6 +688,7 @@
           <button class="enhance-mode-btn active" type="button" data-display="grid" title="썸네일 격자로 보기"><svg class="ico"><use href="#i-layout-grid"/></svg> Grid</button>
           <button class="enhance-mode-btn" type="button" data-display="details" title="탐색기처럼 파일명·해상도·용량 등 정보 위주로 한 줄씩 보기"><svg class="ico"><use href="#i-list"/></svg> Details</button>
         </div>
+        <label class="gallery-cols" title="PC에서 한 줄에 보일 썸네일 개수 (맨 왼쪽은 자동)"><input type="range" class="gallery-cols-range" id="gallery-cols-range" min="1" max="12" step="1" value="1" aria-label="한 줄 썸네일 개수"><span class="gallery-cols-val">자동</span></label>
         <button class="load-btn" id="gallery-select-all-btn" type="button" disabled title="전체 선택"><svg class="ico"><use href="#i-square-check-big"/></svg> 전체선택</button>
         <button class="load-btn" id="gallery-pull-btn" type="button" style="display:none;"
                 title="원격 ComfyUI가 만든 결과 이미지를 이 서버로 가져와요. 작업이 끝날 때마다 자동으로도 가져오지만, pod를 껐다 켠 뒤 밀린 것을 한꺼번에 받을 때 쓰세요."><svg class="ico"><use href="#i-download"/></svg> 결과 가져오기</button>
@@ -751,6 +752,7 @@
           <button class="enhance-mode-btn active" type="button" data-display="grid" title="썸네일 격자로 보기"><svg class="ico"><use href="#i-layout-grid"/></svg> Grid</button>
           <button class="enhance-mode-btn" type="button" data-display="details" title="파일명·길이·해상도·용량 등 정보 위주로 한 줄씩 보기"><svg class="ico"><use href="#i-list"/></svg> Details</button>
         </div>
+        <label class="gallery-cols" title="PC에서 한 줄에 보일 썸네일 개수 (맨 왼쪽은 자동)"><input type="range" class="gallery-cols-range" id="video-gallery-cols-range" min="1" max="12" step="1" value="1" aria-label="한 줄 썸네일 개수"><span class="gallery-cols-val">자동</span></label>
         <button class="load-btn" id="video-gallery-select-all-btn" type="button" disabled title="전체 선택"><svg class="ico"><use href="#i-square-check-big"/></svg> 전체선택</button>
         <button class="load-btn" id="video-gallery-pull-btn" type="button" style="display:none;"
                 title="원격 ComfyUI가 만든 결과 영상을 이 서버로 가져와요. nightshift를 거치지 않고 ComfyUI에서 직접 돌린 작업도 ComfyUI 히스토리에 남아있으면 함께 가져와요."><svg class="ico"><use href="#i-download"/></svg> 결과 가져오기</button>

@@ -625,6 +625,28 @@ document.querySelectorAll('#gallery-display-toggle .enhance-mode-btn').forEach(b
   });
 });
 
+// 한 줄 썸네일 개수(PC) — 이미지·영상 갤러리 슬라이더가 한 값을 공유한다. 1 = 자동(기존 auto-fill).
+const GALLERY_COLS_KEY = 'galleryCols';
+function applyGalleryCols(n){
+  const root = document.documentElement;
+  if(n > 1){ root.dataset.galCols = n; root.style.setProperty('--gal-cols', n); }
+  else { delete root.dataset.galCols; root.style.removeProperty('--gal-cols'); }
+  document.querySelectorAll('.gallery-cols-range').forEach(r => {
+    r.value = n;
+    r.nextElementSibling.textContent = n > 1 ? n + '열' : '자동';
+  });
+}
+(function(){
+  let n = 1;
+  try{ n = Math.min(12, Math.max(1, parseInt(localStorage.getItem(GALLERY_COLS_KEY), 10) || 1)); }catch(e){}
+  applyGalleryCols(n);
+  document.querySelectorAll('.gallery-cols-range').forEach(r => r.addEventListener('input', () => {
+    const v = parseInt(r.value, 10) || 1;
+    applyGalleryCols(v);
+    try{ localStorage.setItem(GALLERY_COLS_KEY, v); }catch(e){}
+  }));
+})();
+
 // job_id로 그 작업이 배정된 파드를 찾는다. lastJobs는 2초마다 갱신되는 전역 작업
 // 목록(작업 화면과 공유)이라 따로 다시 받아올 필요가 없다. job_id가 없거나(=
 // nightshift 큐를 거치지 않고 ComfyUI에서 직접 돌린 결과) 오래전에 완전히 삭제된
