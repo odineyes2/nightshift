@@ -54,6 +54,9 @@ def _collect_texts(graph: dict, ref, out: list, seen: set, depth: int = 0) -> No
     # 늘린 뒤 인코더에 넣는다 — 시스템 프롬프트는 사람이 쓴 프롬프트가 아니므로 모으지 않는다.
     if "system" in str((node.get("_meta") or {}).get("title") or "").lower():
         return
+    # ZeroOut은 조건을 비운 것이다(krea.2 네거티브) — 뒤의 긍정 인코더 텍스트를 모으면 네거티브가 프롬프트와 같아진다.
+    if node.get("class_type") == "ConditioningZeroOut":
+        return
     inputs = node.get("inputs") or {}
     text = inputs.get("text")
     if isinstance(text, str) and text.strip():
@@ -321,6 +324,31 @@ _BACKFILL_KEY = "asset_model_meta_v1"
 _BACKFILL_VIDEO_PROMPT_KEY = "asset_video_prompt_v1"
 
 
+_BACKFILL_NEGATIVE_KEY = "asset_negative_fix_v1"
+
+
+def _backfill_negative(found: dict) -> None:
+    """ZeroOut 네거티브를 긍정 프롬프트로 잘못 읽어 negative_prompt == prompt가 된 행만 다시 읽어 바로잡는다.
+    DB마다 한 번만 실행하고, 새 추출값이 없으면 네거티브를 비운다."""
+    with db.connect() as conn:
+        if db.get_meta(conn, _BACKFILL_NEGATIVE_KEY):
+            return
+        rows = conn.execute("SELECT id, path, kind FROM assets WHERE deleted_at IS NULL AND kind != 'video' "
+                            "AND negative_prompt = prompt AND negative_prompt != ''").fetchall()
+        for r in rows:
+            item = found.get(r["path"])
+            if item is None:
+                continue
+            try:
+                with Image.open(item[0]) as img:
+                    meta = extract_comfy_meta(img)
+            except Exception:
+                continue
+            if meta:
+                conn.execute("UPDATE assets SET negative_prompt=? WHERE id=?", (meta.get("negative_prompt"), r["id"]))
+        db.set_meta(conn, _BACKFILL_NEGATIVE_KEY, db.now_iso())
+
+
 def _backfill_model_meta(found: dict, key: str = _BACKFILL_KEY, where: str = "") -> None:
     """예전에 색인한 결과물에는 UNet/VAE/텍스트 인코더 이름이 없고(영상은 아예 메타를 안 읽었다), 그래서
     모델별 사용 통계가 비어 보인다. DB마다(key마다) 한 번만 파일을 다시 읽어 그 칸들을 채운다.
@@ -445,6 +473,7 @@ def sync(force: bool = False) -> dict | None:
                         removed += 1
         _backfill_model_meta(found)
         _backfill_model_meta(found, _BACKFILL_VIDEO_PROMPT_KEY, " AND kind = 'video' AND (prompt IS NULL OR prompt = '')")
+        _backfill_negative(found)
         library_generated_outputs.sync(base, found)
         _last_sync = time.monotonic()
         return {"added": added, "updated": updated, "removed": removed, "total": len(found)}

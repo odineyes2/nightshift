@@ -70,6 +70,44 @@ class PoseResultMeta(unittest.TestCase):
         self.assertEqual(rows["a.png"]["pose"], {"id": pose["id"], "image_id": image_id, "name": "앉은 포즈"})
         self.assertEqual(rows["b.png"]["pose"], {"id": 9999, "image_id": 1})   # 지워진 게시물은 id만
 
+    def test_zeroout_negative_is_empty_and_others_unchanged(self):
+        krea = {"1": {"class_type": "KSampler", "inputs": {"seed": 1, "positive": ["2", 0], "negative": ["3", 0]}},
+                "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "1girl"}},
+                "3": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["2", 0]}}}
+        meta = AI.meta_from_graph(krea)
+        self.assertEqual(meta["prompt"], "1girl")
+        self.assertFalse(meta.get("negative_prompt"))
+        meta = AI.meta_from_graph(graph("x.png"))
+        self.assertEqual((meta["prompt"], meta["negative_prompt"]), ("1girl, standing", "bad"))
+        wan = {"1": {"class_type": "KSampler", "inputs": {"seed": 1, "positive": ["4", 0], "negative": ["4", 1]}},
+               "4": {"class_type": "WanImageToVideo", "inputs": {"positive": ["2", 0], "negative": ["3", 0]}},
+               "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "pos"}},
+               "3": {"class_type": "CLIPTextEncode", "inputs": {"text": "neg"}}}
+        meta = AI.meta_from_graph(wan)
+        self.assertEqual((meta["prompt"], meta["negative_prompt"]), ("pos", "neg"))
+
+    def test_backfill_fixes_only_equal_negative_rows(self):
+        krea = {"1": {"class_type": "KSampler", "inputs": {"seed": 1, "positive": ["2", 0], "negative": ["3", 0]}},
+                "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "1girl"}},
+                "3": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["2", 0]}}}
+        out = Path(os.environ["NIGHTSHIFT_OUTPUT_DIR"])
+        for fname, g in (("k.png", krea), ("n.png", graph("x.png"))):
+            info = PngInfo()
+            info.add_text("prompt", json.dumps(g))
+            (out / fname).write_bytes(png_bytes(info))
+        AI.sync(force=True)
+        with db.connect() as conn:
+            conn.execute("UPDATE assets SET negative_prompt=prompt WHERE path='k.png'")
+            conn.execute("UPDATE assets SET negative_prompt='keep' WHERE path='n.png'")
+            conn.execute("DELETE FROM meta WHERE key=?", (AI._BACKFILL_NEGATIVE_KEY,))
+        AI.sync(force=True)
+        with db.connect() as conn:
+            rows = {r["path"]: r for r in conn.execute(
+                "SELECT path, prompt, negative_prompt FROM assets WHERE path IN ('k.png','n.png')")}
+        self.assertFalse(rows["k.png"]["negative_prompt"])
+        self.assertEqual(rows["k.png"]["prompt"], "1girl")
+        self.assertEqual(rows["n.png"]["negative_prompt"], "keep")
+
     def test_gallery_info_links_to_library(self):
         meta_js = (ROOT / "static/js/10-gallery-meta.js").read_text(encoding="utf-8")
         lib_js = (ROOT / "static/js/17c-library.js").read_text(encoding="utf-8")
