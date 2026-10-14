@@ -34,7 +34,7 @@ class NotificationTests(unittest.TestCase):
     def setUp(self):
         with db.connect() as conn:
             conn.execute("DELETE FROM meta WHERE key='notify_settings'")
-        N._counts.update(done=0, failed=0)
+        N._finished.clear()
         N.save_settings({"enabled": True, "topic": "test_topic"})
 
     def test_api_validation_and_token(self):
@@ -90,10 +90,24 @@ class NotificationTests(unittest.TestCase):
                 t.start()
             for t in threads:
                 t.join()
-            send.assert_called_once()
-            self.assertEqual(send.call_args.args[2], "완료 1 · 실패 1")
+            self.assertEqual(send.call_count, 2)  # 모두 끝난 뒤 잡별 전송
+            self.assertEqual({c.args[1] for c in send.call_args_list}, {"잡 완료", "잡 실패"})
             N.job_finished({"status": "done"}, {})
-            self.assertEqual(send.call_args.args[2], "완료 1 · 실패 0")
+            self.assertEqual(send.call_count, 3)
+            self.assertIsNone(send.call_args.args[3])  # id 없으면 링크 없음
+
+    def test_click_url(self):
+        N.save_settings({"mode": "each"})
+        with patch.object(N, "send_async") as send, patch.dict(os.environ, {"NIGHTSHIFT_PUBLIC_URL": "https://x.test/"}):
+            N.job_finished({"id": "a b/#1", "status": "failed"}, {})
+            self.assertEqual(send.call_args.args[3], "https://x.test/#job/a%20b%2F%231")
+        os.environ.pop("NIGHTSHIFT_PUBLIC_URL", None)
+        self.assertEqual(N._click_url("j1"), "https://nightshift.lomebrote.com/#job/j1")
+        with patch.object(N.urllib.request, "urlopen", return_value=MagicMock()) as opened:
+            N.send(N.get_settings(), "잡 완료", "m", "https://x.test/#job/j1")
+            self.assertEqual(opened.call_args.args[0].get_header("Click"), "https://x.test/#job/j1")
+            N.send(N.get_settings(), "시험 알림", "m")
+            self.assertIsNone(opened.call_args.args[0].get_header("Click"))
 
     def test_transport_and_test_api(self):
         N.save_settings({"token": "secret", "enabled": False})
