@@ -97,7 +97,7 @@ async def update_pod_api(pod_id: str, request: Request):
 def runpod_tiers_api(request: Request):
     """워커 추가 창의 등급 카드(이미지용·영상용) — 이름·VRAM·예상 가격·GPU 후보."""
     admin_only(request)
-    return {"tiers": [{"id": k, **{f: v[f] for f in ("label", "vram", "price_hint", "gpus")}} for k, v in runpod_api.RUNPOD_TIERS.items()],
+    return {"tiers": [{"id": k, **{f: v[f] for f in ("label", "vram", "price_hint")}, "gpus": runpod_api.usable_gpus(k)} for k, v in runpod_api.RUNPOD_TIERS.items()],
             "api_key": bool(runpod_api.RUNPOD_API_KEY)}
 
 
@@ -730,6 +730,7 @@ def _boot_watch_check(now: datetime | None = None) -> dict[str, str]:
                 for j in jobs.values())
         if used or driver_for(pod).health(pod, COMFY_CHECK_TIMEOUT_INTERACTIVE)["ok"]:
             continue
+        runpod_api.mark_bad_gpu(info.get("gpu_type"))   # 재생성이 같은 GPU에 또 배정되지 않게(NS-74)
         err = runpod_api.terminate_pod(rp_id)
         if err and "HTTP 404" not in err:
             log.warning("부팅 감시 — 워커 %s의 파드 %s를 지우지 못했어요: %s", pod["id"], rp_id, err)

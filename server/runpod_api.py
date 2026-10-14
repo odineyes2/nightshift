@@ -261,10 +261,55 @@ RUNPOD_PREFERRED_DATA_CENTERS = ["AP-JP-1"]
 RUNPOD_TIERS = {
     "image": {"label": "이미지용", "vram": "16GB급", "disk_gb": 80, "price_hint": "시간당 약 $0.2~0.6",
               "gpus": ["NVIDIA RTX A4000", "NVIDIA RTX 4000 Ada Generation", "NVIDIA RTX A4500",
-                       "NVIDIA RTX 2000 Ada Generation", "NVIDIA GeForce RTX 5080"]},
+                       "NVIDIA RTX 2000 Ada Generation"]},
     "video": {"label": "영상용", "vram": "32GB급", "disk_gb": 150, "price_hint": "시간당 약 $0.35~1.0",
               "gpus": ["NVIDIA RTX PRO 4500 Blackwell", "NVIDIA GeForce RTX 5090"]},
 }
+# ComfyUI가 30분 넘게 응답한 적 없는 GPU(NS-74) — 기본 제외. 환경변수 RUNPOD_EXCLUDED_GPUS(쉼표 구분)로 더하고 `-이름`으로 푼다.
+RUNPOD_DEFAULT_EXCLUDED_GPUS = {"NVIDIA GeForce RTX 5080"}
+
+
+def _bad_gpus_path():
+    from data_paths import DATA_DIR
+    return DATA_DIR / "runpod_bad_gpus.json"
+
+
+def excluded_gpus() -> set[str]:
+    """기본 제외 ∪ 환경변수 ∪ 부팅 실패로 기록된 GPU(data/runpod_bad_gpus.json)."""
+    out = set(RUNPOD_DEFAULT_EXCLUDED_GPUS)
+    for item in (s.strip() for s in os.environ.get("RUNPOD_EXCLUDED_GPUS", "").split(",")):
+        if item.startswith("-"):
+            out.discard(item[1:].strip())
+        elif item:
+            out.add(item)
+    try:
+        out.update(json.loads(_bad_gpus_path().read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        pass
+    return out
+
+
+def usable_gpus(tier: str) -> list[str]:
+    spec = RUNPOD_TIERS.get(tier) or {}
+    bad = excluded_gpus()
+    return [g for g in spec.get("gpus", []) if g not in bad]
+
+
+def mark_bad_gpu(name: str | None) -> None:
+    """부팅 감시가 ComfyUI 무응답으로 지운 파드의 GPU를 기록한다 — 이후 create_pod가 건너뛴다. 해제는 파일을 직접 고친다."""
+    if not name:
+        return
+    path = _bad_gpus_path()
+    try:
+        cur = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cur = []
+    if name in cur:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(sorted({*cur, name}), ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[str] | None = None) -> tuple[dict | None, str | None]:
@@ -276,10 +321,13 @@ def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[s
     # v2는 gpu.id 하나만 받고 다른 GPU로 대체하지 않으므로 단계마다 후보를 하나씩 요청한다(실패 요청은 과금되지 않는다).
     # 400(자리 없음)·403(그 풀 권한 없음)·5xx는 다음 후보로, 401(키)·402(잔액)·422(요청 형식)·429(요청 제한)는
     # 어디서 해도 똑같이 실패하니 바로 멈춘다.
+    gpus = usable_gpus(tier)
+    if not gpus:
+        return None, "파드를 만들지 못했어요 — 쓸 수 있는 GPU가 모두 제외돼 있어요."
     errors = []
     for cloud, dcs in (("SECURE", RUNPOD_PREFERRED_DATA_CENTERS), ("SECURE", None),
                        ("COMMUNITY", RUNPOD_PREFERRED_DATA_CENTERS), ("COMMUNITY", None)):
-        for gpu_id in spec["gpus"]:
+        for gpu_id in gpus:
             body = {"name": name, "image": RUNPOD_COMFY_IMAGE, "cloud": cloud,
                     "gpu": {"id": gpu_id, "count": 1, "allowedCudaVersions": RUNPOD_CUDA_VERSIONS},
                     "disk": spec["disk_gb"], "ports": RUNPOD_PORTS}   # mounts가 없으면 볼륨 없음
