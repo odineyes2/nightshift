@@ -31,7 +31,7 @@ def fake_create(name, tier, env, entrypoint):
 
 A.runpod_api.RUNPOD_API_KEY = "x"
 A.runpod_api.get_runpod_info = lambda url: {"status": "RUNNING", "last_started_at": "2026-10-01 00:00:00.000 +0000 UTC",
-                                             "pod_name": "someone-else"}
+                                             "pod_name": "someone-else", "gpu_type": "NVIDIA RTX A4000"}
 A.runpod_api.create_pod = fake_create
 A.runpod_api.terminate_pod = lambda rp: terminated.append(rp)
 A.driver_for = lambda pod: type("D", (), {"health": staticmethod(
@@ -65,6 +65,10 @@ assert A._boot_watch_check(T0 + timedelta(minutes=40)) == {managed["id"]: "faile
 assert terminated == ["aaa", "new1"] and len(created) == 1
 p = A.pod_registry.get_pod(managed["id"])
 assert p["note"] == "runpod:boot_failed" and not p["enabled"] and p["url"] == ""
+
+# 부팅 실패한 파드의 GPU가 기록돼 create_pod 후보에서 빠진다(NS-74)
+assert "NVIDIA RTX A4000" in A.runpod_api.excluded_gpus()
+assert "NVIDIA RTX A4000" not in A.runpod_api.usable_gpus("image")
 
 # 그 뒤로는 손대지 않는다(정상·손으로 등록한 워커도 그대로)
 assert A._boot_watch_check(T0 + timedelta(minutes=60)) == {}

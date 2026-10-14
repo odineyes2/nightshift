@@ -94,6 +94,8 @@ assert st is None and "409" in err and "already" in err
 
 # 만들기: 400이면 다음 GPU, 성공하면 그 GPU로
 gpus = R.RUNPOD_TIERS["image"]["gpus"]
+assert "NVIDIA GeForce RTX 5080" not in gpus and "NVIDIA GeForce RTX 5080" in R.excluded_gpus()
+assert R.usable_gpus("image") == gpus
 queue[:] = [http_err(400, "no capacity"), {"id": "new", "name": "t", "cost": 0.25, "gpu": {"id": gpus[1]}, "dataCenterId": "AP-JP-1"}]
 calls.clear()
 pod, err = R.create_pod("t", "image", env={"PW": "s"})
@@ -113,6 +115,20 @@ queue[:] = [http_err(400, "x") for _ in range(4 * len(gpus))]
 calls.clear()
 pod, err = R.create_pod("t", "image")
 assert pod is None and len(calls) == 4 * len(gpus) and not queue
+
+# 기록된 GPU는 요청에 안 실리고, 전부 제외되면 요청 없이 오류(NS-74)
+R.mark_bad_gpu(gpus[0])
+queue[:] = [http_err(400, "x") for _ in range(4 * len(gpus))]
+calls.clear()
+R.create_pod("t", "image")
+assert gpus[0] not in [c[2]["gpu"]["id"] for c in calls] and len(calls) == 4 * (len(gpus) - 1)
+for g in gpus[1:]:
+    R.mark_bad_gpu(g)
+calls.clear()
+pod, err = R.create_pod("t", "image")
+assert pod is None and "제외" in err and not calls
+os.remove(R._bad_gpus_path())
+queue.clear()
 
 # 코드에 v1 흔적이 없다
 src = open(R.__file__, encoding="utf-8").read()
