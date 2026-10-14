@@ -383,6 +383,18 @@
     grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
     gap:8px;
   }
+  /* 열 개수 슬라이더 — 15-gallery.js가 html[data-gal-cols]와 --gal-cols를 지정한다(없으면 위 auto-fill). 폰은 3열 규칙 그대로. */
+  .gallery-cols{ display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
+  .gallery-cols-range{ width:96px; accent-color:var(--accent, var(--queued)); }
+  .gallery-cols-val{ min-width:3ch; }
+  .enhance-mode:has(.enhance-mode-btn[data-display="details"].active) ~ .gallery-cols{ display:none; }
+  @media (max-width:640px){ .gallery-cols{ display:none; } }
+  @media (min-width:641px){
+    html[data-gal-cols] #gallery-grid:not(.details-mode), html[data-gal-cols] #gallery-grid .gallery-group-grid:not(.details-mode),
+    html[data-gal-cols] #video-gallery-grid:not(.details-mode), html[data-gal-cols] #video-gallery-grid .vgallery-group-grid:not(.details-mode){
+      grid-template-columns:repeat(var(--gal-cols), minmax(0, 1fr));
+    }
+  }
   .gallery-item{
     position:relative;
     aspect-ratio:1;
