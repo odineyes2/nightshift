@@ -607,11 +607,13 @@ function createAssetMetaPanel(root, kind){
       params.cfg != null ? `cfg ${params.cfg}` : null, params.denoise != null && params.denoise !== 1 ? `denoise ${params.denoise}` : null,
     ].filter(Boolean).join(' · ');
     const dims = d.width && d.height ? `${d.width}×${d.height}` : null;
+    // Enhance를 쓴 결과는 그래프에 원문만 남는다 — 입력 프롬프트로 표시하고 배지를 붙인다.
+    const label = params.prompt_enhance ? '입력 프롬프트 <span class="am-badge">Enhance 사용</span>' : '프롬프트';
     const prompt = d.prompt
-      ? `<div class="am-prompt-head"><span>프롬프트</span><button type="button" class="load-btn am-copy" data-copy="prompt">${ico('copy')} 복사</button></div><div class="am-prompt">${escapeHtml(d.prompt)}</div>`
+      ? `<div class="am-prompt-head"><span>${label}</span><button type="button" class="load-btn am-copy" data-copy="prompt">${ico('copy')} 복사</button></div><div class="am-prompt">${escapeHtml(d.prompt)}</div>`
       : '';
     const negative = d.negative_prompt
-      ? `<details class="am-neg"><summary>네거티브 프롬프트</summary><div class="am-prompt">${escapeHtml(d.negative_prompt)}</div></details>`
+      ? `<div class="am-prompt-head"><span>네거티브 프롬프트</span></div><div class="am-prompt">${escapeHtml(d.negative_prompt)}</div>`
       : '';
     const facts = row('작업', d.job_label) + row('워커', d.pod_name) + row('체크포인트', d.checkpoint)
       + row('시드', d.seed) + row('샘플링', paramText) + row('LoRA', (params.loras || []).join(', ')) + row('해상도', dims)
