@@ -153,6 +153,7 @@ document.getElementById('wizard-family-modal-body').addEventListener('click', (e
     wizard.post.openpose = keepOpenPose;
     wizard.preset = null;
     wizard.loras = [];
+    wizard.textEncoder = null; // 텍스트 인코더 목록은 family마다 다르다
     wizard.batchMode = keepFaceDetailer || keepTxt2img ? 'seed' : null;
   }
   wizard.familyId = familyId;
@@ -187,6 +188,14 @@ function wizardVariantInfo(variants){
   const has = v => name.toLowerCase().includes(v.toLowerCase()) || tags.includes(v.toLowerCase());
   const known = variants.filter(has);
   return { has, unknown: variants.length > 0 && known.length === 0 };
+}
+
+// UNet형 family에 텍스트 인코더가 2개 이상 등록돼 있으면 고르게 한다. 고른 적 없으면 목록의 첫 항목(추천).
+// 체크포인트형이거나 2개 미만이면 null — 빌더 기본값을 그대로 쓴다.
+function wizardTextEncoder(family){
+  const list = (family && family.kind === 'diffusion_models' && family.text_encoders) || [];
+  if(list.length < 2) return null;
+  return list.includes(wizard.textEncoder) ? wizard.textEncoder : list[0];
 }
 
 function renderWizardTypeModal(){
@@ -311,9 +320,15 @@ function renderWizardTypeModal(){
   const unetMissingHint = unetMissing
     ? `<div class="email-hint">${unetMissing.map(k => partNames[k] || k).join('/')}가 정해지지 않았어요 — "모델" 탭에서 그 파일의 베이스 모델을 ${escapeHtml(currentFamily.label || wizard.familyId)}(으)로 지정해 주세요.</div>`
     : '';
+  const textEncoder = wizardTextEncoder(currentFamily);
+  const textEncoderSection = !textEncoder ? '' : `
+    <div class="wizard-pick-section-title">텍스트 인코더 <span class="wizard-pick-row-hint">— 이 베이스 모델에 등록된 파일 중에서 골라요</span></div>
+    <select class="option-input wizard-text-encoder-input" title="텍스트 인코더">${currentFamily.text_encoders.map(n =>
+      `<option value="${escapeHtml(n)}"${n === textEncoder ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('')}</select>`;
   body.innerHTML = `
     ${variantHint}
     ${unetMissingHint}
+    ${textEncoderSection}
     <div class="wizard-pick-section-title">베이스 (하나 선택)</div>
     <div class="wizard-pick-list">${baseRows}</div>
     <div class="wizard-pick-section-title">후처리 <span class="wizard-pick-row-hint">— 여러 개 함께 켤 수 있어요(베이스를 먼저 고르세요)</span></div>
@@ -328,6 +343,7 @@ document.getElementById('wizard-type-modal-body').addEventListener('click', (e) 
   if(e.target.classList.contains('wizard-hires-scale-input')
      || e.target.classList.contains('wizard-cn-name-input')
      || e.target.classList.contains('wizard-krea2-refine-input')
+     || e.target.classList.contains('wizard-text-encoder-input')
      || e.target.classList.contains('wizard-refimage-count-input')
      || e.target.classList.contains('wizard-refvideo-count-input')
      || e.target.classList.contains('wizard-refaudio-count-input')
@@ -383,6 +399,8 @@ function handleWizardTypeModalInput(e){
     wizard.post.hiresScale = parseFloat(e.target.value) || 1.5;
   }else if(e.target.classList.contains('wizard-cn-name-input')){
     wizard.post.cnName = e.target.value;
+  }else if(e.target.classList.contains('wizard-text-encoder-input')){
+    wizard.textEncoder = e.target.value;
   }else if(e.target.classList.contains('wizard-krea2-refine-input')){
     wizard.refinePrompt = e.target.checked;
   }else if(e.target.classList.contains('wizard-refimage-count-input')){
@@ -632,6 +650,8 @@ async function wizardApply(){
         spec.ref_audio_count = wizard.refAudioCount;
         spec.video_ref_mode = wizard.videoRefMode;
       }
+      const textEncoder = wizardTextEncoder(baseModelFamilies[wizard.familyId]);
+      if(textEncoder && (architecture === 'unet' || architecture === 'krea2')) spec.clip = textEncoder;
       const res = await fetch(`/api/build-workflow${podQuery()}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec),
       });
