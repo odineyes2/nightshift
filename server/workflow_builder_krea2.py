@@ -94,7 +94,7 @@ def build_workflow(spec: dict) -> dict:
         return node_id
 
     unet_id = add("UNETLoader", {"unet_name": checkpoint, "weight_dtype": UNET_WEIGHT_DTYPE}, "확산 모델 로드")
-    clip_id = add("CLIPLoader", {"clip_name": CLIP_NAME, "type": "krea2", "device": "default"}, "CLIP 로드")
+    clip_id = add("CLIPLoader", {"clip_name": str(spec.get("clip") or "").strip() or CLIP_NAME, "type": "krea2", "device": "default"}, "CLIP 로드")
     vae_id = add("VAELoader", {"vae_name": VAE_NAME}, "VAE 로드")
     clip_src = [clip_id, 0]
     vae_src = [vae_id, 0]

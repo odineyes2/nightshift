@@ -49,6 +49,15 @@ class BaseModelTests(unittest.TestCase):
             row = conn.execute("SELECT position, workflow_types_json, sweet_json FROM base_models WHERE name='SDXL'").fetchone()
         self.assertEqual(tuple(row), (2, None, "{}"))
 
+    def test_text_encoders_listed_for_unet_families_only(self):  # NS-72-1
+        R.upsert("diffusion_models", "k2.safetensors", {"base_models": ["krea.2"]})
+        R.upsert("checkpoints", "ck.safetensors", {"base_models": ["Flux"]})
+        R.upsert("text_encoders", "k2_te.safetensors", {"base_models": ["krea.2"]})
+        R.upsert("text_encoders", "flux_te.safetensors", {"base_models": ["Flux"]})
+        g = R.checkpoint_groups()
+        self.assertEqual(g["krea.2"]["text_encoders"], ["k2_te.safetensors"])  # 등록된 것만
+        self.assertNotIn("text_encoders", g["flux"])  # 체크포인트형에는 없다
+
     def test_shared_vae_two_bases(self):
         R.add_base_model("Anima2")
         R.upsert("diffusion_models", "anima2.safetensors", {"base_model": "Anima2"})

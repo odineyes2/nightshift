@@ -516,7 +516,7 @@ async def build_workflow_api(request: Request, pod_id: str | None = None):
             require_installed(str(spec.get("checkpoint") or "").strip(), checkpoint_kind, "체크포인트")
         require_installed(str(spec.get("vae") or "").strip(), "vae", "VAE")
         require_installed(control_net_name, "controlnet", "ControlNet")
-        if architecture == "unet":
+        if architecture in ("unet", "krea2"):
             require_installed(str(spec.get("clip") or "").strip(), "text_encoders", "텍스트 인코더")
         for lora in (spec.get("loras") or []):
             if isinstance(lora, dict):
