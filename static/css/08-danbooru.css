@@ -236,6 +236,21 @@
   }
   .lightbox-actions{ display:flex; gap:var(--gap-md); }
   .lightbox-error{ color:#FCA5A5; font-family:var(--mono); font-size:12px; min-height:1em; }
+  /* 넓은 화면: 정보·버튼·메타를 이미지/영상 오른쪽 칸에 둔다(좁은 화면은 기존처럼 아래). 전체 화면은 제외 */
+  @media (min-width:900px){
+    .lightbox-overlay:not(.lightbox-fullscreen) .lightbox-img-wrap{
+      display:grid; grid-template-columns:minmax(0,1fr) 320px; grid-auto-rows:min-content;
+      align-content:center; align-items:start; column-gap:20px; row-gap:12px; width:100%;
+    }
+    .lightbox-overlay:not(.lightbox-fullscreen) .lightbox-img-wrap > .lightbox-img{
+      grid-column:1; grid-row:1 / span 6; justify-self:center; align-self:center; max-height:calc(100vh - 80px);
+    }
+    .lightbox-overlay:not(.lightbox-fullscreen) .lightbox-img-wrap > :not(.lightbox-img):not(.lightbox-spinner){ grid-column:2; }
+    .lightbox-overlay:not(.lightbox-fullscreen) .lightbox-info{ text-align:left; }
+    .lightbox-overlay:not(.lightbox-fullscreen) .lightbox-actions{ flex-wrap:wrap; }
+    .lightbox-overlay:not(.lightbox-fullscreen) .lightbox-img-wrap .asset-meta{ max-width:none; }
+    .lightbox-overlay:not(.lightbox-fullscreen) .am-bar{ justify-content:flex-start; }
+  }
   .lightbox-close{
     position:absolute;
     top:20px; right:24px;
