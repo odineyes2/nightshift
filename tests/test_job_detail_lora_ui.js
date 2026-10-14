@@ -75,9 +75,10 @@ ctx.document.getElementById = id => {
   return elements.get(id);
 };
 Object.assign(ctx, {
-  fmtOptions: () => '-', estimateJob: () => ({}), podName: () => '', preflightLines: () => [],
-  fmtTime: () => '-', fmtDuration: () => '-', projectsById: {}, podsCache: [], STATUS_LABEL: {},
+  estimateJob: () => ({}), podName: () => '', preflightLines: () => [],
+  fmtDuration: () => '-', projectsById: {}, podsCache: [], STATUS_LABEL: {},
 });
+vm.runInContext(source.slice(source.indexOf('function pad2(n){'), source.indexOf('// 갤러리 "날짜별 보기"')), ctx);
 vm.runInContext(body, ctx);
 ctx.lastJobs = [{ id: 'a', template_id: 'csv_batch', status: 'pending', options: {} }];
 run("openJobDetailId = 'a'; jobDetailLora = { status: 'ready', entries: [{ name: 'visible', model: 0, clip: null }] }; renderJobDetailModalBody()");
@@ -87,6 +88,33 @@ assert.match(elements.get('job-detail-fields').innerHTML, /LoRA 강도/);
 ctx.lastJobs[0].template_id = 'seed_batch';
 run('renderJobDetailModalBody()');
 assert.doesNotMatch(elements.get('job-detail-fields').innerHTML, /LoRA 적용 여부/);
+
+ctx.lastJobs[0].options = {
+  main_prompt: 'separate prompt',
+  '<img src=x>': 'long_model_name_'.repeat(12) + '&<b>',
+  seed_count: 5,
+  empty_value: '',
+};
+ctx.lastJobs[0].model_events = [
+  { at: '2026-10-14T12:34:56Z', text: '<img src=x onerror=alert(1)> & done' },
+  { at: null, text: '시각 없음' },
+];
+run('renderJobDetailModalBody()');
+html = elements.get('job-detail-fields').innerHTML;
+assert.match(html, /<span class="time-hm">\d\d:\d\d<\/span><span class="time-s">:\d\d<\/span>/);
+assert.match(html, /<span class="job-detail-event-time">—<\/span>/);
+assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt; &amp; done/);
+assert.doesNotMatch(html, /<img src=x/);
+assert.match(html, /<div class="job-detail-prompt">separate prompt<\/div>/);
+assert.equal((html.match(/class="job-detail-option"/g) || []).length, 3);
+assert.match(html, /class="job-detail-option-key">&lt;img src=x&gt;/);
+assert.match(html, /long_model_name_.*&amp;&lt;b&gt;/);
+assert.match(html, /class="job-detail-option-value">5<\/span>/);
+assert.match(html, /class="job-detail-option-value">비어 있음<\/span>/);
+assert.ok(html.indexOf('&lt;img src=x&gt;') < html.indexOf('seed_count'));
+ctx.lastJobs[0].options = { main_prompt: 'only prompt' };
+run('renderJobDetailModalBody()');
+assert.match(elements.get('job-detail-fields').innerHTML, /옵션 없음/);
 
 async function main(){
   const pending = [];
