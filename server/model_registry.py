@@ -456,6 +456,9 @@ def checkpoint_groups(installed: set[str] | None = None,
         g["sweet"] = b.get("sweet") or {}
         if g["kind"] == "checkpoints":
             g["controlnets"] = _controlnets_for(entries, gid, (controlnet_preferred or {}).get(gid, ""))
+        else:  # UNet형은 CLIP이 따로라 이 베이스 모델에 등록된 텍스트 인코더를 고르게 한다
+            g["text_encoders"] = [e["filename"] for e in entries if e["kind"] == "text_encoders"
+                                  and gid in {base_id(b) for b in e["base_models"]}]
     return dict(sorted(groups.items(), key=lambda kv: (order.get(kv[0], len(order)), kv[1]["label"].lower())))
 
 
