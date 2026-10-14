@@ -240,6 +240,8 @@ const jobStatusFilter = document.getElementById('job-status-filter');
 document.getElementById('job-add-btn').addEventListener('click', openNewJobModal);
 jobSearch.addEventListener('input', () => render(lastJobs));
 jobStatusFilter.addEventListener('change', () => render(lastJobs));
+const jobShowDone = document.getElementById('job-show-done');
+jobShowDone.addEventListener('change', () => render(lastJobs));
 
 function jobMatchesSearch(j, query){
   if(!query) return true;
@@ -259,7 +261,9 @@ function render(jobs, pendingCount, running, perPod){
   updateClearDoneJobs();
   const query = jobSearch.value.trim().toLocaleLowerCase();
   const status = jobStatusFilter.value;
-  jobs = jobs.filter(j => (status === 'all' || j.status === status) && jobMatchesSearch(j, query));
+  // 완료 작업은 기본 숨김 — 체크하거나 상태에서 "완료"를 직접 고르면 보인다.
+  const showDone = jobShowDone.checked || status === 'done';
+  jobs = jobs.filter(j => (status === 'all' || j.status === status) && (showDone || j.status !== 'done') && jobMatchesSearch(j, query));
   const board = document.getElementById('job-board');
 
   // 상세 모달이 열려 있는 작업이 이번 목록에서 사라졌으면(삭제됐거나 필터로
@@ -282,7 +286,7 @@ function render(jobs, pendingCount, running, perPod){
 
   // 화면에 실제로 영향을 주는 값만 서명에 넣는다 — template_label/options 같은
   // 것들은 작업이 생성될 때 정해지고 이후 안 바뀌므로 뺐다.
-  const rowsSignature = JSON.stringify([jobPodFilter, jobProjectFilter, query, status, jobs.map(j => [
+  const rowsSignature = JSON.stringify([jobPodFilter, jobProjectFilter, query, status, showDone, jobs.map(j => [
     j.id, j.status, j.waiting_for_comfy, j.pod_id, j.started_at, j.finished_at,
     j.progress && j.progress.done, j.progress && j.progress.total,
     j.project_id, j.project_id != null ? projectName(j.project_id) : '',

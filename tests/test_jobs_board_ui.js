@@ -42,12 +42,12 @@ const board = { innerHTML: '', handlers: {}, contains: () => false,
     });
   },
 };
-const search = { value: '' }, filter = { value: 'all' };
+const search = { value: '' }, filter = { value: 'all' }, showDone = { checked: true };
 const ctx = vm.createContext({
   document: { getElementById(id){ return id === 'job-board' ? board : null; }, activeElement: null },
   window: { getSelection: () => ({ isCollapsed: true }) },
   lastJobs: [], lastJobsRowsSignature: null, currentTab: 'jobs', openJobDetailId: null,
-  jobPodFilter: null, jobProjectFilter: null, jobSearch: search, jobStatusFilter: filter,
+  jobPodFilter: null, jobProjectFilter: null, jobSearch: search, jobStatusFilter: filter, jobShowDone: showDone,
   projectMatches: (id, scope) => String(id) === String(scope),
   projectName: id => `프로젝트 ${id}`, podName: id => id ? `워커 ${id}` : '',
   jobBatchModeLabel: (_, label) => label, jobBaseModelLabel: j => j.base || '',
@@ -123,4 +123,18 @@ test('같은 폴링 결과는 DOM을 유지한다', () => {
   ctx.document.activeElement = null; board.contains = () => false;
   render([...jobs, { id:'8', status:'done', template_label:'신규' }]);
   assert.equal(board.handlers['job-card'].length, 8);
+});
+
+test('"완료 작업도"는 기본 숨김, 체크 시 표시, 해제 시 다시 숨기며 상태 "완료" 선택은 존중한다', () => {
+  showDone.checked = false; render(jobs);
+  assert.equal(board.handlers['job-card'].length, 6);
+  assert.doesNotMatch(board.innerHTML, /인물 사진/);
+  showDone.checked = true; render(jobs);
+  assert.equal(board.handlers['job-card'].length, 7);
+  assert.match(board.innerHTML, /인물 사진/);
+  showDone.checked = false; render(jobs);
+  assert.equal(board.handlers['job-card'].length, 6);
+  filter.value = 'done'; render(jobs);
+  assert.equal(board.handlers['job-card'].length, 1);
+  filter.value = 'all';
 });
