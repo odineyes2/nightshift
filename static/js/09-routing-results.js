@@ -167,7 +167,10 @@ function boardTargetProject(){
   return first ? first.id : null;
 }
 
-function showTab(tab, { podId = null, projectId = null } = {}){
+let jobLinkRouteToken = 0;
+function showTab(tab, { podId = null, projectId = null, globalJobs = false, routeHash = null, skipJobsFetch = false } = {}){
+  jobLinkRouteToken++;
+  showJobLinkNotice('');
   if(tab === 'board'){
     const pid = boardTargetProject();
     if(pid !== null) return showTab('prboard', { projectId: pid });
@@ -193,7 +196,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
 
   let scopedProjectId = null;
   const explicitProject = projectId !== null;
-  const stayInProject = podId === null && currentProjectId !== null && PROJECT_TABS.includes(tab);
+  const stayInProject = !globalJobs && podId === null && currentProjectId !== null && PROJECT_TABS.includes(tab);
   if(explicitProject || stayInProject){
     scopedProjectId = resolveProjectId(explicitProject ? projectId : currentProjectId);
     if(scopedProjectId === null) tab = 'dashboard';   // 지워졌거나 아직 못 읽은 프로젝트
@@ -203,8 +206,8 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   let scopedPodId = null;
   // "작업" 탭은 파드 없이도 열린다 — 파드를 고르지 않은 채 작업을 구상해서 대기 큐로 보내고, 어느 파드에서 돌지는
   // 스케줄러가 정한다. 파드 안에서 열면(파드 스코프 바의 Jobs) 그 파드 것만 본다.
-  const globalJobs = tab === 'jobs' && scopedProjectId === null && podId === null && currentPodId === null;
-  if(scopedProjectId === null && !globalJobs && POD_TABS.includes(tab)){
+  const isGlobalJobs = tab === 'jobs' && scopedProjectId === null && podId === null && (globalJobs || currentPodId === null);
+  if(scopedProjectId === null && !isGlobalJobs && POD_TABS.includes(tab)){
     scopedPodId = resolvePodId(podId || currentPodId);
     // 파드 목록을 아직 못 읽었으면(첫 로드가 401이었다든지) 갈 곳이 없다.
     if(!scopedPodId) tab = 'dashboard';
@@ -261,7 +264,7 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'dashboard' || scopedProjectId !== null) fetchProjects();
   if(['gallery', 'pgallery', 'prgallery', 'video-gallery', 'pvideo', 'prvideo'].includes(tab)) refreshTagOptions();
   if(tab === 'models') initModelsTab();
-  if(tab === 'jobs') fetchJobs();
+  if(tab === 'jobs' && !skipJobsFetch) fetchJobs();
   if(tab === 'results') renderResultsList();
   if(tab === 'pmodels') openWorkerModels(scopedPodId); else closeWorkerModels();
   if(tab === 'psettings') openPodSettingsPage(scopedPodId); else closePodSettingsPage();
@@ -272,8 +275,8 @@ function showTab(tab, { podId = null, projectId = null } = {}){
   if(tab === 'db'){ renderDbPanelTabs(); fetchRunpodSessions(); fetchGitLog(); fetchGenerationLog(); }
   if(tab === 'prboard'){ initBoardCanvas(); resizeBoardViewport(); fetchBoard({ fit: true }); }
 
-  const want = scopedPodId ? `#pod/${scopedPodId}/${tab}`
-    : (scopedProjectId !== null ? `#project/${scopedProjectId}/${tab}` : `#${tab}`);
+  const want = routeHash || (scopedPodId ? `#pod/${scopedPodId}/${tab}`
+    : (scopedProjectId !== null ? `#project/${scopedProjectId}/${tab}` : `#${tab}`));
   currentRouteHash = want;
   if(location.hash !== want) history.replaceState(null, '', want);
 }
@@ -320,11 +323,54 @@ function updatePodBarStatus(){
   if(links && links.dataset.html !== html){ links.innerHTML = html; links.dataset.html = html; }
 }
 
+function showJobLinkNotice(message){
+  let notice = document.getElementById('job-link-notice');
+  if(!notice && message){
+    notice = document.createElement('div');
+    notice.id = 'job-link-notice';
+    notice.className = 'job-list-empty';
+    notice.setAttribute('role', 'status');
+    notice.setAttribute('aria-live', 'polite');
+    document.querySelector('.job-list-toolbar').before(notice);
+  }
+  if(notice){ notice.textContent = message; notice.hidden = !message; }
+}
+
+async function openJobHashRoute(raw){
+  const routeHash = `#${raw}`;
+  showTab('jobs', { globalJobs: true, routeHash, skipJobsFetch: true });
+  const token = jobLinkRouteToken;
+  jobSearch.value = '';
+  jobStatusFilter.value = 'all';
+  lastJobsRowsSignature = null;
+  render(lastJobs);
+  const loading = setTimeout(() => {
+    if(token === jobLinkRouteToken) showJobLinkNotice('작업을 불러오는 중이에요…');
+  }, 300);
+  try{
+    let jobId;
+    try{ jobId = decodeURIComponent(raw.slice(4)); }catch(e){ jobId = ''; }
+    if(!jobId){ showJobLinkNotice('작업 주소를 확인하고 다시 열어 주세요.'); return; }
+    if(!await fetchJobs()) throw new Error('jobs');
+    if(token !== jobLinkRouteToken || location.hash !== routeHash) return;
+    const job = lastJobs.find(j => String(j.id) === jobId && !j.deleted);
+    if(job){ showJobLinkNotice(''); openJobDetailModal(job.id); }
+    else showJobLinkNotice('이 작업을 찾을 수 없거나 볼 권한이 없어요. 작업 목록을 확인해 주세요.');
+  }catch(e){
+    if(token === jobLinkRouteToken && location.hash === routeHash)
+      showJobLinkNotice('작업 목록을 불러오지 못했어요. 연결과 로그인 상태를 확인한 뒤 다시 열어 주세요.');
+  }finally{
+    clearTimeout(loading);
+  }
+}
+
 function applyHashRoute(){
   const raw = (location.hash || '').replace(/^#/, '');
+  if(openJobDetailId) closeJobDetailModal();
   const podMatch = raw.match(/^pod\/([^/]+)(?:\/([^/]+))?$/);
   const projectMatch = raw.match(/^project\/([^/]+)(?:\/([^/]+))?$/);
   // 모델 탭은 파드 밖으로 나갔다 — 옛 링크(#pod/{id}/lora · #lora)는 전역 모델 탭으로 보낸다.
+  if(raw.startsWith('job/')) return openJobHashRoute(raw);
   if(podMatch && podMatch[2] === 'lora') showTab('models');
   else if(podMatch) showTab(podMatch[2] || podDefaultTab(podsById[podMatch[1]]), { podId: podMatch[1] });
   else if(projectMatch){
