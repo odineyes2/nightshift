@@ -249,6 +249,8 @@
     .lightbox-overlay:not(.lightbox-fullscreen) .lightbox-img-wrap:has(.am-body:not([hidden])) .am-body{
       grid-column:2; grid-row:1 / span 6; margin-top:0; max-height:calc(100vh - 80px); justify-self:stretch;
     }
+    /* 오른쪽 칸은 세로 여유가 크니 프롬프트 창을 내용만큼 늘린다(패널이 넘치면 패널이 스크롤) */
+    .lightbox-overlay:not(.lightbox-fullscreen) .lightbox-img-wrap:has(.am-body:not([hidden])) .am-prompt{ max-height:none; overflow:visible; }
   }
   .lightbox-close{
     position:absolute;
