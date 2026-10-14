@@ -680,7 +680,14 @@ function renderJobDetailModalBody(){
   // 프롬프트는 "옵션" 요약 문자열에 섞여 들어가면 한눈에 안 들어와서 따로 뺀다.
   const optsEntries = Object.entries(job.options || {});
   const promptText = job.options && job.options.main_prompt;
-  const otherOptionsText = fmtOptions(Object.fromEntries(optsEntries.filter(([k]) => k !== 'main_prompt')));
+  const otherOptions = optsEntries.filter(([k]) => k !== 'main_prompt');
+  const optionsHtml = otherOptions.length
+    ? `<div class="job-detail-options">${otherOptions.map(([key, value]) => `
+        <div class="job-detail-option">
+          <span class="job-detail-option-key">${escapeHtml(key)}</span>
+          <span class="job-detail-option-value">${value == null || value === '' ? '비어 있음' : escapeHtml(value)}</span>
+        </div>`).join('')}</div>`
+    : '<div class="job-detail-empty">옵션 없음</div>';
   const est = estimateJob(job);
   const waitingForComfy = !!job.waiting_for_comfy;
   const waitingForPod = job.status === 'queued' && !job.pod_id;
@@ -693,7 +700,7 @@ function renderJobDetailModalBody(){
 
   document.getElementById('job-detail-fields').innerHTML = `
     ${promptText ? `<div class="field"><label class="field-label">프롬프트</label><div class="job-detail-prompt">${escapeHtml(promptText)}</div></div>` : ''}
-    <div class="field"><label class="field-label">옵션</label><div>${escapeHtml(otherOptionsText)}</div></div>
+    <div class="field"><label class="field-label">옵션</label>${optionsHtml}</div>
     <div class="field"><label class="field-label">워크플로우</label><div>${escapeHtml(job.workflow_original_name || '-')}</div></div>
     <div class="field"><label class="field-label">CSV</label><div>${escapeHtml(job.csv_original_name || '-')}</div></div>
     ${(job.template_id || '').includes('csv_batch') ? jobDetailLoraHtml() : ''}
@@ -706,7 +713,7 @@ function renderJobDetailModalBody(){
     </div>
     ${waitingForPod && job.waiting_reason ? `<div class="job-wait-reason">${escapeHtml(job.waiting_reason)}</div>` : ''}
     ${waitingForPod && job.fetch_error ? `<div class="job-wait-reason">모델 받기 실패 — ${escapeHtml(job.fetch_error)}${/HTTP 40[13]/.test(job.fetch_error) ? '<br>→ 계정 창(오른쪽 위 계정 이름)의 CIVITAI 토큰을 확인하고, 모델 탭의 다운로드 주소가 civitai.com/civitai.red 주소인지 확인하세요.' : ''}</div>` : ''}
-    ${(job.model_events || []).length ? `<div class="field"><label class="field-label">모델 받기 기록</label><div class="job-detail-preflight">${escapeHtml(job.model_events.map(e => `${fmtTime(e.at)}  ${e.text}`).join('\n'))}</div></div>` : ''}
+    ${(job.model_events || []).length ? `<div class="field"><label class="field-label">모델 받기 기록</label><div class="job-detail-preflight">${job.model_events.map(e => `<div class="job-detail-event"><span class="job-detail-event-time">${fmtTime(e.at)}</span><span class="job-detail-event-text">${escapeHtml(e.text)}</span></div>`).join('')}</div></div>` : ''}
     ${pfLines.length ? `<div class="field"><label class="field-label">모델 확인 필요</label><div class="job-detail-preflight">${escapeHtml(pfLines.join('\n'))}</div></div>` : ''}`;
 
   document.getElementById('job-detail-actions').innerHTML = `
