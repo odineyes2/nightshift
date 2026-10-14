@@ -28,8 +28,18 @@ def clip_name(wf):
 
 
 SPEC = {"checkpoint": "krea2.safetensors", "positive": "p"}
-assert clip_name(K.build_workflow(SPEC)) == K.CLIP_NAME  # 없으면 기본값
-assert clip_name(K.build_workflow({**SPEC, "clip": "  "})) == K.CLIP_NAME
+OFF = {**SPEC, "refine_prompt": False}
+assert clip_name(K.build_workflow(SPEC)) == K.REFINE_CLIP_NAME  # 리파인 on 기본값
+assert clip_name(K.build_workflow({**SPEC, "clip": "  "})) == K.REFINE_CLIP_NAME
+assert clip_name(K.build_workflow(OFF)) == K.CLIP_NAME  # off는 기존 CLIP
+assert clip_name(K.build_workflow({**OFF, "clip": "my_te.safetensors"})) == "my_te.safetensors"
+types = lambda wf: [n["class_type"] for n in wf.values()]
+on = K.build_workflow({**SPEC, "seed": 77})
+assert "TextGenerate" in types(on) and "PreviewAny" in types(on)
+(tg,) = [n for n in on.values() if n["class_type"] == "TextGenerate"]
+assert tg["inputs"]["sampling_mode.seed"] == 77
+off = K.build_workflow(OFF)
+assert "TextGenerate" not in types(off) and "PreviewAny" not in types(off)
 assert clip_name(K.build_workflow({**SPEC, "clip": "my_te.safetensors"})) == "my_te.safetensors"
 
 

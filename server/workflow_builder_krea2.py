@@ -22,6 +22,8 @@ from workflow_builder import WorkflowBuildError, _float, _int
 
 UNET_WEIGHT_DTYPE = "default"
 CLIP_NAME = "qwen3vl_4b_fp8_scaled.safetensors"
+# 리파인이 켜졌을 때의 기본 텍스트 인코더(첨부 워크플로우·프롬프트 개선과 동일). spec["clip"]이 항상 우선한다.
+REFINE_CLIP_NAME = "Huihui-qwen3vl_4b_fp8_scaled.safetensors"
 VAE_NAME = "qwen_image_vae.safetensors"
 
 # krea.2 예시 워크플로우의 리파인용 시스템 프롬프트를 그대로 쓴다(프롬프트 엔지니어링 지침이라
@@ -94,7 +96,7 @@ def build_workflow(spec: dict) -> dict:
         return node_id
 
     unet_id = add("UNETLoader", {"unet_name": checkpoint, "weight_dtype": UNET_WEIGHT_DTYPE}, "확산 모델 로드")
-    clip_id = add("CLIPLoader", {"clip_name": str(spec.get("clip") or "").strip() or CLIP_NAME, "type": "krea2", "device": "default"}, "CLIP 로드")
+    clip_id = add("CLIPLoader", {"clip_name": str(spec.get("clip") or "").strip() or (REFINE_CLIP_NAME if refine_prompt else CLIP_NAME), "type": "krea2", "device": "default"}, "CLIP 로드")
     vae_id = add("VAELoader", {"vae_name": VAE_NAME}, "VAE 로드")
     clip_src = [clip_id, 0]
     vae_src = [vae_id, 0]
@@ -142,7 +144,7 @@ def build_workflow(spec: dict) -> dict:
                 "sampling_mode.top_p": 0.95,
                 "sampling_mode.min_p": 0.05,
                 "sampling_mode.repetition_penalty": 1.05,
-                "sampling_mode.seed": 0,
+                "sampling_mode.seed": seed,
                 "sampling_mode.presence_penalty": 0,
                 "thinking": True,
                 "use_default_template": True,
@@ -150,6 +152,7 @@ def build_workflow(spec: dict) -> dict:
             },
             "텍스트 생성",
         )
+        add("PreviewAny", {"source": [refine_id, 0]}, "보강된 프롬프트 미리보기")
         prompt_src = [refine_id, 0]
 
     positive_id = add("CLIPTextEncode", {"text": prompt_src, "clip": clip_src}, "CLIP 텍스트 인코딩 (프롬프트)")
