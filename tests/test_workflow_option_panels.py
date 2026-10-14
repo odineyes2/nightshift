@@ -68,7 +68,7 @@ let fdArchitecture;
         script += function(form, name)
     for name in ('workflowHasFaceDetailer', 'setFaceDetailerFieldsVisible', 'workflowHasOpenPose',
                  'setOpenPoseFieldsVisible', 'checkWorkflowCompatibility', 'postFitsFamily',
-                 'openPoseControlNets', 'faceDetailerSpec', 'controlNetSpec', 'wizardApply',
+                 'openPoseControlNets', 'faceDetailerSpec', 'controlNetSpec', 'wizardTextEncoder', 'wizardApply',
                  'newJobReadyToAdvance', 'updateNewJobTabs', 'renderNewJobTabs', 'goToNewJobDetails'):
         script += function(wizard, name)
     script += """
