@@ -86,6 +86,19 @@ class PoseResultMeta(unittest.TestCase):
         meta = AI.meta_from_graph(wan)
         self.assertEqual((meta["prompt"], meta["negative_prompt"]), ("pos", "neg"))
 
+    def test_refine_chain_marks_prompt_enhance(self):
+        refine = {"1": {"class_type": "KSampler", "inputs": {"seed": 1, "positive": ["2", 0], "negative": ["5", 0]}},
+                  "2": {"class_type": "CLIPTextEncode", "inputs": {"text": ["3", 0], "clip": ["9", 0]}},
+                  "3": {"class_type": "TextGenerate", "inputs": {"prompt": ["4", 0], "clip": ["9", 0]}},
+                  "4": {"class_type": "PrimitiveStringMultiline", "_meta": {"title": "main_prompt"},
+                        "inputs": {"value": "1girl"}},
+                  "5": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["2", 0]}}}
+        meta = AI.meta_from_graph(refine)
+        self.assertEqual(meta["prompt"], "1girl")
+        self.assertEqual(json.loads(meta["params_json"])["prompt_enhance"], {"kind": "workflow"})
+        plain = AI.meta_from_graph(graph("x.png"))
+        self.assertNotIn("prompt_enhance", json.loads(plain.get("params_json") or "{}"))
+
     def test_backfill_fixes_only_equal_negative_rows(self):
         krea = {"1": {"class_type": "KSampler", "inputs": {"seed": 1, "positive": ["2", 0], "negative": ["3", 0]}},
                 "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "1girl"}},

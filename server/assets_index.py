@@ -96,6 +96,21 @@ def _prompt_for(graph: dict, ref) -> str | None:
     return ", ".join(out) if out else None
 
 
+def _has_refine(graph: dict, ref, seen: set | None = None, depth: int = 0) -> bool:
+    """긍정 프롬프트 연결을 거슬러 올라가다 TextGenerate(리파인)를 지나는지 본다. 시스템 프롬프트 쪽은 따라가지 않는다."""
+    seen = set() if seen is None else seen
+    if depth > 12 or not isinstance(ref, list) or not ref or str(ref[0]) in seen:
+        return False
+    seen.add(str(ref[0]))
+    node = graph.get(str(ref[0]))
+    if not isinstance(node, dict) or "system" in str((node.get("_meta") or {}).get("title") or "").lower():
+        return False
+    if node.get("class_type") == "TextGenerate":
+        return True
+    return any(_has_refine(graph, v, seen, depth + 1) for k, v in (node.get("inputs") or {}).items()
+               if isinstance(v, list) and k not in _NON_TEXT_INPUTS and k != "negative")
+
+
 def _int_or_none(v):
     return v if isinstance(v, int) and not isinstance(v, bool) else None
 
@@ -206,6 +221,9 @@ def meta_from_graph(graph) -> dict:
                 negative = negative or gin.get("negative")
             meta["prompt"] = _prompt_for(graph, positive)
             meta["negative_prompt"] = _prompt_for(graph, negative)
+            # 개선본 텍스트는 그래프에 남지 않는다 — 입력(원문)과 "Enhance 사용"만 알 수 있다.
+            if _has_refine(graph, positive):
+                params["prompt_enhance"] = {"kind": "workflow"}
         # 시드: 샘플러에 직접 있거나(KSampler) 노이즈 노드에 있다(SamplerCustom 계열).
         seed_holders = ([sampler] if sampler else []) + nodes
         for n in seed_holders:
