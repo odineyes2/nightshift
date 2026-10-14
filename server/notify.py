@@ -7,13 +7,24 @@ import threading
 import urllib.request
 from datetime import datetime
 from email.header import Header
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import db
 
 log = logging.getLogger(__name__)
 _settings_lock = threading.Lock()
-_counts = {"done": 0, "failed": 0}
+_finished = []  # all 모드: 아직 알리지 않은 종료 잡 (id, status, name)
+PUBLIC_URL = "https://nightshift.lomebrote.com"
+
+
+def _name(job):
+    return job.get("name") or job.get("template_label") or job.get("template_id") or "잡"
+
+
+def _click_url(job_id):
+    """알림 터치 시 열 잡 상세 주소. 요청 Host는 믿지 않고 설정된 공개 주소만 쓴다."""
+    base = os.environ.get("NIGHTSHIFT_PUBLIC_URL", "").strip().rstrip("/") or PUBLIC_URL
+    return f"{base}/#job/{quote(str(job_id), safe='')}" if job_id else None
 
 
 def _read(conn):
@@ -77,7 +88,7 @@ def save_settings(body):
     return public_settings(settings)
 
 
-def send(settings, title, message):
+def send(settings, title, message, click=None):
     """동기 전송(시험 API용). 예외 원문에는 비밀값이 섞일 수 있어 종류만 반환한다."""
     if not settings.get("topic"):
         return {"ok": False, "error": "토픽을 입력해 주세요."}
@@ -86,6 +97,8 @@ def send(settings, title, message):
             headers = {"Title": Header(title, "utf-8").encode(), "Priority": "default",
                        "Tags": "warning" if title == "잡 실패" else "white_check_mark",
                        "Content-Type": "text/plain; charset=utf-8"}
+            if click:
+                headers["Click"] = click
             if settings.get("token"):
                 headers["Authorization"] = "Bearer " + settings["token"]
             request = urllib.request.Request(settings["server"] + "/" + settings["topic"],
@@ -99,8 +112,8 @@ def send(settings, title, message):
     return {"ok": False, "error": "알림 전송에 실패했어요: " + error}
 
 
-def send_async(settings, title, message):
-    threading.Thread(target=send, args=(dict(settings), title, message), daemon=True).start()
+def send_async(settings, title, message, click=None):
+    threading.Thread(target=send, args=(dict(settings), title, message, click), daemon=True).start()
 
 
 def job_finished(job, jobs):
@@ -111,26 +124,28 @@ def job_finished(job, jobs):
             return
         settings = get_settings()
         if not settings["enabled"] or not settings["topic"]:
-            _counts.update(done=0, failed=0)
+            _finished.clear()
             return
         if settings["mode"] == "each":
-            _counts.update(done=0, failed=0)
+            _finished.clear()
             try:
                 elapsed = max(0, int((datetime.fromisoformat(job["finished_at"]) -
                                       datetime.fromisoformat(job["started_at"])).total_seconds()))
                 duration = f"{elapsed}초"
             except (KeyError, TypeError, ValueError):
                 duration = "알 수 없음"
-            name = job.get("name") or job.get("template_label") or job.get("template_id") or "잡"
             send_async(settings, "잡 완료" if status == "done" else "잡 실패",
-                       f"{name}\nID: {job.get('id', '')}\n걸린 시간: {duration}")
+                       f"{_name(job)}\nID: {job.get('id', '')}\n걸린 시간: {duration}",
+                       _click_url(job.get("id")))
         else:
-            _counts[status] += 1
+            _finished.append((job.get("id"), status, _name(job)))
             if any(not j.get("deleted") and j.get("status") in ("queued", "running")
                    for j in jobs.values()):
                 return
-            message = f"완료 {_counts['done']} · 실패 {_counts['failed']}"
-            _counts.update(done=0, failed=0)
-            send_async(settings, "모든 잡 완료", message)
+            batch = _finished[:]
+            _finished.clear()
+            for job_id, st, name in batch:
+                send_async(settings, "잡 완료" if st == "done" else "잡 실패",
+                           f"{name}\nID: {job_id or ''}", _click_url(job_id))
     except Exception as exc:
         log.warning("ntfy 종료 알림 처리 실패 (%s)", type(exc).__name__)
