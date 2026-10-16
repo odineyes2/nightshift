@@ -50,7 +50,3 @@ python3 -m uvicorn app:app --port 8765
 
 API 검사(공통 규칙의 "실제 앱에 요청")의 nightshift 예시는 `tests/test_lighting_library.py`의 `LightingHTTPTests` — 로그인·회원별 범위까지 거친다(NS-60).
 서버(`server/`) 변경은 `--reload`가 없어 재시작해야 반영된다. dev 이슈로 병합되면 dev 오케스트레이터가 실행 중 작업이 없을 때 자동 재시작한다(`/api/jobs/busy`·`/api/health`).
-
-## 스타일
-
-- 화면을 만들거나 고치기 전에 `C:\Users\Simon Lomebrote\Projects\dev\docs\DESIGN.md`(dev·nightshift 공통 디자인 방향 — 작업 폴더가 worktree여도 이 절대 경로로 연다)를 읽고 따른다. 새 색·크기·모서리 값을 만들지 말고 그 문서의 단계 안에서 고른다. 끝나면 낮·밤 × 데스크톱·모바일을 캡처로 확인한다.
