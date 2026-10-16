@@ -90,9 +90,3 @@ JS 문법만 확인할 때는 고친 파일을 `node --check static/js/파일.js
 
 새 API 라우트는 핸들러 함수를 직접 부르지 말고 `TestClient(app)`로 로그인·라우팅을 거치는 검사를 하나 둔다(예: `tests/test_lighting_library.py`의 `LightingHTTPTests`) — 함수 호출만으로는 라우트 등록·인증·회원별 범위가 안 잡힌다(NS-60).
 서버(`server/`) 변경은 `--reload`가 없어 재시작해야 반영된다. dev 이슈로 병합되면 dev 오케스트레이터가 실행 중 작업이 없을 때 자동 재시작한다(`/api/jobs/busy`·`/api/health`).
-
-## graphify (코드 지식 그래프)
-
-- `graphify-out/graph.json`이 있으면 코드 관계를 찾을 때 `graphify query "<질문>"`을 쓴다(관계는 `graphify path "A" "B"`, 개념은 `graphify explain "X"`). 작은 수정은 관련 코드부터 바로 읽는다. `graphify-out/GRAPH_REPORT.md`는 전체 구조를 볼 때만 읽는다.
-- `app_parts/`·`static/js/`는 import 없이 이름을 공유해서 그래프에 파일 사이 연결이 빠질 수 있다 — 그래프에서 못 찾으면 위 파일 지도와 `grep`으로 확인한다.
-- 코드를 고친 뒤 `graphify update .`(AST만, API 비용 없음)로 그래프를 갱신한다. `graphify-out/`은 생성물이라 커밋하지 않는다.
