@@ -9,7 +9,7 @@ def health():
 def jobs_busy():
     """재시작하면 끊기는 작업이 있나 — running만 interrupted가 되고 queued는 재시작 뒤에도 남는다(04 startup).
     로그인 없이 열려 있어 개수·내용 없이 참/거짓만 준다.
-    ponytail: 모델 다운로드 등 작업 밖 진행은 안 본다 — 재시작으로 끊기는 일이 생기면 여기에 더한다."""
+    모델 다운로드 등 작업 밖 진행은 안 본다 — 재시작으로 끊기는 일이 생기면 여기에 더한다."""
     with lock:
         return {"busy": any(j["status"] == "running" and not j.get("deleted") for j in jobs.values())}
 

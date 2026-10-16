@@ -50,7 +50,7 @@ def fetch_image(url: str) -> bytes:
     """URL의 이미지를 받아 바이트로 돌려준다(사설·루프백 주소 거절, 15초, 20MB 상한)."""
     url = (url or "").strip()
     _assert_public(url)
-    # ponytail: 검사와 접속 사이 DNS가 바뀌는 경우(rebinding)는 막지 못한다 — 필요하면 검사한 IP로 직접 접속한다.
+    # 검사와 접속 사이 DNS가 바뀌는 경우(rebinding)는 막지 못한다 — 필요하면 검사한 IP로 직접 접속한다.
     opener = urllib.request.build_opener(_CheckedRedirect)
     req = urllib.request.Request(url, headers={"User-Agent": "nightshift-library/1"})
     try:

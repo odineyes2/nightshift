@@ -153,7 +153,7 @@ function ico(name, spin){
 // ---- 긴 목록 나눠 그리기(갤러리·영상·DB 탭) ----
 // 앞에서부터 LIST_PAGE개만 그리고, 목록 끝의 "더 보기" 버튼이 화면 가까이 오면(또는 누르면) 다음 묶음을 이어 붙인다.
 // 받아 온 목록은 그대로 전부 들고 있으므로 전체 선택·라이트박스 넘기기는 안 그린 것까지 다룬다.
-// ponytail: 그리는 양만 나눈다 — 목록 자체(4초마다 전체)는 그대로 받으니, 수천 개가 되면 서버에서 나눠 받기로.
+// 그리는 양만 나눈다 — 목록 자체(4초마다 전체)는 그대로 받으니, 수천 개가 되면 서버에서 나눠 받기로.
 const LIST_PAGE = 50;
 function setupLoadMore(btnId, onMore){
   const btn = document.getElementById(btnId);
