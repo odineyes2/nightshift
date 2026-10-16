@@ -1,3 +1,4 @@
+# 결과 영상, 영상 편집, OpenCut 공유
 # app.py가 app_parts/*.py를 번호 순서대로 한 네임스페이스에서 실행한다 — 앞 파일의 이름을 import 없이 쓴다.
 @app.get("/api/output-videos")
 def list_output_videos_api(request: Request, q: str | None = None, tag: str | None = None,

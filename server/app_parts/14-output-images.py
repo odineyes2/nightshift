@@ -1,3 +1,4 @@
+# 결과 이미지 목록·썸네일·회전·다운로드·삭제, 메일 보내기, ComfyUI 결과 동기화
 # app.py가 app_parts/*.py를 번호 순서대로 한 네임스페이스에서 실행한다 — 앞 파일의 이름을 import 없이 쓴다.
 @app.post("/api/send-email")
 async def send_email(request: Request):

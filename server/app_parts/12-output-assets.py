@@ -1,3 +1,4 @@
+# 결과물 메타 /api/output-assets*, 태그, 작업의 프로젝트 이동
 # app.py가 app_parts/*.py를 번호 순서대로 한 네임스페이스에서 실행한다 — 앞 파일의 이름을 import 없이 쓴다.
 @app.put("/api/jobs/{job_id}/project")
 async def set_job_project(job_id: str, request: Request):

@@ -1,3 +1,4 @@
+/* 공통 기반: :root 색 토큰, 다크 모드 html[data-theme="dark"], 공통 레이아웃·한글 폰트 */
   /* 한글 UI 폰트 — Inter/IBM Plex Mono는 한글 글리프가 없어서, 지금까지 한글은 전부 OS
      기본 폰트(Windows는 맑은 고딕 등)로 대체 렌더링되고 있었다. Pretendard는 Apple SD
      Gothic Neo/San Francisco 계열과 잘 어울리는 굵기·비례로 만들어진 가변 폰트라, 헤더

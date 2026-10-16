@@ -1,3 +1,4 @@
+# 작업 생성 create_job(/api/upload, POST /api/jobs), 참조 노드 검사, 최근 워크플로우/CSV
 # app.py가 app_parts/*.py를 번호 순서대로 한 네임스페이스에서 실행한다 — 앞 파일의 이름을 import 없이 쓴다.
 # 템플릿 id -> 그 템플릿의 "주(main) 참조 종류". 값이 있는 템플릿만 "주 참조 필수"
 # 템플릿이다(업로드 시점에 LoadImage 노드 존재를 강제 검증) — csv_batch처럼 참조

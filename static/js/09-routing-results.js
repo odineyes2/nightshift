@@ -1,3 +1,4 @@
+// 탭 전환 showTab, 해시 라우팅 applyHashRoute, 파드 스코프 바 renderPodBar, 결과 목록
 // ---- 화면 전환 ----
 // 화면은 두 층이다.
 //     전역   #dashboard · #gallery · #danbooru      어느 파드와도 무관한 화면

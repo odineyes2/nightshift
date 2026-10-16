@@ -1,3 +1,4 @@
+# 큐 시작/정지, 작업 목록·로그·진행·start/pause/stop/move/삭제, 워커 모델 탭·노드팩 설치 API
 # app.py가 app_parts/*.py를 번호 순서대로 한 네임스페이스에서 실행한다 — 앞 파일의 이름을 import 없이 쓴다.
 @app.get("/api/health")
 def health():

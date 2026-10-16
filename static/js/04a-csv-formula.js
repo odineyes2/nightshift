@@ -1,4 +1,4 @@
-// CSV 수식은 문자열만 평가한다. 동적 코드 실행은 사용하지 않는다.
+// CSV 편집기 수식 계산 — 문자열만 평가하고 동적 코드 실행은 쓰지 않는다
 function csvColumnLabel(index){
   let label = '';
   for(index++; index > 0; index = Math.floor((index - 1) / 26)) label = String.fromCharCode(65 + (index - 1) % 26) + label;

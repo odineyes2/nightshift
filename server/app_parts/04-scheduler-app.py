@@ -1,3 +1,4 @@
+# 대기 큐 스케줄러 schedule_once·job_missing_on_pod·dispatch_job, 워커·RunPod 동기화, lifespan, app 생성
 # app.py가 app_parts/*.py를 번호 순서대로 한 네임스페이스에서 실행한다 — 앞 파일의 이름을 import 없이 쓴다.
 # ---- 대기 큐 스케줄러 -----------------------------------------------------------------
 # 작업은 파드를 정하지 않고 먼저 "대기 큐"(status=queued, pod_id=None)에 들어간다. 이 스케줄러가 주기적으로

@@ -1,3 +1,4 @@
+# import·경로·환경변수 상수, 최근 파일·Danbooru/LoRA 트리거 저장, 전역 jobs/lock — 새 import는 여기
 # app.py가 app_parts/*.py를 번호 순서대로 한 네임스페이스에서 실행한다 — 앞 파일의 이름을 import 없이 쓴다.
 """
 RunPod Job Queue — 등록된 스크립트 템플릿을 큐에 쌓아두면 워커가 순서대로 하나씩 실행한다.

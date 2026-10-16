@@ -1,3 +1,4 @@
+// 갤러리 툴바, 삭제·다운로드·회전, 라이트박스 openLightbox
 // ---- 갤러리 ----
 let galleryImages = [];
 let lightboxIndex = -1;

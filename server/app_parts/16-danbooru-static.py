@@ -1,3 +1,4 @@
+# Danbooru 태그·기록, /js/bundle.js·/css/bundle.css 번들, 정적 파일 마운트(반드시 마지막)
 # app.py가 app_parts/*.py를 번호 순서대로 한 네임스페이스에서 실행한다 — 앞 파일의 이름을 import 없이 쓴다.
 
 

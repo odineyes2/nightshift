@@ -1,3 +1,4 @@
+// 테마(밤/낮), NSFW, 로그인, 회원 관리, DB 탭
 // ---- 밤 모드 / 낮 모드 ----
 const THEME_STORAGE_KEY = 'nightshift-theme';
 const themeToggleBtn = document.getElementById('theme-toggle-btn');

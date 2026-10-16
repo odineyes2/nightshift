@@ -1,3 +1,4 @@
+// Danbooru 모달 나머지와 페이지 초기화·폴링 시작 — 번들의 마지막이어야 한다
 // ---- 초기 DOM 구성 ----
 function danbooruCategoryCardHtml(cat){
   if(cat.kind === 'text'){

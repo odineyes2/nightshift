@@ -1276,7 +1276,7 @@ claude.ai 커스텀 커넥터로 붙이려면 인터넷에서 닿는 주소가 �
 nightshift/
 ├── server/                    # 백엔드 — FastAPI 서버 + 큐 워커 + MCP 래퍼
 │   ├── app.py                 # FastAPI 서버 진입점 — app_parts/를 번호 순으로 한 네임스페이스에서 실행
-│   ├── app_parts/             # 서버 + 큐 워커 본체, 기능별 파일 (지도는 CLAUDE.md)
+│   ├── app_parts/             # 서버 + 큐 워커 본체, 기능별 파일 (구조는 AGENTS.md "핵심 모듈 동작")
 │   ├── email_sender.py        # 결과 이미지 이메일 발송 로직
 │   ├── output_images.py       # 출력 폴더 공용 로직 (목록 조회/삭제/가로형 이미지 회전)
 │   ├── output_videos.py       # 영상 갤러리용 출력 폴더 공용 로직 (목록 조회/삭제, output_images.py와 짝)
