@@ -1,6 +1,7 @@
 # nightshift — 에이전트 작업 규칙 (Claude·Codex 공통)
 
 이 파일은 세션마다 자동으로 읽힌다. 짧게 유지할 것.
+모든 프로젝트 공통 규칙(사람의 결정, git, 비밀값, 말투·디자인)은 `~/Projects/dev/harness/COMMON.md` — dev가 에이전트 프롬프트와 MCP 안내문에 넣는다. 여기에는 nightshift에만 해당하는 것만 둔다.
 
 ## 토큰 절약 (가장 중요)
 
@@ -67,14 +68,11 @@
 ## git 규칙
 
 - 홈서버(Windows, `~/Projects/nightshift`)는 pm2로 운영 중이며, 커밋 안 된 로컬 작업이 있을 수 있다.
-  **`git reset` / `checkout --` / `stash` / `rebase` / 강제 push로 남의 변경을 되돌리지 않는다.**
 - pull 전에 `git status --short`를 확인하고, 변경이 있으면 먼저 커밋하거나 사용자에게 묻는다.
-- GitHub push와 main 병합은 사용자에게 먼저 묻는다.
+- main 병합도 사용자에게 먼저 묻는다(dev 오케스트레이터의 자동 병합은 예외).
 
 ## 비밀값
 
-- `.env` 내용을 출력하지 않는다(`grep -c`처럼 값이 안 보이는 방법만 쓴다).
-- 비밀번호를 명령어 인자나 채팅으로 다루지 않는다. 사용자가 에디터로 직접 넣게 안내한다.
 - admin 비밀번호는 JupyterLab(홈서버 셸) 게이트의 열쇠이기도 하다. `.env`에 넣지 않는다.
 
 ## 로컬 테스트
@@ -92,12 +90,6 @@ JS 문법만 확인할 때는 고친 파일을 `node --check static/js/파일.js
 
 새 API 라우트는 핸들러 함수를 직접 부르지 말고 `TestClient(app)`로 로그인·라우팅을 거치는 검사를 하나 둔다(예: `tests/test_lighting_library.py`의 `LightingHTTPTests`) — 함수 호출만으로는 라우트 등록·인증·회원별 범위가 안 잡힌다(NS-60).
 서버(`server/`) 변경은 `--reload`가 없어 재시작해야 반영된다. dev 이슈로 병합되면 dev 오케스트레이터가 실행 중 작업이 없을 때 자동 재시작한다(`/api/jobs/busy`·`/api/health`).
-
-## 스타일
-
-- **화면을 만들거나 고치기 전에 `C:\Users\Simon Lomebrote\Projects\dev\docs\DESIGN.md`(dev·nightshift 공통 디자인 방향 — 작업 폴더가 worktree여도 이 절대 경로로 연다)를 읽고 따른다.** 새 색·크기·모서리 값을 만들지 말고 그 문서의 단계 안에서 고른다. 끝나면 낮·밤 × 데스크톱·모바일을 캡처로 확인.
-- 코드 주석과 문서는 한국어. 주변 코드의 주석 밀도·말투(“~한다”)를 따른다.
-- 화면 문구는 존댓말(“~해요”).
 
 ## graphify (코드 지식 그래프)
 
