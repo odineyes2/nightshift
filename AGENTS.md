@@ -1,16 +1,12 @@
 # nightshift — 에이전트 작업 규칙 (Claude·Codex 공통)
 
 이 파일은 세션마다 자동으로 읽힌다. 짧게 유지할 것.
-모든 프로젝트 공통 규칙(사람의 결정, git, 비밀값, 말투·디자인)은 `~/Projects/dev/harness/COMMON.md` — dev가 에이전트 프롬프트와 MCP 안내문에 넣는다. 여기에는 nightshift에만 해당하는 것만 둔다.
+모든 프로젝트 공통 규칙(사람의 결정, 읽기·고치기, git·커밋, 검사, 비밀값, 말투)은 `~/Projects/dev/harness/COMMON.md` — dev가 에이전트 프롬프트와 MCP 안내문에 넣는다. 여기에는 nightshift에만 해당하는 것만 둔다.
 
-## 토큰 절약 (가장 중요)
+## 큰 파일
 
-- **큰 파일은 통째로 읽지 않는다.** `grep -n`으로 위치를 찾고 필요한 줄만 `Read`(offset/limit)로 읽는다.
-  - 화면은 `static/index.html`(마크업) + `static/css/*` + `static/js/*`, 서버 본체는 `server/app_parts/*.py`로 나뉘어 있다. 자동 파일 지도로 바로 해당 파일을 연다(아래 "핵심 모듈 동작").
-  - `README.md` 약 1,300줄 — 사용자 문서. 고칠 때도 해당 절만 찾아서 고친다.
-- **파일을 통째로 다시 쓰지 않는다.** 항상 부분 수정(Edit)만 한다.
-- 같은 파일을 반복해서 다시 읽지 않는다. 이미 읽은 범위는 기억해서 쓴다.
-- 탐색은 좁게 시작한다. "어디서 X를 하나"는 `grep -n "키워드"` 한 번으로 먼저 찾는다.
+- `README.md` 약 1,300줄 — 사용자 문서. 고칠 때도 해당 절만 찾아서 고친다.
+- 화면은 `static/index.html`(마크업) + `static/css/*` + `static/js/*`, 서버 본체는 `server/app_parts/*.py`로 나뉘어 있다(아래 "핵심 모듈 동작").
 
 ## 핵심 모듈 동작
 
@@ -36,8 +32,6 @@
 ## git 규칙
 
 - 홈서버(Windows, `~/Projects/nightshift`)는 pm2로 운영 중이며, 커밋 안 된 로컬 작업이 있을 수 있다.
-- pull 전에 `git status --short`를 확인하고, 변경이 있으면 먼저 커밋하거나 사용자에게 묻는다.
-- main 병합도 사용자에게 먼저 묻는다(dev 오케스트레이터의 자동 병합은 예외).
 
 ## 비밀값
 
@@ -54,7 +48,9 @@ NIGHTSHIFT_ADMIN_USER=admin NIGHTSHIFT_ADMIN_PASSWORD='Test-Passw0rd-xyz!' \
 python3 -m uvicorn app:app --port 8765
 ```
 
-JS 문법만 확인할 때는 고친 파일을 `node --check static/js/파일.js`로 검사한다(브라우저를 띄우는 것보다 훨씬 싸다).
-
-새 API 라우트는 핸들러 함수를 직접 부르지 말고 `TestClient(app)`로 로그인·라우팅을 거치는 검사를 하나 둔다(예: `tests/test_lighting_library.py`의 `LightingHTTPTests`) — 함수 호출만으로는 라우트 등록·인증·회원별 범위가 안 잡힌다(NS-60).
+API 검사(공통 규칙의 "실제 앱에 요청")의 nightshift 예시는 `tests/test_lighting_library.py`의 `LightingHTTPTests` — 로그인·회원별 범위까지 거친다(NS-60).
 서버(`server/`) 변경은 `--reload`가 없어 재시작해야 반영된다. dev 이슈로 병합되면 dev 오케스트레이터가 실행 중 작업이 없을 때 자동 재시작한다(`/api/jobs/busy`·`/api/health`).
+
+## 스타일
+
+- 화면을 만들거나 고치기 전에 `C:\Users\Simon Lomebrote\Projects\dev\docs\DESIGN.md`(dev·nightshift 공통 디자인 방향 — 작업 폴더가 worktree여도 이 절대 경로로 연다)를 읽고 따른다. 새 색·크기·모서리 값을 만들지 말고 그 문서의 단계 안에서 고른다. 끝나면 낮·밤 × 데스크톱·모바일을 캡처로 확인한다.
