@@ -516,12 +516,45 @@ ALTER TABLE comfy_downloads ADD COLUMN enhanced_prompt TEXT;
 ALTER TABLE assets ADD COLUMN enhanced_prompt TEXT
 """
 
+# v27: 사용자 정의 Library 카테고리와 아티클·이미지를 별도 표에 둔다.
+SCHEMA_V27 = """
+CREATE TABLE library_categories (
+  id INTEGER PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  name TEXT NOT NULL COLLATE NOCASE,
+  created_at TEXT NOT NULL,
+  UNIQUE(owner_id, name)
+);
+CREATE INDEX idx_library_categories_owner ON library_categories(owner_id);
+CREATE TABLE library_articles (
+  id INTEGER PRIMARY KEY,
+  category_id INTEGER NOT NULL REFERENCES library_categories(id) ON DELETE CASCADE,
+  owner_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  danbooru_prompt TEXT NOT NULL DEFAULT '',
+  cover_image_id INTEGER,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_library_articles_category ON library_articles(category_id, id);
+CREATE TABLE library_article_images (
+  id INTEGER PRIMARY KEY,
+  article_id INTEGER NOT NULL REFERENCES library_articles(id) ON DELETE CASCADE,
+  image_file TEXT NOT NULL,
+  thumb_file TEXT NOT NULL,
+  source_url TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_library_article_images_position ON library_article_images(article_id, position)
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
               (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16), (17, SCHEMA_V17), (18, SCHEMA_V18),
               (19, SCHEMA_V19), (20, SCHEMA_V20), (21, SCHEMA_V21), (22, SCHEMA_V22), (23, SCHEMA_V23), (24, SCHEMA_V24),
-              (25, SCHEMA_V25), (26, SCHEMA_V26)]
+              (25, SCHEMA_V25), (26, SCHEMA_V26), (27, SCHEMA_V27)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}
