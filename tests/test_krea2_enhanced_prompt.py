@@ -51,7 +51,7 @@ def png():
 class EnhancedPromptTests(unittest.TestCase):
     def test_migration_sync_and_detail_scope(self):
         migrations = db.MIGRATIONS
-        db.MIGRATIONS = migrations[:-1]
+        db.MIGRATIONS = [migration for migration in migrations if migration[0] <= 25]
         try:
             db.init()
             with db.connect() as conn:
@@ -60,11 +60,18 @@ class EnhancedPromptTests(unittest.TestCase):
                 conn.execute("INSERT INTO comfy_downloads(key, downloaded_at, pod_id) VALUES(?,?,?)",
                              ("old.png", db.now_iso(), "legacy"))
         finally:
-            db.MIGRATIONS = migrations
+            db.MIGRATIONS = [migration for migration in migrations if migration[0] <= 26]
             db._initialized = False
         db.init()
         with db.connect() as conn:
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 26)
+            self.assertEqual(conn.execute("SELECT prompt, note FROM assets WHERE path='old.png'").fetchone()[:],
+                             ("원문", "수동 메모"))
+        db.MIGRATIONS = migrations
+        db._initialized = False
+        db.init()
+        with db.connect() as conn:
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], migrations[-1][0])
             old = conn.execute("SELECT prompt, enhanced_prompt, note, favorite FROM assets WHERE path='old.png'").fetchone()
             self.assertEqual(tuple(old), ("원문", None, "수동 메모", 1))
             self.assertEqual(conn.execute("SELECT pod_id, enhanced_prompt FROM comfy_downloads WHERE key='old.png'")
