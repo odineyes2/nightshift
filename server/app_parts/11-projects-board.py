@@ -220,14 +220,72 @@ def delete_board_preset_api(preset_id: int, request: Request):
 
 @app.get("/api/projects/{project_id}/board")
 def get_board_api(project_id: int, request: Request):
-    project_or_404(me(request), project_id)
+    _board_scope(request, project_id)
     return board_store.list_board(project_id)
+
+
+def _board_scope(request: Request, project_id: int) -> dict:
+    project_or_404(me(request), project_id)
+    raw = request.query_params.get("board_id")
+    try:
+        board_id = int(raw) if raw is not None else None
+    except ValueError:
+        raise HTTPException(400, "board_id는 숫자여야 해요.")
+    try:
+        return board_store.select_board(project_id, board_id)
+    except board_store.BoardNotFound:
+        raise HTTPException(404, "없는 무드보드예요.")
+
+
+def _board_name(body: dict) -> str:
+    name = body.get("name")
+    if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100:
+        raise HTTPException(400, "무드보드 이름은 1~100자로 입력해 주세요.")
+    return name.strip()
+
+
+@app.get("/api/projects/{project_id}/boards")
+def list_boards_api(project_id: int, request: Request):
+    project_or_404(me(request), project_id)
+    return {"boards": board_store.list_boards(project_id)}
+
+
+@app.post("/api/projects/{project_id}/boards")
+async def create_board_api(project_id: int, request: Request):
+    project_or_404(me(request), project_id)
+    name = _board_name(await read_json_object(request, allow_empty=False))
+    try:
+        return board_store.create_board(project_id, name)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/projects/{project_id}/boards/{board_id}/duplicate")
+async def duplicate_board_api(project_id: int, board_id: int, request: Request):
+    project_or_404(me(request), project_id)
+    name = _board_name(await read_json_object(request, allow_empty=False))
+    try:
+        return board_store.duplicate_board(project_id, board_id, name)
+    except board_store.BoardNotFound:
+        raise HTTPException(404, "없는 무드보드예요.")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.delete("/api/projects/{project_id}/boards/{board_id}")
+def delete_board_api(project_id: int, board_id: int, request: Request, confirm: bool = False):
+    project_or_404(me(request), project_id)
+    if not confirm:
+        raise HTTPException(400, "삭제 확인이 필요해요.")
+    if not board_store.delete_board(project_id, board_id):
+        raise HTTPException(404, "없는 무드보드예요.")
+    return {"ok": True}
 
 
 @app.post("/api/projects/{project_id}/board/nodes")
 async def create_board_node_api(project_id: int, request: Request):
     user = me(request)
-    project_or_404(user, project_id)
+    _board_scope(request, project_id)
     body = await read_json_object(request, allow_empty=False)
     kind = body.get("kind")
     if kind not in BOARD_NODE_KINDS:
@@ -342,7 +400,7 @@ def _board_asset_path_or_error(user, kind: str, raw) -> str | None:
 
 @app.patch("/api/projects/{project_id}/board/nodes/{node_id}")
 async def update_board_node_api(project_id: int, node_id: int, request: Request):
-    project_or_404(me(request), project_id)
+    _board_scope(request, project_id)
     _board_node_or_404(project_id, node_id)
     body = await read_json_object(request, allow_empty=False)
     fields = {}
@@ -380,6 +438,10 @@ async def update_board_node_api(project_id: int, node_id: int, request: Request)
             members = body.get("members") or []
             if not isinstance(members, list) or not all(isinstance(m, int) and not isinstance(m, bool) for m in members):
                 raise HTTPException(400, "members는 카드 id 목록이어야 해요.")
+            try:
+                board_store.check_nodes(project_id, members)
+            except board_store.BoardNotFound:
+                raise HTTPException(404, "없는 카드가 섞여 있어요.")
             data["members"] = members[:1000]
         fields["data"] = data
     node = board_store.update_node(node_id, fields)
@@ -390,7 +452,7 @@ async def update_board_node_api(project_id: int, node_id: int, request: Request)
 
 @app.delete("/api/projects/{project_id}/board/nodes/{node_id}")
 def delete_board_node_api(project_id: int, node_id: int, request: Request):
-    project_or_404(me(request), project_id)
+    _board_scope(request, project_id)
     _board_node_or_404(project_id, node_id)
     if not board_store.delete_node(node_id):
         raise HTTPException(404, "없는 카드예요.")
@@ -411,7 +473,7 @@ def _board_ids(raw, what: str) -> list:
 async def move_board_nodes_api(project_id: int, request: Request):
     """여러 카드를 한 번에 옮긴다 — `{"nodes": [{"id", "x", "y"}, ...]}`. 여러 장 선택해 끌었을
     때와 되돌리기에서 쓴다. 한 장이라도 이 프로젝트 카드가 아니면 아무것도 안 바꾼다."""
-    project_or_404(me(request), project_id)
+    _board_scope(request, project_id)
     body = await read_json_object(request, allow_empty=False)
     items = body.get("nodes")
     if not isinstance(items, list) or not items or len(items) > 1000:
@@ -430,7 +492,7 @@ async def move_board_nodes_api(project_id: int, request: Request):
 @app.post("/api/projects/{project_id}/board/nodes/delete")
 async def delete_board_nodes_api(project_id: int, request: Request):
     """여러 카드를 한 번에 지운다 — `{"ids": [...]}`(DELETE는 본문을 못 믿어서 POST). 붙은 선도 같이."""
-    project_or_404(me(request), project_id)
+    _board_scope(request, project_id)
     body = await read_json_object(request, allow_empty=False)
     ids = _board_ids(body.get("ids"), "ids")
     try:
@@ -446,7 +508,7 @@ async def restore_board_api(project_id: int, request: Request):
     전에 받아 둔 카드 그대로(id 포함), 선은 `{id, from_node_id, to_node_id}`. 원래 id를 되도록
     그대로 쓰고, 못 쓰면 `id_map`(옛 id → 새 id)으로 알려 준다. 선은 보낸 순서대로 돌려준다."""
     user = me(request)
-    project_or_404(user, project_id)
+    _board_scope(request, project_id)
     body = await read_json_object(request, allow_empty=False)
     raw_nodes = body.get("nodes") or []
     raw_edges = body.get("edges") or []
@@ -463,7 +525,8 @@ async def restore_board_api(project_id: int, request: Request):
                 "kind": kind,
                 "asset_path": _board_asset_path_or_error(user, kind, n.get("asset_path")),
                 "job_id": _board_restore_job_id(user, kind, n.get("job_id")),
-                "data": _board_gen_data_or_error(n.get("data")) if kind == "gen" else None,
+                "data": _board_gen_data_or_error(n.get("data")) if kind == "gen" else
+                        n.get("data") if kind == "frame" and isinstance(n.get("data"), dict) else None,
                 "text": str(n.get("text") or ""),
                 "x": float(n["x"]), "y": float(n["y"]),
                 "width": float(n.get("width") or 220), "height": float(n.get("height") or 220),
@@ -503,7 +566,7 @@ def board_jobs_api(project_id: int, request: Request):
     시각/파드와 최근 결과물 4개(results: [{path, kind, nsfw}])를 준다. 작업이 지워졌거나(휴지통 포함)
     볼 수 없으면 missing=true."""
     user = me(request)
-    project_or_404(user, project_id)
+    _board_scope(request, project_id)
     cards = board_store.job_nodes(project_id)
     # 생성 카드는 마지막 실행 작업을 같은 모양으로 보여 준다(run_count는 실행 횟수). 아직 보드에 안 펼친
     # 결과 수(pending_spread)도 같이 줘서, 화면이 있으면 펼치기(POST .../spread)를 부르게 한다.
@@ -578,7 +641,7 @@ def spread_board_gen_api(project_id: int, node_id: int, request: Request):
     오른쪽에 격자로 놓고 생성 카드에서 선으로 잇는다. 펼친 결과는 실행 기록(runs[].spread)에 적어 두어
     두 번 펼치지 않는다 — 펼친 카드를 지워도 다시 생기지 않고, 작업을 지워도 펼친 카드는 남는다."""
     user = me(request)
-    project_or_404(user, project_id)
+    _board_scope(request, project_id)
     _sync_assets_quietly()
     with _board_spread_lock:
         node = board_store.get_node(project_id, node_id)
@@ -676,7 +739,7 @@ async def _board_gen_prepare(user: dict, project_id: int, node_id: int) -> dict:
 async def prepare_board_gen_api(project_id: int, node_id: int, request: Request):
     """생성 카드의 "자세히" — 새 작업 폼을 이 카드 값으로 채울 재료(입구 이미지는 입력 이미지 풀로 가져온 이름)."""
     user = me(request)
-    project_or_404(user, project_id)
+    _board_scope(request, project_id)
     prep = await _board_gen_prepare(user, project_id, node_id)
     return {"template_id": prep["template"]["id"], "options": prep["options"], "workflow": prep["workflow"],
             "video_workflow": prep["video_workflow"], "label": prep["label"]}
@@ -688,7 +751,7 @@ async def run_board_gen_api(project_id: int, node_id: int, request: Request):
     가고, 스케줄러가 필요한 모델을 갖춘 파드를 찾아 시작한다(새 작업 폼의 "추가"와 달리 일시정지하지 않음).
     실행 기록(작업 id)은 카드에 쌓인다."""
     user = me(request)
-    project_or_404(user, project_id)
+    _board_scope(request, project_id)
     prep = await _board_gen_prepare(user, project_id, node_id)
     wf, vwf = prep["workflow"], prep["video_workflow"]
     job = await create_job(prep["template"], json.dumps(wf).encode("utf-8") if wf is not None else None,
@@ -706,7 +769,7 @@ async def run_board_gen_api(project_id: int, node_id: int, request: Request):
 
 @app.post("/api/projects/{project_id}/board/edges")
 async def create_board_edge_api(project_id: int, request: Request):
-    project_or_404(me(request), project_id)
+    _board_scope(request, project_id)
     body = await read_json_object(request, allow_empty=False)
     try:
         from_id = int(body.get("from_node_id"))
@@ -716,7 +779,7 @@ async def create_board_edge_api(project_id: int, request: Request):
     if from_id == to_id:
         raise HTTPException(400, "카드를 자기 자신과 이을 수는 없어요.")
     # 양 끝이 둘 다 이 프로젝트 카드여야 한다 — 다른 프로젝트 카드 id를 짐작해 잇지 못하게.
-    owners = board_store.node_project_ids((from_id, to_id))
+    owners = board_store.node_project_ids((from_id, to_id), project_id)
     if owners.get(from_id) != project_id or owners.get(to_id) != project_id:
         raise HTTPException(404, "없는 카드예요.")
     to_slot = body.get("to_slot")
@@ -736,7 +799,7 @@ async def create_board_edge_api(project_id: int, request: Request):
 
 @app.delete("/api/projects/{project_id}/board/edges/{edge_id}")
 def delete_board_edge_api(project_id: int, edge_id: int, request: Request):
-    project_or_404(me(request), project_id)
+    _board_scope(request, project_id)
     if not board_store.delete_edge(project_id, edge_id):
         raise HTTPException(404, "없는 연결선이에요.")
     return {"ok": True}

@@ -550,11 +550,56 @@ CREATE INDEX idx_library_article_images_position ON library_article_images(artic
 """
 
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
+SCHEMA_V28 = """
+CREATE TABLE boards (
+  id INTEGER PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL COLLATE NOCASE,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, name),
+  UNIQUE(id, project_id)
+);
+CREATE INDEX boards_project ON boards(project_id, position, id);
+INSERT INTO boards(project_id, name, position, created_at)
+  SELECT id, '기본 무드보드', 0, created_at FROM projects;
+ALTER TABLE board_nodes ADD COLUMN board_id INTEGER REFERENCES boards(id) ON DELETE CASCADE;
+ALTER TABLE board_edges ADD COLUMN board_id INTEGER REFERENCES boards(id) ON DELETE CASCADE;
+UPDATE board_nodes SET board_id=(SELECT id FROM boards WHERE boards.project_id=board_nodes.project_id);
+UPDATE board_edges SET board_id=(SELECT id FROM boards WHERE boards.project_id=board_edges.project_id);
+CREATE INDEX board_nodes_board ON board_nodes(board_id);
+CREATE INDEX board_edges_board ON board_edges(board_id);
+CREATE TRIGGER board_nodes_scope_insert BEFORE INSERT ON board_nodes
+BEGIN
+  SELECT RAISE(ABORT, 'board scope') WHERE NEW.board_id IS NULL OR NOT EXISTS
+    (SELECT 1 FROM boards WHERE id=NEW.board_id AND project_id=NEW.project_id);
+END;
+CREATE TRIGGER board_nodes_scope_update BEFORE UPDATE OF board_id,project_id ON board_nodes
+BEGIN
+  SELECT RAISE(ABORT, 'board scope') WHERE NEW.board_id IS NULL OR NOT EXISTS
+    (SELECT 1 FROM boards WHERE id=NEW.board_id AND project_id=NEW.project_id);
+END;
+CREATE TRIGGER board_edges_scope_insert BEFORE INSERT ON board_edges
+BEGIN
+  SELECT RAISE(ABORT, 'board scope') WHERE NEW.board_id IS NULL OR NOT EXISTS
+    (SELECT 1 FROM boards WHERE id=NEW.board_id AND project_id=NEW.project_id)
+    OR NOT EXISTS (SELECT 1 FROM board_nodes WHERE id=NEW.from_node_id AND board_id=NEW.board_id)
+    OR NOT EXISTS (SELECT 1 FROM board_nodes WHERE id=NEW.to_node_id AND board_id=NEW.board_id);
+END;
+CREATE TRIGGER board_edges_scope_update BEFORE UPDATE OF board_id,project_id,from_node_id,to_node_id ON board_edges
+BEGIN
+  SELECT RAISE(ABORT, 'board scope') WHERE NEW.board_id IS NULL OR NOT EXISTS
+    (SELECT 1 FROM boards WHERE id=NEW.board_id AND project_id=NEW.project_id)
+    OR NOT EXISTS (SELECT 1 FROM board_nodes WHERE id=NEW.from_node_id AND board_id=NEW.board_id)
+    OR NOT EXISTS (SELECT 1 FROM board_nodes WHERE id=NEW.to_node_id AND board_id=NEW.board_id);
+END;
+"""
+
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
               (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16), (17, SCHEMA_V17), (18, SCHEMA_V18),
               (19, SCHEMA_V19), (20, SCHEMA_V20), (21, SCHEMA_V21), (22, SCHEMA_V22), (23, SCHEMA_V23), (24, SCHEMA_V24),
-              (25, SCHEMA_V25), (26, SCHEMA_V26), (27, SCHEMA_V27)]
+              (25, SCHEMA_V25), (26, SCHEMA_V26), (27, SCHEMA_V27), (28, SCHEMA_V28)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}
@@ -614,7 +659,15 @@ def init() -> None:
 
 
 def _split_statements(sql: str) -> list[str]:
-    return [s.strip() for s in sql.split(";") if s.strip()]
+    statements, pending = [], ""
+    for char in sql:
+        pending += char
+        if char == ";" and sqlite3.complete_statement(pending):
+            statements.append(pending.strip())
+            pending = ""
+    if pending.strip():
+        statements.append(pending.strip())
+    return statements
 
 
 @contextmanager

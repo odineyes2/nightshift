@@ -67,7 +67,7 @@ class CategoryHTTPTests(unittest.TestCase):
 
     def test_migration_and_route_order(self):
         with db.connect() as conn:
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 27)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 28)
             self.assertEqual(tuple(conn.execute("SELECT prompt,enhanced_prompt FROM assets WHERE path='old.png'").fetchone()),
                              ("원문", "개선"))
             self.assertFalse(conn.execute("PRAGMA foreign_key_check").fetchall())

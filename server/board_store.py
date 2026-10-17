@@ -7,8 +7,92 @@ project_or_404()로 이미 하므로, 여기서는 project_id로 좁히는 조�
 """
 
 import json
+import sqlite3
+from contextvars import ContextVar
 
 import db
+
+_selected_board = ContextVar("selected_board", default=None)
+
+
+def select_board(project_id: int, board_id: int | None = None) -> dict:
+    with db.connect() as conn:
+        if board_id is None:
+            row = conn.execute("SELECT * FROM boards WHERE project_id=? ORDER BY position,id LIMIT 1",
+                               (project_id,)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM boards WHERE project_id=? AND id=?",
+                               (project_id, board_id)).fetchone()
+    if row is None:
+        raise BoardNotFound()
+    _selected_board.set((project_id, row["id"]))
+    return dict(row)
+
+
+def _board_id(project_id: int) -> int:
+    selected = _selected_board.get()
+    if selected and selected[0] == project_id:
+        return selected[1]
+    return select_board(project_id)["id"]
+
+
+def list_boards(project_id: int) -> list[dict]:
+    with db.connect() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM boards WHERE project_id=? ORDER BY position,id", (project_id,))]
+
+
+def create_board(project_id: int, name: str) -> dict:
+    with db.connect() as conn:
+        position = conn.execute("SELECT COALESCE(MAX(position),-1)+1 FROM boards WHERE project_id=?",
+                                (project_id,)).fetchone()[0]
+        try:
+            cur = conn.execute("INSERT INTO boards(project_id,name,position,created_at) VALUES(?,?,?,?)",
+                               (project_id, name, position, db.now_iso()))
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("이미 같은 이름의 무드보드가 있어요.") from exc
+        return dict(conn.execute("SELECT * FROM boards WHERE id=?", (cur.lastrowid,)).fetchone())
+
+
+def delete_board(project_id: int, board_id: int) -> bool:
+    with db.connect() as conn:
+        # ALTER TABLE로 붙인 외래 키의 삭제 연쇄가 SQLite에서 동작하는지와 무관하게 내용을 지운다.
+        conn.execute("DELETE FROM board_edges WHERE project_id=? AND board_id=?", (project_id, board_id))
+        conn.execute("DELETE FROM board_nodes WHERE project_id=? AND board_id=?", (project_id, board_id))
+        return conn.execute("DELETE FROM boards WHERE project_id=? AND id=?", (project_id, board_id)).rowcount > 0
+
+
+def duplicate_board(project_id: int, board_id: int, name: str) -> dict:
+    with db.connect() as conn:
+        if not conn.execute("SELECT 1 FROM boards WHERE project_id=? AND id=?", (project_id, board_id)).fetchone():
+            raise BoardNotFound()
+        position = conn.execute("SELECT COALESCE(MAX(position),-1)+1 FROM boards WHERE project_id=?",
+                                (project_id,)).fetchone()[0]
+        try:
+            new_id = conn.execute("INSERT INTO boards(project_id,name,position,created_at) VALUES(?,?,?,?)",
+                                  (project_id, name, position, db.now_iso())).lastrowid
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("이미 같은 이름의 무드보드가 있어요.") from exc
+        id_map = {}
+        for node in conn.execute("SELECT * FROM board_nodes WHERE project_id=? AND board_id=? ORDER BY id",
+                                 (project_id, board_id)).fetchall():
+            cur = conn.execute(
+                "INSERT INTO board_nodes(project_id,board_id,kind,asset_path,job_id,data_json,text,x,y,width,height,z_index,created_at,updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (project_id, new_id, *[node[k] for k in ("kind","asset_path","job_id","data_json","text","x","y",
+                                                 "width","height","z_index","created_at","updated_at")]))
+            id_map[node["id"]] = cur.lastrowid
+        for node in conn.execute("SELECT id,data_json FROM board_nodes WHERE board_id=? AND kind='frame'", (new_id,)):
+            data = json.loads(node["data_json"]) if node["data_json"] else {}
+            if "members" in data:
+                data["members"] = [id_map[i] for i in data["members"] if i in id_map]
+                conn.execute("UPDATE board_nodes SET data_json=? WHERE id=?", (json.dumps(data), node["id"]))
+        for edge in conn.execute("SELECT * FROM board_edges WHERE project_id=? AND board_id=? ORDER BY id",
+                                 (project_id, board_id)):
+            conn.execute("INSERT INTO board_edges(project_id,board_id,from_node_id,to_node_id,to_slot,created_at) "
+                         "VALUES(?,?,?,?,?,?)", (project_id,new_id,id_map[edge["from_node_id"]],
+                                                 id_map[edge["to_node_id"]],edge["to_slot"],edge["created_at"]))
+        return dict(conn.execute("SELECT * FROM boards WHERE id=?", (new_id,)).fetchone())
 
 
 def _row(r) -> dict:
@@ -35,9 +119,9 @@ def list_board(project_id: int) -> dict:
     """이 프로젝트의 노드+연결선 전체(GET .../board)."""
     with db.connect() as conn:
         nodes = conn.execute(
-            f"{_NODE_SELECT} WHERE n.project_id=? ORDER BY n.id", (project_id,)).fetchall()
+            f"{_NODE_SELECT} WHERE n.project_id=? AND n.board_id=? ORDER BY n.id", (project_id, _board_id(project_id))).fetchall()
         edges = conn.execute(
-            "SELECT * FROM board_edges WHERE project_id=? ORDER BY id", (project_id,)).fetchall()
+            "SELECT * FROM board_edges WHERE project_id=? AND board_id=? ORDER BY id", (project_id, _board_id(project_id))).fetchall()
     return {"nodes": [_row(r) for r in nodes], "edges": [_row(r) for r in edges]}
 
 
@@ -47,9 +131,9 @@ def create_node(project_id: int, kind: str, asset_path: str | None, text: str,
     now = db.now_iso()
     with db.connect() as conn:
         cur = conn.execute(
-            "INSERT INTO board_nodes(project_id, kind, asset_path, job_id, data_json, text, x, y, width, height, z_index, "
-            "created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (project_id, kind, asset_path, job_id, json.dumps(data) if data is not None else None, text, x, y,
+            "INSERT INTO board_nodes(project_id, board_id, kind, asset_path, job_id, data_json, text, x, y, width, height, z_index, "
+            "created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (project_id, _board_id(project_id), kind, asset_path, job_id, json.dumps(data) if data is not None else None, text, x, y,
              width if width is not None else 220, height if height is not None else 220,
              0, now, now),
         )
@@ -59,15 +143,16 @@ def create_node(project_id: int, kind: str, asset_path: str | None, text: str,
 
 def get_node(project_id: int, node_id: int) -> dict | None:
     with db.connect() as conn:
-        row = conn.execute(f"{_NODE_SELECT} WHERE n.id=? AND n.project_id=?", (node_id, project_id)).fetchone()
+        row = conn.execute(f"{_NODE_SELECT} WHERE n.id=? AND n.project_id=? AND n.board_id=?",
+                           (node_id, project_id, _board_id(project_id))).fetchone()
     return _row(row) if row else None
 
 
 def node_project_id(node_id: int) -> int | None:
     """이 노드가 어느 프로젝트 것인지 — app.py가 요청한 project_id와 같은지 확인하는 용도."""
     with db.connect() as conn:
-        row = conn.execute("SELECT project_id FROM board_nodes WHERE id=?", (node_id,)).fetchone()
-    return row["project_id"] if row else None
+        row = conn.execute("SELECT project_id,board_id FROM board_nodes WHERE id=?", (node_id,)).fetchone()
+    return row["project_id"] if row and row["board_id"] == _board_id(row["project_id"]) else None
 
 
 def update_node(node_id: int, fields: dict) -> dict | None:
@@ -87,7 +172,8 @@ def update_node(node_id: int, fields: dict) -> dict | None:
     sets.append("updated_at=?")
     params.append(db.now_iso())
     with db.connect() as conn:
-        cur = conn.execute(f"UPDATE board_nodes SET {', '.join(sets)} WHERE id=?", (*params, node_id))
+        cur = conn.execute(f"UPDATE board_nodes SET {', '.join(sets)} WHERE id=? AND board_id=?",
+                           (*params, node_id, _selected_board.get()[1]))
         if cur.rowcount == 0:
             return None
         row = _select_node(conn, node_id)
@@ -96,18 +182,19 @@ def update_node(node_id: int, fields: dict) -> dict | None:
 
 def delete_node(node_id: int) -> bool:
     with db.connect() as conn:
-        cur = conn.execute("DELETE FROM board_nodes WHERE id=?", (node_id,))
+        cur = conn.execute("DELETE FROM board_nodes WHERE id=? AND board_id=?", (node_id, _selected_board.get()[1]))
         return cur.rowcount > 0
 
 
-def node_project_ids(node_ids) -> dict:
+def node_project_ids(node_ids, project_id: int) -> dict:
     """{node_id: project_id} — 연결선 양 끝이 둘 다 같은 프로젝트 카드인지 한 번에 확인하는 용도."""
     ids = list(node_ids)
     if not ids:
         return {}
     with db.connect() as conn:
         rows = conn.execute(
-            f"SELECT id, project_id FROM board_nodes WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
+            f"SELECT id, project_id FROM board_nodes WHERE board_id=? AND id IN ({','.join('?' * len(ids))})",
+            (_board_id(project_id), *ids)).fetchall()
     return {r["id"]: r["project_id"] for r in rows}
 
 
@@ -117,14 +204,14 @@ def create_slot_edge(project_id: int, from_node_id: int, to_node_id: int, to_slo
     (화면이 지운 선을 치우고, 되돌리기 때 되살린다)."""
     with db.connect() as conn:
         removed = [_row(r) for r in conn.execute(
-            "SELECT * FROM board_edges WHERE project_id=? AND ((to_node_id=? AND to_slot=?) OR "
+            "SELECT * FROM board_edges WHERE project_id=? AND board_id=? AND ((to_node_id=? AND to_slot=?) OR "
             "(from_node_id=? AND to_node_id=?) OR (from_node_id=? AND to_node_id=?))",
-            (project_id, to_node_id, to_slot, from_node_id, to_node_id, to_node_id, from_node_id)).fetchall()]
+            (project_id, _board_id(project_id), to_node_id, to_slot, from_node_id, to_node_id, to_node_id, from_node_id)).fetchall()]
         if removed:
             conn.executemany("DELETE FROM board_edges WHERE id=?", [(e["id"],) for e in removed])
         cur = conn.execute(
-            "INSERT INTO board_edges(project_id, from_node_id, to_node_id, to_slot, created_at) VALUES(?,?,?,?,?)",
-            (project_id, from_node_id, to_node_id, to_slot, db.now_iso()))
+            "INSERT INTO board_edges(project_id, board_id, from_node_id, to_node_id, to_slot, created_at) VALUES(?,?,?,?,?,?)",
+            (project_id, _board_id(project_id), from_node_id, to_node_id, to_slot, db.now_iso()))
         row = conn.execute("SELECT * FROM board_edges WHERE id=?", (cur.lastrowid,)).fetchone()
     return _row(row), removed
 
@@ -132,15 +219,16 @@ def create_slot_edge(project_id: int, from_node_id: int, to_node_id: int, to_slo
 def slot_edges(project_id: int, node_id: int) -> list:
     """생성 카드의 입구로 들어오는 선들 — [(출발 카드 id, 입구 이름), ...]."""
     with db.connect() as conn:
-        rows = conn.execute("SELECT from_node_id, to_slot FROM board_edges WHERE project_id=? AND to_node_id=? "
-                            "AND to_slot IS NOT NULL", (project_id, node_id)).fetchall()
+        rows = conn.execute("SELECT from_node_id, to_slot FROM board_edges WHERE project_id=? AND board_id=? AND to_node_id=? "
+                            "AND to_slot IS NOT NULL", (project_id, _board_id(project_id), node_id)).fetchall()
     return [(r["from_node_id"], r["to_slot"]) for r in rows]
 
 
 def gen_runs(project_id: int) -> list:
     """이 보드의 생성 카드마다 실행 기록 — [(카드 id, runs), ...]. 실행한 적 없는 카드는 뺀다."""
     with db.connect() as conn:
-        rows = conn.execute("SELECT id, data_json FROM board_nodes WHERE project_id=? AND kind='gen'", (project_id,)).fetchall()
+        rows = conn.execute("SELECT id, data_json FROM board_nodes WHERE project_id=? AND board_id=? AND kind='gen'",
+                            (project_id, _board_id(project_id))).fetchall()
     out = []
     for r in rows:
         runs = (json.loads(r["data_json"]) if r["data_json"] else {}).get("runs") or []
@@ -163,14 +251,14 @@ def create_edge(project_id: int, from_node_id: int, to_node_id: int) -> dict:
     이어져 보여서 헷갈린다."""
     with db.connect() as conn:
         row = conn.execute(
-            "SELECT * FROM board_edges WHERE project_id=? AND "
+            "SELECT * FROM board_edges WHERE project_id=? AND board_id=? AND "
             "((from_node_id=? AND to_node_id=?) OR (from_node_id=? AND to_node_id=?))",
-            (project_id, from_node_id, to_node_id, to_node_id, from_node_id)).fetchone()
+            (project_id, _board_id(project_id), from_node_id, to_node_id, to_node_id, from_node_id)).fetchone()
         if row:
             return _row(row)
         cur = conn.execute(
-            "INSERT INTO board_edges(project_id, from_node_id, to_node_id, created_at) VALUES(?,?,?,?)",
-            (project_id, from_node_id, to_node_id, db.now_iso()))
+            "INSERT INTO board_edges(project_id, board_id, from_node_id, to_node_id, created_at) VALUES(?,?,?,?,?)",
+            (project_id, _board_id(project_id), from_node_id, to_node_id, db.now_iso()))
         row = conn.execute("SELECT * FROM board_edges WHERE id=?", (cur.lastrowid,)).fetchone()
     return _row(row)
 
@@ -178,7 +266,8 @@ def create_edge(project_id: int, from_node_id: int, to_node_id: int) -> dict:
 def delete_edge(project_id: int, edge_id: int) -> bool:
     """project_id로 같이 좁혀서 지운다 — 다른 프로젝트의 선 id를 넣어도 안 지워진다."""
     with db.connect() as conn:
-        cur = conn.execute("DELETE FROM board_edges WHERE id=? AND project_id=?", (edge_id, project_id))
+        cur = conn.execute("DELETE FROM board_edges WHERE id=? AND project_id=? AND board_id=?",
+                           (edge_id, project_id, _board_id(project_id)))
         return cur.rowcount > 0
 
 
@@ -191,10 +280,15 @@ def _check_nodes_in_project(conn, project_id: int, ids) -> None:
     if not ids:
         return
     rows = conn.execute(
-        f"SELECT id FROM board_nodes WHERE project_id=? AND id IN ({','.join('?' * len(ids))})",
-        (project_id, *ids)).fetchall()
+        f"SELECT id FROM board_nodes WHERE project_id=? AND board_id=? AND id IN ({','.join('?' * len(ids))})",
+        (project_id, _board_id(project_id), *ids)).fetchall()
     if len(rows) != len(ids):
         raise BoardNotFound()
+
+
+def check_nodes(project_id: int, ids) -> None:
+    with db.connect() as conn:
+        _check_nodes_in_project(conn, project_id, ids)
 
 
 def move_nodes(project_id: int, moves: list) -> None:
@@ -204,15 +298,16 @@ def move_nodes(project_id: int, moves: list) -> None:
     with db.connect() as conn:
         _check_nodes_in_project(conn, project_id, (m[0] for m in moves))
         conn.executemany(
-            "UPDATE board_nodes SET x=?, y=?, updated_at=? WHERE id=? AND project_id=?",
-            [(x, y, now, node_id, project_id) for node_id, x, y in moves])
+            "UPDATE board_nodes SET x=?, y=?, updated_at=? WHERE id=? AND project_id=? AND board_id=?",
+            [(x, y, now, node_id, project_id, _board_id(project_id)) for node_id, x, y in moves])
 
 
 def delete_nodes(project_id: int, ids: list) -> None:
     """여러 카드를 한 번에 지운다. 붙은 선은 CASCADE로 같이 지워진다."""
     with db.connect() as conn:
         _check_nodes_in_project(conn, project_id, ids)
-        conn.executemany("DELETE FROM board_nodes WHERE id=? AND project_id=?", [(i, project_id) for i in ids])
+        conn.executemany("DELETE FROM board_nodes WHERE id=? AND project_id=? AND board_id=?",
+                         [(i, project_id, _board_id(project_id)) for i in ids])
 
 
 def restore(project_id: int, nodes: list, edges: list) -> dict:
@@ -230,21 +325,33 @@ def restore(project_id: int, nodes: list, edges: list) -> dict:
             free = isinstance(old, int) and conn.execute(
                 "SELECT 1 FROM board_nodes WHERE id=?", (old,)).fetchone() is None
             data = n.get("data")
-            cols = (project_id, n["kind"], n.get("asset_path"), n.get("job_id"),
+            cols = (project_id, _board_id(project_id), n["kind"], n.get("asset_path"), n.get("job_id"),
                     json.dumps(data) if data is not None else None, n.get("text") or "", n["x"], n["y"],
                     n["width"], n["height"], n.get("z_index") or 0, n.get("created_at") or now, now)
             if free:
                 conn.execute(
-                    "INSERT INTO board_nodes(id, project_id, kind, asset_path, job_id, data_json, text, x, y, width, height, "
-                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (old, *cols))
+                    "INSERT INTO board_nodes(id, project_id, board_id, kind, asset_path, job_id, data_json, text, x, y, width, height, "
+                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (old, *cols))
                 new = old
             else:
                 new = conn.execute(
-                    "INSERT INTO board_nodes(project_id, kind, asset_path, job_id, data_json, text, x, y, width, height, "
-                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", cols).lastrowid
+                    "INSERT INTO board_nodes(project_id, board_id, kind, asset_path, job_id, data_json, text, x, y, width, height, "
+                    "z_index, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", cols).lastrowid
             if old is not None:
                 id_map[old] = new
             node_ids.append(new)
+        for new in node_ids:
+            row = conn.execute("SELECT kind,data_json FROM board_nodes WHERE id=?", (new,)).fetchone()
+            if row["kind"] != "frame" or not row["data_json"]:
+                continue
+            data = json.loads(row["data_json"])
+            members = data.get("members") or []
+            if not isinstance(members, list) or not all(isinstance(i, int) and not isinstance(i, bool) for i in members):
+                raise BoardNotFound()
+            mapped = [id_map.get(member, member) for member in members]
+            _check_nodes_in_project(conn, project_id, mapped)
+            data["members"] = mapped
+            conn.execute("UPDATE board_nodes SET data_json=? WHERE id=?", (json.dumps(data), new))
         for e in edges:
             a = id_map.get(e["from_node_id"], e["from_node_id"])
             b = id_map.get(e["to_node_id"], e["to_node_id"])
@@ -252,9 +359,9 @@ def restore(project_id: int, nodes: list, edges: list) -> dict:
                 raise BoardNotFound()
             _check_nodes_in_project(conn, project_id, (a, b))
             dup = conn.execute(
-                "SELECT id FROM board_edges WHERE project_id=? AND "
+                "SELECT id FROM board_edges WHERE project_id=? AND board_id=? AND "
                 "((from_node_id=? AND to_node_id=?) OR (from_node_id=? AND to_node_id=?))",
-                (project_id, a, b, b, a)).fetchone()
+                (project_id, _board_id(project_id), a, b, b, a)).fetchone()
             if dup:
                 edge_ids.append(dup["id"])
                 continue
@@ -263,13 +370,13 @@ def restore(project_id: int, nodes: list, edges: list) -> dict:
                 "SELECT 1 FROM board_edges WHERE id=?", (old,)).fetchone() is None
             slot = e.get("to_slot")
             if free:
-                conn.execute("INSERT INTO board_edges(id, project_id, from_node_id, to_node_id, to_slot, created_at) "
-                             "VALUES(?,?,?,?,?,?)", (old, project_id, a, b, slot, e.get("created_at") or now))
+                conn.execute("INSERT INTO board_edges(id, project_id, board_id, from_node_id, to_node_id, to_slot, created_at) "
+                             "VALUES(?,?,?,?,?,?,?)", (old, project_id, _board_id(project_id), a, b, slot, e.get("created_at") or now))
                 edge_ids.append(old)
             else:
                 edge_ids.append(conn.execute(
-                    "INSERT INTO board_edges(project_id, from_node_id, to_node_id, to_slot, created_at) VALUES(?,?,?,?,?)",
-                    (project_id, a, b, slot, e.get("created_at") or now)).lastrowid)
+                    "INSERT INTO board_edges(project_id, board_id, from_node_id, to_node_id, to_slot, created_at) VALUES(?,?,?,?,?,?)",
+                    (project_id, _board_id(project_id), a, b, slot, e.get("created_at") or now)).lastrowid)
         out_nodes = [_row(_select_node(conn, i)) for i in node_ids]
         out_edges = [_row(conn.execute("SELECT * FROM board_edges WHERE id=?", (i,)).fetchone()) for i in edge_ids]
     return {"nodes": out_nodes, "edges": out_edges, "id_map": {str(k): v for k, v in id_map.items()}}
@@ -278,8 +385,8 @@ def restore(project_id: int, nodes: list, edges: list) -> dict:
 def job_nodes(project_id: int) -> list:
     """이 프로젝트 보드의 작업 카드들 — [(node_id, job_id 또는 None), ...]."""
     with db.connect() as conn:
-        rows = conn.execute("SELECT id, job_id FROM board_nodes WHERE project_id=? AND kind='job' ORDER BY id",
-                            (project_id,)).fetchall()
+        rows = conn.execute("SELECT id, job_id FROM board_nodes WHERE project_id=? AND board_id=? AND kind='job' ORDER BY id",
+                            (project_id, _board_id(project_id))).fetchall()
     return [(r["id"], r["job_id"]) for r in rows]
 
 
