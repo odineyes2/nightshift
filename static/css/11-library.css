@@ -8,6 +8,7 @@
   #library-category-actions{ display:flex; gap:var(--gap-sm); margin-bottom:var(--gap-sm); }
   #library-category-actions[hidden], #library-select-all-btn[hidden], #library-sequence-btn[hidden]{ display:none; }
   #library-category-modal .modal-panel{ max-width:480px; }
+  #lfg-kind{ display:flex; flex-wrap:wrap; max-width:100%; }
   .library-card{
     background:var(--panel); border:1px solid var(--border); border-radius:var(--radius-md);
     overflow:hidden; display:flex; flex-direction:column;

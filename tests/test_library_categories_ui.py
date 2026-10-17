@@ -1,4 +1,5 @@
 """격리된 브라우저에서 사용자 정의 Library 카테고리와 아티클 조작을 확인한다."""
+import json
 import subprocess
 import sys
 import tempfile
@@ -79,18 +80,69 @@ def main():
                         page.locator("#library-category-save").click()
                         page.get_by_role("button", name="Frames").wait_for()
                         assert page.locator("#library-article-name").is_hidden()
+
+                        for name in ("Camera Angles", "Color & Mood"):
+                            response = context.request.post(base + "/api/library/categories", data=json.dumps({"name": name}),
+                                                            headers={"X-Requested-With": "nightshift", "Content-Type": "application/json"})
+                            assert response.ok, response.text()
+                        paths = []
+                        for filename in ("gallery-one.png", "gallery-two.png"):
+                            response = context.request.post(base + "/api/output-assets/upload", headers={"X-Requested-With": "nightshift"}, multipart={
+                                "files": {"name": filename, "mimeType": "image/png", "buffer": image.read_bytes()},
+                            })
+                            assert response.ok, response.text()
+                            paths.extend(response.json()["paths"])
+                        page.goto(base + "/#gallery")
+                        wait_screen(page, "gallery", None, None)
+                        page.locator("#gallery-grid .gallery-item").first.wait_for()
+                        for index, target in enumerate(("new", "existing")):
+                            page.locator("#gallery-grid .gallery-item img").nth(index).click()
+                            page.locator("#gallery-lightbox-library-btn").click()
+                            category = page.locator('#lfg-kind [data-kind^="category-"]').filter(has_text="Frames")
+                            category.wait_for()
+                            assert category.inner_text() == "Frames"
+                            category.click()
+                            if target == "new":
+                                page.locator("#lfg-name").fill("갤러리 아티클")
+                                page.locator("#lfg-desc").fill("갤러리에서 생성")
+                                page.locator("#lfg-prompt").fill("portrait")
+                            else:
+                                page.locator('#lfg-target [data-target="existing"]').click()
+                                page.locator("#lfg-existing option").get_by_text("갤러리 아티클", exact=False).wait_for(state="attached")
+                            if target == "new":
+                                for theme in ("light", "dark"):
+                                    page.evaluate("theme => localStorage.setItem('nightshift-theme', theme)", theme)
+                                    page.locator("html").evaluate("(el, theme) => el.dataset.theme = theme", theme)
+                                    for width, height in ((1300, 850), (390, 800)):
+                                        page.set_viewport_size({"width": width, "height": height})
+                                        page.screenshot(path=str(ROOT / ".ui-captures" / f"library-from-gallery-{theme}-{width}.png"), full_page=True)
+                                        assert page.locator("#library-from-gallery-modal .modal-panel").evaluate(
+                                            "el => el.getBoundingClientRect().width <= window.innerWidth")
+                                page.set_viewport_size({"width": 1300, "height": 850})
+                            page.locator("#lfg-save").click()
+                            page.locator("#lfg-done-msg").get_by_text("갤러리 아티클", exact=False).wait_for()
+                            page.locator("#lfg-open-btn").click()
+                            page.locator("#library-article-name").get_by_text("갤러리 아티클").wait_for()
+                            assert page.locator("#library-article-grid .gallery-item").count() == index + 1
+                            if target == "new":
+                                page.goto(base + "/#gallery")
+                                wait_screen(page, "gallery", None, None)
+                        for path in paths:
+                            assert context.request.get(base + "/api/output-images/" + path).ok
+                        page.goto(base + "/#library")
+                        wait_screen(page, "library", None, None)
                         for theme in ("light", "dark"):
                             page.evaluate("theme => localStorage.setItem('nightshift-theme', theme)", theme)
                             page.reload()
                             wait_screen(page, "library", None, None)
                             page.get_by_role("button", name="Frames").click()
-                            page.locator("#library-list .library-card").wait_for()
+                            page.locator("#library-list .library-card").first.wait_for()
                             for width, height in ((1300, 850), (390, 800)):
                                 page.set_viewport_size({"width": width, "height": height})
                                 page.screenshot(path=str(ROOT / ".ui-captures" / f"library-category-{theme}-{width}.png"), full_page=True)
                                 assert page.locator("#tab-library").evaluate("el => el.scrollWidth <= window.innerWidth")
 
-                        page.once("dialog", lambda dialog: (assert_dialog(dialog, "아티클 1개", "이미지 2장"), dialog.accept()))
+                        page.once("dialog", lambda dialog: (assert_dialog(dialog, "아티클 2개", "이미지 4장"), dialog.accept()))
                         page.locator("#library-category-delete").click()
                         page.get_by_role("button", name="Frames").wait_for(state="detached")
                         assert page.get_by_role("button", name="Frames").count() == 0

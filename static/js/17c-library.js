@@ -688,23 +688,44 @@ document.querySelectorAll('#pose-add-image-mode .enhance-mode-btn').forEach(btn 
 // ---- 갤러리에서 Library로 넣기(NS-45) — 결과 이미지 이름(output_name)만 보내고 서버가 경로·권한을 검사해 읽는다 ----
 const lfgModal = document.getElementById('library-from-gallery-modal');
 let lfgNames = [];
-let lfgKind = 'pose';       // 'pose' | 'position' | 'lighting'
+let lfgKind = 'pose';       // 기본 종류 또는 'category-{id}'
 let lfgTarget = 'new';      // 'new' | 'existing'
 let lfgDone = null;         // 저장한 게시물 { id, kind }
+let lfgLoad = 0;
 const lfgKindLabel = () => libraryKindLabel(lfgKind);
+const lfgApi = () => lfgKind.startsWith('category-')
+  ? `/api/library/categories/${lfgKind.slice('category-'.length)}/articles` : LIBRARY_API[lfgKind];
 function setLfgError(msg){ document.getElementById('lfg-error').textContent = msg || ''; }
+
+async function loadLfgCategories(load){
+  const data = await libraryRequest('/api/library/categories', {}, '카테고리를 불러오지 못했어요');
+  if(load !== lfgLoad) return;
+  libraryCategories = data.items || [];
+  document.querySelectorAll('#lfg-kind [data-custom-kind]').forEach(button => button.remove());
+  document.getElementById('lfg-kind').insertAdjacentHTML('beforeend', libraryCategories.map(c =>
+    `<button class="enhance-mode-btn" type="button" data-kind="category-${c.id}" data-custom-kind="true">${escapeHtml(c.name)}</button>`).join(''));
+  document.querySelectorAll('#lfg-kind [data-custom-kind]').forEach(button =>
+    button.addEventListener('click', () => { lfgKind = button.dataset.kind; syncLfg(); }));
+  syncLfg();
+}
 
 // 기존 게시물 목록은 Library 탭과 같은 API — 회원은 자기 것만, admin은 전부
 async function loadLfgExisting(){
+  const kind = lfgKind;
   const sel = document.getElementById('lfg-existing');
   sel.innerHTML = '<option value="">불러오는 중…</option>';
   try{
-    const data = await libraryRequest(LIBRARY_API[lfgKind], {}, '목록을 불러오지 못했어요');
+    const data = await libraryRequest(lfgApi(), {}, '목록을 불러오지 못했어요');
+    if(kind !== lfgKind || lfgTarget !== 'existing' || lfgModal.style.display === 'none') return;
     const items = data.items || [];
     sel.innerHTML = items.length
       ? items.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${p.images.length}장)</option>`).join('')
       : `<option value="">${lfgKindLabel()} 게시물이 없어요</option>`;
-  }catch(err){ sel.innerHTML = '<option value=""></option>'; setLfgError(err.message); }
+  }catch(err){
+    if(kind === lfgKind && lfgTarget === 'existing' && lfgModal.style.display !== 'none'){
+      sel.innerHTML = '<option value=""></option>'; setLfgError(err.message);
+    }
+  }
 }
 
 function syncLfg(){
@@ -717,9 +738,12 @@ function syncLfg(){
   if(!isNew) loadLfgExisting();
 }
 
-function openLibraryFromGallery(names){
+async function openLibraryFromGallery(names){
   if(!names.length) return;
+  const load = ++lfgLoad;
   lfgNames = names;
+  lfgKind = 'pose';
+  lfgTarget = 'new';
   lfgDone = null;
   document.getElementById('lfg-form').reset();
   document.getElementById('lfg-done').hidden = true;
@@ -730,16 +754,18 @@ function openLibraryFromGallery(names){
   setLfgError(names.length > POSE_ADD_MAX ? `이미지는 한 번에 ${POSE_ADD_MAX}장까지 넣을 수 있어요.` : '');
   syncLfg();
   lfgModal.style.display = 'flex';
+  try{ await loadLfgCategories(load); }
+  catch(err){ if(load === lfgLoad) setLfgError(err.message); }
 }
 
-function closeLibraryFromGallery(){ lfgModal.style.display = 'none'; }
+function closeLibraryFromGallery(){ ++lfgLoad; lfgModal.style.display = 'none'; }
 
 async function saveLibraryFromGallery(e){
   e.preventDefault();
   if(lfgNames.length > POSE_ADD_MAX) return setLfgError(`이미지는 한 번에 ${POSE_ADD_MAX}장까지 넣을 수 있어요.`);
   const fd = new FormData();
   lfgNames.forEach(n => fd.append('output_name', n));
-  let url = LIBRARY_API[lfgKind];
+  let url = lfgApi();
   if(lfgTarget === 'new'){
     const name = document.getElementById('lfg-name').value.trim();
     if(!name) return setLfgError(`${lfgKindLabel()} 명칭을 적어주세요.`);
