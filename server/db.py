@@ -510,12 +510,18 @@ ALTER TABLE positions ADD COLUMN cover_image_id INTEGER;
 ALTER TABLE lightings ADD COLUMN cover_image_id INTEGER
 """
 
+# v26: ComfyUI 실행 기록의 실제 개선 문장을 경로별로 보관하고 색인에 반영한다.
+SCHEMA_V26 = """
+ALTER TABLE comfy_downloads ADD COLUMN enhanced_prompt TEXT;
+ALTER TABLE assets ADD COLUMN enhanced_prompt TEXT
+"""
+
 # 새 버전은 여기 끝에 (버전, SQL) 한 줄을 추가한다 — PRAGMA user_version이 현재 버전이다.
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
               (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16), (17, SCHEMA_V17), (18, SCHEMA_V18),
               (19, SCHEMA_V19), (20, SCHEMA_V20), (21, SCHEMA_V21), (22, SCHEMA_V22), (23, SCHEMA_V23), (24, SCHEMA_V24),
-              (25, SCHEMA_V25)]
+              (25, SCHEMA_V25), (26, SCHEMA_V26)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}
@@ -714,10 +720,11 @@ def load_comfy_sync() -> dict:
     """{"downloaded": {"<subfolder>/<파일명>": {"at", "pod_id"}}, "last_sync"} — 예전
     comfy_output_sync.json과 같은 모양이라 comfy_outputs.py의 동기화 로직이 그대로 쓴다."""
     with connect() as conn:
-        rows = conn.execute("SELECT key, downloaded_at, pod_id FROM comfy_downloads").fetchall()
+        rows = conn.execute("SELECT key, downloaded_at, pod_id, enhanced_prompt FROM comfy_downloads").fetchall()
         last_sync = get_meta(conn, "comfy_last_sync")
     return {
-        "downloaded": {r["key"]: {"at": r["downloaded_at"], "pod_id": r["pod_id"]} for r in rows},
+        "downloaded": {r["key"]: {"at": r["downloaded_at"], "pod_id": r["pod_id"],
+                                  "enhanced_prompt": r["enhanced_prompt"]} for r in rows},
         "last_sync": last_sync,
     }
 
@@ -727,18 +734,26 @@ def save_comfy_sync(state: dict) -> None:
     새로 적힌 항목은 결과물 색인(assets)의 origin_pod_id도 같이 맞춘다."""
     downloaded = state.get("downloaded") or {}
     with connect() as conn:
-        existing = {r["key"]: (r["downloaded_at"], r["pod_id"])
-                    for r in conn.execute("SELECT key, downloaded_at, pod_id FROM comfy_downloads")}
+        existing = {r["key"]: (r["downloaded_at"], r["pod_id"], r["enhanced_prompt"])
+                    for r in conn.execute("SELECT key, downloaded_at, pod_id, enhanced_prompt FROM comfy_downloads")}
         for key, value in downloaded.items():
             at = (value.get("at") if isinstance(value, dict) else value) or now_iso()
             pod_id = value.get("pod_id") if isinstance(value, dict) else None
-            if existing.get(key) == (at, pod_id):
+            enhanced = value.get("enhanced_prompt") if isinstance(value, dict) else None
+            if not enhanced and key in existing:
+                enhanced = existing[key][2]
+            if existing.get(key) == (at, pod_id, enhanced):
                 continue
             conn.execute(
-                "INSERT INTO comfy_downloads(key, downloaded_at, pod_id) VALUES(?,?,?) "
-                "ON CONFLICT(key) DO UPDATE SET downloaded_at=excluded.downloaded_at, pod_id=excluded.pod_id",
-                (key, at, pod_id),
+                "INSERT INTO comfy_downloads(key, downloaded_at, pod_id, enhanced_prompt) VALUES(?,?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET downloaded_at=excluded.downloaded_at, "
+                "pod_id=excluded.pod_id, enhanced_prompt=excluded.enhanced_prompt",
+                (key, at, pod_id, enhanced),
             )
+            if enhanced:
+                conn.execute("UPDATE assets SET enhanced_prompt=? WHERE path=? AND "
+                             "(enhanced_prompt IS NULL OR enhanced_prompt != ?)",
+                             (enhanced, key, enhanced))
             if pod_id:
                 conn.execute(
                     "UPDATE assets SET origin_pod_id=? WHERE path=? AND (origin_pod_id IS NULL OR origin_pod_id != ?)",

@@ -70,7 +70,7 @@ class CoverTests(unittest.TestCase):
 
     def test_0_migration_v25(self):
         with db.connect() as conn:
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 25)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], db.MIGRATIONS[-1][0])
             for table in ("poses", "positions", "lightings"):
                 self.assertIn("cover_image_id", [r[1] for r in conn.execute(f"PRAGMA table_info({table})")])
         old = pose_library.get_pose(7)
