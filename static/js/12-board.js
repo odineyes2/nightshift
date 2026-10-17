@@ -55,6 +55,7 @@ function boardZoomAt(clientX, clientY, factor){
 function initBoardCanvas(){
   if(boardCanvasInitialized) return;
   boardCanvasInitialized = true;
+  initBoardTree();
   const viewport = document.getElementById('board-viewport');
 
   viewport.addEventListener('wheel', (e) => {
@@ -670,17 +671,209 @@ function paintBoardSelection(){
 // 헤더/내비/프로젝트 바는 그대로 두고 main만 바뀌므로, showTab()이 prboard로 올
 // 때마다(다른 탭 갔다 오거나 프로젝트를 바꿔도) 그 프로젝트의 보드를 다시 받는다.
 let boardFetchSeq = 0;   // 프로젝트를 빠르게 바꿀 때 늦게 도착한 옛 응답을 버리는 용도
+let currentBoardId = null;
+let projectBoards = [];
+let boardOpenSeq = 0;
+const boardRequests = new Set();
+const BOARD_LAST_ID_KEY = 'nightshift-last-moodboard-';
+
+function boardScopeMatches(projectId, boardId){
+  return projectId === currentProjectId && boardId === currentBoardId && currentTab === 'prboard';
+}
+
+function renderBoardTree(){
+  const list = document.getElementById('board-tree-list');
+  const project = projectsById[currentProjectId];
+  const root = `<div class="board-tree-root" role="treeitem" aria-expanded="true">${ico('folder')}<span>${escapeHtml(project?.name || '프로젝트')}</span></div>`;
+  const items = projectBoards.map(b => `<button class="board-tree-item" type="button" role="treeitem" data-board-id="${b.id}" aria-selected="${b.id === currentBoardId}" title="${escapeHtml(b.name)} — 두 번 눌러 열기">${ico('folder-open')}<span>${escapeHtml(b.name)}</span></button>`).join('');
+  list.innerHTML = root + (items ? `<div role="group">${items}</div>` : '<div class="board-tree-empty">무드보드가 없어요. + 버튼이나 빈 곳을 우클릭해 추가해 주세요.</div>');
+  document.getElementById('board-current-name').textContent = projectBoards.find(b => b.id === currentBoardId)?.name || '무드보드 없음';
+  for(const id of ['board-add-image-btn', 'board-add-video-btn', 'board-add-job-btn', 'board-add-gen-btn', 'board-add-text-btn', 'board-add-frame-btn', 'board-select-mode-btn']){
+    document.getElementById(id).disabled = currentBoardId === null;
+  }
+}
+
+function closeBoardTreeMenu(){ document.getElementById('board-tree-menu')?.remove(); }
+function openBoardTreeMenu(x, y, boardId){
+  closeBoardTreeMenu();
+  const menu = document.createElement('div');
+  menu.id = 'board-tree-menu'; menu.className = 'board-tree-menu'; menu.setAttribute('role', 'menu');
+  const actions = boardId === null ? [['add', '추가']] : [['open', '열기'], ['duplicate', '복제'], ['delete', '삭제']];
+  menu.innerHTML = actions.map(([action, label]) => `<button type="button" role="menuitem" data-action="${action}" class="${action === 'delete' ? 'danger' : ''}">${label}</button>`).join('');
+  menu.addEventListener('click', e => {
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    closeBoardTreeMenu();
+    if(action === 'add') addProjectBoard();
+    if(action === 'open') selectProjectBoard(boardId);
+    if(action === 'duplicate') duplicateProjectBoard(boardId);
+    if(action === 'delete') deleteProjectBoard(boardId);
+  });
+  document.body.append(menu);
+  menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + 'px';
+  menu.style.top = Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8)) + 'px';
+  menu.querySelector('button')?.focus();
+}
+
+function initBoardTree(){
+  const tree = document.getElementById('board-tree');
+  const toggle = document.getElementById('board-tree-toggle');
+  toggle.addEventListener('click', () => {
+    tree.hidden = !tree.hidden;
+    toggle.setAttribute('aria-expanded', String(!tree.hidden));
+    resizeBoardViewport();
+  });
+  document.getElementById('board-tree-add').addEventListener('click', addProjectBoard);
+  const list = document.getElementById('board-tree-list');
+  list.addEventListener('dblclick', e => {
+    const item = e.target.closest('[data-board-id]');
+    if(item) selectProjectBoard(Number(item.dataset.boardId));
+  });
+  list.addEventListener('click', e => {
+    const item = e.target.closest('[data-board-id]');
+    if(item && matchMedia('(pointer:coarse)').matches) selectProjectBoard(Number(item.dataset.boardId));
+  });
+  list.addEventListener('keydown', e => {
+    if(e.key === 'Enter' && e.target.matches('[data-board-id]')) selectProjectBoard(Number(e.target.dataset.boardId));
+    if(e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')){
+      e.preventDefault();
+      const item = e.target.closest('[data-board-id]');
+      const rect = (item || list).getBoundingClientRect();
+      openBoardTreeMenu(rect.left + 16, rect.top + 32, item ? Number(item.dataset.boardId) : null);
+    }
+  });
+  list.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    const item = e.target.closest('[data-board-id]');
+    openBoardTreeMenu(e.clientX, e.clientY, item ? Number(item.dataset.boardId) : null);
+  });
+  document.addEventListener('pointerdown', e => { if(!e.target.closest('#board-tree-menu')) closeBoardTreeMenu(); });
+  document.addEventListener('keydown', e => { if(e.key === 'Escape') closeBoardTreeMenu(); });
+}
+
+async function openProjectBoards(projectId){
+  const seq = ++boardOpenSeq;
+  ++boardFetchSeq;
+  ++boardJobSeq;
+  clearTimeout(boardJobTimer);
+  document.getElementById('board-world').innerHTML = '<div class="empty board-empty-notice">무드보드를 불러오는 중이에요.</div>';
+  await flushAllBoardTextSaves(false);
+  if(seq !== boardOpenSeq || projectId !== currentProjectId || currentTab !== 'prboard') return;
+  currentBoardId = null;
+  projectBoards = [];
+  boardNodes = []; boardEdges = []; boardJobInfo.clear(); resetBoardHistory();
+  renderBoardTree();
+  if(typeof projectId !== 'number') return;
+  await Promise.all([...boardRequests]);
+  if(seq !== boardOpenSeq || projectId !== currentProjectId || currentTab !== 'prboard') return;
+  let data;
+  try{ const res = await fetch(`/api/projects/${projectId}/boards`); if(res.ok) data = await res.json(); }catch(e){}
+  if(seq !== boardOpenSeq || projectId !== currentProjectId || currentTab !== 'prboard') return;
+  if(!data){ document.getElementById('board-world').innerHTML = '<div class="empty board-empty-notice">무드보드 목록을 불러오지 못했어요.</div>'; return; }
+  projectBoards = data.boards || [];
+  const saved = Number(localStorage.getItem(BOARD_LAST_ID_KEY + projectId));
+  currentBoardId = projectBoards.find(b => b.id === saved)?.id ?? projectBoards[0]?.id ?? null;
+  renderBoardTree();
+  if(currentBoardId !== null) fetchBoard({ fit: true });
+  else document.getElementById('board-world').innerHTML = '<div class="empty board-empty-notice">무드보드가 없어요. 왼쪽에서 추가해 주세요.</div>';
+}
+
+async function selectProjectBoard(boardId){
+  if(boardId === currentBoardId || !projectBoards.some(b => b.id === boardId)) return;
+  const projectId = currentProjectId;
+  const seq = ++boardOpenSeq;
+  ++boardFetchSeq;
+  ++boardJobSeq;
+  clearTimeout(boardJobTimer);
+  closeBoardTreeMenu();
+  await flushAllBoardTextSaves(false);
+  await Promise.all([...boardRequests]);
+  if(seq !== boardOpenSeq || projectId !== currentProjectId || currentTab !== 'prboard') return;
+  currentBoardId = boardId;
+  localStorage.setItem(BOARD_LAST_ID_KEY + projectId, String(boardId));
+  renderBoardTree();
+  fetchBoard({ fit: true });
+  if(innerWidth <= 700){ document.getElementById('board-tree').hidden = true; document.getElementById('board-tree-toggle').setAttribute('aria-expanded', 'false'); }
+}
+
+async function updateProjectBoardList(projectId, preferredId){
+  const res = await fetch(`/api/projects/${projectId}/boards`);
+  if(!res.ok || projectId !== currentProjectId) return;
+  if(preferredId !== undefined){
+    await flushAllBoardTextSaves(false);
+    await Promise.all([...boardRequests]);
+    if(projectId !== currentProjectId) return;
+  }
+  projectBoards = (await res.json()).boards || [];
+  if(preferredId !== undefined){
+    currentBoardId = projectBoards.find(b => b.id === preferredId)?.id ?? projectBoards[0]?.id ?? null;
+    if(currentBoardId !== null) localStorage.setItem(BOARD_LAST_ID_KEY + projectId, String(currentBoardId));
+    else localStorage.removeItem(BOARD_LAST_ID_KEY + projectId);
+    ++boardFetchSeq;
+    ++boardJobSeq;
+    clearTimeout(boardJobTimer);
+    boardNodes = []; boardEdges = []; boardJobInfo.clear(); resetBoardHistory();
+    if(currentBoardId !== null) fetchBoard({ fit: true });
+    else document.getElementById('board-world').innerHTML = '<div class="empty board-empty-notice">무드보드가 없어요. 왼쪽에서 추가해 주세요.</div>';
+  }
+  renderBoardTree();
+}
+
+async function addProjectBoard(){
+  const projectId = currentProjectId;
+  if(typeof projectId !== 'number') return;
+  const name = prompt('새 무드보드 이름을 입력해 주세요.');
+  if(name === null) return;
+  if(!name.trim()){ flashNotice('무드보드 이름을 입력해 주세요.'); return; }
+  try{
+    const res = await fetch(`/api/projects/${projectId}/boards`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:name.trim()}) });
+    if(!res.ok){ flashNotice((await res.json()).detail || '무드보드를 만들지 못했어요.'); return; }
+    const board = await res.json();
+    if(projectId === currentProjectId) await updateProjectBoardList(projectId, board.id);
+  }catch(e){ flashNotice('무드보드를 만들지 못했어요.'); }
+}
+
+async function duplicateProjectBoard(boardId){
+  const projectId = currentProjectId;
+  const source = projectBoards.find(b => b.id === boardId);
+  if(!source || typeof projectId !== 'number') return;
+  const name = prompt('복제할 무드보드 이름을 입력해 주세요.', `${source.name} 복사본`);
+  if(name === null) return;
+  if(!name.trim()){ flashNotice('무드보드 이름을 입력해 주세요.'); return; }
+  await flushAllBoardTextSaves(false);
+  await Promise.all([...boardRequests]);
+  try{
+    const res = await fetch(`/api/projects/${projectId}/boards/${boardId}/duplicate`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:name.trim()}) });
+    if(!res.ok){ flashNotice((await res.json()).detail || '무드보드를 복제하지 못했어요.'); return; }
+    const board = await res.json();
+    if(projectId === currentProjectId) await updateProjectBoardList(projectId, board.id);
+  }catch(e){ flashNotice('무드보드를 복제하지 못했어요.'); }
+}
+
+async function deleteProjectBoard(boardId){
+  const projectId = currentProjectId;
+  const board = projectBoards.find(b => b.id === boardId);
+  if(!board || typeof projectId !== 'number') return;
+  if(!confirm(`'${board.name}' 무드보드와 그 안의 카드를 삭제할까요?`)) return;
+  await flushAllBoardTextSaves(false);
+  await Promise.all([...boardRequests]);
+  try{
+    const res = await fetch(`/api/projects/${projectId}/boards/${boardId}?confirm=true`, { method:'DELETE' });
+    if(!res.ok){ flashNotice((await res.json()).detail || '무드보드를 삭제하지 못했어요.'); return; }
+    if(projectId === currentProjectId) await updateProjectBoardList(projectId, boardId === currentBoardId ? null : undefined);
+  }catch(e){ flashNotice('무드보드를 삭제하지 못했어요.'); }
+}
 
 // fit: 다 받은 뒤 모든 카드가 한눈에 보이게 맞춘다 — 보드 탭을 열 때만(저장 실패로 다시 맞출 때는 보던 자리 그대로).
 async function fetchBoard({ fit = false } = {}){
   const seq = ++boardFetchSeq;
+  const projectId = currentProjectId, boardId = currentBoardId;
   const grid = document.getElementById('board-world');
   boardSelectedEdgeId = null;
   // 다시 받으면 화면이 서버 상태로 새로 맞춰지므로, 그 전 상태를 전제로 한 선택·되돌리기
   // 기록은 버린다(다른 프로젝트로 옮겼거나, 저장 실패로 다시 맞추는 경우 모두).
   setBoardSelection(new Set());
   resetBoardHistory();
-  if(typeof currentProjectId !== 'number'){
+  if(typeof projectId !== 'number' || boardId === null){
     // "미분류"는 진짜 프로젝트 행이 아니라 board_nodes.project_id(FK, NOT NULL)를
     // 붙일 곳이 없다 — 보드 개념 자체가 성립하지 않는다.
     boardNodes = [];
@@ -692,10 +885,10 @@ async function fetchBoard({ fit = false } = {}){
   await flushAllBoardTextSaves(false);
   let data = null;
   try{
-    const res = await fetch(`/api/projects/${currentProjectId}/board`);
+    const res = await fetch(`/api/projects/${projectId}/board?board_id=${boardId}`);
     if(res.ok) data = await res.json();
   }catch(e){ /* 아래에서 실패로 처리 */ }
-  if(seq !== boardFetchSeq) return;
+  if(seq !== boardFetchSeq || !boardScopeMatches(projectId, boardId)) return;
   if(!data){
     // 옛 카드를 그대로 두면 다른 프로젝트의 카드가 이 프로젝트 것처럼 보이고, 그걸
     // 고치면 엉뚱한 주소로 저장을 시도하게 된다 — 비우고 알린다.
@@ -765,16 +958,17 @@ async function fetchBoardJobs(){
   clearTimeout(boardJobTimer);
   boardJobTimer = null;
   const projectId = currentProjectId;
-  if(typeof projectId !== 'number' || currentTab !== 'prboard') return;
+  const boardId = currentBoardId;
+  if(typeof projectId !== 'number' || boardId === null || currentTab !== 'prboard') return;
   // 작업 카드, 또는 한 번이라도 실행한 생성 카드가 있을 때만
   if(!boardNodes.some(n => n.kind === 'job' || (n.kind === 'gen' && n.data && (n.data.runs || []).length))) return;
   const seq = ++boardJobSeq;
   let data = null;
   try{
-    const res = await fetch(`/api/projects/${projectId}/board/jobs`);
+    const res = await fetch(`/api/projects/${projectId}/board/jobs?board_id=${boardId}`);
     if(res.ok) data = await res.json();
   }catch(e){ /* 잠깐의 네트워크 문제 — 아래에서 다음 차례에 다시 받는다 */ }
-  if(seq !== boardJobSeq || projectId !== currentProjectId || currentTab !== 'prboard') return;
+  if(seq !== boardJobSeq || !boardScopeMatches(projectId, boardId)) return;
   if(data){
     for(const [id, info] of Object.entries(data.cards || {})) boardJobInfo.set(Number(id), info);
     paintBoardJobCards();

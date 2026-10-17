@@ -101,16 +101,18 @@ function paintBoardGenSlots(){
 // 실행 — 쓰던 값을 먼저 저장하고 서버가 입구 이미지를 가져와 작업을 만든다(파드는 자동).
 async function runBoardGen(nodeId){
   const projectId = currentProjectId;
+  const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
   const btn = document.querySelector(`#board-world [data-gen-run="${nodeId}"]`);
   if(btn) btn.disabled = true;
   await flushAllBoardGenSaves(false);
+  if(!boardScopeMatches(projectId, boardId)) return;
   let res = null, data = {};
   try{
-    res = await fetch(`/api/projects/${projectId}/board/nodes/${nodeId}/run`, { method: 'POST' });
+    res = await fetch(`/api/projects/${projectId}/board/nodes/${nodeId}/run?board_id=${boardId}`, { method: 'POST' });
     data = await res.json().catch(() => ({}));
   }catch(e){ /* 아래에서 실패로 처리 */ }
-  if(projectId !== currentProjectId) return;
+  if(!boardScopeMatches(projectId, boardId)) return;
   if(!res || !res.ok){
     flashNotice(data.detail || '실행하지 못했어요. 잠시 뒤 다시 해 주세요.');
     paintBoardGenSlots();
@@ -161,12 +163,14 @@ async function stopBoardGen(nodeId){
 const boardSpreading = new Set();
 async function spreadBoardGen(nodeId){
   const projectId = currentProjectId;
+  const boardId = currentBoardId;
   if(typeof projectId !== 'number' || boardSpreading.has(nodeId)) return;
   boardSpreading.add(nodeId);
   try{
-    const res = await boardApi(projectId, 'POST', `/nodes/${nodeId}/spread`);
-    if(!res || projectId !== currentProjectId) return;
+    const res = await boardApi(projectId, 'POST', `/nodes/${nodeId}/spread`, undefined, false, boardId);
+    if(!res || !boardScopeMatches(projectId, boardId)) return;
     const data = await res.json();
+    if(!boardScopeMatches(projectId, boardId)) return;
     const fresh = (data.nodes || []).filter(n => !boardNodes.some(b => b.id === n.id));
     boardNodes.push(...fresh);
     appendBoardNodeEls(fresh);
@@ -186,17 +190,21 @@ async function spreadBoardGen(nodeId){
 // 자세히 — 이 카드 값(입구 이미지 포함)으로 새 작업 창을 채워 연다. 복잡한 설정은 그 창에서.
 async function openBoardGenDetail(nodeId){
   const projectId = currentProjectId;
+  const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
   await flushAllBoardGenSaves(false);
+  if(!boardScopeMatches(projectId, boardId)) return;
   let res = null, data = {};
   try{
-    res = await fetch(`/api/projects/${projectId}/board/nodes/${nodeId}/prepare`, { method: 'POST' });
+    res = await fetch(`/api/projects/${projectId}/board/nodes/${nodeId}/prepare?board_id=${boardId}`, { method: 'POST' });
     data = await res.json().catch(() => ({}));
   }catch(e){ /* 아래에서 실패로 처리 */ }
+  if(!boardScopeMatches(projectId, boardId)) return;
   if(!res || !res.ok){ flashNotice(data.detail || '카드 설정을 불러오지 못했어요.'); return; }
   // 입구 이미지는 방금 입력 이미지 풀로 들어왔을 수 있다 — 폼의 선택 목록에 있어야 값이 들어가므로 먼저 새로 받는다
   // (갤러리 "영상 만들기"와 같은 순서).
   await fetchInputImages(true);
+  if(!boardScopeMatches(projectId, boardId)) return;
   showTab('jobs', { projectId });
   await loadJobSettings({ id: null, template_id: data.template_id, options: data.options }, data);
   // 템플릿·워크플로우·값이 다 채워졌으니 바로 "2. 세부 설정"을 보여 준다. goToNewJobDetails는 마법사
@@ -215,7 +223,7 @@ function scheduleBoardGenSave(nodeId, name, value){
   const key = `${nodeId}:${name}`;
   const prev = boardGenPending.get(key);
   if(prev) clearTimeout(prev.timer);
-  boardGenPending.set(key, { projectId: currentProjectId, nodeId, name, value,
+  boardGenPending.set(key, { projectId: currentProjectId, boardId: currentBoardId, nodeId, name, value,
     timer: setTimeout(() => flushBoardGenSave(key), BOARD_TEXT_SAVE_DELAY_MS) });
 }
 
@@ -225,8 +233,8 @@ async function flushBoardGenSave(key, keepalive){
   clearTimeout(p.timer);
   boardGenPending.delete(key);
   if(typeof p.projectId !== 'number') return;
-  if(!await boardApi(p.projectId, 'PATCH', `/nodes/${p.nodeId}`, { values: { [p.name]: p.value } }, keepalive)){
-    flashNotice('카드 옵션을 저장하지 못했어요. 연결을 확인한 뒤 다시 고쳐 주세요.');
+  if(!await boardApi(p.projectId, 'PATCH', `/nodes/${p.nodeId}`, { values: { [p.name]: p.value } }, keepalive, p.boardId)){
+    if(boardScopeMatches(p.projectId, p.boardId)) flashNotice('카드 옵션을 저장하지 못했어요. 연결을 확인한 뒤 다시 고쳐 주세요.');
   }
 }
 
@@ -504,26 +512,31 @@ function selectBoardEdge(edgeId){
 
 // 보드 API 호출 — 실패(네트워크 끊김·서버 오류)면 null. 호출한 순간의 프로젝트 id를
 // 받아서 보낸다 — 응답을 기다리는 사이 프로젝트를 바꿔도 엉뚱한 보드에 저장되지 않게.
-async function boardApi(projectId, method, path, body, keepalive){
+async function boardApi(projectId, method, path, body, keepalive, boardId = currentBoardId){
+  if(boardId === null) return null;
+  const request = fetch(`/api/projects/${projectId}/board${path}${path.includes('?') ? '&' : '?'}board_id=${boardId}`, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+    keepalive: !!keepalive,
+  });
+  boardRequests.add(request);
   try{
-    const res = await fetch(`/api/projects/${projectId}/board${path}`, {
-      method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-      keepalive: !!keepalive,
-    });
+    const res = await request;
     return res.ok ? res : null;
   }catch(e){
     return null;
+  }finally{
+    boardRequests.delete(request);
   }
 }
 
 // 옮기기/지우기처럼 화면을 먼저 바꾸고 저장하는 변경이 실패하면 화면이 서버와
 // 달라진 것이다 — 조용히 넘기면 새로고침 때 되돌아가 "저장된 줄 알았는데" 가
 // 된다. 알리고, 서버에 실제로 저장된 상태로 다시 맞춘다(쓰던 글은 먼저 보낸다).
-async function boardSaveFailed(projectId){
+async function boardSaveFailed(projectId, boardId = currentBoardId){
   flashNotice('보드 변경을 저장하지 못했어요. 저장된 상태로 다시 불러올게요.');
-  if(projectId !== currentProjectId || currentTab !== 'prboard') return;
+  if(!boardScopeMatches(projectId, boardId)) return;
   await flushAllBoardTextSaves(false);
   fetchBoard();
 }
@@ -532,13 +545,14 @@ async function boardSaveFailed(projectId){
 // 같은 두 카드 사이의 선)을 지우고 replaced로 알려 준다. 되돌리기는 그 선들을 되살린다.
 async function createBoardEdge(fromId, toId, toSlot){
   const projectId = currentProjectId;
+  const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
   const body = { from_node_id: fromId, to_node_id: toId };
   if(toSlot) body.to_slot = toSlot;
-  const res = await boardApi(projectId, 'POST', '/edges', body);
+  const res = await boardApi(projectId, 'POST', '/edges', body, false, boardId);
   if(!res){ flashNotice('카드를 잇지 못했어요. 잠시 뒤 다시 해 주세요.'); return; }
   const data = await res.json();
-  if(projectId !== currentProjectId) return;
+  if(!boardScopeMatches(projectId, boardId)) return;
   const replaced = data.replaced || [];
   const edge = { ...data };
   delete edge.replaced;
@@ -556,6 +570,7 @@ async function createBoardEdge(fromId, toId, toSlot){
 
 async function deleteBoardEdge(edgeId){
   const projectId = currentProjectId;
+  const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
   const edge = boardEdges.find(e => e.id === edgeId);
   if(!edge) return;
@@ -563,7 +578,7 @@ async function deleteBoardEdge(edgeId){
   if(boardSelectedEdgeId === edgeId) boardSelectedEdgeId = null;
   renderBoardEdges();
   pushBoardHistory({ type: 'edge-del', edge: { ...edge } });
-  if(!await boardApi(projectId, 'DELETE', `/edges/${edgeId}`)) boardSaveFailed(projectId);
+  if(!await boardApi(projectId, 'DELETE', `/edges/${edgeId}`, undefined, false, boardId)) boardSaveFailed(projectId, boardId);
 }
 
 // 지금 화면 가운데(뷰포트 중심)가 가리키는 월드 좌표에 새 카드를 놓는다 — 팬/줌해
@@ -580,6 +595,7 @@ function boardViewportCenterWorld(){
 // geom({ x, y, width, height })을 주면 그 자리에 놓는다(묶음 틀을 고른 카드 둘레에 만들 때).
 async function createBoardNode(kind, assetPath, text, geom){
   const projectId = currentProjectId;
+  const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
   const width = kind === 'frame' ? 480 : kind === 'job' ? 260 : 220;
   const height = kind === 'frame' ? 320 : kind === 'text' ? 160 : 220;
@@ -593,10 +609,10 @@ async function createBoardNode(kind, assetPath, text, geom){
     delete body.width;
     delete body.height;
   }
-  const res = await boardApi(projectId, 'POST', '/nodes', body);
+  const res = await boardApi(projectId, 'POST', '/nodes', body, false, boardId);
   if(!res){ flashNotice('카드를 만들지 못했어요. 잠시 뒤 다시 해 주세요.'); return; }
   const node = await res.json();
-  if(projectId !== currentProjectId) return;
+  if(!boardScopeMatches(projectId, boardId)) return;
   boardNodes.push(node);
   appendBoardNodeEls([node]);
   setBoardSelection(new Set([node.id]));
@@ -675,7 +691,8 @@ async function toggleBoardFrameFold(id){
   f.data = { ...(f.data || {}), collapsed, members };
   paintBoardCollapse();
   const projectId = currentProjectId;
-  if(typeof projectId === 'number' && !await boardApi(projectId, 'PATCH', `/nodes/${id}`, { collapsed, members })) boardSaveFailed(projectId);
+  const boardId = currentBoardId;
+  if(typeof projectId === 'number' && !await boardApi(projectId, 'PATCH', `/nodes/${id}`, { collapsed, members }, false, boardId)) boardSaveFailed(projectId, boardId);
 }
 
 function boardNodeInside(n, f){
@@ -694,15 +711,17 @@ function createBoardFrame(){
 
 async function saveBoardNodeSize(nodeId, size){
   const projectId = currentProjectId;
+  const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
-  if(!await boardApi(projectId, 'PATCH', `/nodes/${nodeId}`, size)) boardSaveFailed(projectId);
+  if(!await boardApi(projectId, 'PATCH', `/nodes/${nodeId}`, size, false, boardId)) boardSaveFailed(projectId, boardId);
 }
 
 // 끌기를 마친 카드들의 위치를 요청 하나로 저장한다 — positions = [{ id, x, y }, ...].
 async function saveBoardPositions(positions){
   const projectId = currentProjectId;
+  const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
-  if(!await boardApi(projectId, 'PATCH', '/nodes', { nodes: positions })) boardSaveFailed(projectId);
+  if(!await boardApi(projectId, 'PATCH', '/nodes', { nodes: positions }, false, boardId)) boardSaveFailed(projectId, boardId);
 }
 
 // 텍스트 카드 저장 — 입력하다 멈추면 BOARD_TEXT_SAVE_DELAY_MS 뒤에, 글칸을 벗어나거나
@@ -714,7 +733,7 @@ function scheduleBoardTextSave(nodeId, text){
   const prev = boardTextPending.get(nodeId);
   if(prev) clearTimeout(prev.timer);
   boardTextPending.set(nodeId, {
-    projectId: currentProjectId, text,
+    projectId: currentProjectId, boardId: currentBoardId, text,
     timer: setTimeout(() => flushBoardTextSave(nodeId, text), BOARD_TEXT_SAVE_DELAY_MS),
   });
 }
@@ -722,7 +741,7 @@ function scheduleBoardTextSave(nodeId, text){
 function flushBoardTextSave(nodeId, text, keepalive){
   const prev = boardTextPending.get(nodeId);
   if(prev){ clearTimeout(prev.timer); boardTextPending.delete(nodeId); }
-  return saveBoardNodeText(prev ? prev.projectId : currentProjectId, nodeId, text, keepalive);
+  return saveBoardNodeText(prev ? prev.projectId : currentProjectId, nodeId, text, keepalive, prev ? prev.boardId : currentBoardId);
 }
 
 function flushAllBoardTextSaves(keepalive){
@@ -731,23 +750,24 @@ function flushAllBoardTextSaves(keepalive){
     .concat([flushAllBoardGenSaves(keepalive)]));
 }
 
-async function saveBoardNodeText(projectId, nodeId, text, keepalive){
+async function saveBoardNodeText(projectId, nodeId, text, keepalive, boardId = currentBoardId){
   if(typeof projectId !== 'number') return;
-  const node = projectId === currentProjectId ? boardNodes.find(n => n.id === nodeId) : null;
+  const node = boardScopeMatches(projectId, boardId) ? boardNodes.find(n => n.id === nodeId) : null;
   if(node && node.text === text) return;   // 서버에 이미 있는 글이면 안 보낸다
-  if(await boardApi(projectId, 'PATCH', `/nodes/${nodeId}`, { text }, keepalive)){
-    if(node) node.text = text;
+  if(await boardApi(projectId, 'PATCH', `/nodes/${nodeId}`, { text }, keepalive, boardId)){
+    if(node && boardScopeMatches(projectId, boardId)) node.text = text;
     return;
   }
   // 글은 글칸에 그대로 남긴다(다시 불러오면 쓴 글이 사라지므로 여기선 안 맞춘다).
   // node.text를 안 바꿔 뒀으니 다음에 입력하거나 글칸을 벗어나면 다시 보낸다.
-  flashNotice('메모를 저장하지 못했어요. 글은 화면에 남아 있으니 연결을 확인한 뒤 다른 곳을 눌러 다시 저장해 주세요.');
+  if(boardScopeMatches(projectId, boardId)) flashNotice('메모를 저장하지 못했어요. 글은 화면에 남아 있으니 연결을 확인한 뒤 다른 곳을 눌러 다시 저장해 주세요.');
 }
 
 // 카드 여러 장을 지운다(카드의 휴지통 · 선택 막대 · Delete 키). 되돌리기로 살릴 수
 // 있게 지우기 전의 카드와 붙어 있던 선을 떠서 기록에 남긴다.
 async function deleteBoardNodes(nodeIds){
   const projectId = currentProjectId;
+  const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
   const ids = new Set(nodeIds);
   const nodes = boardNodes.filter(n => ids.has(n.id)).map(boardNodeSnapshot);
@@ -755,7 +775,7 @@ async function deleteBoardNodes(nodeIds){
   const edges = boardEdges.filter(e => ids.has(e.from_node_id) || ids.has(e.to_node_id)).map(e => ({ ...e }));
   removeBoardNodesLocal(ids);
   pushBoardHistory({ type: 'delete', nodes, edges });
-  if(!await boardApi(projectId, 'POST', '/nodes/delete', { ids: [...ids] })) boardSaveFailed(projectId);
+  if(!await boardApi(projectId, 'POST', '/nodes/delete', { ids: [...ids] }, false, boardId)) boardSaveFailed(projectId, boardId);
 }
 
 // ---- 프로젝트 보드 — 되돌리기 / 다시 하기 ----
@@ -797,12 +817,14 @@ function pushBoardHistory(entry){
 async function boardUndoRedo(dir){
   if(boardHistoryBusy) return;
   const projectId = currentProjectId;
+  const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
   // 글을 쓰던 중이면 먼저 그 글쓰기를 마쳐(기록 한 칸 + 저장) 두고 시작한다 — 안 그러면
   // 되돌린 뒤에 남아 있던 글 저장이 되돌린 내용을 다시 덮는다.
   const active = document.activeElement;
   if(active && active.classList && active.classList.contains('board-node-textarea')) active.blur();
   await flushAllBoardTextSaves(false);
+  if(!boardScopeMatches(projectId, boardId)) return;
   const from = dir === 'undo' ? boardUndoStack : boardRedoStack;
   const entry = from.pop();
   if(!entry){ paintBoardHistoryButtons(); return; }
@@ -810,18 +832,18 @@ async function boardUndoRedo(dir){
   paintBoardHistoryButtons();
   let ok = false;
   try{
-    ok = await applyBoardHistoryEntry(projectId, entry, dir);
+    ok = await applyBoardHistoryEntry(projectId, entry, dir, boardId);
   }catch(e){
     ok = false;
   }
   boardHistoryBusy = false;
-  if(projectId !== currentProjectId) return;
+  if(!boardScopeMatches(projectId, boardId)) return;
   if(ok){
     (dir === 'undo' ? boardRedoStack : boardUndoStack).push(entry);
     paintBoardHistoryButtons();
   }else{
     // 서버와 화면이 어긋났을 수 있다 — 서버 상태로 다시 맞추고 기록은 버린다(fetchBoard가 비움).
-    boardSaveFailed(projectId);
+    boardSaveFailed(projectId, boardId);
   }
 }
 
@@ -855,11 +877,11 @@ function remapBoardHistory(extraEntry, nodeMap, edgeMap){
 }
 
 // 지운 카드·선을 서버에서 되살리고 화면에 붙인다.
-async function restoreBoardItems(projectId, entry, nodes, edges){
-  const res = await boardApi(projectId, 'POST', '/restore', { nodes, edges });
+async function restoreBoardItems(projectId, entry, nodes, edges, boardId = currentBoardId){
+  const res = await boardApi(projectId, 'POST', '/restore', { nodes, edges }, false, boardId);
   if(!res) return false;
   const data = await res.json();
-  if(projectId !== currentProjectId) return true;
+  if(!boardScopeMatches(projectId, boardId)) return true;
   const nodeMap = new Map(Object.entries(data.id_map || {}).map(([k, v]) => [Number(k), v]).filter(([k, v]) => k !== v));
   const edgeMap = new Map();
   edges.forEach((e, i) => { if(data.edges[i] && data.edges[i].id !== e.id) edgeMap.set(e.id, data.edges[i].id); });
@@ -873,13 +895,14 @@ async function restoreBoardItems(projectId, entry, nodes, edges){
   return true;
 }
 
-async function applyBoardHistoryEntry(projectId, entry, dir){
+async function applyBoardHistoryEntry(projectId, entry, dir, boardId){
+  if(!boardScopeMatches(projectId, boardId)) return false;
   const undo = dir === 'undo';
   if(entry.type === 'move'){
     const positions = entry.items.map(it => ({ id: it.id, ...(undo ? it.from : it.to) }));
     positions.forEach(p => setBoardNodePosLocal(p.id, p.x, p.y));
     updateBoardEdgePaths(new Set(positions.map(p => p.id)));
-    return !!await boardApi(projectId, 'PATCH', '/nodes', { nodes: positions });
+    return !!await boardApi(projectId, 'PATCH', '/nodes', { nodes: positions }, false, boardId);
   }
   if(entry.type === 'text'){
     const text = undo ? entry.from : entry.to;
@@ -887,7 +910,7 @@ async function applyBoardHistoryEntry(projectId, entry, dir){
     if(node) node.text = text;
     const ta = document.querySelector(`#board-world .board-node-textarea[data-board-text="${entry.id}"]`);
     if(ta) ta.value = text;
-    return !!await boardApi(projectId, 'PATCH', `/nodes/${entry.id}`, { text });
+    return !!await boardApi(projectId, 'PATCH', `/nodes/${entry.id}`, { text }, false, boardId);
   }
   if(entry.type === 'create' || entry.type === 'delete' || entry.type === 'paste'){
     // 놓기를 되돌리기 = 지우기, 지우기를 되돌리기 = 되살리기(다시 하기는 그 반대)
@@ -907,10 +930,10 @@ async function applyBoardHistoryEntry(projectId, entry, dir){
       }
       const ids = entry.type === 'create' ? [entry.node.id] : entry.nodes.map(n => n.id);
       removeBoardNodesLocal(new Set(ids));
-      return !!await boardApi(projectId, 'POST', '/nodes/delete', { ids });
+      return !!await boardApi(projectId, 'POST', '/nodes/delete', { ids }, false, boardId);
     }
     const nodes = entry.type === 'create' ? [entry.node] : entry.nodes;
-    return restoreBoardItems(projectId, entry, nodes, entry.edges || []);
+    return restoreBoardItems(projectId, entry, nodes, entry.edges || [], boardId);
   }
   if(entry.type === 'edge-add' || entry.type === 'edge-del'){
     const removing = (entry.type === 'edge-add') === undo;
@@ -920,20 +943,20 @@ async function applyBoardHistoryEntry(projectId, entry, dir){
       boardEdges = boardEdges.filter(e => e.id !== entry.edge.id);
       if(boardSelectedEdgeId === entry.edge.id) boardSelectedEdgeId = null;
       renderBoardEdges();
-      if(!await boardApi(projectId, 'DELETE', `/edges/${entry.edge.id}`)) return false;
-      return replaced.length ? restoreBoardItems(projectId, entry, [], replaced) : true;
+      if(!await boardApi(projectId, 'DELETE', `/edges/${entry.edge.id}`, undefined, false, boardId)) return false;
+      return replaced.length ? restoreBoardItems(projectId, entry, [], replaced, boardId) : true;
     }
     for(const r of replaced){
       boardEdges = boardEdges.filter(e => e.id !== r.id);
       renderBoardEdges();
-      if(!await boardApi(projectId, 'DELETE', `/edges/${r.id}`)) return false;
+      if(!await boardApi(projectId, 'DELETE', `/edges/${r.id}`, undefined, false, boardId)) return false;
     }
-    return restoreBoardItems(projectId, entry, [], [entry.edge]);
+    return restoreBoardItems(projectId, entry, [], [entry.edge], boardId);
   }
   if(entry.type === 'gen-value'){
     const value = undo ? entry.from : entry.to;
     setBoardGenValueLocal(entry.id, entry.name, value);
-    return !!await boardApi(projectId, 'PATCH', `/nodes/${entry.id}`, { values: { [entry.name]: value } });
+    return !!await boardApi(projectId, 'PATCH', `/nodes/${entry.id}`, { values: { [entry.name]: value } }, false, boardId);
   }
   if(entry.type === 'resize'){
     const size = undo ? entry.from : entry.to;
@@ -941,7 +964,7 @@ async function applyBoardHistoryEntry(projectId, entry, dir){
     if(node){ node.width = size.width; node.height = size.height; }
     const el = document.querySelector(`#board-world .board-node[data-node-id="${entry.id}"]`);
     if(el){ el.style.width = size.width + 'px'; el.style.height = size.height + 'px'; }
-    return !!await boardApi(projectId, 'PATCH', `/nodes/${entry.id}`, size);
+    return !!await boardApi(projectId, 'PATCH', `/nodes/${entry.id}`, size, false, boardId);
   }
   return false;
 }
@@ -1106,6 +1129,7 @@ function copyBoardNodes(nodeIds){
 // at: 붙일 자리(월드 좌표, 묶음의 왼쪽 위). 없으면 지금 화면 가운데에 가운데를 맞춘다.
 async function pasteBoardClip(at){
   const projectId = currentProjectId;
+  const boardId = currentBoardId;
   const clip = readBoardClip();
   if(typeof projectId !== 'number' || !clip) return;
   const x0 = Math.min(...clip.nodes.map(n => n.x)), y0 = Math.min(...clip.nodes.map(n => n.y));
@@ -1117,10 +1141,10 @@ async function pasteBoardClip(at){
     dx = c.x - (x0 + x1) / 2; dy = c.y - (y0 + y1) / 2;
   }
   const nodes = clip.nodes.map(n => ({ ...n, x: n.x + dx, y: n.y + dy }));
-  const res = await boardApi(projectId, 'POST', '/restore', { nodes, edges: clip.edges || [] });
+  const res = await boardApi(projectId, 'POST', '/restore', { nodes, edges: clip.edges || [] }, false, boardId);
   if(!res){ flashNotice('붙여넣지 못했어요 — 원래 결과물이나 작업이 지워졌을 수 있어요.'); return; }
   const data = await res.json();
-  if(projectId !== currentProjectId) return;
+  if(!boardScopeMatches(projectId, boardId)) return;
   boardNodes.push(...data.nodes);
   appendBoardNodeEls(data.nodes);
   if(data.nodes.some(n => n.kind === 'job')) fetchBoardJobs();

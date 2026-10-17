@@ -274,7 +274,7 @@ function showTab(tab, { podId = null, projectId = null, globalJobs = false, rout
   if(tab === 'settings') openSettingsTab();
   if(tab === 'library') openLibraryTab();
   if(tab === 'db'){ renderDbPanelTabs(); fetchRunpodSessions(); fetchGitLog(); fetchGenerationLog(); }
-  if(tab === 'prboard'){ initBoardCanvas(); resizeBoardViewport(); fetchBoard({ fit: true }); }
+  if(tab === 'prboard'){ initBoardCanvas(); resizeBoardViewport(); openProjectBoards(scopedProjectId); }
 
   const want = routeHash || (scopedPodId ? `#pod/${scopedPodId}/${tab}`
     : (scopedProjectId !== null ? `#project/${scopedProjectId}/${tab}` : `#${tab}`));

@@ -97,6 +97,25 @@
      세로 크기는 CSS만으로 "화면 나머지 전부"를 고정하기 어려워(body가 flex 셸이
      아니라 그냥 문서 흐름) resizeBoardViewport()가 실측해서 맞춘다. */
   main#tab-prboard{ max-width:none; margin:0; padding:0; display:block; gap:0; }
+  .board-content{ display:flex; min-width:0; }
+  .board-current-name{ min-width:0; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:600; }
+  .board-tree{ flex:0 0 240px; width:240px; background:var(--panel); border-right:1px solid var(--border); position:relative; display:flex; flex-direction:column; }
+  .board-tree[hidden]{ display:none; }
+  .board-tree-head{ height:44px; padding:0 8px 0 16px; display:flex; align-items:center; justify-content:space-between; font-size:13px; border-bottom:1px solid var(--border); }
+  #board-tree-toggle, .board-tree-head .icon-btn{ width:40px; height:40px; min-width:40px; }
+  .board-tree-list{ flex:1; min-height:120px; padding:8px; }
+  .board-tree-root{ display:flex; align-items:center; gap:8px; min-height:40px; padding:0 8px; font-size:13px; font-weight:600; color:var(--text-dim); }
+  .board-tree-item{ display:flex; align-items:center; gap:8px; width:100%; min-height:44px; padding:0 8px 0 24px; border:0; border-radius:6px; background:transparent; color:var(--text); font:inherit; font-size:13px; text-align:left; cursor:pointer; }
+  .board-tree-item:hover, .board-tree-item:focus-visible{ background:var(--panel-2); }
+  .board-tree-item[aria-selected="true"]{ background:var(--panel-2); color:var(--accent); font-weight:600; }
+  .board-tree-item .ico, .board-tree-root .ico{ flex:none; }
+  .board-tree-item span{ overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .board-tree-empty{ padding:16px; font-size:13px; color:var(--text-dim); line-height:1.6; }
+  .board-tree-menu{ position:fixed; z-index:1001; min-width:150px; padding:4px; border:1px solid var(--border); border-radius:8px; background:var(--panel); box-shadow:0 8px 24px rgba(16,24,40,.12); }
+  .board-tree-menu button{ display:block; width:100%; min-height:40px; padding:8px 12px; border:0; border-radius:6px; background:transparent; color:var(--text); font:inherit; font-size:13px; text-align:left; cursor:pointer; }
+  .board-tree-menu button:hover, .board-tree-menu button:focus-visible{ background:var(--panel-2); }
+  .board-tree-menu button.danger{ color:var(--failed); }
+  @media(max-width:700px){ .board-content{ position:relative; } .board-tree{ position:absolute; z-index:10; top:0; left:0; bottom:0; width:min(280px,85vw); box-shadow:0 8px 24px rgba(16,24,40,.12); } .board-current-name{ max-width:110px; } }
   .board-toolbar{
     display:flex; align-items:center; gap:8px;
     padding:10px 16px;
@@ -109,6 +128,7 @@
   }
   .board-viewport{
     position:relative;
+    flex:1; min-width:0;
     overflow:hidden;
     background-color:var(--bg);
     /* 점 격자 배경 — "무한 캔버스" 느낌. board-world와 같은 변환을 받도록(팬/줌에
