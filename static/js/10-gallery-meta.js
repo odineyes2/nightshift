@@ -609,9 +609,13 @@ function createAssetMetaPanel(root, kind){
     ].filter(Boolean).join(' · ');
     const dims = d.width && d.height ? `${d.width}×${d.height}` : null;
     // Enhance를 쓴 결과는 그래프에 원문만 남는다 — 입력 프롬프트로 표시하고 배지를 붙인다.
-    const label = params.prompt_enhance ? '입력 프롬프트 <span class="am-badge">Enhance 사용</span>' : '프롬프트';
+    const label = params.prompt_enhance || d.enhanced_prompt
+      ? '입력 프롬프트 <span class="am-badge">Enhance 사용</span>' : '프롬프트';
     const prompt = d.prompt
       ? `<div class="am-prompt-head"><span>${label}</span><button type="button" class="load-btn am-copy" data-copy="prompt">${ico('copy')} 복사</button></div><div class="am-prompt">${escapeHtml(d.prompt)}</div>`
+      : '';
+    const enhanced = d.enhanced_prompt
+      ? `<div class="am-prompt-head"><span>개선된 프롬프트</span><button type="button" class="load-btn am-copy" data-copy="enhanced_prompt">${ico('copy')} 복사</button></div><div class="am-prompt">${escapeHtml(d.enhanced_prompt)}</div>`
       : '';
     const negative = d.negative_prompt
       ? `<div class="am-prompt-head"><span>네거티브 프롬프트</span></div><div class="am-prompt">${escapeHtml(d.negative_prompt)}</div>`
@@ -619,7 +623,7 @@ function createAssetMetaPanel(root, kind){
     const facts = row('작업', d.job_label) + row('워커', d.pod_name) + row('체크포인트', d.checkpoint)
       + row('시드', d.seed) + row('샘플링', paramText) + row('LoRA', (params.loras || []).join(', ')) + row('해상도', dims)
       + poseRow(params.pose);
-    infoEl.innerHTML = (facts ? `<dl class="am-facts">${facts}</dl>` : '') + prompt + negative
+    infoEl.innerHTML = (facts ? `<dl class="am-facts">${facts}</dl>` : '') + prompt + enhanced + negative
       || '<span class="am-empty">ComfyUI가 남긴 생성 정보가 없어요(회전·편집으로 지워졌거나 직접 넣은 파일일 수 있어요).</span>';
     infoEl._detail = d;
   }
@@ -695,7 +699,7 @@ function createAssetMetaPanel(root, kind){
     }
     const btn = e.target.closest('[data-copy]');
     if(!btn || !infoEl._detail) return;
-    try{ await copyTextToClipboard(infoEl._detail.prompt || ''); say('복사됨'); }catch(err){ say('복사 실패'); }
+    try{ await copyTextToClipboard(infoEl._detail[btn.dataset.copy] || ''); say('복사됨'); }catch(err){ say('복사 실패'); }
   });
 
   return {

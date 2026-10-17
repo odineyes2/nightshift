@@ -194,6 +194,7 @@ def remote_output_items(
         outputs = entry.get("outputs")
         if not isinstance(outputs, dict):
             continue
+        enhanced_prompt = _krea2_enhanced_prompt(entry)
         for node_output in outputs.values():
             if not isinstance(node_output, dict):
                 continue
@@ -210,8 +211,44 @@ def remote_output_items(
                         continue
                     subfolder = image.get("subfolder") or ""
                     key = f"{subfolder}/{filename}" if subfolder else filename
-                    items.setdefault(key, {"filename": filename, "subfolder": subfolder, "key": key})
+                    items.setdefault(key, {"filename": filename, "subfolder": subfolder, "key": key,
+                                           "enhanced_prompt": enhanced_prompt})
     return list(items.values())
+
+
+def _krea2_enhanced_prompt(entry: dict) -> str | None:
+    """같은 실행의 krea.2 개선 미리보기 출력만 읽는다."""
+    prompt = entry.get("prompt")
+    graph = prompt[2] if isinstance(prompt, (list, tuple)) and len(prompt) > 2 else None
+    outputs = entry.get("outputs")
+    if not isinstance(graph, dict) or not isinstance(outputs, dict):
+        return None
+    previews = [(node_id, node) for node_id, node in graph.items()
+                if isinstance(node, dict) and node.get("class_type") == "PreviewAny"
+                and isinstance(node.get("_meta"), dict)
+                and node["_meta"].get("title") == "보강된 프롬프트 미리보기"]
+    if len(previews) != 1:
+        return None
+    node_id, preview = previews[0]
+    inputs = preview.get("inputs")
+    source = inputs.get("source") if isinstance(inputs, dict) else None
+    if not isinstance(source, (list, tuple)) or len(source) != 2 or source[1] != 0:
+        return None
+    refine = graph.get(str(source[0]))
+    if not isinstance(refine, dict) or refine.get("class_type") != "TextGenerate":
+        return None
+    if not any(isinstance(node, dict) and node.get("class_type") == "CLIPTextEncode"
+               and isinstance(node.get("inputs"), dict)
+               and node["inputs"].get("text") == [str(source[0]), 0]
+               for node in graph.values()):
+        return None
+    output = outputs.get(str(node_id))
+    if not isinstance(output, dict):
+        return None
+    for value in output.values():
+        if isinstance(value, list) and value and isinstance(value[0], str):
+            return value[0] or None
+    return None
 
 
 def _safe_dest(base: Path, key: str) -> Path | None:
@@ -300,8 +337,13 @@ def sync_outputs(
                 continue
             if not force and key in known:
                 skipped_known += 1
-                if pod_id and _entry_pod_id(known[key]) is None:
+                if not isinstance(known[key], dict):
                     known[key] = _entry(_entry_at(known[key]) or _now_iso(), pod_id)
+                elif pod_id and _entry_pod_id(known[key]) is None:
+                    known[key]["pod_id"] = pod_id
+                dest = _safe_dest(base, key)
+                if dest is not None and dest.exists() and item.get("enhanced_prompt"):
+                    known[key]["enhanced_prompt"] = item["enhanced_prompt"]
                 continue
             dest = _safe_dest(base, key)
             if dest is None:
@@ -314,8 +356,12 @@ def sync_outputs(
                 existing = known.get(key)
                 if existing is None:
                     known[key] = _entry(_now_iso(), pod_id)
-                elif pod_id and _entry_pod_id(existing) is None:
+                elif not isinstance(existing, dict):
                     known[key] = _entry(_entry_at(existing) or _now_iso(), pod_id)
+                elif pod_id and _entry_pod_id(existing) is None:
+                    known[key]["pod_id"] = pod_id
+                if item.get("enhanced_prompt"):
+                    known[key]["enhanced_prompt"] = item["enhanced_prompt"]
                 skipped_existing += 1
                 continue
             try:
@@ -324,6 +370,8 @@ def sync_outputs(
                 errors.append(f"{key}: {e}")
                 continue
             known[key] = _entry(_now_iso(), pod_id)
+            if item.get("enhanced_prompt"):
+                known[key]["enhanced_prompt"] = item["enhanced_prompt"]
             downloaded_now.append(key)
 
         # 받은 게 없어도 last_sync는 갱신한다 — "언제 확인했는지"가 화면에 필요하다.

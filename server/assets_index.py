@@ -424,6 +424,8 @@ def sync(force: bool = False) -> dict | None:
         origins = _origin_pods()
         added = updated = removed = 0
         with db.connect() as conn:
+            enhanced_prompts = {r["key"]: r["enhanced_prompt"] for r in conn.execute(
+                "SELECT key, enhanced_prompt FROM comfy_downloads WHERE enhanced_prompt IS NOT NULL")}
             rows = {r["path"]: r for r in conn.execute(
                 "SELECT id, path, size_bytes, mtime_ns, deleted_at FROM assets")}
             live_rows = sum(1 for r in rows.values() if r["deleted_at"] is None)
@@ -468,11 +470,12 @@ def sync(force: bool = False) -> dict | None:
                     conn.execute(
                         """INSERT INTO assets(path, kind, project_id, job_id, size_bytes, mtime_ns, width, height,
                                created_at, seed, prompt, negative_prompt, checkpoint, params_json,
-                               origin_pod_id, owner_id, nsfw) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                               origin_pod_id, owner_id, nsfw, enhanced_prompt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (path, kind, project_id, job_id,
                          st.st_size, st.st_mtime_ns, width, height, _iso(st.st_mtime),
                          meta.get("seed"), meta.get("prompt"), meta.get("negative_prompt"),
-                         meta.get("checkpoint"), meta.get("params_json"), origins.get(path), owner_id, nsfw),
+                         meta.get("checkpoint"), meta.get("params_json"), origins.get(path), owner_id, nsfw,
+                         enhanced_prompts.get(path)),
                     )
                     added += 1
                 elif need_probe or row["deleted_at"] is not None:
