@@ -926,6 +926,12 @@
       <button class="pod-subtab-btn active" type="button" data-library-tab="pose">Pose</button>
       <button class="pod-subtab-btn" type="button" data-library-tab="position">Position</button>
       <button class="pod-subtab-btn" type="button" data-library-tab="lighting">Lighting</button>
+      <span id="library-custom-tabs"></span>
+      <button class="load-btn" id="library-category-create" type="button"><svg class="ico"><use href="#i-plus"/></svg> 카테고리</button>
+    </div>
+    <div id="library-category-actions" hidden>
+      <button class="load-btn" id="library-category-rename" type="button"><svg class="ico"><use href="#i-pencil"/></svg> 이름 변경</button>
+      <button class="load-btn" id="library-category-delete" type="button"><svg class="ico"><use href="#i-trash-2"/></svg> 카테고리 삭제</button>
     </div>
     <div class="panel-header">
       <div class="section-label"><svg class="ico"><use href="#i-library"/></svg> Library</div>
@@ -1329,6 +1335,26 @@
 <input type="file" id="asset-upload-input" multiple accept="image/*,video/*" hidden>
 
 <!-- 베이스 모델 세부 설정(Settings › Base Model에서 연다) — 소속 모델과 UNet 구성 점검 -->
+<!-- 사용자 정의 Library 카테고리 이름을 만들거나 바꾼다. -->
+<div class="modal-overlay" id="library-category-modal" style="display:none;">
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="library-category-title">
+    <div class="modal-header">
+      <div class="modal-title" id="library-category-title">카테고리 만들기</div>
+      <button class="modal-close" id="library-category-close" type="button" aria-label="닫기">&times;</button>
+    </div>
+    <form id="library-category-form" class="modal-body">
+      <div class="field">
+        <label class="field-label" for="library-category-name">카테고리 이름</label>
+        <input class="option-input" id="library-category-name" type="text" maxlength="100" required placeholder="예: Shot &amp; Framing">
+      </div>
+      <div class="upload-error" id="library-category-error" role="alert"></div>
+    </form>
+    <div class="modal-footer">
+      <button class="modal-btn-secondary" id="library-category-cancel" type="button">취소</button>
+      <button class="submit-btn" id="library-category-save" type="submit" form="library-category-form">저장</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="pose-add-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">

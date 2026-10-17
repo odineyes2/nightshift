@@ -2,6 +2,12 @@
   .library-grid{
     display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:var(--gap-sm);
   }
+  #library-subtabs{ align-items:center; flex-wrap:wrap; }
+  #library-custom-tabs{ display:contents; }
+  #library-category-create{ margin-left:auto; }
+  #library-category-actions{ display:flex; gap:var(--gap-sm); margin-bottom:var(--gap-sm); }
+  #library-category-actions[hidden], #library-select-all-btn[hidden], #library-sequence-btn[hidden]{ display:none; }
+  #library-category-modal .modal-panel{ max-width:480px; }
   .library-card{
     background:var(--panel); border:1px solid var(--border); border-radius:var(--radius-md);
     overflow:hidden; display:flex; flex-direction:column;

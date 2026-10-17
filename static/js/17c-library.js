@@ -9,18 +9,38 @@ let poseAddImageMode = 'file';   // 'file' | 'url'
 // 서브탭 — 세 종류가 같은 목록·아티클·라이트박스·추가 모달을 쓰고 API 주소·문구·생성 동작만 다르다.
 let libraryTab = 'pose';   // 'pose' | 'position' | 'lighting'
 const LIBRARY_API = { pose: '/api/library/poses', position: '/api/library/positions', lighting: '/api/library/lightings' };
-const libraryApi = () => LIBRARY_API[libraryTab];
+let libraryCategories = [];
+const libraryCategory = () => libraryCategories.find(c => `category-${c.id}` === libraryTab);
+const libraryApi = () => libraryCategory()
+  ? `/api/library/categories/${libraryCategory().id}/articles` : LIBRARY_API[libraryTab];
 const isPositionTab = () => libraryTab === 'position';
-const libraryKindLabel = kind => ({ pose: 'Pose', position: 'Position', lighting: 'Lighting' })[kind];
-const libraryNoun = () => libraryTab === 'pose' ? '포즈' : libraryKindLabel(libraryTab);
+const libraryKindLabel = kind => ({ pose: 'Pose', position: 'Position', lighting: 'Lighting' })[kind]
+  || libraryCategories.find(c => `category-${c.id}` === kind)?.name || '아티클';
+const libraryNoun = () => libraryTab === 'pose' ? '포즈' : libraryCategory() ? '아티클' : libraryKindLabel(libraryTab);
+
+function renderLibraryCategories(){
+  document.getElementById('library-custom-tabs').innerHTML = libraryCategories.map(c =>
+    `<button class="pod-subtab-btn" type="button" data-library-tab="category-${c.id}">${escapeHtml(c.name)}</button>`).join('');
+  document.getElementById('library-category-actions').hidden = !libraryCategory();
+  document.querySelectorAll('#library-subtabs [data-library-tab]')
+    .forEach(b => b.classList.toggle('active', b.dataset.libraryTab === libraryTab));
+}
+
+async function fetchLibraryCategories(){
+  const data = await libraryRequest('/api/library/categories', {}, '카테고리를 불러오지 못했어요');
+  libraryCategories = data.items || [];
+  if(libraryTab.startsWith('category-') && !libraryCategory()) libraryTab = 'pose';
+  renderLibraryCategories();
+}
 
 function setLibraryError(msg){ document.getElementById('library-error').textContent = msg || ''; }
 
 function setLibraryTab(tab){
   libraryTab = tab;
   librarySelected.clear();
-  document.querySelectorAll('#library-subtabs [data-library-tab]')
-    .forEach(b => b.classList.toggle('active', b.dataset.libraryTab === tab));
+  renderLibraryCategories();
+  document.getElementById('library-select-all-btn').hidden = !!libraryCategory();
+  document.getElementById('library-sequence-btn').hidden = !!libraryCategory();
   document.getElementById('library-sequence-btn').title =
     `체크한 게시물(없으면 지금 목록 전부)의 대표 이미지를 ${libraryNoun()}로 차례로 생성`;
 }
@@ -32,6 +52,8 @@ async function openLibraryTab(){
   setLibraryError('');
   libraryPoses = [];
   try{
+    await fetchLibraryCategories();
+    setLibraryTab(libraryTab);
     const res = await fetch(libraryApi());
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || `불러오지 못했어요 (${res.status})`);
@@ -75,7 +97,7 @@ function renderLibraryPoses(){
       <span class="library-thumb">
         <img src="${escapeHtml(p.thumb_url)}" alt="${escapeHtml(p.name)}" loading="lazy">
         ${p.image_count > 1 ? `<span class="library-thumb-count">${ico('layout-grid')} ${p.image_count}</span>` : ''}
-        <button class="library-check-btn" type="button" aria-pressed="${librarySelected.has(p.id)}" title="순차 생성에 넣기" aria-label="순차 생성에 넣기">${ico('square-check-big')}</button>
+        ${libraryCategory() ? '' : `<button class="library-check-btn" type="button" aria-pressed="${librarySelected.has(p.id)}" title="순차 생성에 넣기" aria-label="순차 생성에 넣기">${ico('square-check-big')}</button>`}
       </span>
       <span class="library-info">
         <span class="library-name">${escapeHtml(p.name)}</span>
@@ -144,6 +166,7 @@ async function libraryToInput(url, body){
 
 // 체크한 게시물(목록 순서)로 순차 생성 마법사를 연다 — 게시물마다 대표 이미지 한 항목(NS-61).
 function generatePoseSequence(){
+  if(libraryTab.startsWith('category-')) return;
   setLibraryError('');
   const kind = libraryTab;
   const posts = libraryPoses.filter(p => !librarySelected.size || librarySelected.has(p.id)).map(p => ({ ...p, images: p.images.map(im => ({ ...im })) }));
@@ -210,7 +233,7 @@ function renderLibraryArticle(){
   document.getElementById('library-article-edit-btn').hidden = false;
   document.getElementById('library-article-delete-btn').hidden = false;
   const moveBtn = document.getElementById('library-article-move-btn');
-  moveBtn.hidden = libraryTab === 'lighting';
+  moveBtn.hidden = libraryTab === 'lighting' || libraryTab.startsWith('category-');
   moveBtn.style.display = moveBtn.hidden ? 'none' : '';   // 버튼의 display 규칙보다 우선해 숨긴다.
   const moveLabel = isPositionTab() ? 'Pose로 이동' : 'Position으로 이동';
   moveBtn.title = moveLabel;
@@ -267,7 +290,7 @@ async function deleteLibraryPost(){
 // Pose↔Position 이동(NS-46) — 서버가 대상 쪽에 새 게시물을 만들고 원본을 지운다(id가 바뀐다).
 // 끝나면 대상 서브탭으로 바꾸고 새 게시물 아티클을 연다.
 async function moveLibraryPost(){
-  if(libraryTab === 'lighting') return;
+  if(libraryTab === 'lighting' || libraryTab.startsWith('category-')) return;
   const p = libraryArticle();
   if(!p) return;
   const [target, path, label] = isPositionTab()
@@ -344,11 +367,13 @@ document.getElementById('library-article-edit-btn').addEventListener('click', ()
 document.getElementById('library-article-delete-btn').addEventListener('click', deleteLibraryPost);
 document.getElementById('library-article-move-btn').addEventListener('click', moveLibraryPost);
 document.getElementById('library-article-cover-btn').addEventListener('click', () => setLibraryCover(libraryCoverPick));
-document.querySelectorAll('#library-subtabs [data-library-tab]').forEach(btn => btn.addEventListener('click', () => {
+document.getElementById('library-subtabs').addEventListener('click', e => {
+  const btn = e.target.closest('[data-library-tab]');
+  if(!btn) return;
   if(btn.dataset.libraryTab === libraryTab) return closeLibraryArticle();
   setLibraryTab(btn.dataset.libraryTab);
   openLibraryTab();
-}));
+});
 
 // ---- Library 라이트박스 — 갤러리 라이트박스와 같은 UI, 공용 함수(15-gallery.js)를 overlay만 바꿔 부른다 ----
 const libraryLightbox = document.getElementById('library-lightbox');
@@ -440,6 +465,72 @@ document.querySelectorAll('#library-display-toggle .enhance-mode-btn').forEach(b
   });
 });
 document.getElementById('library-refresh-btn').addEventListener('click', openLibraryTab);
+
+// 사용자 정의 카테고리만 이름을 바꾸고 지운다. 삭제 전 서버 목록으로 대상과 건수를 확인한다.
+const libraryCategoryModal = document.getElementById('library-category-modal');
+let libraryCategoryEditId = null;
+let libraryCategoryFocus = null;
+function openLibraryCategoryModal(edit = false){
+  const category = edit ? libraryCategory() : null;
+  if(edit && !category) return;
+  libraryCategoryEditId = category?.id || null;
+  libraryCategoryFocus = document.activeElement;
+  document.getElementById('library-category-title').textContent = edit ? '카테고리 이름 변경' : '카테고리 만들기';
+  document.getElementById('library-category-name').value = category?.name || '';
+  document.getElementById('library-category-error').textContent = '';
+  libraryCategoryModal.style.display = 'flex';
+  document.getElementById('library-category-name').focus();
+}
+function closeLibraryCategoryModal(){
+  libraryCategoryModal.style.display = 'none';
+  if(libraryCategoryFocus?.isConnected) libraryCategoryFocus.focus();
+  libraryCategoryFocus = null;
+}
+async function saveLibraryCategory(e){
+  e.preventDefault();
+  const name = document.getElementById('library-category-name').value.trim();
+  const error = document.getElementById('library-category-error');
+  if(!name) return error.textContent = '카테고리 이름을 적어주세요.';
+  const btn = document.getElementById('library-category-save');
+  btn.disabled = true;
+  error.textContent = '';
+  try{
+    const id = libraryCategoryEditId;
+    const category = await libraryRequest(`/api/library/categories${id ? `/${id}` : ''}`, {
+      method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }, '카테고리를 저장하지 못했어요');
+    closeLibraryCategoryModal();
+    await fetchLibraryCategories();
+    setLibraryTab(`category-${category.id}`);
+    await openLibraryTab();
+  }catch(err){ error.textContent = err.message; }
+  finally{ btn.disabled = false; }
+}
+async function deleteLibraryCategory(){
+  const category = libraryCategory();
+  if(!category) return;
+  const id = category.id;
+  try{
+    const data = await libraryRequest(`/api/library/categories/${id}/articles`, {}, '아티클을 확인하지 못했어요');
+    const posts = data.items || [];
+    const images = posts.reduce((sum, p) => sum + p.images.length, 0);
+    if(!confirm(`'${category.name}' 카테고리와 아티클 ${posts.length}개, 이미지 ${images}장을 모두 지울까요?`)) return;
+    await libraryRequest(`/api/library/categories/${id}`, { method: 'DELETE' }, '카테고리를 삭제하지 못했어요');
+    libraryTab = 'pose';
+    await openLibraryTab();
+  }catch(err){ setLibraryError(err.message); }
+}
+document.getElementById('library-category-create').addEventListener('click', () => openLibraryCategoryModal());
+document.getElementById('library-category-rename').addEventListener('click', () => openLibraryCategoryModal(true));
+document.getElementById('library-category-delete').addEventListener('click', deleteLibraryCategory);
+document.getElementById('library-category-close').addEventListener('click', closeLibraryCategoryModal);
+document.getElementById('library-category-cancel').addEventListener('click', closeLibraryCategoryModal);
+document.getElementById('library-category-form').addEventListener('submit', saveLibraryCategory);
+libraryCategoryModal.addEventListener('click', e => { if(e.target === libraryCategoryModal) closeLibraryCategoryModal(); });
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && libraryCategoryModal.style.display !== 'none') closeLibraryCategoryModal();
+});
 
 // ---- 게시물 추가 모달 ----
 const poseAddModal = document.getElementById('pose-add-modal');
@@ -574,7 +665,7 @@ async function savePoseAdd(e){
     if(!res.ok) throw new Error(data.detail || `저장하지 못했어요 (${res.status})`);
     closePoseAddModal();
     await openLibraryTab();
-    if(targetId) openLibraryArticle(targetId);   // 이미지를 덧붙였으면 그 게시물 갤러리로 돌아간다
+    if(targetId || libraryCategory()) openLibraryArticle(targetId || data.id);
   }catch(err){ setPoseAddError(err.message); }
   finally{ btn.disabled = false; btn.textContent = '저장'; }
 }
