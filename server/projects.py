@@ -141,6 +141,8 @@ def create_project(name: str, description: str = "", defaults: dict | None = Non
              1 if is_mature else 0),
         )
         project_id = cur.lastrowid
+        conn.execute("INSERT INTO boards(project_id, name, position, created_at) VALUES(?,?,0,?)",
+                     (project_id, "기본 무드보드", now))
     return get_project(project_id)
 
 
