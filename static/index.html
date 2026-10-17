@@ -603,6 +603,9 @@
      잇고, 선을 골라 끊는다(board_edges 표). -->
 <main id="tab-prboard" style="display:none;">
   <div class="board-toolbar">
+    <button class="icon-btn icon-btn-neutral" id="board-tree-toggle" type="button" title="무드보드 목록 열기·닫기" aria-label="무드보드 목록 열기·닫기" aria-expanded="true" aria-controls="board-tree"><svg class="ico"><use href="#i-folder-open"/></svg></button>
+    <span class="board-current-name" id="board-current-name">무드보드</span>
+    <span class="board-toolbar-sep"></span>
     <button class="icon-btn" id="board-zoom-out-btn" type="button" title="축소"><svg class="ico"><use href="#i-zoom-out"/></svg></button>
     <span class="board-zoom-label" id="board-zoom-label">100%</span>
     <button class="icon-btn" id="board-zoom-in-btn" type="button" title="확대"><svg class="ico"><use href="#i-zoom-in"/></svg></button>
@@ -618,6 +621,11 @@
     <button class="icon-btn icon-btn-neutral" id="board-redo-btn" type="button" title="다시 하기 (Ctrl+Shift+Z)" aria-label="다시 하기" disabled><svg class="ico"><use href="#i-redo-2"/></svg></button>
     <button class="icon-btn icon-btn-neutral" id="board-select-mode-btn" type="button" title="선택 모드 — 켜면 빈 곳을 끌어 여러 카드를 고른다(마우스는 Shift를 누른 채 끌어도 됨)" aria-label="선택 모드" aria-pressed="false"><svg class="ico"><use href="#i-square-dashed"/></svg></button>
   </div>
+  <div class="board-content">
+  <aside class="board-tree" id="board-tree" aria-label="무드보드 목록">
+    <div class="board-tree-head"><strong>무드보드</strong><button class="icon-btn icon-btn-neutral" id="board-tree-add" type="button" title="무드보드 추가" aria-label="무드보드 추가"><svg class="ico"><use href="#i-plus"/></svg></button></div>
+    <div class="board-tree-list" id="board-tree-list" role="tree" aria-label="프로젝트 무드보드"></div>
+  </aside>
   <div class="board-viewport" id="board-viewport">
     <div class="board-world" id="board-world"></div>
     <!-- 전체 보기 — 모든 카드가 한눈에 들어오게 위치·확대를 맞춘다(보드를 열 때도 저절로). 캔버스 오른쪽 아래에 떠 있다. -->
@@ -629,6 +637,7 @@
       <button type="button" class="board-selection-btn danger" id="board-delete-selected-btn"><svg class="ico"><use href="#i-trash-2"/></svg> 지우기</button>
       <button type="button" class="board-selection-btn" id="board-clear-selection-btn">해제</button>
     </div>
+  </div>
   </div>
 </main>
 
