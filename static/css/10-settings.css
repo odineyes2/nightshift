@@ -11,6 +11,20 @@
 .settings-field{ display:flex; flex-direction:column; gap:4px; }
 .settings-form label{ cursor:pointer; }
 
+/* RunPod GPU 패밀리 설정 */
+.settings-gpu-family{ margin:16px 0; padding:16px; border:1px solid var(--border); border-radius:8px; background:var(--panel); }
+.settings-gpu-clouds{ display:flex; flex-wrap:wrap; gap:16px; margin:12px 0; }
+.settings-gpu-cloud{ display:flex; align-items:center; gap:8px; cursor:pointer; }
+.settings-gpu-list{ display:flex; flex-direction:column; gap:4px; }
+.settings-gpu-row{ display:flex; align-items:center; gap:12px; min-width:0; padding:8px; border-bottom:1px solid var(--border); }
+.settings-gpu-name{ flex:1; min-width:0; overflow-wrap:anywhere; font-size:13px; }
+.settings-gpu-name .dl-meta{ display:block; }
+.settings-gpu-row .settings-bm-move button{ min-width:40px; min-height:40px; }
+.settings-gpu-actions{ display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin:16px 0; }
+.settings-gpu-warning{ margin:12px 0; color:var(--failed); overflow-wrap:anywhere; }
+.pod-create-tier span{ overflow-wrap:anywhere; }
+@media (max-width:640px){ .settings-gpu-family{ padding:12px; } .settings-gpu-row{ gap:8px; } }
+
 /* 베이스 모델 세부 설정 모달 */
 #base-model-modal .section-label{ margin-top:16px; }
 .settings-parts{ display:flex; flex-direction:column; gap:6px; margin:8px 0; }
