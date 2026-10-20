@@ -1,4 +1,4 @@
-// ---- Settings 탭 (관리자) — Base Model · Notification 서브탭 ----
+// ---- Settings 탭 (관리자) — Base Model · Notification · RunPod GPU 서브탭 ----
 // 베이스 모델 목록은 서버 DB(base_models)가 기준이다. 목록 순서가 새 잡 마법사 1단계의 순서다.
 // 코드가 이름(식별자)에 기대는 베이스 모델 — 이름을 바꾸거나 지우면 전용 워크플로우·프리셋 연결이 끊길 수 있다.
 const BASE_MODEL_CODE_BOUND = /^(krea\.2|minimax-h3|wan.*|illustrious|pony|noobai)$/i;
@@ -14,6 +14,7 @@ async function openSettingsTab(){
     p.style.display = p.id === 'settings-' + settingsSubtab ? '' : 'none');
   setSettingsError('');
   if(settingsSubtab === 'notifications') return loadNotifySettings();
+  if(settingsSubtab === 'runpod-gpus') return loadRunpodGpuSettings();
   await fetchModelRegistry();
   renderBaseModelSettings();
 }
@@ -23,6 +24,110 @@ document.getElementById('settings-subtabs').addEventListener('click', (e) => {
   if(!btn || btn.dataset.settingsTab === settingsSubtab) return;
   settingsSubtab = btn.dataset.settingsTab;
   openSettingsTab();
+});
+
+// ---- RunPod GPU — 서버의 패밀리별 순서를 편집하고 한 번에 저장한다 ----
+let runpodGpuFamilies = null;
+let runpodGpuCatalog = [];
+let runpodGpuExcluded = [];
+let runpodGpuSaving = false;
+let runpodGpuCatalogError = null;
+
+async function loadRunpodGpuSettings(){
+  const el = document.getElementById('settings-runpod-gpus');
+  el.innerHTML = '<div class="dl-meta">GPU 설정을 불러오는 중…</div>';
+  try{
+    const [settingsRes, catalogRes] = await Promise.all([
+      fetch('/api/settings/runpod-gpus'), fetch('/api/settings/runpod-gpus/catalog')
+    ]);
+    const settings = await settingsRes.json().catch(() => ({}));
+    const catalog = await catalogRes.json().catch(() => ({}));
+    if(!settingsRes.ok) throw new Error(settings.detail || `설정을 불러오지 못했어요 (${settingsRes.status})`);
+    if(!catalogRes.ok) throw new Error(catalog.detail || `GPU 목록을 불러오지 못했어요 (${catalogRes.status})`);
+    runpodGpuFamilies = Object.fromEntries(Object.entries(settings.families).map(([id, f]) =>
+      [id, { gpus: [...f.gpus], clouds: [...f.clouds], configured: f.configured }]));
+    runpodGpuCatalog = catalog.gpus || [];
+    runpodGpuExcluded = catalog.excluded_gpus || settings.excluded_gpus || [];
+    runpodGpuCatalogError = catalog.error;
+    renderRunpodGpuSettings();
+  }catch(err){ el.innerHTML = ''; setSettingsError(err.message); }
+}
+
+function renderRunpodGpuSettings(){
+  const el = document.getElementById('settings-runpod-gpus');
+  const names = { image: '이미지용', video: '영상용' };
+  el.innerHTML = `<div class="dl-meta">GPU를 켜고 시도 순서를 정해 주세요. 클라우드는 Secure 또는 Community를 고를 수 있어요. 각 클라우드에서 일본을 먼저 시도해요. GPU 종류 목록은 실시간 재고나 CUDA 호환을 보장하지 않아요.</div>
+    ${runpodGpuCatalogError ? `<div class="settings-gpu-warning">RunPod GPU 목록을 조회하지 못했어요. 기본·저장 후보를 보여 드려요: ${escapeHtml(runpodGpuCatalogError)}</div>` : ''}
+    ${Object.entries(runpodGpuFamilies).map(([id, f]) => {
+      const byId = new Map(runpodGpuCatalog.map(g => [g.id, g]));
+      const ids = [...f.gpus, ...runpodGpuCatalog.map(g => g.id).filter(g => !f.gpus.includes(g))];
+      return `<section class="settings-gpu-family" data-family="${escapeHtml(id)}">
+        <div class="section-label">${names[id] || escapeHtml(id)} <span class="dl-meta">${f.configured ? '저장된 설정' : '기본 설정'}</span></div>
+        <div class="settings-gpu-clouds" role="group" aria-label="${names[id] || escapeHtml(id)} 클라우드">
+          ${['SECURE', 'COMMUNITY'].map(c => `<label class="settings-gpu-cloud"><button type="button" class="pod-switch" role="switch" data-cloud="${c}" aria-checked="${f.clouds.includes(c)}" aria-label="${c} 클라우드"></button>${c === 'SECURE' ? 'Secure' : 'Community'}</label>`).join('')}
+        </div>
+        <div class="settings-gpu-list">${ids.map(gpu => {
+          const info = byId.get(gpu) || { displayName: gpu };
+          const on = f.gpus.includes(gpu), index = f.gpus.indexOf(gpu), excluded = runpodGpuExcluded.includes(gpu);
+          return `<div class="settings-gpu-row" data-gpu="${escapeHtml(gpu)}">
+            <button type="button" class="pod-switch" role="switch" data-gpu-toggle aria-checked="${on}" aria-label="${escapeHtml(info.displayName)} 사용"${excluded && !on ? ' disabled' : ''}></button>
+            <span class="settings-gpu-name">${escapeHtml(info.displayName)} <span class="dl-meta">${info.memoryInGb ? `${escapeHtml(String(info.memoryInGb))}GB` : ''}${excluded ? ' · 현재 제외된 GPU' : ''}${!byId.has(gpu) ? ' · 카탈로그에 없음' : ''}</span></span>
+            <span class="settings-bm-move"><button type="button" class="modal-btn-secondary" data-gpu-move="up" aria-label="${escapeHtml(info.displayName)} 위로"${!on || index === 0 ? ' disabled' : ''}>↑</button>
+            <button type="button" class="modal-btn-secondary" data-gpu-move="down" aria-label="${escapeHtml(info.displayName)} 아래로"${!on || index === f.gpus.length - 1 ? ' disabled' : ''}>↓</button></span>
+          </div>`;
+        }).join('')}</div>
+      </section>`;
+    }).join('')}
+    <div class="settings-gpu-actions"><button type="button" class="submit-btn" id="runpod-gpu-save"${runpodGpuSaving ? ' disabled' : ''}>${runpodGpuSaving ? '저장 중…' : 'GPU 설정 저장'}</button><span class="dl-meta" id="runpod-gpu-state"></span></div>`;
+}
+
+document.getElementById('settings-runpod-gpus').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button');
+  if(!btn || runpodGpuSaving || !runpodGpuFamilies) return;
+  if(btn.id === 'runpod-gpu-save'){
+    runpodGpuSaving = true;
+    btn.disabled = true; btn.textContent = '저장 중…';
+    try{
+      const body = Object.fromEntries(Object.entries(runpodGpuFamilies).map(([id, f]) =>
+        [id, { gpus: f.gpus, clouds: f.clouds }]));
+      const res = await fetch('/api/settings/runpod-gpus', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(data.detail || `저장하지 못했어요 (${res.status})`);
+      runpodGpuFamilies = Object.fromEntries(Object.entries(data.families).map(([id, f]) => [id, { ...f }]));
+      runpodGpuSaving = false;
+      setSettingsError('');
+      renderRunpodGpuSettings();
+      document.getElementById('runpod-gpu-state').textContent = '저장했어요.';
+      flashNotice('GPU 설정을 저장했어요.');
+    }catch(err){ setSettingsError(err.message); btn.disabled = false; btn.textContent = 'GPU 설정 저장'; }
+    finally{ runpodGpuSaving = false; }
+    return;
+  }
+  const section = btn.closest('[data-family]');
+  if(!section) return;
+  const f = runpodGpuFamilies[section.dataset.family];
+  const row = btn.closest('[data-gpu]');
+  if(btn.dataset.cloud){
+    const cloud = btn.dataset.cloud;
+    if(f.clouds.includes(cloud)){
+      if(f.clouds.length === 1){ setSettingsError('클라우드를 하나 이상 켜 주세요.'); return; }
+      f.clouds = f.clouds.filter(c => c !== cloud);
+    }else f.clouds.push(cloud);
+    f.clouds.sort((a, b) => ['SECURE', 'COMMUNITY'].indexOf(a) - ['SECURE', 'COMMUNITY'].indexOf(b));
+  }else if(row && btn.hasAttribute('data-gpu-toggle')){
+    const gpu = row.dataset.gpu;
+    if(f.gpus.includes(gpu)){
+      if(f.gpus.length === 1){ setSettingsError('GPU를 하나 이상 켜 주세요.'); return; }
+      f.gpus = f.gpus.filter(g => g !== gpu);
+    }else f.gpus.push(gpu);
+  }else if(row && btn.dataset.gpuMove){
+    const i = f.gpus.indexOf(row.dataset.gpu), j = i + (btn.dataset.gpuMove === 'up' ? -1 : 1);
+    if(i < 0 || j < 0 || j >= f.gpus.length) return;
+    [f.gpus[i], f.gpus[j]] = [f.gpus[j], f.gpus[i]];
+  }else return;
+  setSettingsError('');
+  renderRunpodGpuSettings();
+  document.getElementById('runpod-gpu-state').textContent = '저장되지 않은 변경 사항이 있어요.';
 });
 
 // ---- Notification 서브탭 — 잡 종료 ntfy 알림(서버 notify.py). 토큰은 원문 대신 token_set만 받는다 ----

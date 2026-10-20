@@ -991,9 +991,11 @@
       <div class="new-job-tabs" id="settings-subtabs">
         <button class="pod-subtab-btn active" type="button" data-settings-tab="base-models">Base Model</button>
         <button class="pod-subtab-btn" type="button" data-settings-tab="notifications">Notification</button>
+        <button class="pod-subtab-btn" type="button" data-settings-tab="runpod-gpus">RunPod GPU</button>
       </div>
       <div class="upload-error" id="settings-error"></div>
       <div id="settings-base-models" class="settings-pane"></div>
+      <div id="settings-runpod-gpus" class="settings-pane" style="display:none;"></div>
       <div id="settings-notifications" class="settings-pane" style="display:none;">
         <div class="dl-meta">잡이 끝나면 ntfy로 알림을 보내요. 폰의 ntfy 앱에서 같은 토픽을 구독해 주세요. 공개 서버의 토픽은 이름만 알면 누구나 구독할 수 있으니 추측하기 어려운 이름을 써 주세요.</div>
         <div class="settings-form">
@@ -1742,7 +1744,7 @@
     <div class="modal-body">
       <!-- 워커 추가 = RunPod 파드 만들기(#12) — 등급 카드를 누르면 파드를 만들어 바로 연결한다. 주소 입력은 아래 "고급"에. -->
       <div class="pod-create-box create-only" id="pod-create-box">
-        <div class="email-hint">어떤 일에 쓸지 고르면 RunPod에 파드를 만들어 바로 연결해요. 서울에서 가까운 일본 데이터센터를 먼저 찾고, 재고가 없으면 다른 곳에 만들어요. 만드는 순간부터 시간당 요금이 나가요.</div>
+        <div class="email-hint">어떤 일에 쓸지 고르면 RunPod에 파드를 만들어 바로 연결해요. 설정한 클라우드마다 일본 데이터센터를 먼저 찾고, 재고가 없으면 다른 곳에 만들어요. GPU에 따라 실제 요금이 달라지고, 만드는 순간부터 과금돼요.</div>
         <div class="pod-create-tiers" id="pod-create-tiers"></div>
         <div class="enhance-status" id="pod-create-status" style="text-align:left; max-width:none;"></div>
         <button type="button" class="pod-manual-toggle" id="pod-manual-toggle">고급 — 주소로 직접 연결 <svg class="ico"><use href="#i-chevron-down"/></svg></button>

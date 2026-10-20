@@ -697,18 +697,25 @@ async function renderPodCreateTiers(){
     document.getElementById('pod-edit-modal').classList.add('manual-open');
     return;
   }
-  box.innerHTML = data.tiers.map(t => `
-    <button type="button" class="pod-create-tier" data-tier="${escapeHtml(t.id)}" data-label="${escapeHtml(t.label)}" data-price="${escapeHtml(t.price_hint)}"
-            title="GPU 후보(이 순서로 찾아요): ${escapeHtml(t.gpus.map(g => g.replace(/^NVIDIA (GeForce )?/, '')).join(' → '))}">
+  box.innerHTML = data.tiers.map(t => {
+    const gpuNames = (t.gpus || []).map(g => g.replace(/^NVIDIA (GeForce )?/, ''));
+    const clouds = (t.clouds || []).map(c => c === 'SECURE' ? 'Secure' : 'Community');
+    const available = gpuNames.length && clouds.length;
+    return `
+    <button type="button" class="pod-create-tier" data-tier="${escapeHtml(t.id)}" data-label="${escapeHtml(t.label)}" data-available="${!!available}"
+            title="GPU 시도 순서: ${escapeHtml(gpuNames.join(' → ') || '없음')} / 클라우드: ${escapeHtml(clouds.join(' → ') || '없음')}"${available ? '' : ' disabled'}>
       <svg class="ico"><use href="#i-${t.id === 'video' ? 'clapperboard' : 'images'}"/></svg>
-      <b>${escapeHtml(t.label)}</b><span>${escapeHtml(t.vram)} · ${escapeHtml(t.price_hint)}</span>
-    </button>`).join('');
+      <b>${escapeHtml(t.label)}</b><span>${escapeHtml(t.vram)} · 요금은 선택된 GPU에 따라 달라져요</span>
+      <span>GPU: ${escapeHtml(gpuNames.join(' → ') || '사용 가능한 후보가 없어요')}</span>
+      <span>클라우드: ${escapeHtml(clouds.join(' → ') || '없음')}</span>
+    </button>`;
+  }).join('');
 }
 
 document.getElementById('pod-create-tiers').addEventListener('click', async (e) => {
   const card = e.target.closest('.pod-create-tier');
   if(!card || card.disabled) return;
-  if(!confirm(`${card.dataset.label} RunPod 파드를 만들까요?\n만드는 순간부터 요금이 나가요(${card.dataset.price}).\nComfyUI가 뜨기까지 1~3분 걸려요.`)) return;
+  if(!confirm(`${card.dataset.label} RunPod 파드를 만들까요?\nGPU에 따라 실제 요금이 달라지고, 만드는 순간부터 과금돼요.\nComfyUI가 뜨기까지 1~3분 걸려요.`)) return;
   const statusEl = document.getElementById('pod-create-status');
   const cards = document.querySelectorAll('#pod-create-tiers .pod-create-tier');
   cards.forEach(c => { c.disabled = true; });
@@ -726,7 +733,7 @@ document.getElementById('pod-create-tiers').addEventListener('click', async (e) 
   }catch(err){
     statusEl.classList.add('error');
     statusEl.textContent = err.message;
-    cards.forEach(c => { c.disabled = false; });
+    cards.forEach(c => { c.disabled = c.dataset.available !== 'true'; });
   }
 });
 document.getElementById('pod-manual-toggle').addEventListener('click', () => {
