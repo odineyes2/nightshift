@@ -43,6 +43,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import re
+import runpod_settings
 
 RUNPOD_API_KEY = (os.environ.get("RUNPOD_API_KEY") or "").strip()
 RUNPOD_API_BASE = "https://api.runpod.io/v2"
@@ -291,9 +292,44 @@ def excluded_gpus() -> set[str]:
 
 
 def usable_gpus(tier: str) -> list[str]:
-    spec = RUNPOD_TIERS.get(tier) or {}
+    if tier not in RUNPOD_TIERS:
+        return []
+    spec = runpod_settings.effective(tier)
     bad = excluded_gpus()
     return [g for g in spec.get("gpus", []) if g not in bad]
+
+
+def gpu_catalog() -> tuple[list[dict], str | None]:
+    """RunPod의 GPU 종류를 조회한다. 실패하면 기본·저장 후보를 표시한다."""
+    query = "query GpuTypes { gpuTypes { id displayName memoryInGb secureCloud communityCloud } }"
+    items, error = [], None
+    if not RUNPOD_API_KEY:
+        error = "RunPod API 키가 없어 기본·저장 후보를 표시해요."
+    else:
+        request = urllib.request.Request(
+            RUNPOD_GRAPHQL_URL, data=json.dumps({"query": query}).encode("utf-8"),
+            headers={"Authorization": f"Bearer {RUNPOD_API_KEY}", "Content-Type": "application/json",
+                     "User-Agent": RUNPOD_USER_AGENT, "Accept": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SEC) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            raw = (payload.get("data") or {}).get("gpuTypes") if isinstance(payload, dict) else None
+            if payload.get("errors") or not isinstance(raw, list):
+                raise ValueError("GPU 종류 응답이 올바르지 않아요.")
+            items = [{"id": g["id"], "displayName": g.get("displayName") or g["id"],
+                      "memoryInGb": g.get("memoryInGb"), "secureCloud": g.get("secureCloud"),
+                      "communityCloud": g.get("communityCloud")}
+                     for g in raw if isinstance(g, dict) and isinstance(g.get("id"), str) and g["id"]]
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            error = f"RunPod GPU 종류 조회에 실패해 기본·저장 후보를 표시해요 ({type(exc).__name__})."
+    known = {g["id"] for g in items}
+    for tier in RUNPOD_TIERS:
+        for gpu in [*RUNPOD_TIERS[tier]["gpus"], *runpod_settings.effective(tier)["gpus"]]:
+            if gpu not in known:
+                items.append({"id": gpu, "displayName": gpu, "memoryInGb": None,
+                              "secureCloud": None, "communityCloud": None})
+                known.add(gpu)
+    return items, error
 
 
 def mark_bad_gpu(name: str | None) -> None:
@@ -327,8 +363,8 @@ def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[s
         return None, "파드를 만들지 못했어요 — 쓸 수 있는 GPU가 모두 제외돼 있어요."
     errors = []
     no_stock_count = 0
-    for cloud, dcs in (("SECURE", RUNPOD_PREFERRED_DATA_CENTERS), ("SECURE", None),
-                       ("COMMUNITY", RUNPOD_PREFERRED_DATA_CENTERS), ("COMMUNITY", None)):
+    for cloud, dcs in ((cloud, dcs) for cloud in runpod_settings.effective(tier)["clouds"]
+                       for dcs in (RUNPOD_PREFERRED_DATA_CENTERS, None)):
         for gpu_id in gpus:
             body = {"name": name, "image": RUNPOD_COMFY_IMAGE, "cloud": cloud,
                     "gpu": {"id": gpu_id, "count": 1, "allowedCudaVersions": RUNPOD_CUDA_VERSIONS},
