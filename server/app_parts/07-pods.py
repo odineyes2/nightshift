@@ -98,8 +98,44 @@ async def update_pod_api(pod_id: str, request: Request):
 def runpod_tiers_api(request: Request):
     """워커 추가 창의 등급 카드(이미지용·영상용) — 이름·VRAM·예상 가격·GPU 후보."""
     admin_only(request)
-    return {"tiers": [{"id": k, **{f: v[f] for f in ("label", "vram", "price_hint")}, "gpus": runpod_api.usable_gpus(k)} for k, v in runpod_api.RUNPOD_TIERS.items()],
+    from runpod_settings import effective
+
+    return {"tiers": [{"id": k, **{f: v[f] for f in ("label", "vram", "price_hint")},
+                       "gpus": runpod_api.usable_gpus(k), "clouds": effective(k)["clouds"],
+                       "configured": effective(k)["configured"]} for k, v in runpod_api.RUNPOD_TIERS.items()],
             "api_key": bool(runpod_api.RUNPOD_API_KEY)}
+
+
+@app.get("/api/settings/runpod-gpus")
+def get_runpod_gpu_settings(request: Request):
+    """관리자가 패밀리별 현재 설정과 제외 GPU를 확인한다."""
+    from runpod_settings import effective
+
+    admin_only(request)
+    return {"families": {tier: effective(tier) for tier in runpod_api.RUNPOD_TIERS},
+            "excluded_gpus": sorted(runpod_api.excluded_gpus())}
+
+
+@app.put("/api/settings/runpod-gpus")
+async def put_runpod_gpu_settings(request: Request):
+    """관리자가 GPU·클라우드 목록을 저장한다."""
+    from runpod_settings import save
+
+    admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        save(body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return get_runpod_gpu_settings(request)
+
+
+@app.get("/api/settings/runpod-gpus/catalog")
+def get_runpod_gpu_catalog(request: Request):
+    """GPU 종류를 조회하고 조회 실패 시 로컬 후보를 제공한다."""
+    admin_only(request)
+    gpus, error = runpod_api.gpu_catalog()
+    return {"gpus": gpus, "error": error, "excluded_gpus": sorted(runpod_api.excluded_gpus())}
 
 
 def _public_base_url(request: Request) -> str | None:
