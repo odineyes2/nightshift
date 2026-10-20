@@ -259,9 +259,10 @@ RUNPOD_CUDA_VERSIONS = ["13.0"]
 RUNPOD_PORTS =["8188/http", "8888/http", "8080/http", "22/tcp"]   # ComfyUI · Jupyter · 파일 브라우저 · SSH
 RUNPOD_PREFERRED_DATA_CENTERS = ["AP-JP-1"]
 RUNPOD_TIERS = {
-    "image": {"label": "이미지용", "vram": "16GB급", "disk_gb": 80, "price_hint": "시간당 약 $0.2~0.6",
+    "image": {"label": "이미지용", "vram": "16GB급", "disk_gb": 80, "price_hint": "시간당 약 $0.2~0.9",
               "gpus": ["NVIDIA RTX A4000", "NVIDIA RTX 4000 Ada Generation", "NVIDIA RTX A4500",
-                       "NVIDIA RTX 2000 Ada Generation"]},
+                       "NVIDIA RTX 2000 Ada Generation", "NVIDIA GeForce RTX 3090", "NVIDIA RTX A5000",
+                       "NVIDIA GeForce RTX 4090", "NVIDIA L4"]},
     "video": {"label": "영상용", "vram": "32GB급", "disk_gb": 150, "price_hint": "시간당 약 $0.35~1.0",
               "gpus": ["NVIDIA RTX PRO 4500 Blackwell", "NVIDIA GeForce RTX 5090"]},
 }
@@ -325,6 +326,7 @@ def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[s
     if not gpus:
         return None, "파드를 만들지 못했어요 — 쓸 수 있는 GPU가 모두 제외돼 있어요."
     errors = []
+    no_stock_count = 0
     for cloud, dcs in (("SECURE", RUNPOD_PREFERRED_DATA_CENTERS), ("SECURE", None),
                        ("COMMUNITY", RUNPOD_PREFERRED_DATA_CENTERS), ("COMMUNITY", None)):
         for gpu_id in gpus:
@@ -342,6 +344,8 @@ def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[s
             raw, err = _rest("POST", "/pods", timeout=60, body=body)
             if err:
                 errors.append(f"{cloud}{'·' + dcs[0] if dcs else ''}·{gpu_id}: {err}")
+                if "HTTP 400" in err and "no longer any instances" in err.lower():
+                    no_stock_count += 1
                 if any(f"HTTP {c}" in err for c in (401, 402, 422, 429)):
                     return None, "파드를 만들지 못했어요 — " + " / ".join(errors)
                 continue
@@ -351,6 +355,9 @@ def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[s
             pod = _pod_from_v2(raw)
             return {"id": pod["id"], "name": pod["name"] or name, "cloud": cloud, "cost_per_hr": raw.get("cost"),
                     "gpu": pod["gpu_type"] or gpu_id, "data_center": pod["data_center"]}, None
+    if errors and no_stock_count == len(errors):
+        return None, (f"파드를 만들지 못했어요 — 지금 RunPod에 {spec['label']} 빈 GPU가 없어요. "
+                      f"{len(errors)}곳을 시도했고 모두 재고 없음이에요. 잠시 뒤 다시 시도하거나 영상용 등급·다른 GPU를 써 주세요.")
     return None, "파드를 만들지 못했어요 — " + " / ".join(errors)
 
 
