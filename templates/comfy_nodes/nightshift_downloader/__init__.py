@@ -19,6 +19,7 @@ ComfyUI에는 모델 파일을 내려받는 API가 없어서, nightshift가 파�
 """
 
 import hmac
+import http.client
 import json
 import os
 import re
@@ -37,7 +38,7 @@ from aiohttp import web
 import folder_paths
 from server import PromptServer
 
-VERSION = 3   # 3: 노드팩 설치·ComfyUI 재시작
+VERSION = 4   # 3: 노드팩 설치·ComfyUI 재시작, 4: 받은 크기 확인·이어 받기
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # nightshift의 종류 이름 -> ComfyUI folder_paths 이름 후보(버전마다 이름이 달랐다).
@@ -59,6 +60,7 @@ SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ ()+\[\]-]*$")
 ALLOWED_HEADERS = {"authorization"}
 MAX_JOBS = 50
 CHUNK = 1024 * 1024
+RESUME_TRIES = 8   # 끊겼을 때 이어 받기 재시도 횟수
 
 _jobs = {}
 _lock = threading.Lock()
@@ -127,6 +129,67 @@ def _public_job(job):
                                 "error", "started_at", "finished_at")}
 
 
+def _fetch(job, url, headers, part, target):
+    """url을 part에 끝까지 받는다. http.client는 연결이 중간에 끊겨도 예외 없이 빈 값을 돌려주므로
+    받은 크기를 전체 크기와 맞춰 보고, 모자라면 Range로 이어 받는다(NS-85 — 25GB 중 18GB만 받고 완료로 처리됐다).
+    리다이렉트를 매번 다시 따라가므로 Civitai의 서명 주소가 만료돼도 새 주소로 이어 받는다."""
+    opener = urllib.request.build_opener(_RedirectHandler)
+    base_headers = dict({"User-Agent": "nightshift-downloader/%d" % VERSION}, **headers)
+    total = 0
+    failures = 0
+    while True:
+        have = os.path.getsize(part) if os.path.exists(part) else 0
+        req_headers = dict(base_headers)
+        if have:
+            req_headers["Range"] = "bytes=%d-" % have
+        try:
+            with opener.open(urllib.request.Request(url, headers=req_headers), timeout=60) as resp:
+                length = int(resp.headers.get("Content-Length") or 0)
+                if have and resp.status == 206:
+                    m = re.match(r"bytes \d+-\d+/(\d+)", resp.headers.get("Content-Range") or "")
+                    total = int(m.group(1)) if m else have + length
+                    mode = "ab"
+                else:   # 처음이거나 서버가 Range를 무시했다 — 처음부터
+                    total, have, mode = length, 0, "wb"
+                job["total"] = total
+                job["downloaded"] = have
+                if not job.get("disk_checked"):
+                    free = shutil.disk_usage(os.path.dirname(target)).free
+                    if total and total - have > free:
+                        raise RuntimeError("디스크 여유 공간이 부족해요(필요 %d MB, 남음 %d MB)."
+                                           % ((total - have) // 1048576, free // 1048576))
+                    job["disk_checked"] = True
+                with open(part, mode) as out:
+                    while True:
+                        if job["cancel"]:
+                            raise InterruptedError()
+                        chunk = resp.read(CHUNK)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        job["downloaded"] += len(chunk)
+        except urllib.error.HTTPError as e:
+            if e.code == 416 and total and os.path.exists(part) and os.path.getsize(part) == total:
+                return   # 이미 다 받았다
+            if e.code not in (408, 429) and e.code < 500:
+                raise   # 토큰·권한·주소 문제 — 다시 해도 같다
+            failures += 1
+        except (OSError, http.client.HTTPException):   # 연결 끊김·시간 초과(URLError도 OSError)
+            failures += 1
+        else:
+            got = os.path.getsize(part)
+            if not total or got >= total:
+                if total and got != total:
+                    raise RuntimeError("받은 크기가 전체보다 커요(%d / %d 바이트)." % (got, total))
+                return
+            failures += 1   # 연결이 중간에 끊겼다
+        if failures > RESUME_TRIES:
+            got = os.path.getsize(part) if os.path.exists(part) else 0
+            raise RuntimeError("연결이 자꾸 끊겨 다 받지 못했어요(%d / %d MB, %d번 이어 받기 시도)."
+                               % (got // 1048576, total // 1048576, RESUME_TRIES))
+        time.sleep(min(30, 2 ** failures))
+
+
 def _run(job, url, headers, target, overwrite):
     part = target + ".part"
     try:
@@ -136,23 +199,7 @@ def _run(job, url, headers, target, overwrite):
                 return
             job["status"] = "downloading"
             os.makedirs(os.path.dirname(target), exist_ok=True)
-            req = urllib.request.Request(url, headers=dict({"User-Agent": "nightshift-downloader/%d" % VERSION}, **headers))
-            opener = urllib.request.build_opener(_RedirectHandler)
-            with opener.open(req, timeout=60) as resp:
-                total = int(resp.headers.get("Content-Length") or 0)
-                job["total"] = total
-                free = shutil.disk_usage(os.path.dirname(target)).free
-                if total and total > free:
-                    raise RuntimeError("디스크 여유 공간이 부족해요(필요 %d MB, 남음 %d MB)." % (total // 1048576, free // 1048576))
-                with open(part, "wb") as out:
-                    while True:
-                        if job["cancel"]:
-                            raise InterruptedError()
-                        chunk = resp.read(CHUNK)
-                        if not chunk:
-                            break
-                        out.write(chunk)
-                        job["downloaded"] += len(chunk)
+            _fetch(job, url, headers, part, target)
             if os.path.exists(target) and not overwrite:
                 raise RuntimeError("같은 이름의 파일이 이미 있어요.")
             os.replace(part, target)
