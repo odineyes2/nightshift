@@ -117,6 +117,22 @@ class RunPodSettingsTests(unittest.TestCase):
         self.assertEqual([item.get("dataCenterIds") for item in seen], [["AP-JP-1"]] * 2 + [None] * 2)
         self.assertTrue(all(item["gpu"]["allowedCudaVersions"] == ["13.0"] for item in seen))
 
+    def test_cloud_priority_survives_reload_and_drives_creation(self):
+        path = "/api/settings/runpod-gpus"
+        saved = {"image": {"gpus": ["Priority GPU"], "clouds": ["COMMUNITY", "SECURE"]}}
+        response = self.admin.put(path, json=saved, headers=self.headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["families"]["image"]["clouds"], saved["image"]["clouds"])
+        self.assertEqual(self.admin.get(path).json()["families"]["image"]["clouds"], saved["image"]["clouds"])
+        seen = []
+        def fake_rest(method, path, timeout=0, body=None):
+            seen.append(body["cloud"])
+            return None, "HTTP 400: There are no longer any instances available with the requested specifications."
+        with patch.object(R, "_rest", fake_rest):
+            pod, _reason = R.create_pod("test", "image")
+        self.assertIsNone(pod)
+        self.assertEqual(seen, ["COMMUNITY", "COMMUNITY", "SECURE", "SECURE"])
+
 
 if __name__ == "__main__":
     unittest.main()
