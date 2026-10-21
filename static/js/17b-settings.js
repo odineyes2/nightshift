@@ -53,6 +53,12 @@ async function loadRunpodGpuSettings(){
   }catch(err){ el.innerHTML = ''; setSettingsError(err.message); }
 }
 
+function runpodGpuPrice(value){
+  if(value === null || value === undefined || value === '') return '가격 정보 없음';
+  const price = Number(value);
+  return Number.isFinite(price) && price >= 0 ? `$${price.toFixed(2)}/hr` : '가격 정보 없음';
+}
+
 function renderRunpodGpuSettings(){
   const el = document.getElementById('settings-runpod-gpus');
   const names = { image: '이미지용', video: '영상용' };
@@ -76,7 +82,7 @@ function renderRunpodGpuSettings(){
           const on = f.gpus.includes(gpu), index = f.gpus.indexOf(gpu), excluded = runpodGpuExcluded.includes(gpu);
           return `<div class="settings-gpu-row" data-gpu="${escapeHtml(gpu)}">
             <button type="button" class="pod-switch" role="switch" data-gpu-toggle aria-checked="${on}" aria-label="${escapeHtml(info.displayName)} 사용"${excluded && !on ? ' disabled' : ''}></button>
-            <span class="settings-gpu-name">${escapeHtml(info.displayName)} <span class="dl-meta">${info.memoryInGb ? `${escapeHtml(String(info.memoryInGb))}GB` : ''}${excluded ? ' · 현재 제외된 GPU' : ''}${!byId.has(gpu) ? ' · 카탈로그에 없음' : ''}</span></span>
+            <span class="settings-gpu-name">${escapeHtml(info.displayName)} <span class="dl-meta">${info.memoryInGb ? `${escapeHtml(String(info.memoryInGb))}GB · ` : ''}Secure ${runpodGpuPrice(info.securePrice)} · Community ${runpodGpuPrice(info.communityPrice)}${excluded ? ' · 현재 제외된 GPU' : ''}${!byId.has(gpu) ? ' · 카탈로그에 없음' : ''}</span></span>
             <span class="settings-bm-move"><button type="button" class="modal-btn-secondary" data-gpu-move="up" aria-label="${escapeHtml(info.displayName)} 위로"${!on || index === 0 ? ' disabled' : ''}>↑</button>
             <button type="button" class="modal-btn-secondary" data-gpu-move="down" aria-label="${escapeHtml(info.displayName)} 아래로"${!on || index === f.gpus.length - 1 ? ' disabled' : ''}>↓</button></span>
           </div>`;

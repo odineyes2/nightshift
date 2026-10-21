@@ -84,6 +84,7 @@ class RunPodSettingsTests(unittest.TestCase):
         self.assertEqual(catalog.status_code, 200, catalog.text)
         self.assertTrue(catalog.json()["error"])
         self.assertIn("Custom A", [g["id"] for g in catalog.json()["gpus"]])
+        self.assertIsNone(next(g for g in catalog.json()["gpus"] if g["id"] == "Custom A")["securePrice"])
         class Response(io.BytesIO):
             def __enter__(self):
                 return self
@@ -96,13 +97,25 @@ class RunPodSettingsTests(unittest.TestCase):
             requests.append(request)
             return Response(json.dumps({"data": {"gpuTypes": [{"id": "New GPU", "displayName": "New GPU",
                                                       "memoryInGb": 48, "secureCloud": True,
-                                                      "communityCloud": False}]}}).encode())
+                                                      "communityCloud": False, "securePrice": 0.65,
+                                                      "communityPrice": 0.45}]}}).encode())
         with patch.object(R, "RUNPOD_API_KEY", secrets.token_urlsafe(12)), patch.object(R.urllib.request, "urlopen", fake_urlopen):
             live = self.admin.get("/api/settings/runpod-gpus/catalog").json()
         self.assertIsNone(live["error"])
         self.assertEqual(live["gpus"][0]["memoryInGb"], 48)
+        self.assertEqual(live["gpus"][0]["securePrice"], 0.65)
+        self.assertEqual(live["gpus"][0]["communityPrice"], 0.45)
         self.assertEqual(requests[0].full_url, R.RUNPOD_GRAPHQL_URL)
         self.assertIn(b"gpuTypes", requests[0].data)
+        self.assertIn(b"securePrice communityPrice", requests[0].data)
+        def fake_urlopen_without_prices(request, timeout=None):
+            return Response(json.dumps({"data": {"gpuTypes": [{"id": "No Price GPU"}]}}).encode())
+        with patch.object(R, "RUNPOD_API_KEY", secrets.token_urlsafe(12)), patch.object(R.urllib.request, "urlopen", fake_urlopen_without_prices):
+            missing = self.admin.get("/api/settings/runpod-gpus/catalog")
+        self.assertEqual(missing.status_code, 200, missing.text)
+        self.assertIsNone(missing.json()["error"])
+        self.assertIsNone(missing.json()["gpus"][0]["securePrice"])
+        self.assertIsNone(missing.json()["gpus"][0]["communityPrice"])
         seen = []
         error = "HTTP 400: There are no longer any instances available with the requested specifications."
         def fake_rest(method, path, timeout=0, body=None):

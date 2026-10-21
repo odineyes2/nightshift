@@ -301,7 +301,7 @@ def usable_gpus(tier: str) -> list[str]:
 
 def gpu_catalog() -> tuple[list[dict], str | None]:
     """RunPod의 GPU 종류를 조회한다. 실패하면 기본·저장 후보를 표시한다."""
-    query = "query GpuTypes { gpuTypes { id displayName memoryInGb secureCloud communityCloud } }"
+    query = "query GpuTypes { gpuTypes { id displayName memoryInGb secureCloud communityCloud securePrice communityPrice } }"
     items, error = [], None
     if not RUNPOD_API_KEY:
         error = "RunPod API 키가 없어 기본·저장 후보를 표시해요."
@@ -318,7 +318,8 @@ def gpu_catalog() -> tuple[list[dict], str | None]:
                 raise ValueError("GPU 종류 응답이 올바르지 않아요.")
             items = [{"id": g["id"], "displayName": g.get("displayName") or g["id"],
                       "memoryInGb": g.get("memoryInGb"), "secureCloud": g.get("secureCloud"),
-                      "communityCloud": g.get("communityCloud")}
+                      "communityCloud": g.get("communityCloud"), "securePrice": g.get("securePrice"),
+                      "communityPrice": g.get("communityPrice")}
                      for g in raw if isinstance(g, dict) and isinstance(g.get("id"), str) and g["id"]]
         except (urllib.error.URLError, TimeoutError, OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
             error = f"RunPod GPU 종류 조회에 실패해 기본·저장 후보를 표시해요 ({type(exc).__name__})."
@@ -327,7 +328,8 @@ def gpu_catalog() -> tuple[list[dict], str | None]:
         for gpu in [*RUNPOD_TIERS[tier]["gpus"], *runpod_settings.effective(tier)["gpus"]]:
             if gpu not in known:
                 items.append({"id": gpu, "displayName": gpu, "memoryInGb": None,
-                              "secureCloud": None, "communityCloud": None})
+                              "secureCloud": None, "communityCloud": None,
+                              "securePrice": None, "communityPrice": None})
                 known.add(gpu)
     return items, error
 
