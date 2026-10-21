@@ -255,8 +255,8 @@ def delete_network_volume(volume_id: str) -> str | None:
 # GPU 후보를 차례로 시도한다.
 RUNPOD_COMFY_IMAGE = "runpod/comfyui:1.4.7-cuda13.0"   # 지금까지 손으로 만들어 쓰던 이미지
 # 이미지가 CUDA 13을 쓰므로 드라이버가 받쳐 주는 호스트에만 만든다(아니면 ComfyUI가 시작하지 못한다 — NS-18).
-# 이미지를 바꾸면 같이 바꾼다.
-RUNPOD_CUDA_VERSIONS = ["13.0"]
+# 하한으로 건다 — 정확히 13.0만 받으면 13.2로 올라간 호스트를 모두 놓쳐 늘 재고 없음이 됐다(NS-84). 이미지를 바꾸면 같이 바꾼다.
+RUNPOD_MIN_CUDA_VERSION = "13.0"
 RUNPOD_PORTS =["8188/http", "8888/http", "8080/http", "22/tcp"]   # ComfyUI · Jupyter · 파일 브라우저 · SSH
 RUNPOD_PREFERRED_DATA_CENTERS = ["AP-JP-1"]
 RUNPOD_TIERS = {
@@ -369,7 +369,7 @@ def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[s
                        for dcs in (RUNPOD_PREFERRED_DATA_CENTERS, None)):
         for gpu_id in gpus:
             body = {"name": name, "image": RUNPOD_COMFY_IMAGE, "cloud": cloud,
-                    "gpu": {"id": gpu_id, "count": 1, "allowedCudaVersions": RUNPOD_CUDA_VERSIONS},
+                    "gpu": {"id": gpu_id, "count": 1, "minCudaVersion": RUNPOD_MIN_CUDA_VERSION},
                     "disk": spec["disk_gb"], "ports": RUNPOD_PORTS}   # mounts가 없으면 볼륨 없음
             if dcs:
                 body["dataCenterIds"] = dcs

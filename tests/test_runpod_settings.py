@@ -128,7 +128,7 @@ class RunPodSettingsTests(unittest.TestCase):
         self.assertEqual([item["gpu"]["id"] for item in seen], ["Custom A", "Custom B"] * 2)
         self.assertEqual([item["cloud"] for item in seen], ["COMMUNITY"] * 4)
         self.assertEqual([item.get("dataCenterIds") for item in seen], [["AP-JP-1"]] * 2 + [None] * 2)
-        self.assertTrue(all(item["gpu"]["allowedCudaVersions"] == ["13.0"] for item in seen))
+        self.assertTrue(all(item["gpu"]["minCudaVersion"] == "13.0" for item in seen))
 
     def test_cloud_priority_survives_reload_and_drives_creation(self):
         path = "/api/settings/runpod-gpus"

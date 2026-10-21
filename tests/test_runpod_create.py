@@ -12,7 +12,7 @@ seen = []
 runpod_api._rest = lambda method, path, timeout=0, body=None: (seen.append(body), ({"id": "x"}, None))[1]
 pod, err = runpod_api.create_pod("t", "image", entrypoint=model_download.BOOTSTRAP_ENTRYPOINT)
 assert err is None and pod["id"] == "x", err
-assert seen[0]["gpu"]["allowedCudaVersions"] == ["13.0"], seen[0]
+assert seen[0]["gpu"]["minCudaVersion"] == "13.0" and "allowedCudaVersions" not in seen[0]["gpu"], seen[0]
 # v2는 최상위 entrypoint 배열 — args는 문자열(CMD)이라 객체를 넣으면 422(2026-10-07)
 assert seen[0]["entrypoint"] == model_download.BOOTSTRAP_ENTRYPOINT and "args" not in seen[0] and "mounts" not in seen[0], seen[0]
 
