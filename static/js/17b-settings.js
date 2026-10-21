@@ -56,7 +56,7 @@ async function loadRunpodGpuSettings(){
 function renderRunpodGpuSettings(){
   const el = document.getElementById('settings-runpod-gpus');
   const names = { image: '이미지용', video: '영상용' };
-  el.innerHTML = `<div class="dl-meta">GPU를 켜고 시도 순서를 정해 주세요. 클라우드는 Secure 또는 Community를 고를 수 있어요. 각 클라우드에서 일본을 먼저 시도해요. GPU 종류 목록은 실시간 재고나 CUDA 호환을 보장하지 않아요.</div>
+  el.innerHTML = `<div class="dl-meta">GPU를 켜고 시도 순서를 정해 주세요. 클라우드는 위에 있는 것부터 시도해요. 각 클라우드에서 일본을 먼저 시도해요. GPU 종류 목록은 실시간 재고나 CUDA 호환을 보장하지 않아요.</div>
     ${runpodGpuCatalogError ? `<div class="settings-gpu-warning">RunPod GPU 목록을 조회하지 못했어요. 기본·저장 후보를 보여 드려요: ${escapeHtml(runpodGpuCatalogError)}</div>` : ''}
     ${Object.entries(runpodGpuFamilies).map(([id, f]) => {
       const byId = new Map(runpodGpuCatalog.map(g => [g.id, g]));
@@ -64,7 +64,12 @@ function renderRunpodGpuSettings(){
       return `<section class="settings-gpu-family" data-family="${escapeHtml(id)}">
         <div class="section-label">${names[id] || escapeHtml(id)} <span class="dl-meta">${f.configured ? '저장된 설정' : '기본 설정'}</span></div>
         <div class="settings-gpu-clouds" role="group" aria-label="${names[id] || escapeHtml(id)} 클라우드">
-          ${['SECURE', 'COMMUNITY'].map(c => `<label class="settings-gpu-cloud"><button type="button" class="pod-switch" role="switch" data-cloud="${c}" aria-checked="${f.clouds.includes(c)}" aria-label="${c} 클라우드"></button>${c === 'SECURE' ? 'Secure' : 'Community'}</label>`).join('')}
+          ${[...f.clouds, ...['SECURE', 'COMMUNITY'].filter(c => !f.clouds.includes(c))].map((c, index) => `<div class="settings-gpu-cloud">
+            <button type="button" class="pod-switch" role="switch" data-cloud="${c}" aria-checked="${f.clouds.includes(c)}" aria-label="${c} 클라우드 사용"></button>
+            <span class="settings-gpu-cloud-name">${c === 'SECURE' ? 'Secure' : 'Community'}</span>
+            <span class="settings-bm-move"><button type="button" class="modal-btn-secondary" data-cloud-move="up" data-cloud-name="${c}" aria-label="${c} 클라우드 위로"${index === 0 || index >= f.clouds.length ? ' disabled' : ''}>↑</button>
+            <button type="button" class="modal-btn-secondary" data-cloud-move="down" data-cloud-name="${c}" aria-label="${c} 클라우드 아래로"${index >= f.clouds.length - 1 ? ' disabled' : ''}>↓</button></span>
+          </div>`).join('')}
         </div>
         <div class="settings-gpu-list">${ids.map(gpu => {
           const info = byId.get(gpu) || { displayName: gpu };
@@ -113,7 +118,10 @@ document.getElementById('settings-runpod-gpus').addEventListener('click', async 
       if(f.clouds.length === 1){ setSettingsError('클라우드를 하나 이상 켜 주세요.'); return; }
       f.clouds = f.clouds.filter(c => c !== cloud);
     }else f.clouds.push(cloud);
-    f.clouds.sort((a, b) => ['SECURE', 'COMMUNITY'].indexOf(a) - ['SECURE', 'COMMUNITY'].indexOf(b));
+  }else if(btn.dataset.cloudMove){
+    const i = f.clouds.indexOf(btn.dataset.cloudName), j = i + (btn.dataset.cloudMove === 'up' ? -1 : 1);
+    if(i < 0 || j < 0 || j >= f.clouds.length) return;
+    [f.clouds[i], f.clouds[j]] = [f.clouds[j], f.clouds[i]];
   }else if(row && btn.hasAttribute('data-gpu-toggle')){
     const gpu = row.dataset.gpu;
     if(f.gpus.includes(gpu)){

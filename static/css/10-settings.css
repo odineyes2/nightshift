@@ -13,8 +13,10 @@
 
 /* RunPod GPU 패밀리 설정 */
 .settings-gpu-family{ margin:16px 0; padding:16px; border:1px solid var(--border); border-radius:8px; background:var(--panel); }
-.settings-gpu-clouds{ display:flex; flex-wrap:wrap; gap:16px; margin:12px 0; }
-.settings-gpu-cloud{ display:flex; align-items:center; gap:8px; cursor:pointer; }
+.settings-gpu-clouds{ display:flex; flex-direction:column; gap:4px; margin:12px 0; }
+.settings-gpu-cloud{ display:flex; align-items:center; gap:8px; min-height:44px; }
+.settings-gpu-cloud-name{ flex:1; }
+.settings-gpu-cloud .settings-bm-move button{ min-width:40px; min-height:40px; }
 .settings-gpu-list{ display:flex; flex-direction:column; gap:4px; }
 .settings-gpu-row{ display:flex; align-items:center; gap:12px; min-width:0; padding:8px; border-bottom:1px solid var(--border); }
 .settings-gpu-name{ flex:1; min-width:0; overflow-wrap:anywhere; font-size:13px; }
