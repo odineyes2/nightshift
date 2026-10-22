@@ -314,6 +314,7 @@
   @media (hover:none){ .lightbox-overlay.lightbox-fullscreen .lightbox-nav{ display:none; } }
   .lightbox-nav{
     position:absolute;
+    z-index:3;
     top:50%;
     transform:translateY(-50%);
     background:rgba(255,255,255,0.08);
