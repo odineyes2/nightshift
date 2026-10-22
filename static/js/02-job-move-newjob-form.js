@@ -343,6 +343,7 @@ function buildPromptEnhanceControl(opt){
   const rawActions = document.createElement('div');
   rawActions.className = 'prompt-enhance-actions';
   rawActions.appendChild(createCopyButton(() => rawTextarea.value.trim()));
+  rawActions.appendChild(createPromptOptionsHelpButton());
   rawActions.appendChild(createSendToDanbooruButton(() => rawTextarea.value.trim()));
   rawLabelRow.appendChild(rawLabel);
   rawLabelRow.appendChild(rawActions);

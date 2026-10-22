@@ -17,6 +17,11 @@ import csv_batch
 
 
 class PromptOptionsTests(unittest.TestCase):
+    def test_help_specs_match_parser_names_and_aliases(self):
+        self.assertEqual({item["name"] for item in prompt_options.OPTION_SPECS}, prompt_options._KNOWN)
+        self.assertEqual({alias: item["name"] for item in prompt_options.OPTION_SPECS
+                          for alias in item["aliases"]}, prompt_options._ALIASES)
+
     def test_parse_and_resolution(self):
         clean, opts, errors = prompt_options.parse_prompt_options(
             r"portrait \--ar literal --ar 2:3 --res 1024 --seed 1 --no bad hands, text "
