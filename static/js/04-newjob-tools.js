@@ -236,7 +236,7 @@ function stringifyCsvRows(schema, rows){
 function renderCsvEditorTable(){
   document.getElementById('csv-editor-thead-row').innerHTML =
     '<th class="csv-row-number">1</th>' + csvEditorSchema.map((col, c) =>
-      `<th title="${escapeHtml(col.note || '')}">${csvColumnLabel(c)} · ${escapeHtml(col.label)}${col.required ? '<span class="csv-col-required" title="필수">*</span>' : ''}</th>`
+      `<th title="${escapeHtml(col.note || '')}">${csvColumnLabel(c)} · ${escapeHtml(col.label)}${col.required ? '<span class="csv-col-required" title="필수">*</span>' : ''}${['trigger_prompt', 'quality_prompt', 'main_prompt', 'prompt'].includes(col.name) ? promptOptionsHelpButtonHtml(c) : ''}</th>`
     ).join('') + '<th></th>';
 
   document.getElementById('csv-editor-tbody').innerHTML = csvEditorRows.map((row, rIdx) =>

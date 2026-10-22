@@ -23,6 +23,8 @@ const context = vm.createContext({console, File, Event, optionsFields, escapeHtm
   document: {getElementById: el, querySelector: el, createElement: () => new Element(), addEventListener(){}},
   wizard: {post: {prompt_enhance: true}}, wizardEnhanceMode: () => 'danbooru',
   createCopyButton: () => new Element(), createSendToDanbooruButton: () => new Element(),
+  createPromptOptionsHelpButton: () => new Element(),
+  promptOptionsHelpButtonHtml: () => '',
   currentFamilySupportsDanbooru: () => false, ico: () => '', danbooruPreSubmitHooks: [],
   templatesById: {test: {id: 'test', requires_workflow: false, options: []}},
   templateSelect: {value: 'test'}, selectedFiles: {csv: null}, uploadError: el('error'), lastWizardModels: null,

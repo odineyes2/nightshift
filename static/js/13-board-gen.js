@@ -19,7 +19,8 @@ function boardGenFieldHtml(nodeId, f, value){
   // 글칸(프롬프트)은 이름 오른쪽에 복사 아이콘 — 누르면 지금 적힌 글을 클립보드로(12-board.js 클릭 델리게이트)
   const copy = f.type === 'textarea'
     ? `<button type="button" class="board-gen-copy" data-gen-copy-node="${nodeId}" data-gen-copy-field="${escapeHtml(f.name)}" title="${escapeHtml(f.label)} 복사" aria-label="${escapeHtml(f.label)} 복사">${ico('copy')}</button>` : '';
-  return `<label class="board-gen-field${f.type === 'textarea' ? ' grow' : ''}"><span class="board-gen-field-label">${escapeHtml(f.label)}${copy}</span>${control}</label>`;
+  const help = f.type === 'textarea' ? promptOptionsHelpButtonHtml() : '';
+  return `<label class="board-gen-field${f.type === 'textarea' ? ' grow' : ''}"><span class="board-gen-field-label">${escapeHtml(f.label)}${copy}${help}</span>${control}</label>`;
 }
 
 function boardGenCardHtml(node, style, delBtn){

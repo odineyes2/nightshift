@@ -11,6 +11,19 @@ _ALIASES = {"r": "repeat", "aspect": "ar", "ckpt": "model"}
 _KNOWN = {"ar", "res", "seed", "no", "repeat", "lora", "model", "steps", "cfg"}
 _INTEGER = re.compile(r"[0-9]+\Z")
 
+# 안내 API와 파서가 공유하는 옵션 목록이다. 파서의 이름·별칭과 함께 갱신한다.
+OPTION_SPECS = (
+    {"name": "ar", "aliases": ["aspect"], "format": "가로:세로", "example": "--ar 2:3", "description": "가로세로 비율을 지정해요."},
+    {"name": "res", "aliases": [], "format": "기준 크기 또는 가로x세로", "example": "--res 1024", "description": "기준 크기나 정확한 가로·세로 크기를 지정해요."},
+    {"name": "seed", "aliases": [], "format": "0 이상의 정수", "example": "--seed 7", "description": "시작 시드를 지정해요."},
+    {"name": "no", "aliases": [], "format": "텍스트", "example": "--no blurry", "description": "네거티브 프롬프트 뒤에 덧붙여요."},
+    {"name": "repeat", "aliases": ["r"], "format": "1~64", "example": "--r 4", "description": "반복 장수를 지정해요."},
+    {"name": "lora", "aliases": [], "format": "모델명:강도", "example": "--lora detail:0.8", "description": "LoRA를 추가해요. 여러 번 쓸 수 있어요."},
+    {"name": "model", "aliases": ["ckpt"], "format": "모델명", "example": "--model anime", "description": "체크포인트 모델을 지정해요."},
+    {"name": "steps", "aliases": [], "format": "1 이상의 정수", "example": "--steps 28", "description": "샘플링 단계를 지정해요."},
+    {"name": "cfg", "aliases": [], "format": "0보다 큰 수", "example": "--cfg 7.5", "description": "CFG 값을 지정해요."},
+)
+
 
 def parse_prompt_options(text):
     """(옵션을 뺀 문장, 해석한 값, 오류 목록)을 반환한다."""
