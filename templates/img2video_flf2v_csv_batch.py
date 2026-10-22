@@ -106,6 +106,8 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(__file__))
+import prompt_row
 
 from PIL import Image
 
@@ -693,6 +695,7 @@ def generate_image(image_workflow, comfy_url, row, title, index, suffix, seed):
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
     apply_lora(workflow)
+    prompt_row.apply(workflow, row, set_linked_value)
     apply_resolution(workflow, row.get("width"), row.get("height"), row.get("resolution"))
     apply_image_filename_prefix(workflow, title, suffix, index, seed)
 

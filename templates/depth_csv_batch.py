@@ -194,6 +194,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(__file__))
+import prompt_row
 
 # ============================================================================
 # 참조 이미지 해석 — ref_assets.py의 resolve_ref와 완전히 같은 알고리즘의
@@ -1140,6 +1142,7 @@ def run_once(base_workflow, comfy_url, row, title, seed, char_no, depth_path, in
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
     apply_lora(workflow)
+    prompt_row.apply(workflow, row, set_linked_value)
     apply_batch_size(workflow, row.get("batch_no"))
     apply_resolution(workflow, row.get("width"), row.get("height"), row.get("resolution"))
 

@@ -124,6 +124,8 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(__file__))
+import prompt_row
 
 # CSV 컬럼 이름 = 매칭할 텍스트 노드(CLIPTextEncode 또는 PrimitiveStringMultiline
 # 등)의 _meta.title 부분 문자열. 워크플로우의 실제 노드 제목이 다르면 이 목록을
@@ -762,6 +764,7 @@ def run_once(base_workflow, comfy_url, row, title, seed, index):
     apply_face_detailer(workflow, seed, row.get("main_prompt") or row.get("prompt"), row.get("negative_prompt"))
     apply_checkpoint(workflow)
     apply_lora(workflow)
+    prompt_row.apply(workflow, row, set_linked_value)
     apply_batch_size(workflow, row.get("batch_no"))
     apply_resolution(workflow, row.get("width"), row.get("height"), row.get("resolution"))
     # 행의 pose_image가 비면 옵션의 포즈 이미지를 쓴다
@@ -808,10 +811,11 @@ def main():
             batch_size = default_batch_size
 
         row_seed = (row.get("seed") or "").strip()
+        repeat = int(row.get("seeds") or 0)
         if row_seed:
-            seeds = [row_seed]
+            seeds = [str(int(row_seed) + n) for n in range(repeat or 1)]
         else:
-            seeds = [random.randint(0, 2**31 - 1) for _ in range(seeds_per_case)]
+            seeds = [random.randint(0, 2**31 - 1) for _ in range(repeat or seeds_per_case)]
         for seed in seeds:
             plan.append((row, title, seed, batch_size))
 

@@ -475,6 +475,23 @@ async def create_job(
     if requires_csv and not csv_bytes:
         raise HTTPException(400, "이 템플릿은 csv가 필요해요.")
 
+    prompt_overrides = []
+    if csv_bytes is not None and requires_csv:
+        try:
+            workflow = json.loads(workflow_bytes) if workflow_bytes else {}
+            dimensions = next((n.get("inputs", {}) for n in workflow.values()
+                               if isinstance(n, dict) and n.get("class_type") == "EmptyLatentImage"), {})
+            base = int((int(dimensions.get("width", 1024)) * int(dimensions.get("height", 1024))) ** 0.5)
+            csv_bytes, prompt_overrides = prompt_options.apply_csv_options(
+                csv_bytes, base, expand_repeat=template_id != "csv_batch")
+            loader_count = sum(isinstance(n, dict) and n.get("class_type") in ("LoraLoader", "LoraLoaderModelOnly")
+                               for n in workflow.values())
+            if any(len((entry.get("loras") or "").split(";")) > loader_count
+                   for entry in prompt_overrides if entry.get("loras")):
+                raise ValueError("워크플로우의 LoRA 로더 수보다 --lora 옵션이 많아요.")
+        except (ValueError, UnicodeDecodeError) as e:
+            raise HTTPException(400, str(e)) from e
+
     primary_kind = TEMPLATE_PRIMARY_KIND.get(template_id)
     primary_csv_column = CSV_PRIMARY_REF_COLUMN.get(template_id)
     if primary_csv_column and csv_bytes is not None:
@@ -506,6 +523,37 @@ async def create_job(
 
     # 순차 생성 포즈 목록(NS-42)은 옵션(환경변수)으로 넘기지 않고 파일로 저장한다.
     raw_options = dict(raw_options)
+    if not requires_csv and raw_options.get("main_prompt"):
+        clean, overrides, errors = prompt_options.parse_prompt_options(raw_options["main_prompt"])
+        if errors:
+            raise HTTPException(400, "; ".join(errors))
+        if overrides:
+            if "loras" in overrides:
+                workflow = json.loads(workflow_bytes) if workflow_bytes else {}
+                loader_count = sum(isinstance(n, dict) and n.get("class_type") in ("LoraLoader", "LoraLoaderModelOnly")
+                                   for n in workflow.values())
+                if len(overrides["loras"]) > loader_count:
+                    raise HTTPException(400, "워크플로우의 LoRA 로더 수보다 --lora 옵션이 많아요.")
+            raw_options["main_prompt"] = clean
+            if "no" in overrides:
+                raw_options["negative_prompt"] = ", ".join(filter(None, (raw_options.get("negative_prompt"), overrides["no"])))
+            count_option = {"seed_batch": "seed_count", "pose_batch": "pose_count", "depth_batch": "depth_count",
+                            "lineart_batch": "lineart_count", "input_image_batch": "image_count",
+                            "ipadapter_batch": "image_count"}.get(template_id)
+            for key, target in (("repeat", count_option), ("model", "checkpoint"), ("steps", "steps"), ("cfg", "cfg"), ("seed", "seed_start")):
+                if key == "repeat" and target is None and key in overrides:
+                    raise HTTPException(400, "이 템플릿은 --repeat를 지원하지 않아요.")
+                if key in overrides:
+                    raw_options[target] = str(overrides[key])
+            if "loras" in overrides:
+                raw_options["loras"] = ";".join(f"{name}:{strength:g}" for name, strength in overrides["loras"])
+            if "ar" in overrides or "res" in overrides:
+                dimensions = next((n.get("inputs", {}) for n in json.loads(workflow_bytes).values()
+                                   if isinstance(n, dict) and n.get("class_type") == "EmptyLatentImage"), {})
+                base = int((int(dimensions.get("width", 1024)) * int(dimensions.get("height", 1024))) ** 0.5)
+                width, height = prompt_options.resolution(overrides, base)
+                raw_options.update(width=str(width), height=str(height))
+            prompt_overrides = [{"line": 1, **overrides}]
     pose_sequence = parse_pose_sequence(raw_options.pop("pose_sequence", None))
     origin_raw = raw_options.pop("library_generation_context", None)
     if origin_raw is None and pose_sequence and any("source_kind" in p for p in pose_sequence):
@@ -544,7 +592,12 @@ async def create_job(
             continue
         raw = raw_options.get(option["name"])
         # 파드를 안 정했으면 설치 목록으로 검증할 기준이 없다 — 값은 그대로 받고, 스케줄러가 배정할 때 그 파드에 있는지 본다.
-        options[option["name"]] = coerce_option(option, raw, options, pod if pod is not None else NO_POD)
+        prompt_model = option["name"] == "checkpoint" and any("model" in entry for entry in prompt_overrides)
+        options[option["name"]] = coerce_option(option, raw, options,
+                                                 NO_POD if prompt_model or pod is None else pod)
+    for name in ("steps", "cfg", "seed_start", "loras", "negative_prompt"):
+        if name in raw_options:
+            options[name] = raw_options[name]
 
     library_output_origins = build_library_output_origins(library_context, workflow_bytes, options)
 
@@ -612,6 +665,7 @@ async def create_job(
             "template_label": template["label"],
             "script_filename": template["script_filename"],
             "options": options,
+            "prompt_overrides": prompt_overrides,
             "workflow_filename": workflow_dest_name,
             "workflow_original_name": workflow_filename if workflow_dest_name else None,
             "video_workflow_filename": video_workflow_dest_name,

@@ -110,6 +110,8 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(__file__))
+import prompt_row
 
 
 def env(name, default=None):
@@ -614,6 +616,7 @@ def run_once(base_workflow, comfy_url, seed, index, main_prompt, negative_prompt
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
     apply_lora(workflow)
+    prompt_row.apply(workflow, {name: env(name.upper(), "") for name in ("steps", "cfg", "loras")}, set_linked_value)
     apply_main_prompt(workflow, main_prompt)
     apply_negative_prompt(workflow, negative_prompt)
     apply_face_detailer(workflow, seed, main_prompt if face_prompt is None else face_prompt, negative_prompt)
@@ -697,7 +700,7 @@ def main():
             pose_height = str(pose.get("height") or height)
             for _ in range(seed_count):
                 index += 1
-                seed = random.randint(0, 2**31 - 1) if seed_mode == "random" else index - 1
+                seed = int(env("SEED_START")) + index - 1 if env("SEED_START") else (random.randint(0, 2**31 - 1) if seed_mode == "random" else index - 1)
                 base_prompt = (
                     danbooru_seed_prompts[index - 1]
                     if index - 1 < len(danbooru_seed_prompts)
@@ -718,7 +721,7 @@ def main():
 
     done_images = 0
     for index in range(1, seed_count + 1):
-        seed = random.randint(0, 2**31 - 1) if seed_mode == "random" else index - 1
+        seed = int(env("SEED_START")) + index - 1 if env("SEED_START") else (random.randint(0, 2**31 - 1) if seed_mode == "random" else index - 1)
         prompt_for_seed = (
             danbooru_seed_prompts[index - 1]
             if index - 1 < len(danbooru_seed_prompts)
