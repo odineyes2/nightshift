@@ -700,14 +700,14 @@ function boardNodeInside(n, f){
   return n.x >= f.x && n.y >= f.y && n.x + n.width <= f.x + f.width && n.y + n.height <= f.y + f.height;
 }
 
-function createBoardFrame(){
+function createBoardFrame(title = '묶음', geom){
   const sel = boardNodes.filter(n => boardSelectedIds.has(n.id));
-  if(!sel.length){ createBoardNode('frame', null, '묶음'); return; }
+  if(!sel.length) return createBoardNode('frame', null, title, geom);
   const x0 = Math.min(...sel.map(n => n.x)) - BOARD_FRAME_PAD;
   const y0 = Math.min(...sel.map(n => n.y)) - BOARD_FRAME_PAD - BOARD_FRAME_BAR;
   const x1 = Math.max(...sel.map(n => n.x + n.width)) + BOARD_FRAME_PAD;
   const y1 = Math.max(...sel.map(n => n.y + n.height)) + BOARD_FRAME_PAD;
-  createBoardNode('frame', null, '묶음', { x: x0, y: y0, width: x1 - x0, height: y1 - y0 });
+  return createBoardNode('frame', null, title, { x: x0, y: y0, width: x1 - x0, height: y1 - y0 });
 }
 
 async function saveBoardNodeSize(nodeId, size){

@@ -81,6 +81,7 @@ function initBoardCanvas(){
   };
   viewport.addEventListener('pointerdown', (e) => {
     if(e.pointerType === 'mouse' && e.button !== 0) return;
+    if(e.target === viewport || e.target.id === 'board-world') boardCommandRememberPoint(e.clientX, e.clientY);
     // 이미 한 손가락이 캔버스를 잡고 있으면 두 번째 손가락은 어디에 닿든(선, 선택 막대,
     // 끊기 버튼 위라도) 핀치로 본다 — 예: 첫 손가락이 카드를 고르는 순간 아래쪽에 선택
     // 막대가 떠서, 같이 내려온 두 번째 손가락이 그 위에 닿는다. 카드 위는 아래 카드
@@ -91,7 +92,7 @@ function initBoardCanvas(){
       else addBoardPanPointer(e);
       return;
     }
-    if(e.target.closest('.board-node, .board-edge-del, .board-selection-bar, .board-fit-fab')) return;
+    if(e.target.closest('.board-node, .board-edge-del, .board-selection-bar, .board-fit-fab, .board-command')) return;
     // 선(투명한 굵은 선) 위를 누르면 팬 대신 그 선을 고른다. 여기서 바로 처리하는
     // 이유: 팬이 viewport에 포인터 캡처를 걸면 click 이벤트가 선이 아니라
     // viewport로 가서, click으로는 어느 선인지 알 수 없다.
@@ -490,6 +491,7 @@ function initBoardCanvas(){
     if([...document.querySelectorAll('.modal-overlay')].some(m => m.style.display && m.style.display !== 'none')) return;
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
+    if(!mod && !e.altKey && key === '/' && !e.isComposing){ e.preventDefault(); boardCommandFocus(); return; }
     if(mod && key === 'z'){ e.preventDefault(); boardUndoRedo(e.shiftKey ? 'redo' : 'undo'); return; }
     if(mod && key === 'y'){ e.preventDefault(); boardUndoRedo('redo'); return; }
     if(mod && key === 'c' && boardSelectedIds.size){ e.preventDefault(); copyBoardNodes([...boardSelectedIds]); return; }
@@ -600,7 +602,7 @@ function initBoardCanvas(){
   document.getElementById('board-add-video-btn').addEventListener('click', () => openBoardAssetPicker('video'));
   document.getElementById('board-add-job-btn').addEventListener('click', () => openBoardAssetPicker('job'));
   document.getElementById('board-add-gen-btn').addEventListener('click', () => openBoardAssetPicker('gen'));
-  document.getElementById('board-add-frame-btn').addEventListener('click', createBoardFrame);
+  document.getElementById('board-add-frame-btn').addEventListener('click', () => createBoardFrame());
 
   // 내 컴퓨터의 이미지·영상을 캔버스에 끌어다 놓기 — 이 프로젝트로 올리고(갤러리 업로드와 같은 API)
   // 놓은 자리부터 카드를 한 줄에 4장씩 늘어놓는다. 창 없이 바로 올린다(프로젝트는 정해져 있고 태그는 갤러리에서).
