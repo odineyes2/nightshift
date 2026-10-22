@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "server"))
+sys.path.insert(0, str(ROOT / "templates"))
 import workflow_builder  # noqa: E402
 
 TEMPLATES = ("csv_batch", "pose_csv_batch", "depth_csv_batch", "lineart_csv_batch", "input_image_csv_batch",

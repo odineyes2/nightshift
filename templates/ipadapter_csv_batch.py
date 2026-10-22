@@ -68,6 +68,8 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(__file__))
+import prompt_row
 
 IPADAPTER_REF_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
@@ -543,6 +545,7 @@ def run_once(base_workflow, comfy_url, row, title, seed, index, image_path):
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
     apply_lora(workflow)
+    prompt_row.apply(workflow, row, set_linked_value)
     apply_ipadapter_ref(workflow, comfy_url, image_path)
     apply_filename_prefix(workflow, title, index, seed)
 

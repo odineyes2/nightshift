@@ -83,6 +83,7 @@ import position_library
 import lighting_library
 import library_categories
 import projects as project_store
+import prompt_options
 import quick_run
 import runpod_api
 import runpod_sessions

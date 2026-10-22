@@ -72,6 +72,8 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(__file__))
+import prompt_row
 
 INPUT_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
@@ -605,6 +607,7 @@ def run_once(base_workflow, comfy_url, row, title, seed, index, image_path):
     apply_face_detailer(workflow, seed, row.get("main_prompt") or row.get("prompt"), row.get("negative_prompt"))
     apply_checkpoint(workflow)
     apply_lora(workflow)
+    prompt_row.apply(workflow, row, set_linked_value)
     apply_input_image(workflow, comfy_url, image_path)
     # 행의 pose_image가 비면 옵션의 포즈 이미지를 쓴다
     apply_pose_image(workflow, comfy_url, row.get("pose_image") or env("POSE_IMAGE"))

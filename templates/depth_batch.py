@@ -173,6 +173,8 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(__file__))
+import prompt_row
 
 REF_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
@@ -723,6 +725,7 @@ def run_once(base_workflow, comfy_url, seed, char_no, depth_path, index, job_id,
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
     apply_lora(workflow)
+    prompt_row.apply(workflow, {name: env(name.upper(), "") for name in ("steps", "cfg", "loras", "negative_prompt", "width", "height")}, set_linked_value)
     apply_main_prompt(workflow, main_prompt)
     apply_resolution(workflow, width, height)
     apply_depth_image(workflow, comfy_url, depth_path)
@@ -816,7 +819,7 @@ def main():
 
     done = 0
     for index in range(1, depth_count + 1):
-        seed = random.randint(0, 2**31 - 1)
+        seed = int(env("SEED_START")) + index - 1 if env("SEED_START") else random.randint(0, 2**31 - 1)
         depth_path = picker.pick()
         secondary_path = secondary_picker.pick() if secondary_picker is not None else None
         run_once(base_workflow, comfy_url, seed, char_no, depth_path, index, job_id, output_dir, main_prompt, width, height,

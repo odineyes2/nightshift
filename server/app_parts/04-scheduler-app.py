@@ -62,6 +62,31 @@ def job_missing_on_pod(job: dict, pod: dict) -> list[str] | None:
         installed = combo_spec(info, *source)   # 로더는 있는데 목록이 비었으면(새 파드) 그것도 "없음"
         if installed is not None and value not in installed:
             problems.append(value)
+    if (job.get("options") or {}).get("loras"):
+        installed = combo_spec(info, *MODEL_LIST_SOURCES["loras"])
+        for entry in job["options"]["loras"].split(";"):
+            name = entry.rsplit(":", 1)[0]
+            if installed is not None and name and name not in installed:
+                problems.append(name)
+        overridden.add(MODEL_LIST_SOURCES["loras"])
+    csv_name = job.get("csv_filename")
+    if csv_name and job.get("prompt_overrides"):
+        try:
+            with (JOBS_DIR / csv_name).open(encoding="utf-8-sig", newline="") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            for column, kind in (("checkpoint", "checkpoints"), ("loras", "loras")):
+                source = MODEL_LIST_SOURCES[kind]
+                installed = combo_spec(info, *source)
+                for row in rows:
+                    names = ([entry.rsplit(":", 1)[0] for entry in (row.get("loras") or "").split(";") if entry]
+                             if column == "loras" else [row.get(column) or ""])
+                    for name in names:
+                        if installed is not None and name and name not in installed:
+                            problems.append(name)
+                if rows and all(row.get(column) for row in rows):
+                    overridden.add(source)
+        except (OSError, UnicodeError, csv.Error):
+            pass
     blobs: list[bytes | None] = []
     for field in ("workflow_filename", "video_workflow_filename"):
         name = job.get(field)
