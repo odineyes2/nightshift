@@ -690,6 +690,12 @@ async function wizardApply(){
   if(promptDraft) optionsFields.querySelector('.prompt-enhance')?.qualityPromptControl?.restore(promptDraft);
   const negativeInput = optionsFields.querySelector('[data-name="negative_prompt"]');
   if(negativeInput && negativeDraft !== undefined) negativeInput.value = negativeDraft;
+  if(architecture === 'krea2'){
+    for(const name of ['negative_prompt', 'face_negative_prompt']){
+      const field = optionsFields.querySelector(`[data-name="${name}"]`)?.closest('.field');
+      if(field) field.style.display = 'none';
+    }
+  }
   // 마법사가 템플릿을 정했으니, 직접 고르는 펼침 토글은 접어 둔다(둘이 동시에 열려 있으면 헷갈림).
   const manualToggle = document.getElementById('manual-template-toggle');
   if(manualToggle) manualToggle.open = false;
@@ -764,7 +770,13 @@ async function wizardApply(){
   }
 
   setLoraTriggerField(wizard.loras.map(l => l.name));
-  await setWizardQualityPrompt(baseModelFamilies[wizard.familyId] || {}, wizard.checkpoint);
+  if(architecture === 'krea2'){
+    clearWizardQuality();
+    document.getElementById('quality-prompt-field').style.display = 'none';
+    document.getElementById('sweet-prefix-field').style.display = 'none';
+  }else{
+    await setWizardQualityPrompt(baseModelFamilies[wizard.familyId] || {}, wizard.checkpoint);
+  }
   lastWizardModels = { checkpoint: wizard.checkpoint, loras: wizard.loras.map(l => l.name) };
 
   const builtIn = ['sdxl', 'unet'].includes(architecture);
