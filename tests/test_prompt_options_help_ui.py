@@ -88,11 +88,18 @@ def main():
               window.estimateJob = () => ({durationMs:0, finishIso:''});
               window.podsCache = []; window.preflightLines = () => [];
               window.fmtTime = () => '-'; window.fmtDuration = () => '-'; window.STATUS_LABEL = {done:'완료'};
+              window.jobDetailOptionsOpen = false;
+              window.jobDetailOptionsJobId = null;
               window.renderJobDetailModalBody();
             }""")
             detail = page.locator('#job-detail-fields').inner_text()
-            assert '프롬프트 값 사용 중' in detail
-            assert 'seed 7 · 832×1216 · 외 1줄' in detail
+            assert '이미지 크기 (width × height)' in detail
+            assert '832 × 1216' in detail
+            assert '프롬프트 값 사용 중' not in detail
+            page.locator('#job-detail-options summary').click()
+            assert 'seed 7 · 외 1줄' in page.locator('#job-detail-options').inner_text()
+            page.evaluate('renderJobDetailModalBody()')
+            assert page.locator('#job-detail-options').evaluate('el => el.open')
             print("ok")
         finally:
             browser.close()
