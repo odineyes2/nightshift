@@ -14,6 +14,83 @@ function createPromptOptionsHelpButton(){
   return button;
 }
 
+// 세 프롬프트 입력 위치에서 같은 해석 결과를 보여 준다.
+const promptOptionTimers = new WeakMap();
+const promptOptionRequests = new WeakMap();
+const promptOptionColumns = new Set(['trigger_prompt', 'quality_prompt', 'main_prompt', 'prompt']);
+
+function promptOptionLabels(options, size){
+  const labels = [];
+  if(options.seed !== undefined) labels.push(`seed ${options.seed}`);
+  if(size) labels.push(`${size[0]}×${size[1]}`);
+  if(options.repeat !== undefined) labels.push(`${options.repeat}장`);
+  if(options.no) labels.push(`no: ${options.no}`);
+  if(options.steps !== undefined) labels.push(`steps ${options.steps}`);
+  if(options.cfg !== undefined) labels.push(`CFG ${options.cfg}`);
+  if(options.model) labels.push(`model ${options.model}`);
+  if(options.loras) labels.push(`LoRA ${options.loras.map(item => item[0]).join(', ')}`);
+  return labels;
+}
+
+function promptOptionStrip(input){
+  let strip = input.nextElementSibling;
+  if(!strip || !strip.classList.contains('prompt-option-chips')){
+    strip = document.createElement('div');
+    strip.className = 'prompt-option-chips';
+    strip.setAttribute('aria-live', 'polite');
+    strip.hidden = true;
+    input.after(strip);
+  }
+  return strip;
+}
+
+function paintPromptOptionChips(input, result){
+  const strip = promptOptionStrip(input);
+  const labels = promptOptionLabels(result.options || {}, result.resolution);
+  strip.replaceChildren();
+  for(const [label, error] of [...labels.map(label => [label, false]), ...(result.errors || []).map(label => [label, true])]){
+    const chip = document.createElement('span');
+    chip.className = 'prompt-option-chip' + (error ? ' error' : '');
+    chip.textContent = label;
+    strip.append(chip);
+  }
+  strip.hidden = !strip.childElementCount;
+}
+
+function schedulePromptOptionChips(input){
+  clearTimeout(promptOptionTimers.get(input));
+  const revision = (promptOptionRequests.get(input) || 0) + 1;
+  promptOptionRequests.set(input, revision);
+  if(!input.value.includes('--')){
+    const strip = input.nextElementSibling;
+    if(strip?.classList.contains('prompt-option-chips')) strip.hidden = true;
+    return;
+  }
+  promptOptionTimers.set(input, setTimeout(async () => {
+    try{
+      const response = await fetch('/api/prompt-options/parse', {
+        method: 'POST', headers: {'Content-Type': 'application/json', 'X-Requested-With': 'nightshift'},
+        body: JSON.stringify({text: input.value})
+      });
+      if(!response.ok) throw new Error('해석 요청 실패');
+      const result = await response.json();
+      if(input.isConnected && promptOptionRequests.get(input) === revision) paintPromptOptionChips(input, result);
+    }catch(error){
+      if(input.isConnected && promptOptionRequests.get(input) === revision){
+        paintPromptOptionChips(input, {options: {}, errors: ['옵션을 확인하지 못했어요. 다시 입력해 주세요.']});
+      }
+    }
+  }, 300));
+}
+
+document.addEventListener('input', event => {
+  const input = event.target;
+  if(input.matches?.('.enhance-raw, .board-gen-field textarea') ||
+     (input.matches?.('#csv-editor-tbody input[data-col]') && promptOptionColumns.has(input.dataset.col))){
+    schedulePromptOptionChips(input);
+  }
+});
+
 const promptHelpModal = document.getElementById('prompt-options-help-modal');
 const promptHelpBody = document.getElementById('prompt-options-help-body');
 let promptHelpSpec = null;
