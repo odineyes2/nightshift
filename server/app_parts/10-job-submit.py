@@ -484,6 +484,8 @@ async def create_job(
             base = int((int(dimensions.get("width", 1024)) * int(dimensions.get("height", 1024))) ** 0.5)
             csv_bytes, prompt_overrides = prompt_options.apply_csv_options(
                 csv_bytes, base, expand_repeat=template_id != "csv_batch")
+            for entry in prompt_overrides:
+                prompt_options.validate_workflow_options(workflow, entry)
             loader_count = sum(isinstance(n, dict) and n.get("class_type") in ("LoraLoader", "LoraLoaderModelOnly")
                                for n in workflow.values())
             if any(len((entry.get("loras") or "").split(";")) > loader_count
@@ -528,6 +530,11 @@ async def create_job(
         if errors:
             raise HTTPException(400, "; ".join(errors))
         if overrides:
+            try:
+                prompt_options.validate_workflow_options(
+                    json.loads(workflow_bytes) if workflow_bytes else {}, overrides)
+            except ValueError as e:
+                raise HTTPException(400, str(e)) from e
             if "loras" in overrides:
                 workflow = json.loads(workflow_bytes) if workflow_bytes else {}
                 loader_count = sum(isinstance(n, dict) and n.get("class_type") in ("LoraLoader", "LoraLoaderModelOnly")
@@ -540,7 +547,9 @@ async def create_job(
             count_option = {"seed_batch": "seed_count", "pose_batch": "pose_count", "depth_batch": "depth_count",
                             "lineart_batch": "lineart_count", "input_image_batch": "image_count",
                             "ipadapter_batch": "image_count"}.get(template_id)
-            for key, target in (("repeat", count_option), ("model", "checkpoint"), ("steps", "steps"), ("cfg", "cfg"), ("seed", "seed_start")):
+            for key, target in (("repeat", count_option), ("model", "checkpoint"), ("steps", "steps"), ("cfg", "cfg"), ("seed", "seed_start"),
+                                ("sampler", "sampler"), ("scheduler", "scheduler"), ("denoise", "denoise"),
+                                ("detail", "detail"), ("upscale", "upscale")):
                 if key == "repeat" and target is None and key in overrides:
                     raise HTTPException(400, "이 템플릿은 --repeat를 지원하지 않아요.")
                 if key in overrides:
@@ -595,7 +604,7 @@ async def create_job(
         prompt_model = option["name"] == "checkpoint" and any("model" in entry for entry in prompt_overrides)
         options[option["name"]] = coerce_option(option, raw, options,
                                                  NO_POD if prompt_model or pod is None else pod)
-    for name in ("steps", "cfg", "seed_start", "loras", "negative_prompt"):
+    for name in ("steps", "cfg", "seed_start", "loras", "negative_prompt", "sampler", "scheduler", "denoise", "detail", "upscale"):
         if name in raw_options:
             options[name] = raw_options[name]
 

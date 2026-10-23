@@ -8,7 +8,8 @@ import re
 
 _OPTION = re.compile(r"(?<!\\)--([a-zA-Z][a-zA-Z0-9_-]*)\b")
 _ALIASES = {"r": "repeat", "aspect": "ar", "ckpt": "model"}
-_KNOWN = {"ar", "res", "seed", "no", "repeat", "lora", "model", "steps", "cfg"}
+_KNOWN = {"ar", "res", "seed", "no", "repeat", "lora", "model", "steps", "cfg",
+          "sampler", "scheduler", "denoise", "detail", "nodetail", "upscale"}
 _INTEGER = re.compile(r"[0-9]+\Z")
 
 # 안내 API와 파서가 공유하는 옵션 목록이다. 파서의 이름·별칭과 함께 갱신한다.
@@ -22,6 +23,12 @@ OPTION_SPECS = (
     {"name": "model", "aliases": ["ckpt"], "format": "모델명", "example": "--model anime", "description": "체크포인트 모델을 지정해요."},
     {"name": "steps", "aliases": [], "format": "1 이상의 정수", "example": "--steps 28", "description": "샘플링 단계를 지정해요."},
     {"name": "cfg", "aliases": [], "format": "0보다 큰 수", "example": "--cfg 7.5", "description": "CFG 값을 지정해요."},
+    {"name": "sampler", "aliases": [], "format": "이름", "example": "--sampler euler", "description": "샘플러를 지정해요."},
+    {"name": "scheduler", "aliases": [], "format": "이름", "example": "--scheduler normal", "description": "스케줄러를 지정해요."},
+    {"name": "denoise", "aliases": [], "format": "0~1", "example": "--denoise 0.7", "description": "디노이즈 강도를 지정해요."},
+    {"name": "detail", "aliases": [], "format": "값 없음", "example": "--detail", "description": "Face Detailer를 사용해요."},
+    {"name": "nodetail", "aliases": [], "format": "값 없음", "example": "--nodetail", "description": "Face Detailer를 우회해요."},
+    {"name": "upscale", "aliases": [], "format": "1~4", "example": "--upscale 2", "description": "기존 업스케일 노드의 배율을 지정해요."},
 )
 
 
@@ -37,6 +44,12 @@ def parse_prompt_options(text):
         spans.append((match.start(), end))
         if name not in _KNOWN:
             errors.append(f"--{match.group(1)}: 모르는 옵션이에요 (글자로 쓰려면 \\--를 사용해요).")
+            continue
+        if name in {"detail", "nodetail"}:
+            if value:
+                errors.append(f"--{name}: 값 없이 사용해요.")
+            else:
+                options["detail"] = name == "detail"
             continue
         if not value:
             errors.append(f"--{name}: 값이 필요해요.")
@@ -61,9 +74,9 @@ def parse_prompt_options(text):
                 parsed = int(value)
                 if name == "repeat" and parsed > 64:
                     raise ValueError
-            elif name == "cfg":
+            elif name in {"cfg", "denoise", "upscale"}:
                 parsed = float(value)
-                if not math.isfinite(parsed) or parsed <= 0:
+                if not math.isfinite(parsed) or (name == "cfg" and parsed <= 0) or (name == "denoise" and not 0 <= parsed <= 1) or (name == "upscale" and not 1 <= parsed <= 4):
                     raise ValueError
             elif name == "lora":
                 model, sep, strength = value.rpartition(":")
@@ -72,6 +85,10 @@ def parse_prompt_options(text):
                     raise ValueError
                 options.setdefault("loras", []).append(parsed)
                 continue
+            elif name in {"sampler", "scheduler"}:
+                if not re.fullmatch(r"[A-Za-z0-9_+.-]+", value):
+                    raise ValueError
+                parsed = value
             else:
                 parsed = value
             options[name] = parsed
@@ -95,6 +112,15 @@ def resolution(options, base=1024):
     width = res * math.sqrt(ratio[0] / ratio[1])
     height = res * math.sqrt(ratio[1] / ratio[0])
     return _round_multiple(width, 64), _round_multiple(height, 64)
+
+
+def validate_workflow_options(workflow, options):
+    """존재가 필요한 노드는 작업 등록 시점에 확인한다."""
+    nodes = [node for node in workflow.values() if isinstance(node, dict)]
+    if options.get("detail") is True and not any(node.get("class_type") == "FaceDetailer" for node in nodes):
+        raise ValueError("이 워크플로우에는 Face Detailer가 없어요.")
+    if "upscale" in options and not any(node.get("class_type") in ("LatentUpscaleBy", "ImageScaleBy") for node in nodes):
+        raise ValueError("이 워크플로우에는 업스케일 노드가 없어요.")
 
 
 def apply_csv_options(csv_bytes, base=1024, expand_repeat=False):
@@ -122,9 +148,11 @@ def apply_csv_options(csv_bytes, base=1024, expand_repeat=False):
         if combined:
             changed = True
             applied = {}
-            for key, column in (("seed", "seed"), ("model", "checkpoint"), ("steps", "steps"), ("cfg", "cfg"), ("repeat", "seeds")):
+            for key, column in (("seed", "seed"), ("model", "checkpoint"), ("steps", "steps"), ("cfg", "cfg"), ("repeat", "seeds"),
+                                ("sampler", "sampler"), ("scheduler", "scheduler"), ("denoise", "denoise"),
+                                ("detail", "detail"), ("upscale", "upscale")):
                 if key in combined:
-                    row[column] = str(combined[key])
+                    row[column] = ("true" if combined[key] else "false") if key == "detail" else str(combined[key])
                     applied[column] = combined[key]
             if "loras" in combined:
                 row["loras"] = ";".join(f"{name}:{strength:g}" for name, strength in combined["loras"])
@@ -148,7 +176,8 @@ def apply_csv_options(csv_bytes, base=1024, expand_repeat=False):
     if not changed:
         return csv_bytes, []
     fields = list(reader.fieldnames)
-    fields += [key for key in ("seed", "width", "height", "negative_prompt", "checkpoint", "loras", "steps", "cfg", "seeds") if key not in fields and any(key in row for row in rows)]
+    fields += [key for key in ("seed", "width", "height", "negative_prompt", "checkpoint", "loras", "steps", "cfg", "seeds",
+                               "sampler", "scheduler", "denoise", "detail", "upscale") if key not in fields and any(key in row for row in rows)]
     output = io.StringIO(newline="")
     writer = csv.DictWriter(output, fieldnames=fields)
     writer.writeheader()

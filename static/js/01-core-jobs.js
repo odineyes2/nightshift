@@ -702,7 +702,7 @@ function renderJobDetailModalBody(){
   if(size) overrideLabels.push(`${size[0]}×${size[1]}`);
   if(firstOverride.repeat !== undefined || firstOverride.seeds !== undefined) overrideLabels.push(`${firstOverride.repeat ?? firstOverride.seeds}장`);
   if(firstOverride.no || firstOverride.negative_prompt) overrideLabels.push(`no: ${firstOverride.no || firstOverride.negative_prompt}`);
-  for(const key of ['model', 'checkpoint', 'steps', 'cfg']){
+  for(const key of ['model', 'checkpoint', 'steps', 'cfg', 'sampler', 'scheduler', 'denoise', 'detail', 'upscale']){
     if(firstOverride[key] !== undefined) overrideLabels.push(`${key} ${firstOverride[key]}`);
   }
   if(firstOverride.loras) overrideLabels.push(`LoRA ${Array.isArray(firstOverride.loras) ? firstOverride.loras.map(item => item[0]).join(', ') : firstOverride.loras}`);
