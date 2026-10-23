@@ -454,6 +454,7 @@
     display:flex; flex-direction:column; gap:7px;
     pointer-events:none; overflow:hidden;
   }
+  .board-job-body .board-node-fill{ pointer-events:auto; }
   .board-job-head{ display:flex; align-items:center; gap:8px; min-width:0; }
   .board-job-label{ font-size:12.5px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .board-job-prompt{

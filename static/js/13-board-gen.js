@@ -268,8 +268,8 @@ function boardNodeHtml(node){
       + `<span class="board-frame-resize" title="끌어서 크기 바꾸기"></span></div>`;
   }
   if(node.kind === 'job'){
-    return `<div class="board-node board-node-job" data-node-id="${node.id}" style="${style}" title="눌러서 작업 자세히 보기">`
-      + `<div class="board-job-body">${boardJobBodyHtml(boardJobInfo.get(node.id))}</div>${delBtn}</div>`;
+    return `<div class="board-node board-node-job" data-node-id="${node.id}" style="${style}" title="${node.job_id ? '눌러서 작업 자세히 보기' : '눌러서 작업 고르기'}">`
+      + `<div class="board-job-body">${boardJobBodyHtml(boardJobInfo.get(node.id), node)}</div>${delBtn}</div>`;
   }
   if((node.kind === 'image' || node.kind === 'video') && !node.asset_path){
     return `<div class="board-node board-node-${node.kind} board-node-empty" data-node-id="${node.id}" style="${style}">`
@@ -878,7 +878,7 @@ function remapBoardHistory(extraEntry, nodeMap, edgeMap){
   };
   for(const entry of [...boardUndoStack, ...boardRedoStack, extraEntry]){
     if(entry.items) entry.items.forEach(it => { it.id = n(it.id); });
-    if(entry.type === 'text' || entry.type === 'resize' || entry.type === 'gen-value') entry.id = n(entry.id);
+    if(entry.type === 'text' || entry.type === 'resize' || entry.type === 'gen-value' || entry.type === 'asset-fill' || entry.type === 'job-fill') entry.id = n(entry.id);
     if(entry.node) entry.node.id = n(entry.node.id);
     if(entry.nodes) entry.nodes.forEach(nd => { nd.id = n(nd.id); });
     if(entry.edges) entry.edges.forEach(fixEdge);
@@ -925,6 +925,9 @@ async function applyBoardHistoryEntry(projectId, entry, dir, boardId){
   }
   if(entry.type === 'asset-fill'){
     return !!await boardSetNodeAsset(entry.id, undo ? entry.from : entry.to, false, projectId, boardId);
+  }
+  if(entry.type === 'job-fill'){
+    return !!await boardSetNodeJob(entry.id, undo ? entry.from : entry.to, false, projectId, boardId);
   }
   if(entry.type === 'create' || entry.type === 'delete' || entry.type === 'paste'){
     // 놓기를 되돌리기 = 지우기, 지우기를 되돌리기 = 되살리기(다시 하기는 그 반대)
@@ -1133,7 +1136,11 @@ document.getElementById('board-asset-picker-grid').addEventListener('click', asy
   const fillId = boardPickerFillId;
   const selectedImage = boardSelectedIds.size === 1 ? boardNodes.find(n => n.id === [...boardSelectedIds][0] && n.kind === 'image') : null;
   closeBoardAssetPicker();
-  if(fillId){ await boardSetNodeAsset(fillId, btn.dataset.pick); return; }
+  if(fillId){
+    if(boardPickerKind === 'job') await boardSetNodeJob(fillId, btn.dataset.pick);
+    else await boardSetNodeAsset(fillId, btn.dataset.pick);
+    return;
+  }
   const target = boardPickerSlot && boardNodes.find(n => n.id === boardPickerSlot.nodeId);
   if(!target){
     const node = await createBoardNode(boardPickerKind, btn.dataset.pick, '', geom);
@@ -1172,6 +1179,23 @@ async function boardSetNodeAsset(id, path, record = true, projectId = currentPro
   paintBoardSelection();
   paintBoardGenSlots();
   if(record && before !== node.asset_path) pushBoardHistory({ type: 'asset-fill', id, from: before, to: node.asset_path });
+  return true;
+}
+
+async function boardSetNodeJob(id, jobId, record = true, projectId = currentProjectId, boardId = currentBoardId){
+  const node = boardNodes.find(n => n.id === id);
+  if(!node || node.kind !== 'job' || !boardScopeMatches(projectId, boardId)) return false;
+  const before = node.job_id || null;
+  const res = await boardApi(projectId, 'PATCH', `/nodes/${id}`, { job_id: jobId }, false, boardId);
+  if(!res){ flashNotice('카드를 채우지 못했어요. 다시 시도해 주세요.'); return false; }
+  if(!boardScopeMatches(projectId, boardId)) return false;
+  node.job_id = jobId || null;
+  boardJobInfo.delete(id);
+  const old = document.querySelector(`#board-world .board-node[data-node-id="${id}"]`);
+  if(old) old.outerHTML = boardNodeHtml(node);
+  paintBoardSelection();
+  fetchBoardJobs();
+  if(record && before !== node.job_id) pushBoardHistory({ type: 'job-fill', id, from: before, to: node.job_id });
   return true;
 }
 
@@ -1235,7 +1259,7 @@ async function pasteBoardClip(at){
   pushBoardHistory({ type: 'paste', nodes: data.nodes.map(boardNodeSnapshot), edges: data.edges.map(e => ({ ...e })) });
 }
 
-// 우클릭 / 길게 누르기 메뉴 — 카드 위면 복사(+붙여넣기), 빈 곳이면 그 자리에 붙여넣기.
+// 우클릭 / 길게 누르기 메뉴 — 빈 곳에는 그 자리에 빈 카드 만들기도 보여 준다.
 function openBoardCtxMenu(clientX, clientY, nodeId){
   closeBoardCtxMenu();
   const viewport = document.getElementById('board-viewport');
@@ -1248,12 +1272,19 @@ function openBoardCtxMenu(clientX, clientY, nodeId){
   }
   const clip = readBoardClip();
   const items = [];
+  if(nodeId == null){
+    items.push(`<button type="button" data-ctx="new-text">${ico('file-text')}빈 텍스트 카드</button>`);
+    items.push(`<button type="button" data-ctx="new-image">${ico('images')}빈 이미지 카드</button>`);
+    items.push(`<button type="button" data-ctx="new-video">${ico('play')}빈 영상 카드</button>`);
+    items.push(`<button type="button" data-ctx="new-job">${ico('plus')}빈 작업 카드</button>`);
+  }
   if(copyIds) items.push(`<button type="button" data-ctx="copy">${ico('copy')}복사${copyIds.length > 1 ? ` (${copyIds.length}개)` : ''}</button>`);
   items.push(clip ? `<button type="button" data-ctx="paste">${ico('clipboard')}여기에 붙여넣기 (${clip.nodes.length}개)</button>`
     : `<button type="button" disabled>${ico('clipboard')}복사한 카드가 없어요</button>`);
   const menu = document.createElement('div');
   menu.id = 'board-ctx-menu';
   menu.className = 'board-ctx-menu';
+  menu.setAttribute('role', 'menu');
   menu.innerHTML = items.join('');
   document.body.appendChild(menu);
   menu.style.left = Math.min(clientX, window.innerWidth - menu.offsetWidth - 8) + 'px';
@@ -1263,7 +1294,8 @@ function openBoardCtxMenu(clientX, clientY, nodeId){
     if(!btn) return;
     closeBoardCtxMenu();
     if(btn.dataset.ctx === 'copy') copyBoardNodes(copyIds);
-    else pasteBoardClip(at);
+    else if(btn.dataset.ctx === 'paste') pasteBoardClip(at);
+    else if(btn.dataset.ctx.startsWith('new-')) createBoardNode(btn.dataset.ctx.slice(4), null, '', at);
   });
 }
 function closeBoardCtxMenu(){

@@ -100,6 +100,67 @@ class ProjectBoardHTTPTests(unittest.TestCase):
         restored = self.request(owner, "post", base + "/restore", json={"nodes": [cards[0]], "edges": []})
         self.assertEqual(restored.status_code, 200, restored.text)
 
+    def test_empty_cards_and_job_fill_scope(self):
+        owner = self.client("empty-job-owner")
+        other = self.client("empty-job-other")
+        project = self.request(owner, "post", "/api/projects", json={"name": "Empty cards"}).json()
+        foreign_project = self.request(other, "post", "/api/projects", json={"name": "Foreign cards"}).json()
+        base = f"/api/projects/{project['id']}/board"
+        first = self.request(owner, "get", f"/api/projects/{project['id']}/boards").json()["boards"][0]["id"]
+        second = self.request(owner, "post", f"/api/projects/{project['id']}/boards",
+                              json={"name": "Second empty board"}).json()["id"]
+        cards = {}
+        for kind in ("text", "image", "video", "job"):
+            response = self.request(owner, "post", f"{base}/nodes?board_id={first}",
+                                    json={"kind": kind, "text": "", "asset_path": None,
+                                          "job_id": None, "x": 31, "y": 47})
+            self.assertEqual(response.status_code, 200, response.text)
+            cards[kind] = response.json()
+            self.assertEqual((cards[kind]["x"], cards[kind]["y"], cards[kind]["text"]), (31, 47, ""))
+        self.assertIsNone(cards["job"]["job_id"])
+        self.assertIsNone(cards["image"]["asset_path"])
+        self.assertIsNone(cards["video"]["asset_path"])
+        listed = self.request(owner, "get", f"{base}?board_id={first}").json()["nodes"]
+        self.assertEqual({card["id"] for card in listed}, {card["id"] for card in cards.values()})
+        status = self.request(owner, "get", f"{base}/jobs?board_id={first}").json()["cards"]
+        self.assertEqual(status[str(cards["job"]["id"])], {"job_id": None, "missing": False})
+        with db.connect() as conn:
+            owner_id = conn.execute("SELECT owner_id FROM projects WHERE id=?", (project["id"],)).fetchone()[0]
+            other_id = conn.execute("SELECT owner_id FROM projects WHERE id=?", (foreign_project["id"],)).fetchone()[0]
+        job_ids = ("empty-own-job", "empty-other-job", "empty-other-project-job")
+        A.jobs[job_ids[0]] = {"id": job_ids[0], "owner_id": owner_id, "project_id": project["id"]}
+        A.jobs[job_ids[1]] = {"id": job_ids[1], "owner_id": other_id, "project_id": foreign_project["id"]}
+        A.jobs[job_ids[2]] = {"id": job_ids[2], "owner_id": owner_id, "project_id": foreign_project["id"]}
+        try:
+            with db.connect() as conn:
+                for job_id in job_ids:
+                    job = A.jobs[job_id]
+                    conn.execute("INSERT INTO jobs(id,project_id,owner_id,data_json) VALUES(?,?,?,?)",
+                                 (job_id, job["project_id"], job["owner_id"], "{}"))
+            path = f"{base}/nodes/{cards['job']['id']}?board_id={first}"
+            self.assertEqual(self.request(other, "patch", path, json={"job_id": job_ids[0]}).status_code, 404)
+            self.assertEqual(self.request(owner, "patch", f"{base}/nodes/{cards['job']['id']}?board_id={second}",
+                                          json={"job_id": job_ids[0]}).status_code, 404)
+            self.assertEqual(self.request(owner, "patch", path, json={"job_id": job_ids[1]}).status_code, 404)
+            self.assertEqual(self.request(owner, "patch", path, json={"job_id": job_ids[2]}).status_code, 404)
+            self.assertEqual(self.request(owner, "post", f"{base}/nodes?board_id={first}",
+                                          json={"kind": "job", "job_id": job_ids[2]}).status_code, 404)
+            self.assertEqual(self.request(owner, "post", f"{base}/restore?board_id={first}",
+                                          json={"nodes": [{**cards["job"], "job_id": job_ids[2]}],
+                                                "edges": []}).status_code, 404)
+            self.assertEqual(self.request(owner, "patch", f"{base}/nodes/{cards['text']['id']}?board_id={first}",
+                                          json={"job_id": job_ids[0]}).status_code, 400)
+            filled = self.request(owner, "patch", path, json={"job_id": job_ids[0]}).json()
+            self.assertEqual(filled["job_id"], job_ids[0])
+            self.assertIsNone(self.request(owner, "patch", path, json={"job_id": None}).json()["job_id"])
+            restored = self.request(owner, "post", f"{base}/restore?board_id={first}",
+                                    json={"nodes": [cards["job"]], "edges": []})
+            self.assertEqual(restored.status_code, 200, restored.text)
+            self.assertIsNone(restored.json()["nodes"][0]["job_id"])
+        finally:
+            for job_id in job_ids:
+                A.jobs.pop(job_id, None)
+
     def test_board_http_lifecycle_and_scope(self):
         owner = self.client("board-owner")
         other = self.client("board-other")

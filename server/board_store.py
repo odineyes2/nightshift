@@ -156,9 +156,9 @@ def node_project_id(node_id: int) -> int | None:
 
 
 def update_node(node_id: int, fields: dict) -> dict | None:
-    """위치·글·결과물 등 넘겨준 카드 필드만 바꾼다."""
+    """위치·글·결과물·작업 등 넘겨준 카드 필드만 바꾼다."""
     sets, params = [], []
-    for key in ("text", "x", "y", "width", "height", "asset_path"):
+    for key in ("text", "x", "y", "width", "height", "asset_path", "job_id"):
         if key in fields:
             sets.append(f"{key}=?")
             params.append(fields[key])
