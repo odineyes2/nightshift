@@ -5,6 +5,7 @@ const BOARD_COMMANDS = [
   { cmd: 'job', aliases: [], description: '작업 카드', example: '/job 작업ID' },
   { cmd: 'image', aliases: ['img', 'i'], description: '빈 이미지 카드 · 검색어가 있으면 이미지 고르기', example: '/image [검색어]' },
   { cmd: 'video', aliases: ['v'], description: '빈 영상 카드 · 검색어가 있으면 영상 고르기', example: '/video [검색어]' },
+  { cmd: 'run', aliases: ['퀵런'], description: '퀵런 열기', example: '/run [글]' },
   { cmd: 'exit', aliases: ['q'], description: '퀵바 닫기', example: '/exit' },
   { cmd: 'help', aliases: ['?'], description: '명령 도움말', example: '/help' },
 ];
@@ -112,7 +113,9 @@ function boardCommandComplete(){
   const input = document.getElementById('board-command-input');
   const choice = boardCommandChoices[boardCommandChoice];
   if(!choice) return false;
-  input.value = '/' + choice.cmd + ' ';
+  const prefix = /^\/([^\s]*)$/.exec(input.value);
+  const name = prefix && prefix[1] && choice.aliases.find(alias => alias.startsWith(prefix[1].toLowerCase())) || choice.cmd;
+  input.value = '/' + name + ' ';
   input.focus();
   boardCommandPaint();
   return true;
@@ -126,7 +129,10 @@ function boardCommandPaint(){
   boardCommandChoices = prefix ? BOARD_COMMANDS.filter(c => [c.cmd, ...c.aliases].some(name => name.startsWith(prefix[1].toLowerCase()))) : [];
   boardCommandChoice = Math.min(boardCommandChoice, Math.max(0, boardCommandChoices.length - 1));
   menu.hidden = !boardCommandChoices.length || document.activeElement !== input;
-  menu.innerHTML = boardCommandChoices.map((c, i) => `<button type="button" role="option" aria-selected="${i === boardCommandChoice}" data-command="${c.cmd}"><b>${c.example}</b><span>${c.description}</span></button>`).join('');
+  menu.innerHTML = boardCommandChoices.map((c, i) => {
+    const name = prefix[1] && c.aliases.find(alias => alias.startsWith(prefix[1].toLowerCase())) || c.cmd;
+    return `<button type="button" role="option" aria-selected="${i === boardCommandChoice}" data-command="${c.cmd}"><b>${name === c.cmd ? c.example : '/' + name}</b><span>${c.description}</span></button>`;
+  }).join('');
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 6 * 23) + 'px';
   boardCommandError('');
@@ -156,6 +162,15 @@ async function boardCommandRun(){
     else if(parsed.cmd === 'exit'){
       input.value = '';
       boardCommandSetOpen(false);
+      return;
+    }
+    else if(parsed.cmd === 'run'){
+      input.value = '';
+      boardCommandPaint();
+      if(parsed.args) cmpInput.value += (cmpInput.value ? '\n' : '') + parsed.args;
+      openComposer();
+      cmpAutosize();
+      cmpUpdate();
       return;
     }
     else if(parsed.cmd === 'image' || parsed.cmd === 'video'){
@@ -252,7 +267,7 @@ boardCommandInput.addEventListener('keydown', e => {
   if(e.key === 'Enter' && !e.shiftKey){
     e.preventDefault();
     if(boardCommandChoices.length && !boardCommandInput.value.endsWith(' ')
-        && !/\/(?:text|t|job|image|img|i|video|v|exit|q)$/i.test(boardCommandInput.value)) boardCommandComplete();
+        && !/\/(?:text|t|job|image|img|i|video|v|exit|q|run|퀵런)$/i.test(boardCommandInput.value)) boardCommandComplete();
     else boardCommandRun();
     return;
   }

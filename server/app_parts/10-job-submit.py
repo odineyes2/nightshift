@@ -893,7 +893,7 @@ async def quick_run_submit(request: Request):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
     if not isinstance(body, dict):
         raise HTTPException(400, "요청 본문이 JSON 객체여야 해요.")
-    if isinstance(body.get("prompt"), str) and body["prompt"].strip().lower() == "/exit":
+    if isinstance(body.get("prompt"), str) and re.match(r"^/(?:exit$|(?:bar|퀵바)(?:\s|$))", body["prompt"].strip(), re.IGNORECASE):
         raise HTTPException(400, "명령이에요, 프롬프트가 아니에요.")
 
     if body.get("workflow_id"):
