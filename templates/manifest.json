@@ -313,6 +313,8 @@
       { "name": "height", "label": "이미지 높이", "required": false, "note": "width와 함께 채워야 적용됨" },
       { "name": "resolution", "label": "이미지 화면비", "required": false, "note": "예: 16:9, 9:16, square (width/height가 비어 있을 때만)" },
       { "name": "user_prompt", "label": "영상 프롬프트", "required": false, "note": "비워두면 메인 프롬프트(main_prompt/prompt)를 그대로 재사용해요 (video_prompt란 이름도 같은 뜻으로 인식)" },
+      { "name": "frames", "label": "영상 프레임 수", "required": false },
+      { "name": "fps", "label": "영상 FPS", "required": false },
       { "name": "video_seed", "label": "영상 시드", "required": false, "note": "비워두면 무작위" }
     ],
     "options": [
@@ -345,6 +347,8 @@
       { "name": "height", "label": "이미지 높이", "required": false, "note": "width와 함께 채워야 적용됨, 시작/끝 공통" },
       { "name": "resolution", "label": "이미지 화면비", "required": false, "note": "예: 16:9, 9:16, square (width/height가 비어 있을 때만, 시작/끝 공통)" },
       { "name": "user_prompt", "label": "영상 프롬프트", "required": false, "note": "비워두면 시작 프레임 프롬프트(main_prompt/prompt)를 그대로 재사용해요 (video_prompt란 이름도 같은 뜻으로 인식)" },
+      { "name": "frames", "label": "영상 프레임 수", "required": false },
+      { "name": "fps", "label": "영상 FPS", "required": false },
       { "name": "video_seed", "label": "영상 시드", "required": false, "note": "비워두면 무작위" }
     ],
     "options": [

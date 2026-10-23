@@ -13,6 +13,24 @@ def env_row(fields=PROMPT_FIELDS):
     return {name: os.environ.get(name.upper(), "") for name in fields}
 
 
+def apply_video(workflow, row, set_value):
+    """영상 CSV 행의 프레임 수와 FPS를 WAN·CreateVideo 입력에 적용한다."""
+    if row.get("frames") not in (None, ""):
+        nodes = [node for node in workflow.values() if isinstance(node, dict)
+                 and node.get("class_type") in ("WanImageToVideo", "WanFirstLastFrameToVideo")]
+        if not nodes:
+            raise ValueError("영상 워크플로우에 WAN 길이 노드가 없어요.")
+        for node in nodes:
+            set_value(workflow, node, "length", int(row["frames"]))
+    if row.get("fps") not in (None, ""):
+        nodes = [node for node in workflow.values() if isinstance(node, dict)
+                 and node.get("class_type") == "CreateVideo"]
+        if not nodes:
+            raise ValueError("영상 워크플로우에 FPS 노드가 없어요.")
+        for node in nodes:
+            set_value(workflow, node, "fps", int(row["fps"]))
+
+
 def apply(workflow, row, set_value):
     """프롬프트 값이 있을 때만 기존 워크플로우 입력을 덮어쓴다."""
     if not row:

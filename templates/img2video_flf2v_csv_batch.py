@@ -752,6 +752,7 @@ def run_once(image_workflow, video_workflow, comfy_url, row, title, index, start
     apply_text_enhance(video, video_prompt, text_enhance)
     apply_video_seed(video, video_seed)
     apply_video_lora(video, video_lora_name, video_lora_strength)
+    prompt_row.apply_video(video, row, set_linked_value)
     apply_video_filename_prefix(video, title, index, video_seed)
 
     prompt_id = queue_prompt(comfy_url, video)
