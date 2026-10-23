@@ -2,7 +2,9 @@
 
 import csv
 import io
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -104,6 +106,46 @@ class PromptOptionsTests(unittest.TestCase):
         self.assertEqual((graph["2"]["inputs"]["width"], graph["2"]["inputs"]["height"]), (832, 1216))
         self.assertEqual(graph["3"]["inputs"]["ckpt_name"], "new.safetensors")
         self.assertEqual(graph["4"]["inputs"]["lora_name"], "face.safetensors")
+
+
+class PromptOptionsHTTPTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        for key in ("DATA", "OUTPUT", "ASSETS"):
+            os.environ[f"NIGHTSHIFT_{key}_DIR"] = str(Path(cls.temp.name) / key.lower())
+        os.environ.setdefault("NIGHTSHIFT_ADMIN_USER", "admin")
+        os.environ.setdefault("NIGHTSHIFT_ADMIN_PASSWORD", "Test-Passw0rd-xyz!")
+        os.chdir(ROOT / "server")
+        import app
+        import db
+        user = app.auth.register("prompt-http", "prompt-http@example.test", "Test-Passw0rd-xyz!")
+        with db.connect() as conn:
+            conn.execute("UPDATE users SET status='active' WHERE id=?", (user["id"],))
+        cls.app = app
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def test_parse_route_requires_login_and_returns_parser_result(self):
+        from fastapi.testclient import TestClient
+        headers = {"X-Requested-With": "nightshift"}
+        client = TestClient(self.app.app)
+        try:
+            # 스케줄러가 뜨지 않도록 lifespan 관리 컨텍스트는 열지 않는다.
+            self.assertEqual(client.post("/api/prompt-options/parse", json={"text": "cat"}, headers=headers).status_code, 401)
+            response = client.post("/api/auth/login", json={"username": "prompt-http", "password": "Test-Passw0rd-xyz!"}, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            response = client.post("/api/prompt-options/parse", json={"text": "1girl --ar 2:3 --res 1024 --seed 7"}, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json(), {"clean_text": "1girl", "options": {"ar": [2, 3], "res": 1024, "seed": 7}, "errors": [], "resolution": [832, 1216]})
+            response = client.post("/api/prompt-options/parse", json={"text": "cat --sed 1"}, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertTrue(response.json()["errors"])
+            self.assertEqual(client.post("/api/prompt-options/parse", json={"text": 7}, headers=headers).status_code, 400)
+        finally:
+            client.close()
 
 
 if __name__ == "__main__":

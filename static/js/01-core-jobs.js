@@ -685,6 +685,28 @@ function renderJobDetailModalBody(){
   // 프롬프트는 "옵션" 요약 문자열에 섞여 들어가면 한눈에 안 들어와서 따로 뺀다.
   const optsEntries = Object.entries(job.options || {});
   const promptText = job.options && job.options.main_prompt;
+  const overrides = job.prompt_overrides || [];
+  const firstOverride = overrides[0] || {};
+  const overrideLabels = [];
+  if(firstOverride.seed !== undefined) overrideLabels.push(`seed ${firstOverride.seed}`);
+  let size = firstOverride.width && firstOverride.height ? [firstOverride.width, firstOverride.height] : null;
+  if(!size && (firstOverride.ar || firstOverride.res)){
+    const res = firstOverride.res || 1024;
+    if(Array.isArray(res)) size = res;
+    else{
+      const ratio = firstOverride.ar || [1, 1];
+      const multiple = value => Math.max(64, Math.floor(value / 64) * 64);
+      size = [multiple(res * Math.sqrt(ratio[0] / ratio[1])), multiple(res * Math.sqrt(ratio[1] / ratio[0]))];
+    }
+  }
+  if(size) overrideLabels.push(`${size[0]}×${size[1]}`);
+  if(firstOverride.repeat !== undefined || firstOverride.seeds !== undefined) overrideLabels.push(`${firstOverride.repeat ?? firstOverride.seeds}장`);
+  if(firstOverride.no || firstOverride.negative_prompt) overrideLabels.push(`no: ${firstOverride.no || firstOverride.negative_prompt}`);
+  for(const key of ['model', 'checkpoint', 'steps', 'cfg']){
+    if(firstOverride[key] !== undefined) overrideLabels.push(`${key} ${firstOverride[key]}`);
+  }
+  if(firstOverride.loras) overrideLabels.push(`LoRA ${Array.isArray(firstOverride.loras) ? firstOverride.loras.map(item => item[0]).join(', ') : firstOverride.loras}`);
+  const overrideText = overrideLabels.join(' · ') + (overrides.length > 1 ? `${overrideLabels.length ? ' · ' : ''}외 ${overrides.length - 1}줄` : '');
   const otherOptions = optsEntries.filter(([k]) => k !== 'main_prompt');
   const optionsHtml = otherOptions.length
     ? `<div class="job-detail-options">${otherOptions.map(([key, value]) => `
@@ -705,6 +727,7 @@ function renderJobDetailModalBody(){
 
   document.getElementById('job-detail-fields').innerHTML = `
     ${promptText ? `<div class="field"><label class="field-label">프롬프트</label><div class="job-detail-prompt">${escapeHtml(promptText)}</div></div>` : ''}
+    ${overrides.length ? `<div class="field"><label class="field-label">프롬프트 값 사용 중</label><div class="job-detail-prompt">${escapeHtml(overrideText)}</div></div>` : ''}
     <div class="field"><label class="field-label">옵션</label>${optionsHtml}</div>
     <div class="field"><label class="field-label">워크플로우</label><div>${escapeHtml(job.workflow_original_name || '-')}</div></div>
     <div class="field"><label class="field-label">CSV</label><div>${escapeHtml(job.csv_original_name || '-')}</div></div>
