@@ -86,6 +86,82 @@ class BoardCommandUITests(unittest.TestCase):
                     field.blur()
                     page.keyboard.press('Control+z')
                     page.locator('.board-node-text').wait_for(state='detached')
+                    paste_text = '''(value) => {
+                        const transfer = new DataTransfer();
+                        transfer.setData('text/plain', value);
+                        document.getElementById('board-command-input').dispatchEvent(
+                            new ClipboardEvent('paste', {bubbles:true, cancelable:true, clipboardData:transfer}));
+                    }'''
+                    field.fill('')
+                    page.evaluate(paste_text, '첫 줄\n\n- 둘째 줄\n1. /text 그대로')
+                    choice = page.locator('#board-command-paste-choice')
+                    expect(choice).to_be_visible()
+                    self.assertIn('3장', choice.inner_text())
+                    if os.environ.get('NS99_CAPTURE') == '1':
+                        shots = ROOT / '.ui-captures' / 'NS-99-1'
+                        shots.mkdir(parents=True, exist_ok=True)
+                        for theme in ('light', 'dark'):
+                            page.evaluate('(value) => document.documentElement.dataset.theme = value', theme)
+                            for width, height in ((1300, 850), (390, 800)):
+                                page.set_viewport_size({'width': width, 'height': height})
+                                page.evaluate('(mobile) => document.getElementById("board-tree").hidden = mobile', width < 700)
+                                page.screenshot(path=str(shots / f'choice-{theme}-{width}.png'), full_page=True)
+                        page.set_viewport_size({'width': 1300, 'height': 850})
+                        page.evaluate('document.getElementById("board-tree").hidden = false')
+                    field.press('Enter')
+                    expect(page.locator('.board-node-text')).to_have_count(3)
+                    self.assertEqual(page.locator('.board-node-text.selected').count(), 3)
+                    self.assertEqual([item.input_value() for item in page.locator('.board-node-textarea').all()],
+                                     ['첫 줄', '둘째 줄', '/text 그대로'])
+                    positions = page.locator('.board-node-text').evaluate_all('''nodes => nodes.map(el =>
+                        ({x:parseFloat(el.style.left), y:parseFloat(el.style.top)}))''')
+                    self.assertEqual([item['y'] for item in positions], [positions[0]['y']] * 3)
+                    self.assertEqual([item['x'] - positions[0]['x'] for item in positions], [0, 240, 480])
+                    field.blur()
+                    page.keyboard.press('Control+z')
+                    expect(page.locator('.board-node-text')).to_have_count(0)
+                    page.evaluate('''() => {
+                        window.ns99BoardApi = boardApi;
+                        let creates = 0;
+                        boardApi = (...args) => {
+                            if(args[1] === 'POST' && args[2] === '/nodes' && ++creates === 2) return Promise.resolve(null);
+                            return window.ns99BoardApi(...args);
+                        };
+                    }''')
+                    field.fill('')
+                    page.evaluate(paste_text, '첫 메모\n둘째 메모\n셋째 메모')
+                    field.press('Enter')
+                    expect(page.locator('.board-node-text')).to_have_count(1)
+                    self.assertIn('3장 중 1장', page.locator('#board-command-error').inner_text())
+                    page.evaluate('() => { boardApi = window.ns99BoardApi; }')
+                    field.blur()
+                    page.keyboard.press('Control+z')
+                    expect(page.locator('.board-node-text')).to_have_count(0)
+                    field.fill('')
+                    page.evaluate(paste_text, '한 줄\n두 줄')
+                    field.press('Escape')
+                    expect(choice).to_be_hidden()
+                    self.assertEqual(field.input_value(), '한 줄\n두 줄')
+                    field.press('Enter')
+                    expect(page.locator('.board-node-text')).to_have_count(1)
+                    self.assertEqual(page.locator('.board-node-textarea').input_value(), '한 줄\n두 줄')
+                    field.blur()
+                    page.keyboard.press('Control+z')
+                    expect(page.locator('.board-node-text')).to_have_count(0)
+                    field.fill('')
+                    page.evaluate(paste_text, '\n'.join(f'{i}번째 줄' for i in range(51)))
+                    field.press('Enter')
+                    self.assertIn('50줄까지', page.locator('#board-command-error').inner_text())
+                    self.assertEqual(page.locator('.board-node').count(), 0)
+                    field.fill('직접')
+                    field.press('Shift+Enter')
+                    field.type('쓴 글')
+                    expect(choice).to_be_hidden()
+                    field.press('Enter')
+                    expect(page.locator('.board-node-text')).to_have_count(1)
+                    field.blur()
+                    page.keyboard.press('Control+z')
+                    expect(page.locator('.board-node-text')).to_have_count(0)
                     field.fill('')
                     field.press('Enter')
                     self.assertEqual(page.locator('.board-node').count(), 0)
@@ -384,6 +460,72 @@ class BoardCommandUITests(unittest.TestCase):
                     self.assertEqual(page.evaluate('cmpAttachments.map(a => a.filename)'), ['남길.png'])
                     self.assertEqual(len(page.request.get(base + '/api/jobs').json()['jobs']), jobs_before_exit)
                     opener.click()
+                    history_before_switch = page.evaluate('localStorage.getItem("nightshift.boardCommands")')
+                    cards_before_switch = page.locator('.board-node').count()
+                    field.fill('/퀵')
+                    self.assertIn('/퀵런', page.locator('#board-command-menu').inner_text())
+                    field.press('Tab')
+                    self.assertEqual(field.input_value(), '/퀵런 ')
+                    field.fill('/run')
+                    field.press('Enter')
+                    expect(composer).to_be_visible()
+                    expect(command).to_be_hidden()
+                    self.assertTrue(prompt.evaluate('(el) => document.activeElement === el'))
+                    self.assertEqual(field.input_value(), '')
+                    prompt.fill('남은 초안')
+                    prompt.fill('/bar')
+                    prompt.press('Enter')
+                    expect(composer).to_be_hidden()
+                    expect(command).to_be_visible()
+                    self.assertTrue(field.evaluate('(el) => document.activeElement === el'))
+                    field.fill('/퀵런 1girl beach')
+                    field.press('Enter')
+                    self.assertEqual(prompt.input_value(), '/bar\n1girl beach')
+                    self.assertEqual(page.evaluate('cmpAttachments.map(a => a.filename)'), ['남길.png'])
+                    prompt.fill('/퀵바 메모')
+                    prompt.press('Enter')
+                    self.assertEqual(field.input_value(), '메모')
+                    self.assertEqual(page.locator('.board-node').count(), cards_before_switch)
+                    self.assertEqual(page.evaluate('localStorage.getItem("nightshift.boardCommands")'), history_before_switch)
+                    field.fill('/퀵런')
+                    field.evaluate('''el => el.dispatchEvent(new KeyboardEvent('keydown',
+                        {key: 'Enter', bubbles: true, isComposing: true}))''')
+                    expect(composer).to_be_hidden()
+                    field.press('Enter')
+                    expect(composer).to_be_visible()
+                    prompt.fill('/bar')
+                    page.evaluate('showTab("home")')
+                    prompt.press('Enter')
+                    expect(composer).to_be_visible()
+                    self.assertEqual(prompt.input_value(), '/bar')
+                    self.assertIn('프로젝트 보드 탭에서만', page.locator('#cmp-error').inner_text())
+                    page.evaluate('async (id) => { await fetchProjects(); showTab("prboard", {projectId: id}); }', project_id)
+                    prompt.press('Enter')
+                    expect(composer).to_be_hidden()
+                    expect(command).to_be_visible()
+                    self.assertEqual(page.evaluate('cmpAttachments.map(a => a.filename)'), ['남길.png'])
+                    if os.environ.get('NS96_CAPTURE') == '1':
+                        shots = ROOT / '.ui-captures' / 'NS-96-1'
+                        shots.mkdir(parents=True, exist_ok=True)
+                        page.evaluate('''() => {
+                            document.getElementById('board-world').style.visibility = 'hidden';
+                            document.getElementById('board-selection-bar').style.visibility = 'hidden';
+                        }''')
+                        for theme in ('light', 'dark'):
+                            page.evaluate('(value) => document.documentElement.dataset.theme = value', theme)
+                            for width, height in ((1300, 850), (390, 800)):
+                                page.set_viewport_size({'width': width, 'height': height})
+                                page.evaluate('(mobile) => document.getElementById("board-tree").hidden = mobile', width < 700)
+                                page.screenshot(path=str(shots / f'quickbar-{theme}-{width}.png'), full_page=True)
+                                field.fill('/run 1girl beach')
+                                field.press('Enter')
+                                page.wait_for_timeout(300)
+                                page.screenshot(path=str(shots / f'quickrun-{theme}-{width}.png'), full_page=True)
+                                prompt.fill('/bar')
+                                prompt.press('Enter')
+                        page.set_viewport_size({'width': 1300, 'height': 850})
+                        page.evaluate('document.getElementById("board-tree").hidden = false')
+                    # ---- NS-95-1: /gen ----
                     for name in ('장면 테스트', '장면 비교'):
                         preset = page.request.post(base + '/api/board-presets', data={
                             'name': name, 'template_id': 'seed_batch', 'workflow': {},
@@ -411,25 +553,33 @@ class BoardCommandUITests(unittest.TestCase):
                     if os.environ.get('NS95_CAPTURE') == '1':
                         shots = ROOT / '.ui-captures' / 'NS-95-1'
                         shots.mkdir(parents=True, exist_ok=True)
+                        page.evaluate('''() => {
+                            document.getElementById('board-world').style.visibility = 'hidden';
+                            document.getElementById('board-selection-bar').style.visibility = 'hidden';
+                        }''')
                         for theme in ('light', 'dark'):
                             page.evaluate('(value) => document.documentElement.dataset.theme = value', theme)
                             for width, height in ((1300, 850), (390, 800)):
                                 page.set_viewport_size({'width': width, 'height': height})
                                 page.evaluate('(mobile) => document.getElementById("board-tree").hidden = mobile', width < 700)
-                                page.evaluate('boardFitToNodes()')
                                 field.fill('/gen 장')
                                 expect(page.locator('#board-command-menu')).to_be_visible()
                                 page.screenshot(path=str(shots / f'gen-{theme}-{width}.png'), full_page=True)
                         page.set_viewport_size({'width': 1300, 'height': 850})
-                        page.evaluate('document.getElementById("board-tree").hidden = false')
+                        page.evaluate('''() => {
+                            document.getElementById('board-world').style.visibility = '';
+                            document.getElementById('board-selection-bar').style.visibility = '';
+                            document.getElementById('board-tree').hidden = false;
+                        }''')
                     field.fill('/gen "장면 테스트" 1girl --ar 2:3 --seed 7')
-                    field.press('Enter')
+                    with page.expect_response(lambda r: '/board/nodes/' in r.url and r.url.split('?')[0].endswith('/run')):
+                        field.press('Enter')
                     expect(page.locator('.board-node-gen')).to_have_count(2)
-                    page.wait_for_function('async (count) => (await (await fetch("/api/jobs")).json()).jobs.length === count', arg=jobs_before_exit + 1)
                     jobs = page.request.get(base + '/api/jobs').json()['jobs']
-                    self.assertEqual(jobs[-1]['prompt_overrides'][0]['seed'], 7)
+                    self.assertEqual(len(jobs), jobs_before_exit + 1)
+                    self.assertEqual(jobs[0]['prompt_overrides'][0]['seed'], 7)
                     field.fill('/gen "장면 테스트" 1girl --se')
-                    expect(page.locator('#board-command-menu')).to_contain_text('--seed 7')
+                    expect(page.locator('#board-command-menu')).to_contain_text('--seed')
                     field.press('Tab')
                     self.assertTrue(field.input_value().endswith('--seed '))
                     image_id = page.evaluate('() => boardNodes.find(n => n.kind === "image" && n.asset_path).id')

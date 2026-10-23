@@ -106,6 +106,35 @@ def main():
     csv_batch.run_once(post, url, {"main_prompt": "row3"}, "t", "5", 3)
     assert by_title(SENT[-1], "Face Detailer 부정")["inputs"]["text"] == "built neg"
 
+    # 프롬프트 2차 옵션은 실제 ComfyUI 요청의 샘플러와 Face Detailer 배선을 바꾼다.
+    csv_batch.run_once(post, url, {"main_prompt": "row4", "sampler": "heun", "scheduler": "karras",
+                                   "denoise": "0.6", "detail": "false"}, "t", "6", 4)
+    wf = SENT[-1]
+    assert by_title(wf, "KSampler")["inputs"]["sampler_name"] == "heun"
+    assert by_title(wf, "KSampler")["inputs"]["scheduler"] == "karras"
+    assert by_title(wf, "KSampler")["inputs"]["denoise"] == 0.6
+    assert not any(n["class_type"] == "FaceDetailer" for n in wf.values())
+    assert by_title(wf, "Save Image")["inputs"]["images"] == by_title(post, "Face Detailer")["inputs"]["image"]
+
+    upscaled = workflow_builder.build_workflow({"checkpoint": "a.safetensors", "positive": "built",
+                                                "negative": "built neg", "hires_fix": {"enabled": True},
+                                                "usdu": {"enabled": True}})
+    csv_batch.run_once(upscaled, url, {"main_prompt": "row5", "upscale": "2.5"}, "t", "7", 5)
+    wf = SENT[-1]
+    assert by_title(wf, "Hires Upscale")["inputs"]["scale_by"] == 2.5
+    assert by_title(wf, "Upscale Image By")["inputs"]["scale_by"] == 2.5
+
+    os.environ.update(SAMPLER="heun", SCHEDULER="karras", DENOISE="0.4", DETAIL="False")
+    try:
+        seed_batch.run_once(post, url, 8, 3, "single", "", "", "")
+        wf = SENT[-1]
+        assert by_title(wf, "KSampler")["inputs"]["sampler_name"] == "heun"
+        assert by_title(wf, "KSampler")["inputs"]["denoise"] == 0.4
+        assert not any(n["class_type"] == "FaceDetailer" for n in wf.values())
+    finally:
+        for name in ("SAMPLER", "SCHEDULER", "DENOISE", "DETAIL"):
+            os.environ.pop(name, None)
+
     # 3) input_image_csv_batch + face_detailer 유형(메인 프롬프트 노드 없음): 행 값으로 대체된다.
     os.environ.update(FACE_PROMPT="", FACE_NEGATIVE_PROMPT="")
     iicsv = load("input_image_csv_batch")

@@ -483,7 +483,10 @@ async def create_job(
                                if isinstance(n, dict) and n.get("class_type") == "EmptyLatentImage"), {})
             base = int((int(dimensions.get("width", 1024)) * int(dimensions.get("height", 1024))) ** 0.5)
             csv_bytes, prompt_overrides = prompt_options.apply_csv_options(
-                csv_bytes, base, expand_repeat=template_id != "csv_batch")
+                csv_bytes, base, expand_repeat=template_id != "csv_batch",
+                allow_video=template_id in ("img2video_i2v_csv_batch", "img2video_flf2v_csv_batch"))
+            for entry in prompt_overrides:
+                prompt_options.validate_workflow_options(workflow, entry)
             loader_count = sum(isinstance(n, dict) and n.get("class_type") in ("LoraLoader", "LoraLoaderModelOnly")
                                for n in workflow.values())
             if any(len((entry.get("loras") or "").split(";")) > loader_count
@@ -528,6 +531,13 @@ async def create_job(
         if errors:
             raise HTTPException(400, "; ".join(errors))
         if overrides:
+            if any(key in overrides for key in ("frames", "fps", "dur")):
+                raise HTTPException(400, "영상 옵션은 영상 템플릿에서만 쓸 수 있어요.")
+            try:
+                prompt_options.validate_workflow_options(
+                    json.loads(workflow_bytes) if workflow_bytes else {}, overrides)
+            except ValueError as e:
+                raise HTTPException(400, str(e)) from e
             if "loras" in overrides:
                 workflow = json.loads(workflow_bytes) if workflow_bytes else {}
                 loader_count = sum(isinstance(n, dict) and n.get("class_type") in ("LoraLoader", "LoraLoaderModelOnly")
@@ -540,7 +550,15 @@ async def create_job(
             count_option = {"seed_batch": "seed_count", "pose_batch": "pose_count", "depth_batch": "depth_count",
                             "lineart_batch": "lineart_count", "input_image_batch": "image_count",
                             "ipadapter_batch": "image_count"}.get(template_id)
-            for key, target in (("repeat", count_option), ("model", "checkpoint"), ("steps", "steps"), ("cfg", "cfg"), ("seed", "seed_start")):
+            if "seed_range" in overrides:
+                if count_option is None:
+                    raise HTTPException(400, "이 템플릿은 시드 범위를 지원하지 않아요.")
+                first, last = overrides["seed_range"]
+                raw_options["seed_start"] = str(first)
+                raw_options[count_option] = str(last - first + 1)
+            for key, target in (("repeat", count_option), ("model", "checkpoint"), ("steps", "steps"), ("cfg", "cfg"), ("seed", "seed_start"),
+                                ("sampler", "sampler"), ("scheduler", "scheduler"), ("denoise", "denoise"),
+                                ("detail", "detail"), ("upscale", "upscale")):
                 if key == "repeat" and target is None and key in overrides:
                     raise HTTPException(400, "이 템플릿은 --repeat를 지원하지 않아요.")
                 if key in overrides:
@@ -595,7 +613,7 @@ async def create_job(
         prompt_model = option["name"] == "checkpoint" and any("model" in entry for entry in prompt_overrides)
         options[option["name"]] = coerce_option(option, raw, options,
                                                  NO_POD if prompt_model or pod is None else pod)
-    for name in ("steps", "cfg", "seed_start", "loras", "negative_prompt"):
+    for name in ("steps", "cfg", "seed_start", "loras", "negative_prompt", "sampler", "scheduler", "denoise", "detail", "upscale"):
         if name in raw_options:
             options[name] = raw_options[name]
 
@@ -893,7 +911,7 @@ async def quick_run_submit(request: Request):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
     if not isinstance(body, dict):
         raise HTTPException(400, "요청 본문이 JSON 객체여야 해요.")
-    if isinstance(body.get("prompt"), str) and body["prompt"].strip().lower() == "/exit":
+    if isinstance(body.get("prompt"), str) and re.match(r"^/(?:exit$|(?:bar|퀵바)(?:\s|$))", body["prompt"].strip(), re.IGNORECASE):
         raise HTTPException(400, "명령이에요, 프롬프트가 아니에요.")
 
     if body.get("workflow_id"):

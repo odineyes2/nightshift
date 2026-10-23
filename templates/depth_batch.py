@@ -725,7 +725,7 @@ def run_once(base_workflow, comfy_url, seed, char_no, depth_path, index, job_id,
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
     apply_lora(workflow)
-    prompt_row.apply(workflow, {name: env(name.upper(), "") for name in ("steps", "cfg", "loras", "negative_prompt", "width", "height")}, set_linked_value)
+    prompt_row.apply(workflow, prompt_row.env_row(), set_linked_value)
     apply_main_prompt(workflow, main_prompt)
     apply_resolution(workflow, width, height)
     apply_depth_image(workflow, comfy_url, depth_path)

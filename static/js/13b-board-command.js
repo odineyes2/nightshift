@@ -6,6 +6,7 @@ const BOARD_COMMANDS = [
   { cmd: 'gen', aliases: ['g'], description: '프리셋으로 생성 카드', example: '/gen 프리셋 프롬프트' },
   { cmd: 'image', aliases: ['img', 'i'], description: '빈 이미지 카드 · 검색어가 있으면 이미지 고르기', example: '/image [검색어]' },
   { cmd: 'video', aliases: ['v'], description: '빈 영상 카드 · 검색어가 있으면 영상 고르기', example: '/video [검색어]' },
+  { cmd: 'run', aliases: ['퀵런'], description: '퀵런 열기', example: '/run [글]' },
   { cmd: 'exit', aliases: ['q'], description: '퀵바 닫기', example: '/exit' },
   { cmd: 'help', aliases: ['?'], description: '명령 도움말', example: '/help' },
 ];
@@ -27,6 +28,31 @@ try{
 }catch(e){ /* 저장소를 읽지 못하면 이번 화면의 기록만 쓴다. */ }
 let boardCommandHistoryIndex = boardCommandHistory.length;
 let boardCommandDraft = '';
+let boardCommandPaste = null;
+
+function boardCommandPasteLines(value){
+  return value.split(/\r\n|\r|\n/).map(line => line.trim().replace(/^(?:[-*]\s+|\d+\.\s+)/, '').trim()).filter(Boolean);
+}
+
+function boardCommandPasteChoice(){
+  let choice = document.getElementById('board-command-paste-choice');
+  if(!choice){
+    choice = document.createElement('div');
+    choice.id = 'board-command-paste-choice';
+    choice.className = 'board-command-paste-choice';
+    choice.setAttribute('role', 'group');
+    choice.setAttribute('aria-label', '여러 줄 붙여넣기 방식');
+    choice.innerHTML = '<button type="button" data-paste-choice="many"></button><button type="button" data-paste-choice="one">한 장으로 붙여넣기 (Esc)</button>';
+    document.getElementById('board-command-input').before(choice);
+  }
+  choice.hidden = !boardCommandPaste;
+  if(boardCommandPaste) choice.querySelector('[data-paste-choice="many"]').textContent = `줄마다 메모 ${boardCommandPaste.lines.length}장 만들기 (Enter)`;
+}
+
+function boardCommandClearPaste(){
+  boardCommandPaste = null;
+  boardCommandPasteChoice();
+}
 
 function parseBoardCommand(text){
   const raw = text.trim();
@@ -76,6 +102,7 @@ function boardCommandFinish(value){
   boardCommandHistoryIndex = boardCommandHistory.length;
   boardCommandDraft = '';
   input.value = '';
+  boardCommandClearPaste();
   boardCommandPaint();
 }
 function boardCommandFocus(){
@@ -122,7 +149,9 @@ function boardCommandComplete(){
     boardCommandPaint();
     return true;
   }
-  input.value = '/' + choice.cmd + ' ';
+  const prefix = /^\/([^\s]*)$/.exec(input.value);
+  const name = prefix && prefix[1] && choice.aliases.find(alias => alias.startsWith(prefix[1].toLowerCase())) || choice.cmd;
+  input.value = '/' + name + ' ';
   input.focus();
   boardCommandPaint();
   return true;
@@ -153,10 +182,47 @@ function boardCommandPaint(){
   }
   boardCommandChoice = Math.min(boardCommandChoice, Math.max(0, boardCommandChoices.length - 1));
   menu.hidden = !boardCommandChoices.length || document.activeElement !== input;
-  menu.innerHTML = boardCommandChoices.map((c, i) => `<button type="button" role="option" aria-selected="${i === boardCommandChoice}" data-command="${escapeHtml(c.cmd)}"><b>${escapeHtml(c.example)}</b><span>${escapeHtml(c.description || '')}</span></button>`).join('');
+  menu.innerHTML = boardCommandChoices.map((c, i) => {
+    const name = prefix && prefix[1] && c.aliases && c.aliases.find(alias => alias.startsWith(prefix[1].toLowerCase())) || c.cmd;
+    return `<button type="button" role="option" aria-selected="${i === boardCommandChoice}" data-command="${escapeHtml(c.cmd)}"><b>${escapeHtml(name === c.cmd ? c.example : '/' + name)}</b><span>${escapeHtml(c.description || '')}</span></button>`;
+  }).join('');
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 6 * 23) + 'px';
   boardCommandError('');
+  if(boardCommandPaste && boardCommandPaste.lines.length > 50)
+    boardCommandError(`50줄까지 한 번에 만들 수 있어요(지금 ${boardCommandPaste.lines.length}줄).`);
+}
+
+async function boardCommandRunPaste(){
+  if(!boardCommandPaste || boardCommandBusy) return;
+  const lines = boardCommandPaste.lines;
+  if(lines.length > 50){ boardCommandPaint(); return; }
+  const projectId = currentProjectId, boardId = currentBoardId;
+  if(typeof projectId !== 'number') return;
+  const value = document.getElementById('board-command-input').value;
+  const geom = boardCommandGeometry('text');
+  const nodes = [];
+  boardCommandBusy = true;
+  try{
+    for(const [i, line] of lines.entries()){
+      if(!boardScopeMatches(projectId, boardId)) break;
+      const node = await createBoardNode('text', null, line, {
+        x: geom.x + (i % 4) * 240, y: geom.y + Math.floor(i / 4) * 184,
+        width: 220, height: 160,
+      }, false);
+      if(!node) break;
+      nodes.push(node);
+    }
+  }catch(e){ /* 이미 만든 카드는 한 번에 되돌릴 수 있게 아래에서 기록한다. */ }
+  finally{ boardCommandBusy = false; }
+  if(!boardScopeMatches(projectId, boardId)) return;
+  if(nodes.length){
+    setBoardSelection(new Set(nodes.map(node => node.id)));
+    pushBoardHistory({ type: 'paste', nodes: nodes.map(boardNodeSnapshot), edges: [] });
+    boardCommandAdvance(nodes[nodes.length - 1]);
+    boardCommandFinish(value);
+  }
+  if(nodes.length < lines.length) boardCommandError(`${lines.length}장 중 ${nodes.length}장을 만들었어요.`);
 }
 
 async function boardCommandLoadGenPresets(){
@@ -254,6 +320,15 @@ async function boardCommandRun(placeOnly = false){
         if(!result || !result.ok) throw new Error((result && result.error) || '실행하지 못했어요. 카드는 남아 있어요.');
       }
     }
+    else if(parsed.cmd === 'run'){
+      input.value = '';
+      boardCommandPaint();
+      if(parsed.args) cmpInput.value += (cmpInput.value ? '\n' : '') + parsed.args;
+      openComposer();
+      cmpAutosize();
+      cmpUpdate();
+      return;
+    }
     else if(parsed.cmd === 'image' || parsed.cmd === 'video'){
       if(parsed.args){
         openBoardAssetPicker(parsed.cmd, null, boardCommandGeometry(parsed.cmd), parsed.args, value);
@@ -313,9 +388,20 @@ async function boardCommandUpload(files){
 
 const boardCommandInput = document.getElementById('board-command-input');
 boardCommandInput.addEventListener('paste', e => {
-  if(!e.clipboardData || !e.clipboardData.files.length) return;
+  if(!e.clipboardData) return;
+  if(e.clipboardData.files.length){
+    e.preventDefault();
+    boardCommandUpload(e.clipboardData.files);
+    return;
+  }
+  const pasted = e.clipboardData.getData('text/plain');
+  if(!/(?:\r\n|\r|\n)/.test(pasted)) return;
   e.preventDefault();
-  boardCommandUpload(e.clipboardData.files);
+  boardCommandInput.setRangeText(pasted, boardCommandInput.selectionStart, boardCommandInput.selectionEnd, 'end');
+  const lines = boardCommandPasteLines(boardCommandInput.value);
+  boardCommandPaste = lines.length > 1 ? { lines } : null;
+  boardCommandPasteChoice();
+  boardCommandPaint();
 });
 const boardCommandBox = document.getElementById('board-command');
 boardCommandSyncVisibility();
@@ -328,7 +414,7 @@ boardCommandBox.addEventListener('drop', e => {
   e.stopPropagation();
   boardCommandUpload(e.dataTransfer.files);
 });
-boardCommandInput.addEventListener('input', () => { boardCommandChoice = 0; boardCommandPaint(); });
+boardCommandInput.addEventListener('input', () => { boardCommandClearPaste(); boardCommandChoice = 0; boardCommandPaint(); });
 boardCommandInput.addEventListener('focus', boardCommandPaint);
 boardCommandInput.addEventListener('blur', () => { setTimeout(boardCommandPaint, 0); });
 boardCommandInput.addEventListener('keydown', e => {
@@ -336,6 +422,7 @@ boardCommandInput.addEventListener('keydown', e => {
   if(e.key === 'Escape'){
     e.preventDefault();
     e.stopPropagation();
+    if(boardCommandPaste){ boardCommandClearPaste(); boardCommandPaint(); return; }
     if(!document.getElementById('board-command-menu').hidden){
       document.getElementById('board-command-menu').hidden = true;
       return;
@@ -347,8 +434,9 @@ boardCommandInput.addEventListener('keydown', e => {
   if(e.key === 'Tab' && boardCommandChoices.length){ e.preventDefault(); boardCommandComplete(); return; }
   if(e.key === 'Enter' && !e.shiftKey){
     e.preventDefault();
+    if(boardCommandPaste){ boardCommandRunPaste(); return; }
     if(boardCommandChoices.length && !/^\/(?:gen|g)(?:\s|$)/i.test(boardCommandInput.value) && !boardCommandInput.value.endsWith(' ')
-        && !/\/(?:text|t|job|image|img|i|video|v|gen|g|exit|q)$/i.test(boardCommandInput.value)) boardCommandComplete();
+        && !/\/(?:text|t|job|image|img|i|video|v|gen|g|exit|q|run|퀵런)$/i.test(boardCommandInput.value)) boardCommandComplete();
     else boardCommandRun(e.ctrlKey || e.metaKey);
     return;
   }
@@ -369,6 +457,12 @@ boardCommandInput.addEventListener('keydown', e => {
     boardCommandInput.value = boardCommandHistoryIndex === boardCommandHistory.length ? boardCommandDraft : boardCommandHistory[boardCommandHistoryIndex];
     boardCommandPaint();
   }
+});
+boardCommandBox.addEventListener('click', e => {
+  const button = e.target.closest('[data-paste-choice]');
+  if(!button) return;
+  if(button.dataset.pasteChoice === 'many') boardCommandRunPaste();
+  else{ boardCommandClearPaste(); boardCommandPaint(); boardCommandInput.focus(); }
 });
 document.addEventListener('keydown', e => {
   if(e.key !== 'Escape' || e.isComposing || currentTab !== 'prboard' || !boardCommandOpen

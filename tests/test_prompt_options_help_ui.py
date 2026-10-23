@@ -10,6 +10,8 @@ HTML = (ROOT / "static/index.html").read_text(encoding="utf-8")
 MODAL = HTML[HTML.index('<div class="modal-overlay" id="prompt-options-help-modal"'):
              HTML.index('<div class="modal-overlay" id="cover-picker-modal"')]
 SCRIPT = (ROOT / "static/js/17e-prompt-options-help.js").read_text(encoding="utf-8")
+JOBS_SCRIPT = (ROOT / "static/js/01-core-jobs.js").read_text(encoding="utf-8")
+DETAIL_SCRIPT = JOBS_SCRIPT[JOBS_SCRIPT.index("function renderJobDetailModalBody()"):JOBS_SCRIPT.index("// 이 작업이 만든 생성물")]
 SPECS = [{"name": "ar", "aliases": ["aspect"], "format": "가로:세로",
           "example": "--ar 2:3", "description": "비율을 지정해요."}]
 
@@ -20,9 +22,19 @@ def main():
         try:
             page = browser.new_page()
             page.route("**/api/prompt-options/spec", lambda route: route.fulfill(json={"options": SPECS}))
+            def parse_response(route):
+                value = route.request.post_data_json["text"]
+                if "--sed" in value:
+                    route.fulfill(json={"clean_text": "cat", "options": {}, "errors": ["--sed: 모르는 옵션이에요."], "resolution": None})
+                elif "--seed" in value:
+                    route.fulfill(json={"clean_text": "cat", "options": {"seed": 7, "repeat": 4}, "errors": [], "resolution": [832, 1216]})
+                else:
+                    route.fulfill(json={"clean_text": value, "options": {}, "errors": [], "resolution": None})
+            page.route("**/api/prompt-options/parse", parse_response)
             markup = (f"<div class='prompt-enhance-col'><div class='prompt-enhance-actions' id='new-actions'></div><textarea class='enhance-raw'></textarea></div>"
                       f"<div class='board-gen-field'><div id='board-actions'></div><textarea>board</textarea></div>"
-                      f"<table><thead><tr><th id='csv-actions'></th></tr></thead><tbody id='csv-editor-tbody'><tr><td><input data-ci='0' value='csv'></td></tr></tbody></table>{MODAL}")
+                      f"<table><thead><tr><th id='csv-actions'></th></tr></thead><tbody id='csv-editor-tbody'><tr><td><input data-ci='0' value='csv'></td></tr></tbody></table>"
+                      f"<div id='job-detail-title'></div><div id='job-detail-fields'></div><div id='job-detail-actions'></div>{MODAL}")
             page.route("http://127.0.0.1/", lambda route: route.fulfill(body=markup, content_type="text/html"))
             page.goto("http://127.0.0.1/")
             page.add_script_tag(content="const escapeHtml = s => String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;');"
@@ -55,6 +67,32 @@ def main():
                 assert target.evaluate("el => document.activeElement === el")
                 if area != "#csv-actions":
                     assert target.evaluate("el => [el.selectionStart, el.selectionEnd]") == [2, 5]
+            for selector in ('.prompt-enhance-col textarea', '.board-gen-field textarea', '#csv-editor-tbody input'):
+                target = page.locator(selector)
+                if selector.endswith('input'):
+                    target.evaluate("el => el.dataset.col = 'main_prompt'")
+                target.fill('cat --seed 7')
+                chips = target.locator('xpath=following-sibling::*[1]')
+                chips.locator('.prompt-option-chip').first.wait_for()
+                assert 'seed 7' in chips.inner_text()
+                assert '832×1216' in chips.inner_text()
+                target.fill('cat --sed 1')
+                chips.locator('.prompt-option-chip.error').wait_for()
+                target.fill('cat')
+                assert chips.is_hidden()
+            page.add_script_tag(content=DETAIL_SCRIPT)
+            page.evaluate("""() => {
+              window.openJobDetailId = 'test';
+              window.lastJobs = [{id:'test', status:'done', template_id:'seed_batch', options:{main_prompt:'cat'},
+                prompt_overrides:[{line:1, seed:7, ar:[2,3], res:1024}, {line:2, seed:8}]}];
+              window.estimateJob = () => ({durationMs:0, finishIso:''});
+              window.podsCache = []; window.preflightLines = () => [];
+              window.fmtTime = () => '-'; window.fmtDuration = () => '-'; window.STATUS_LABEL = {done:'완료'};
+              window.renderJobDetailModalBody();
+            }""")
+            detail = page.locator('#job-detail-fields').inner_text()
+            assert '프롬프트 값 사용 중' in detail
+            assert 'seed 7 · 832×1216 · 외 1줄' in detail
             print("ok")
         finally:
             browser.close()

@@ -1,6 +1,34 @@
 """CSV와 시드 배치의 행별 샘플러·모델 옵션을 워크플로우에 반영한다."""
 
 import os
+import sys
+
+
+PROMPT_FIELDS = ("steps", "cfg", "loras", "negative_prompt", "width", "height",
+                 "sampler", "scheduler", "denoise", "detail", "upscale")
+
+
+def env_row(fields=PROMPT_FIELDS):
+    """단일 프롬프트 템플릿의 작업 옵션을 행 형식으로 돌려준다."""
+    return {name: os.environ.get(name.upper(), "") for name in fields}
+
+
+def apply_video(workflow, row, set_value):
+    """영상 CSV 행의 프레임 수와 FPS를 WAN·CreateVideo 입력에 적용한다."""
+    if row.get("frames") not in (None, ""):
+        nodes = [node for node in workflow.values() if isinstance(node, dict)
+                 and node.get("class_type") in ("WanImageToVideo", "WanFirstLastFrameToVideo")]
+        if not nodes:
+            raise ValueError("영상 워크플로우에 WAN 길이 노드가 없어요.")
+        for node in nodes:
+            set_value(workflow, node, "length", int(row["frames"]))
+    if row.get("fps") not in (None, ""):
+        nodes = [node for node in workflow.values() if isinstance(node, dict)
+                 and node.get("class_type") == "CreateVideo"]
+        if not nodes:
+            raise ValueError("영상 워크플로우에 FPS 노드가 없어요.")
+        for node in nodes:
+            set_value(workflow, node, "fps", int(row["fps"]))
 
 
 def apply(workflow, row, set_value):
@@ -13,9 +41,44 @@ def apply(workflow, row, set_value):
         title = os.environ.get("SEED_NODE_TITLE", "KSampler").lower()
         sampler = next((node for node in samplers
                         if title in str(node.get("_meta", {}).get("title", "")).lower()), samplers[0])
-        for field, convert in (("steps", int), ("cfg", float)):
+        for field, convert in (("steps", int), ("cfg", float), ("sampler", str),
+                               ("scheduler", str), ("denoise", float)):
             if row.get(field) not in (None, ""):
-                set_value(workflow, sampler, field, convert(row[field]))
+                target = "sampler_name" if field == "sampler" else field
+                if field in ("sampler", "scheduler", "denoise") and target not in sampler.get("inputs", {}):
+                    raise ValueError(f"샘플러에 {field} 입력이 없어요.")
+                set_value(workflow, sampler, target, convert(row[field]))
+    elif any(row.get(field) not in (None, "") for field in ("sampler", "scheduler", "denoise")):
+        raise ValueError("이 워크플로우에는 KSampler가 없어요.")
+    if row.get("detail") not in (None, ""):
+        detail = str(row["detail"]).lower() in ("true", "1")
+        detailers = [(node_id, node) for node_id, node in workflow.items()
+                     if isinstance(node, dict) and node.get("class_type") == "FaceDetailer"]
+        if detail and not detailers:
+            raise ValueError("이 워크플로우에는 Face Detailer가 없어요.")
+        if not detail and not detailers:
+            print("Face Detailer 노드가 없어 --nodetail을 무시해요.", file=sys.stderr)
+        if not detail:
+            for node_id, node in detailers:
+                image = node.get("inputs", {}).get("image")
+                if not isinstance(image, list) or len(image) != 2:
+                    raise ValueError("Face Detailer의 입력 이미지를 우회할 수 없어요.")
+                for other in workflow.values():
+                    if not isinstance(other, dict):
+                        continue
+                    for field, value in other.get("inputs", {}).items():
+                        if isinstance(value, list) and len(value) == 2 and str(value[0]) == str(node_id):
+                            if value[1] != 0:
+                                raise ValueError("Face Detailer의 보조 출력을 우회할 수 없어요.")
+                            other["inputs"][field] = image
+                del workflow[node_id]
+    if row.get("upscale") not in (None, ""):
+        upscalers = [node for node in workflow.values() if isinstance(node, dict)
+                     and node.get("class_type") in ("LatentUpscaleBy", "ImageScaleBy")]
+        if not upscalers:
+            raise ValueError("이 워크플로우에는 업스케일 노드가 없어요.")
+        for node in upscalers:
+            set_value(workflow, node, "scale_by", float(row["upscale"]))
     if row.get("width") and row.get("height"):
         latents = [node for node in workflow.values() if isinstance(node, dict)
                    and node.get("class_type") == "EmptyLatentImage"]
