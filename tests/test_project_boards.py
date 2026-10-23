@@ -75,6 +75,12 @@ class ProjectBoardHTTPTests(unittest.TestCase):
         self.assertEqual(slots["main_prompt"]["kind"], "text")
         self.assertFalse(slots["main_prompt"]["required"])
         self.assertNotIn("kind", slots["pose_image"])
+        # 글칸이 있는 text 입구(main_prompt)는 입구 줄을 세지 않는다.
+        fields = gen["data"]["fields"]
+        self.assertEqual([f["name"] for f in fields], ["main_prompt"])
+        rows = sum(1 for s in slots.values() if not (s.get("kind") == "text" and s["name"] == "main_prompt"))
+        self.assertEqual(gen["height"], max(140, 52 + 30 * rows + 96 + 14 + 46))
+        self.assertEqual(gen["height"], max(140, 52 + 30 * (len(slots) - 1) + 96 + 14 + 46))
         memo = self.request(owner, "post", base + "/nodes",
                             json={"kind": "text", "text": "연결한 글"}).json()
         image = self.request(owner, "post", base + "/nodes", json={"kind": "image"}).json()
