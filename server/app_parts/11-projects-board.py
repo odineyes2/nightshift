@@ -300,13 +300,20 @@ async def create_board_node_api(project_id: int, request: Request):
                 raise HTTPException(404, "이 프로젝트의 작업이 아니에요.")
     data = None
     if kind == "gen":
-        try:
-            preset_id = int(body.get("preset_id"))
-        except (TypeError, ValueError):
-            raise HTTPException(400, "생성 카드는 preset_id가 필요해요.")
-        preset = board_presets.get_preset(user["id"], preset_id)
-        if preset is None:
-            raise HTTPException(404, "없는 프리셋이에요.")
+        if body.get("draft") is not None:
+            draft = body["draft"]
+            if not isinstance(draft, dict):
+                raise HTTPException(400, "draft는 JSON 객체여야 해요.")
+            template = resolve_template(draft.get("template_id"))
+            preset = {**_board_preset_payload({**draft, "name": template.get("label") or template["id"]}), "id": None}
+        else:
+            try:
+                preset_id = int(body.get("preset_id"))
+            except (TypeError, ValueError):
+                raise HTTPException(400, "생성 카드는 preset_id 또는 draft가 필요해요.")
+            preset = board_presets.get_preset(user["id"], preset_id)
+            if preset is None:
+                raise HTTPException(404, "없는 프리셋이에요.")
         data = _board_gen_data_from_preset(preset)
     try:
         x = float(body.get("x", 0))
@@ -340,6 +347,9 @@ def _board_gen_data_from_preset(preset: dict) -> dict:
     slots = [{"name": o["name"], "label": o.get("label") or o["name"], "required": o.get("type") == "input_image"}
              for o in template.get("options", [])
              if o.get("type") in BOARD_PRESET_SLOT_TYPES and (keep is None or o["name"] in keep)]
+    slots += [{"name": o["name"], "label": o.get("label") or o["name"], "kind": "text", "required": False}
+              for o in template.get("options", [])
+              if o.get("type") == "textarea" and (o["name"] == "prompt" or o["name"].endswith("_prompt"))]
     fields = []
     for name in preset.get("exposed") or []:
         o = opts.get(name)
@@ -556,6 +566,18 @@ async def restore_board_api(project_id: int, request: Request):
                   "created_at": str(e["created_at"]) if e.get("created_at") else None} for e in raw_edges]
     except (TypeError, ValueError, KeyError, AttributeError):
         raise HTTPException(400, "되살릴 카드/선 형식이 맞지 않아요.")
+    restored_nodes = {n["id"]: n for n in nodes if n["id"] is not None}
+    for edge in edges:
+        if not edge["to_slot"]:
+            continue
+        source = restored_nodes.get(edge["from_node_id"]) or board_store.get_node(project_id, edge["from_node_id"])
+        target = restored_nodes.get(edge["to_node_id"]) or board_store.get_node(project_id, edge["to_node_id"])
+        if source is None or target is None:
+            continue   # 없는 카드의 오류는 board_store.restore가 처리한다.
+        slots = {sl["name"]: sl for sl in ((target.get("data") or {}).get("slots") or [])} if target["kind"] == "gen" else {}
+        slot = slots.get(edge["to_slot"])
+        if slot is None or source["kind"] != slot.get("kind", "image"):
+            raise HTTPException(400, "입구와 카드 종류가 맞지 않아요.")
     try:
         return board_store.restore(project_id, nodes, edges)
     except board_store.BoardNotFound:
@@ -735,16 +757,22 @@ async def _board_gen_prepare(user: dict, project_id: int, node_id: int) -> dict:
         raise HTTPException(400, "이 카드의 템플릿이 이 서버에 없어요.")
     slots = {sl["name"]: sl for sl in data.get("slots", [])}
     filled = {}
+    text_filled = {}
     for from_id, slot in board_store.slot_edges(project_id, node_id):
         src = board_store.get_node(project_id, from_id)
-        if slot in slots and src and src["kind"] == "image" and not src.get("asset_path"):
+        if slot not in slots or not src:
+            continue
+        if slots[slot].get("kind", "image") == "text" and src["kind"] == "text":
+            text_filled[slot] = src.get("text") or ""
+        elif slots[slot].get("kind", "image") == "image" and src["kind"] == "image" and not src.get("asset_path"):
             raise HTTPException(400, "이미지가 비어 있어요.")
-        if slot in slots and src and src["kind"] == "image" and src.get("asset_path"):
+        elif slots[slot].get("kind", "image") == "image" and src["kind"] == "image" and src.get("asset_path"):
             filled[slot] = src["asset_path"]
     missing = [sl["label"] for sl in data.get("slots", []) if sl.get("required") and sl["name"] not in filled]
     if missing:
         raise HTTPException(400, f"비어 있는 필수 입구가 있어요: {', '.join(missing)}")
     options = {**(data.get("options") or {}), **(data.get("values") or {})}
+    options.update(text_filled)
     for slot, path in filled.items():
         _board_asset_path_or_error(user, "image", path)   # 자기(admin은 전부) 결과물만
         try:
@@ -808,14 +836,16 @@ async def create_board_edge_api(project_id: int, request: Request):
         raise HTTPException(404, "없는 카드예요.")
     to_slot = body.get("to_slot")
     if to_slot:
-        # 생성 카드의 입구로 — 받는 쪽은 그 입구가 있는 생성 카드, 보내는 쪽은 이미지 카드여야 한다.
+        # 생성 카드의 입구로 — 입구 종류와 보내는 카드 종류가 같아야 한다.
         target = board_store.get_node(project_id, to_id)
         source = board_store.get_node(project_id, from_id)
-        slots = {sl["name"] for sl in ((target or {}).get("data") or {}).get("slots", [])} if target and target["kind"] == "gen" else set()
-        if str(to_slot) not in slots:
+        slots = {sl["name"]: sl for sl in ((target or {}).get("data") or {}).get("slots", [])} if target and target["kind"] == "gen" else {}
+        slot = slots.get(str(to_slot))
+        if slot is None:
             raise HTTPException(400, "그 생성 카드에 없는 입구예요.")
-        if not source or source["kind"] != "image":
-            raise HTTPException(400, "입구에는 이미지 카드만 이을 수 있어요.")
+        slot_kind = slot.get("kind", "image")
+        if not source or source["kind"] != slot_kind:
+            raise HTTPException(400, f"이 칸에는 {'메모' if slot_kind == 'text' else '이미지'} 카드만 이을 수 있어요.")
         edge, removed = board_store.create_slot_edge(project_id, from_id, to_id, str(to_slot))
         return {**edge, "replaced": removed}
     return {**board_store.create_edge(project_id, from_id, to_id), "replaced": []}

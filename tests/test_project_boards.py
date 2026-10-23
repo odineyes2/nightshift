@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 import io
+from unittest.mock import AsyncMock, patch
 from pathlib import Path
 from PIL import Image
 
@@ -56,6 +57,49 @@ class ProjectBoardHTTPTests(unittest.TestCase):
         response = getattr(client, method)(path, headers={"X-Requested-With": "nightshift"}, **kwargs)
         self.assertLess(response.status_code, 500, response.text)
         return response
+
+    def test_draft_gen_text_slot_and_execution(self):
+        owner = self.client("draft-gen-owner")
+        project = self.request(owner, "post", "/api/projects", json={"name": "Draft gen"}).json()
+        base = f"/api/projects/{project['id']}/board"
+        draft = {"template_id": "seed_batch", "workflow": {},
+                 "options": {"main_prompt": "카드 기본 글"}, "exposed": ["main_prompt"]}
+        self.assertEqual(self.request(owner, "post", base + "/nodes",
+                                      json={"kind": "gen", "draft": {**draft, "workflow": None}}).status_code, 400)
+        response = self.request(owner, "post", base + "/nodes", json={"kind": "gen", "draft": draft})
+        self.assertEqual(response.status_code, 200, response.text)
+        gen = response.json()
+        self.assertIsNone(gen["data"]["preset_id"])
+        self.assertEqual(gen["data"]["preset_name"], "시드 반복")
+        slots = {slot["name"]: slot for slot in gen["data"]["slots"]}
+        self.assertEqual(slots["main_prompt"]["kind"], "text")
+        self.assertFalse(slots["main_prompt"]["required"])
+        self.assertNotIn("kind", slots["pose_image"])
+        memo = self.request(owner, "post", base + "/nodes",
+                            json={"kind": "text", "text": "연결한 글"}).json()
+        image = self.request(owner, "post", base + "/nodes", json={"kind": "image"}).json()
+        edge = lambda source, target, slot: self.request(
+            owner, "post", base + "/edges",
+            json={"from_node_id": source["id"], "to_node_id": target["id"], "to_slot": slot})
+        self.assertEqual(edge(image, gen, "main_prompt").status_code, 400)
+        self.assertEqual(edge(memo, gen, "pose_image").status_code, 400)
+        self.assertEqual(self.request(owner, "post", base + "/restore", json={"nodes": [], "edges": [
+            {"from_node_id": image["id"], "to_node_id": gen["id"], "to_slot": "main_prompt"}]}).status_code, 400)
+        self.assertEqual(self.request(owner, "post", base + f"/nodes/{gen['id']}/prepare").json()["options"]["main_prompt"],
+                         "카드 기본 글")
+        self.assertEqual(edge(memo, gen, "main_prompt").status_code, 200)
+        self.assertEqual(self.request(owner, "post", base + f"/nodes/{gen['id']}/prepare").json()["options"]["main_prompt"],
+                         "연결한 글")
+        with patch.object(A, "create_job", new_callable=AsyncMock) as create_job:
+            create_job.return_value = {"id": "draft-test-job", "status": "pending"}
+            run = self.request(owner, "post", base + f"/nodes/{gen['id']}/run")
+            self.assertEqual(run.status_code, 200, run.text)
+            self.assertEqual(create_job.await_args.args[5]["main_prompt"], "연결한 글")
+
+        image_gen = self.request(owner, "post", base + "/nodes", json={"kind": "gen", "draft": {
+            "template_id": "input_image_batch", "workflow": {}, "slots": ["input_image"]}}).json()
+        self.assertEqual(edge(memo, image_gen, "input_image").status_code, 400)
+        self.assertEqual(edge(image, image_gen, "input_image").status_code, 200)
 
     def test_migration_and_foreign_keys(self):
         with db.connect() as conn:
