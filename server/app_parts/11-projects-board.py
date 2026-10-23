@@ -389,7 +389,7 @@ def _board_asset_path_or_error(user, kind: str, raw) -> str | None:
         return None
     asset_path = (raw or "").strip()
     if not asset_path:
-        raise HTTPException(400, "이미지/영상 카드는 asset_path가 필요해요.")
+        return None
     _sync_assets_quietly()
     try:
         asset_meta.get_detail(asset_path, owner_id=auth.owner_scope(user))
@@ -400,6 +400,7 @@ def _board_asset_path_or_error(user, kind: str, raw) -> str | None:
 
 @app.patch("/api/projects/{project_id}/board/nodes/{node_id}")
 async def update_board_node_api(project_id: int, node_id: int, request: Request):
+    user = me(request)
     _board_scope(request, project_id)
     _board_node_or_404(project_id, node_id)
     body = await read_json_object(request, allow_empty=False)
@@ -412,6 +413,11 @@ async def update_board_node_api(project_id: int, node_id: int, request: Request)
         raise HTTPException(400, "x/y/width/height는 숫자여야 해요.")
     if "text" in body:
         fields["text"] = str(body["text"] or "")
+    if "asset_path" in body:
+        node = board_store.get_node(project_id, node_id)
+        if node["kind"] not in ("image", "video"):
+            raise HTTPException(400, "이미지/영상 카드만 결과물을 바꿀 수 있어요.")
+        fields["asset_path"] = _board_asset_path_or_error(user, node["kind"], body["asset_path"])
     if "values" in body:
         # 생성 카드의 꺼낸 옵션 값 — 카드에 꺼내 둔 옵션만, 문자열로. 나머지 내용(프리셋 사본·실행 기록)은 그대로.
         node = board_store.get_node(project_id, node_id)
@@ -715,6 +721,8 @@ async def _board_gen_prepare(user: dict, project_id: int, node_id: int) -> dict:
     filled = {}
     for from_id, slot in board_store.slot_edges(project_id, node_id):
         src = board_store.get_node(project_id, from_id)
+        if slot in slots and src and src["kind"] == "image" and not src.get("asset_path"):
+            raise HTTPException(400, "이미지가 비어 있어요.")
         if slot in slots and src and src["kind"] == "image" and src.get("asset_path"):
             filled[slot] = src["asset_path"]
     missing = [sl["label"] for sl in data.get("slots", []) if sl.get("required") and sl["name"] not in filled]

@@ -5,7 +5,9 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+import io
 from pathlib import Path
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 TMP = tempfile.TemporaryDirectory()
@@ -66,6 +68,37 @@ class ProjectBoardHTTPTests(unittest.TestCase):
             with self.assertRaises(sqlite3.IntegrityError):
                 conn.execute("INSERT INTO board_edges(project_id,board_id,from_node_id,to_node_id,created_at) "
                              "VALUES(900,?,901,902,'x')", (other,))
+
+    def test_empty_media_cards_and_fill_scope(self):
+        owner = self.client("empty-media-owner")
+        other = self.client("empty-media-other")
+        project = self.request(owner, "post", "/api/projects", json={"name": "Empty media"}).json()
+        base = f"/api/projects/{project['id']}/board"
+        self.assertEqual(self.request(TestClient(A.app), "post", base + "/nodes", json={"kind": "image"}).status_code, 401)
+        cards = [self.request(owner, "post", base + "/nodes", json={"kind": kind}).json()
+                 for kind in ("image", "video")]
+        self.assertEqual([card["asset_path"] for card in cards], [None, None])
+        self.assertEqual(self.request(owner, "get", base).json()["nodes"][0]["asset_path"], None)
+        self.assertEqual(self.request(other, "patch", base + f"/nodes/{cards[0]['id']}",
+                                      json={"asset_path": None}).status_code, 404)
+        png = io.BytesIO()
+        Image.new("RGB", (2, 2), "red").save(png, format="PNG")
+        upload = self.request(owner, "post", "/api/output-assets/upload",
+                              files={"files": ("owned.png", png.getvalue(), "image/png")},
+                              data={"project_id": str(project["id"])}).json()
+        path = upload["paths"][0]
+        other_project = self.request(other, "post", "/api/projects", json={"name": "Other media"}).json()
+        foreign = self.request(other, "post", f"/api/projects/{other_project['id']}/board/nodes",
+                               json={"kind": "image"}).json()
+        self.assertEqual(self.request(other, "patch", f"/api/projects/{other_project['id']}/board/nodes/{foreign['id']}",
+                                      json={"asset_path": path}).status_code, 404)
+        filled = self.request(owner, "patch", base + f"/nodes/{cards[0]['id']}",
+                              json={"asset_path": path}).json()
+        self.assertEqual(filled["asset_path"], path)
+        self.assertIsNone(self.request(owner, "patch", base + f"/nodes/{cards[0]['id']}",
+                                       json={"asset_path": None}).json()["asset_path"])
+        restored = self.request(owner, "post", base + "/restore", json={"nodes": [cards[0]], "edges": []})
+        self.assertEqual(restored.status_code, 200, restored.text)
 
     def test_board_http_lifecycle_and_scope(self):
         owner = self.client("board-owner")
