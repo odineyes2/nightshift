@@ -58,7 +58,12 @@
 .board-command-menu button[aria-selected="true"],.board-command-menu button:hover{ background:var(--bg); }
 .board-command-menu span{ color:var(--text-dim); }
 .board-viewport:has(.board-command:not([hidden])) .board-selection-bar{ bottom:96px; }
+/* 퀵바가 열려 있고 화면이 좁으면 퀵바가 오른쪽 아래 맞춤 버튼을 덮으므로 버튼을 퀵바 위로 올린다 */
+@media(max-width:900px){
+  .board-viewport:has(.board-command:not([hidden])) .board-fit-fab{ bottom:96px; }
+}
 @media(max-width:700px){
   .board-command{ bottom:8px; width:calc(100% - 16px); }
+  .board-viewport:has(.board-command:not([hidden])) .board-fit-fab{ bottom:88px; }
   .board-viewport:has(.board-command:not([hidden])) .board-selection-bar{ bottom:88px; }
 }
