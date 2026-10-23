@@ -568,6 +568,8 @@ function buildJobCard(j){
 // 수정·프로젝트·파드 이동 버튼/로그를 여기 모아 보여준다. jobMoveTargetId와 같은
 // 패턴으로 지금 열려 있는 작업의 id만 들고 있는다.
 let openJobDetailId = null;
+let jobDetailOptionsOpen = false;
+let jobDetailOptionsJobId = null;
 let jobDetailLora = { status: 'loading', entries: [] };
 let jobDetailLoraRequest = 0;
 
@@ -641,6 +643,8 @@ async function loadJobDetailLora(job, request){
 
 function openJobDetailModal(jobId){
   openJobDetailId = jobId;
+  jobDetailOptionsOpen = false;
+  jobDetailOptionsJobId = null;
   jobDetailLora = { status: 'loading', entries: [] };
   const request = ++jobDetailLoraRequest;
   renderJobDetailModalBody();
@@ -681,10 +685,17 @@ document.getElementById('new-job-modal').addEventListener('click', (e) => {
 function renderJobDetailModalBody(){
   const job = lastJobs.find(j => j.id === openJobDetailId);
   if(!job){ closeJobDetailModal(); return; }
+  if(jobDetailOptionsJobId === job.id){
+    const details = document.getElementById('job-detail-options');
+    if(details) jobDetailOptionsOpen = details.open;
+  }else{
+    jobDetailOptionsOpen = false;
+    jobDetailOptionsJobId = job.id;
+  }
   const templateText = job.template_label || job.template_id;
   // 프롬프트는 "옵션" 요약 문자열에 섞여 들어가면 한눈에 안 들어와서 따로 뺀다.
   const optsEntries = Object.entries(job.options || {});
-  const promptText = job.options && job.options.main_prompt;
+  const promptText = job.options?.main_prompt;
   const overrides = job.prompt_overrides || [];
   const firstOverride = overrides[0] || {};
   const overrideLabels = [];
@@ -699,7 +710,7 @@ function renderJobDetailModalBody(){
       size = [multiple(res * Math.sqrt(ratio[0] / ratio[1])), multiple(res * Math.sqrt(ratio[1] / ratio[0]))];
     }
   }
-  if(size) overrideLabels.push(`${size[0]}×${size[1]}`);
+  if(!size && job.options?.width && job.options?.height) size = [job.options.width, job.options.height];
   if(firstOverride.repeat !== undefined || firstOverride.seeds !== undefined) overrideLabels.push(`${firstOverride.repeat ?? firstOverride.seeds}장`);
   if(firstOverride.no || firstOverride.negative_prompt) overrideLabels.push(`no: ${firstOverride.no || firstOverride.negative_prompt}`);
   for(const key of ['model', 'checkpoint', 'steps', 'cfg', 'sampler', 'scheduler', 'denoise', 'detail', 'upscale']){
@@ -707,7 +718,7 @@ function renderJobDetailModalBody(){
   }
   if(firstOverride.loras) overrideLabels.push(`LoRA ${Array.isArray(firstOverride.loras) ? firstOverride.loras.map(item => item[0]).join(', ') : firstOverride.loras}`);
   const overrideText = overrideLabels.join(' · ') + (overrides.length > 1 ? `${overrideLabels.length ? ' · ' : ''}외 ${overrides.length - 1}줄` : '');
-  const otherOptions = optsEntries.filter(([k]) => k !== 'main_prompt');
+  const otherOptions = optsEntries.filter(([k]) => !['main_prompt', 'seed_count', 'seed_mode', 'width', 'height'].includes(k));
   const optionsHtml = otherOptions.length
     ? `<div class="job-detail-options">${otherOptions.map(([key, value]) => `
         <div class="job-detail-option">
@@ -715,6 +726,7 @@ function renderJobDetailModalBody(){
           <span class="job-detail-option-value">${value == null || value === '' ? '비어 있음' : escapeHtml(value)}</span>
         </div>`).join('')}</div>`
     : '<div class="job-detail-empty">옵션 없음</div>';
+  const optionContents = `${overrideText ? `<div class="job-detail-option"><span class="job-detail-option-key">프롬프트 옵션</span><span class="job-detail-option-value">${escapeHtml(overrideText)}</span></div>` : ''}${otherOptions.length || !overrideText ? optionsHtml : ''}`;
   const est = estimateJob(job);
   const waitingForComfy = !!job.waiting_for_comfy;
   const waitingForPod = job.status === 'queued' && !job.pod_id;
@@ -726,9 +738,11 @@ function renderJobDetailModalBody(){
     `<span class="badge ${(waitingForComfy || waitingForPod) ? 'waiting' : job.status}"><span class="bdot"></span>${waitingForComfy ? 'GPU 대기' : (waitingForPod ? '워커 대기' + pinnedNote : (STATUS_LABEL[job.status] || job.status))}</span> ${escapeHtml(templateText)}`;
 
   document.getElementById('job-detail-fields').innerHTML = `
-    ${promptText ? `<div class="field"><label class="field-label">프롬프트</label><div class="job-detail-prompt">${escapeHtml(promptText)}</div></div>` : ''}
-    ${overrides.length ? `<div class="field"><label class="field-label">프롬프트 값 사용 중</label><div class="job-detail-prompt">${escapeHtml(overrideText)}</div></div>` : ''}
-    <div class="field"><label class="field-label">옵션</label>${optionsHtml}</div>
+    <div class="field"><div class="job-detail-prompt-heading"><span class="field-label">프롬프트</span><button type="button" class="job-detail-copy" id="job-detail-prompt-copy-btn" title="프롬프트 복사" aria-label="프롬프트 복사" ${promptText ? '' : 'disabled'}><svg class="ico"><use href="#i-copy"/></svg></button><span class="job-detail-copy-status" id="job-detail-prompt-copy-status" role="status" aria-live="polite"></span></div><div class="job-detail-prompt">${promptText ? escapeHtml(promptText) : '<span class="job-detail-empty">프롬프트가 비어 있어요</span>'}</div></div>
+    <div class="field"><label class="field-label">이미지 크기 (width × height)</label><div>${size ? `${escapeHtml(size[0])} × ${escapeHtml(size[1])}` : '확인할 수 없어요'}</div></div>
+    ${job.options?.seed_count != null ? `<div class="field"><label class="field-label">seed_count</label><div>${escapeHtml(job.options.seed_count)}</div></div>` : ''}
+    ${job.options?.seed_mode != null ? `<div class="field"><label class="field-label">seed_mode</label><div>${escapeHtml(job.options.seed_mode)}</div></div>` : ''}
+    <details class="field job-detail-options-details" id="job-detail-options" ${jobDetailOptionsOpen ? 'open' : ''}><summary class="field-label">옵션</summary><div class="job-detail-options">${optionContents}</div></details>
     <div class="field"><label class="field-label">워크플로우</label><div>${escapeHtml(job.workflow_original_name || '-')}</div></div>
     <div class="field"><label class="field-label">CSV</label><div>${escapeHtml(job.csv_original_name || '-')}</div></div>
     ${(job.template_id || '').includes('csv_batch') ? jobDetailLoraHtml() : ''}
@@ -743,6 +757,19 @@ function renderJobDetailModalBody(){
     ${waitingForPod && job.fetch_error ? `<div class="job-wait-reason">모델 받기 실패 — ${escapeHtml(job.fetch_error)}${/HTTP 40[13]/.test(job.fetch_error) ? '<br>→ 계정 창(오른쪽 위 계정 이름)의 CIVITAI 토큰을 확인하고, 모델 탭의 다운로드 주소가 civitai.com/civitai.red 주소인지 확인하세요.' : ''}</div>` : ''}
     ${(job.model_events || []).length ? `<div class="field"><label class="field-label">모델 받기 기록</label><div class="job-detail-preflight">${job.model_events.map(e => `<div class="job-detail-event"><span class="job-detail-event-time">${fmtTime(e.at)}</span><span class="job-detail-event-text">${escapeHtml(e.text)}</span></div>`).join('')}</div></div>` : ''}
     ${pfLines.length ? `<div class="field"><label class="field-label">모델 확인 필요</label><div class="job-detail-preflight">${escapeHtml(pfLines.join('\n'))}</div></div>` : ''}`;
+
+  document.getElementById('job-detail-prompt-copy-btn').addEventListener('click', async () => {
+    const current = lastJobs.find(item => item.id === openJobDetailId);
+    const value = current?.options?.main_prompt;
+    if(!value) return;
+    const status = document.getElementById('job-detail-prompt-copy-status');
+    try{
+      await navigator.clipboard.writeText(value);
+      status.textContent = '복사했어요';
+    }catch(err){
+      status.textContent = '복사하지 못했어요. 직접 선택해 복사해 주세요';
+    }
+  });
 
   document.getElementById('job-detail-actions').innerHTML = `
     <button class="load-btn" id="job-detail-load-btn" title="설정 불러오기"><svg class="ico"><use href="#i-folder-open"/></svg> 불러오기</button>

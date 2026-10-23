@@ -71,7 +71,7 @@ const body = source.slice(source.indexOf('function renderJobDetailModalBody(){')
   source.indexOf('// 이 작업이 만든 생성물'));
 const elements = new Map();
 ctx.document.getElementById = id => {
-  if(!elements.has(id)) elements.set(id, { style: {}, addEventListener: () => {} });
+  if(!elements.has(id)) elements.set(id, { style: {}, listeners: {}, addEventListener(event, fn){ this.listeners[event] = fn; } });
   return elements.get(id);
 };
 Object.assign(ctx, {
@@ -93,6 +93,7 @@ ctx.lastJobs[0].options = {
   main_prompt: 'separate prompt',
   '<img src=x>': 'long_model_name_'.repeat(12) + '&<b>',
   seed_count: 5,
+  seed_mode: 'fixed',
   empty_value: '',
 };
 ctx.lastJobs[0].model_events = [
@@ -106,17 +107,47 @@ assert.match(html, /<span class="job-detail-event-time">—<\/span>/);
 assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt; &amp; done/);
 assert.doesNotMatch(html, /<img src=x/);
 assert.match(html, /<div class="job-detail-prompt">separate prompt<\/div>/);
-assert.equal((html.match(/class="job-detail-option"/g) || []).length, 3);
+assert.equal((html.match(/class="job-detail-option"/g) || []).length, 2);
 assert.match(html, /class="job-detail-option-key">&lt;img src=x&gt;/);
 assert.match(html, /long_model_name_.*&amp;&lt;b&gt;/);
-assert.match(html, /class="job-detail-option-value">5<\/span>/);
+assert.match(html, /<label class="field-label">seed_count<\/label><div>5<\/div>/);
+assert.match(html, /<label class="field-label">seed_mode<\/label><div>fixed<\/div>/);
 assert.match(html, /class="job-detail-option-value">비어 있음<\/span>/);
-assert.ok(html.indexOf('&lt;img src=x&gt;') < html.indexOf('seed_count'));
+assert.doesNotMatch(html, /class="job-detail-option-key">seed_count/);
+assert.match(html, /<details class="field job-detail-options-details" id="job-detail-options" >/);
+assert.match(html, /이미지 크기 \(width × height\).*확인할 수 없어요/);
 ctx.lastJobs[0].options = { main_prompt: 'only prompt' };
 run('renderJobDetailModalBody()');
 assert.match(elements.get('job-detail-fields').innerHTML, /옵션 없음/);
+ctx.lastJobs[0].options = { main_prompt: '', width: 512, height: 768 };
+run('renderJobDetailModalBody()');
+html = elements.get('job-detail-fields').innerHTML;
+assert.match(html, /프롬프트가 비어 있어요/);
+assert.match(html, /512 × 768/);
+assert.match(html, /id="job-detail-prompt-copy-btn"[^>]*disabled/);
+ctx.lastJobs[0].prompt_overrides = [{ seed: 7, ar: [2, 3], res: 1024 }, { seed: 8 }];
+run('renderJobDetailModalBody()');
+html = elements.get('job-detail-fields').innerHTML;
+assert.match(html, /832 × 1216/);
+assert.match(html, /seed 7 · 외 1줄/);
+assert.doesNotMatch(html, /프롬프트 값 사용 중/);
+elements.get('job-detail-options').open = true;
+run('renderJobDetailModalBody()');
+assert.match(elements.get('job-detail-fields').innerHTML, /id="job-detail-options" open/);
+run('jobDetailOptionsJobId = null; renderJobDetailModalBody()');
+assert.doesNotMatch(elements.get('job-detail-fields').innerHTML, /id="job-detail-options" open/);
 
 async function main(){
+  const copied = [];
+  ctx.navigator = { clipboard: { writeText: async text => copied.push(text) } };
+  ctx.lastJobs[0].options.main_prompt = 'copy this';
+  run('renderJobDetailModalBody()');
+  await elements.get('job-detail-prompt-copy-btn').listeners.click();
+  assert.deepEqual(copied, ['copy this']);
+  assert.equal(elements.get('job-detail-prompt-copy-status').textContent, '복사했어요');
+  ctx.navigator.clipboard.writeText = async () => { throw new Error('denied'); };
+  await elements.get('job-detail-prompt-copy-btn').listeners.click();
+  assert.match(elements.get('job-detail-prompt-copy-status').textContent, /복사하지 못했어요/);
   const pending = [];
   ctx.fetch = url => new Promise((resolve, reject) => pending.push({ url, resolve, reject }));
   ctx.lastJobs = [
