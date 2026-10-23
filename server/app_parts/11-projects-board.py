@@ -763,7 +763,8 @@ async def _board_gen_prepare(user: dict, project_id: int, node_id: int) -> dict:
         if slot not in slots or not src:
             continue
         if slots[slot].get("kind", "image") == "text" and src["kind"] == "text":
-            text_filled[slot] = src.get("text") or ""
+            if (src.get("text") or "").strip():   # 빈 메모는 카드 안 글을 덮어쓰지 않는다
+                text_filled[slot] = src["text"]
         elif slots[slot].get("kind", "image") == "image" and src["kind"] == "image" and not src.get("asset_path"):
             raise HTTPException(400, "이미지가 비어 있어요.")
         elif slots[slot].get("kind", "image") == "image" and src["kind"] == "image" and src.get("asset_path"):

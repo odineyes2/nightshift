@@ -23,10 +23,16 @@ function boardGenFieldHtml(nodeId, f, value){
   return `<label class="board-gen-field${f.type === 'textarea' ? ' grow' : ''}"><span class="board-gen-field-label">${escapeHtml(f.label)}${copy}${help}</span>${control}</label>`;
 }
 
+// 입구 종류(kind 'text' = 프롬프트, 없으면 이미지)에 맞는 카드인가 — 서버 엣지 검사와 같은 규칙.
+function boardGenSlotAccepts(sl, source){
+  if(!source) return false;
+  return source.kind === (sl.kind === 'text' ? 'text' : 'image');
+}
+
 function boardGenCardHtml(node, style, delBtn){
   const d = node.data || {};
-  const slots = (d.slots || []).map(sl => `<div class="board-gen-slot" data-gen-slot="${escapeHtml(sl.name)}">`
-    + `<span class="board-gen-port" title="눌러서 이미지 고르기 — 이미지 카드를 끌어 이어도 돼요"></span>`
+  const slots = (d.slots || []).map(sl => `<div class="board-gen-slot${sl.kind === 'text' ? ' text' : ''}" data-gen-slot="${escapeHtml(sl.name)}" data-gen-kind="${sl.kind === 'text' ? 'text' : 'image'}">`
+    + `<span class="board-gen-port" title="${sl.kind === 'text' ? '메모 카드를 끌어 이으면 그 글이 프롬프트로 쓰여요' : '눌러서 이미지 고르기 — 이미지 카드를 끌어 이어도 돼요'}"></span>`
     + `<span class="board-gen-slot-label">${escapeHtml(sl.label)}${sl.required ? '' : ' <em>(선택)</em>'}</span>`
     + `<span class="board-gen-slot-state">비어 있음</span></div>`).join('');
   const fields = (d.fields || []).map(f => boardGenFieldHtml(node.id, f, (d.values || {})[f.name] ?? '')).join('');
@@ -70,7 +76,9 @@ function paintBoardGenSlots(){
       const edge = boardEdges.find(e => e.to_node_id === node.id && e.to_slot === sl.name);
       const src = edge && boardNodes.find(n => n.id === edge.from_node_id);
       let html = '비어 있음';
-      if(src){
+      if(src && sl.kind === 'text'){
+        html = '글 연결됨';   // 연결된 메모의 글이 카드 안 글칸 대신 쓰인다(비어 있으면 카드 안 글)
+      }else if(src){
         const hidden = src.nsfw && nsfwMode !== 'show';
         html = !src.asset_path ? '이미지가 비어 있어요' : hidden || src.kind !== 'image' ? '연결됨'
           : `<img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(src.asset_path)}/thumbnail?size=60&fit=cover`)}" alt=""> 연결됨`;
@@ -78,7 +86,11 @@ function paintBoardGenSlots(){
       }else if(sl.required){
         empty.push(sl.label);
       }
-      row.classList.toggle('filled', !!(src && src.asset_path));
+      row.classList.toggle('filled', !!(src && (sl.kind === 'text' || src.asset_path)));
+      if(sl.kind === 'text'){   // 글이 이어지면 카드 안 같은 이름의 글칸은 잠근다
+        const ta = el.querySelector(`.board-gen-input[data-gen-field="${CSS.escape(sl.name)}"]`);
+        if(ta) ta.disabled = !!src;
+      }
       const state = row.querySelector('.board-gen-slot-state');
       if(state && state._html !== html){ state.innerHTML = html; state._html = html; }
     }
@@ -579,6 +591,28 @@ async function createBoardEdge(fromId, toId, toSlot, record = true){
   return edge;
 }
 
+// 새로 놓은 생성 카드의 입구마다 왼쪽에 빈 입력 카드(프롬프트 → 메모, 이미지 → 이미지)를 쌓아 놓고 잇는다.
+// 카드·입력 카드·선을 'paste' 기록 한 칸으로 묶어, 실행 취소 한 번에 함께 되돌린다.
+async function boardGenAddInputs(node){
+  const slots = (node.data && node.data.slots) || [];
+  const made = [], edges = [];
+  let y = node.y;
+  for(const sl of slots){
+    const isText = sl.kind === 'text';
+    const h = isText ? 160 : 220;
+    const src = await createBoardNode(isText ? 'text' : 'image', '', '', { x: node.x - 220 - 60, y, width: 220, height: h }, false);
+    if(!src) break;
+    made.push(src);
+    y += h + 20;
+    const edge = await createBoardEdge(src.id, node.id, sl.name, false);
+    if(edge) edges.push({ ...edge });
+  }
+  const nodes = [node, ...made].map(boardNodeSnapshot);
+  setBoardSelection(new Set([node.id]));
+  pushBoardHistory({ type: 'paste', nodes, edges });
+  return node;
+}
+
 async function deleteBoardEdge(edgeId){
   const projectId = currentProjectId;
   const boardId = currentBoardId;
@@ -628,7 +662,8 @@ async function createBoardNode(kind, assetPath, text, geom, record = true, draft
   boardNodes.push(node);
   appendBoardNodeEls([node]);
   setBoardSelection(new Set([node.id]));
-  if(record) pushBoardHistory({ type: 'create', node: { ...node } });
+  if(kind === 'gen' && record) await boardGenAddInputs(node);   // 입력 카드까지 한 기록으로
+  else if(record) pushBoardHistory({ type: 'create', node: { ...node } });
   if(kind === 'job') fetchBoardJobs();
   return node;
 }
@@ -1156,7 +1191,7 @@ document.getElementById('board-asset-picker-grid').addEventListener('click', asy
     if(node && command){
       boardCommandAdvance(node);
       if(boardPickerKind === 'gen'){
-        const slot = ((node.data && node.data.slots) || [])[0];
+        const slot = ((node.data && node.data.slots) || []).find(sl => sl.kind !== 'text');
         if(selectedImage && slot && !await createBoardEdge(selectedImage.id, node.id, slot.name, false)){
           boardCommandError('이미지를 잇지 못했어요. 카드는 남아 있어요.');
           return;
