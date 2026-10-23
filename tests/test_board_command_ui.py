@@ -242,6 +242,64 @@ class BoardCommandUITests(unittest.TestCase):
                     page.locator('#cmp-input').press('Escape')
                     expect(page.locator('#composer')).to_be_hidden()
                     expect(command).to_be_visible()
+                    cards_before_exit = page.locator('.board-node').count()
+                    history_before_exit = page.evaluate('localStorage.getItem("nightshift.boardCommands")')
+                    field.fill('/EXIT')
+                    field.press('Enter')
+                    expect(command).to_be_hidden()
+                    expect(opener).to_be_visible()
+                    self.assertEqual(field.input_value(), '')
+                    self.assertEqual(page.locator('.board-node').count(), cards_before_exit)
+                    self.assertEqual(page.evaluate('localStorage.getItem("nightshift.boardCommands")'), history_before_exit)
+                    opener.click()
+                    field.fill('/q')
+                    field.press('Enter')
+                    expect(command).to_be_hidden()
+                    self.assertEqual(field.input_value(), '')
+                    self.assertEqual(page.evaluate('localStorage.getItem("nightshift.boardCommands")'), history_before_exit)
+                    if os.environ.get('NS93_CAPTURE') == '1':
+                        shots = ROOT / '.ui-captures' / 'NS-93-2'
+                        shots.mkdir(parents=True, exist_ok=True)
+                        page.evaluate('''() => {
+                            document.getElementById('board-world').style.visibility = 'hidden';
+                            document.getElementById('board-selection-bar').style.visibility = 'hidden';
+                        }''')
+                        for theme in ('light', 'dark'):
+                            page.evaluate('(theme) => document.documentElement.dataset.theme = theme', theme)
+                            for width, height in ((1300, 850), (390, 800)):
+                                page.set_viewport_size({'width': width, 'height': height})
+                                page.evaluate('(mobile) => document.getElementById("board-tree").hidden = mobile', width < 700)
+                                page.screenshot(path=str(shots / f'closed-{theme}-{width}.png'), full_page=True)
+                        page.set_viewport_size({'width': 1300, 'height': 850})
+                    jobs_before_exit = len(page.request.get(base + '/api/jobs').json()['jobs'])
+                    page.keyboard.press('`')
+                    composer = page.locator('#composer')
+                    expect(composer).to_be_visible()
+                    page.evaluate('''() => {
+                        cmpAttachments = [{key: 'test', filename: '남길.png', name: '남길.png', state: 'done'}];
+                        cmpUpdate();
+                    }''')
+                    prompt = page.locator('#cmp-input')
+                    prompt.fill('  /ExIt  ')
+                    if os.environ.get('NS93_CAPTURE') == '1':
+                        shots = ROOT / '.ui-captures' / 'NS-93-2'
+                        shots.mkdir(parents=True, exist_ok=True)
+                        page.evaluate('''() => {
+                            document.getElementById('board-world').style.visibility = 'hidden';
+                            document.getElementById('board-selection-bar').style.visibility = 'hidden';
+                        }''')
+                        for theme in ('light', 'dark'):
+                            page.evaluate('(theme) => document.documentElement.dataset.theme = theme', theme)
+                            for width, height in ((1300, 850), (390, 800)):
+                                page.set_viewport_size({'width': width, 'height': height})
+                                page.evaluate('(mobile) => document.getElementById("board-tree").hidden = mobile', width < 700)
+                                page.screenshot(path=str(shots / f'exit-{theme}-{width}.png'), full_page=True)
+                        page.set_viewport_size({'width': 1300, 'height': 850})
+                    prompt.press('Enter')
+                    expect(composer).to_be_hidden()
+                    self.assertEqual(prompt.input_value(), '')
+                    self.assertEqual(page.evaluate('cmpAttachments.map(a => a.filename)'), ['남길.png'])
+                    self.assertEqual(len(page.request.get(base + '/api/jobs').json()['jobs']), jobs_before_exit)
                     page.evaluate('showTab("home")')
                     self.assertFalse(field.is_visible())
                     browser.close()
