@@ -83,6 +83,23 @@ class BoardContextUITests(unittest.TestCase):
                             page.wait_for_function('(count) => boardNodes.length === count', arg=count)
                             stored = context.request.get(f'{base}/api/projects/{project_id}/board').json()['nodes']
                             self.assertEqual(len(stored), 4)
+                            # 생성 카드를 놓으면 프롬프트 입구에 메모 카드가 왼쪽에 생겨 이어지고, 실행 취소 한 번에 함께 사라진다.
+                            page.evaluate('''() => createBoardNode('gen', null, '', null, true,
+                                { template_id: 'seed_batch', workflow: {}, options: { main_prompt: '기본' }, exposed: ['main_prompt'] })''')
+                            # 입구마다(이미지 1 + 프롬프트 4) 입력 카드와 선이 생긴다
+                            page.wait_for_function('() => boardNodes.filter(n => n.kind === "gen").length === 1 && boardEdges.length === 5')
+                            gen = page.evaluate('() => boardNodes.find(n => n.kind === "gen")')
+                            edge = page.evaluate('() => boardEdges.find(e => e.to_slot === "main_prompt")')
+                            self.assertEqual(page.evaluate('() => boardEdges.map(e => boardNodes.find(n => n.id === e.from_node_id).kind).filter(k => k === "image").length'), 1)
+                            memo = page.evaluate('(id) => boardNodes.find(n => n.id === id)', edge['from_node_id'])
+                            self.assertEqual(memo['kind'], 'text')
+                            self.assertLess(memo['x'] + memo['width'], gen['x'])
+                            self.assertEqual(edge['to_slot'], 'main_prompt')
+                            self.assertTrue(page.locator(f'[data-node-id="{gen["id"]}"] .board-gen-slot.text.filled[data-gen-slot="main_prompt"]').is_visible())
+                            self.assertEqual(page.evaluate('() => boardGenSlotAccepts({kind: "text"}, {kind: "image"})'), False)
+                            page.evaluate('() => boardUndoRedo("undo")')
+                            page.wait_for_function('() => boardNodes.filter(n => n.kind === "gen").length === 0 && boardEdges.length === 0')
+                            self.assertEqual(page.evaluate('() => boardNodes.length'), 4)
                             shots = ROOT / '.ui-captures' / 'NS-100-1'
                             shots.mkdir(exist_ok=True)
                             for theme in ('light', 'dark'):

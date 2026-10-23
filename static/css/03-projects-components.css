@@ -404,6 +404,7 @@
   .board-gen-port:hover{ transform:scale(1.35); }
   .board-gen-fields{ flex:1; min-height:0; overflow:hidden; padding:4px 12px 10px; display:flex; flex-direction:column; gap:6px; }
   .board-gen-slot.filled .board-gen-port{ background:var(--running); }
+  .board-gen-slot.text .board-gen-port{ cursor:default; }
   .board-gen-slot.connect-slot{ background:rgba(var(--running-rgb),0.14); }
   .board-gen-slot-state img{ width:22px; height:22px; object-fit:cover; border-radius:4px; vertical-align:middle; margin-right:3px; }
   .board-gen-foot{

@@ -401,11 +401,13 @@ function initBoardCanvas(){
   const boardSlotFor = (targetEl, clientX, clientY) => {
     const target = targetEl && boardNodes.find(n => n.id === Number(targetEl.dataset.nodeId));
     const source = boardNodes.find(n => n.id === connect.fromId);
-    const slots = (target && target.kind === 'gen' && target.data && target.data.slots) || [];
-    if(!slots.length || !source || source.kind !== 'image') return null;
+    // 입구 종류가 맞는 카드만 받는다 — 프롬프트 칸은 메모(text) 카드, 이미지 칸은 이미지 카드.
+    const slots = ((target && target.kind === 'gen' && target.data && target.data.slots) || [])
+      .filter(sl => boardGenSlotAccepts(sl, source));
+    if(!slots.length || !source) return null;
     const under = document.elementFromPoint(clientX, clientY);
     const row = under && under.closest('.board-gen-slot');
-    if(row && targetEl.contains(row)) return row.dataset.genSlot;
+    if(row && targetEl.contains(row)) return slots.some(sl => sl.name === row.dataset.genSlot) ? row.dataset.genSlot : null;
     const filled = new Set(boardEdges.filter(e => e.to_node_id === target.id && e.to_slot).map(e => e.to_slot));
     return (slots.find(sl => !filled.has(sl.name)) || slots[0]).name;
   };
@@ -420,7 +422,8 @@ function initBoardCanvas(){
         // 입구가 있는 생성 카드에 이미지 아닌 카드를 끌어 오면 입구 대신 보통 선이 된다고 알린다
         const target = boardNodes.find(n => n.id === Number(targetEl.dataset.nodeId));
         const source = boardNodes.find(n => n.id === connect.fromId);
-        if(target && target.kind === 'gen' && ((target.data && target.data.slots) || []).length && source && source.kind !== 'image'){
+        if(target && target.kind === 'gen' && ((target.data && target.data.slots) || []).length && source
+          && !((target.data.slots).some(sl => boardGenSlotAccepts(sl, source)))){
           targetEl.classList.add('connect-no-slot');
         }
       }
@@ -474,6 +477,7 @@ function initBoardCanvas(){
     const port = e.target.closest('.board-gen-port');
     if(port){   // 생성 카드 입구 점 — 이미지를 골라 카드로 놓고 이 입구에 잇는다
       const nodeEl = port.closest('.board-node');
+      if(port.closest('.board-gen-slot').dataset.genKind === 'text'){ flashNotice('프롬프트 칸이에요 — 메모 카드를 끌어 이어 주세요.'); return; }
       openBoardAssetPicker('image', { nodeId: Number(nodeEl.dataset.nodeId), slot: port.closest('.board-gen-slot').dataset.genSlot });
     }
     const edgeDelBtn = e.target.closest('.board-edge-del');
