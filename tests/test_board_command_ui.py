@@ -167,6 +167,81 @@ class BoardCommandUITests(unittest.TestCase):
                         document.getElementById('board-command-input').dispatchEvent(new ClipboardEvent('paste', {bubbles:true, cancelable:true, clipboardData:transfer}));
                     }''', base64.b64encode(png.getvalue()).decode())
                     expect(page.locator('.board-node-image')).to_have_count(1)
+                    command = page.locator('#board-command')
+                    opener = page.locator('#board-command-open')
+                    field.fill('남겨 둘 초안')
+                    page.locator('#board-command-close').click()
+                    expect(command).to_be_hidden()
+                    expect(opener).to_be_visible()
+                    self.assertEqual(field.input_value(), '남겨 둘 초안')
+                    self.assertEqual(page.evaluate('localStorage.getItem("nightshift.quickbarOpen")'), 'false')
+                    self.assertEqual(page.locator('#board-selection-bar').evaluate('(el) => getComputedStyle(el).bottom'), '16px')
+                    opener.click()
+                    expect(command).to_be_visible()
+                    self.assertEqual(page.locator('#board-selection-bar').evaluate('(el) => getComputedStyle(el).bottom'), '96px')
+                    self.assertTrue(field.evaluate('(el) => document.activeElement === el'))
+                    if os.environ.get('NS93_CAPTURE') == '1':
+                        shots = ROOT / '.ui-captures' / 'NS-93-1'
+                        shots.mkdir(parents=True, exist_ok=True)
+                        for theme in ('light', 'dark'):
+                            page.evaluate('(theme) => document.documentElement.dataset.theme = theme', theme)
+                            for width, height in ((1300, 850), (390, 800)):
+                                page.set_viewport_size({'width': width, 'height': height})
+                                page.evaluate('''(mobile) => {
+                                    document.getElementById('board-tree').hidden = mobile;
+                                    document.getElementById('board-world').style.visibility = 'hidden';
+                                }''', width < 700)
+                                page.screenshot(path=str(shots / f'open-{theme}-{width}.png'), full_page=True)
+                        page.set_viewport_size({'width': 1300, 'height': 850})
+                        page.evaluate('''() => {
+                            document.getElementById('board-tree').hidden = false;
+                            document.getElementById('board-world').style.visibility = '';
+                        }''')
+                    field.fill('/te')
+                    expect(page.locator('#board-command-menu')).to_be_visible()
+                    field.press('Escape')
+                    expect(page.locator('#board-command-menu')).to_be_hidden()
+                    self.assertTrue(field.evaluate('(el) => document.activeElement === el'))
+                    field.fill('')
+                    field.press('Escape')
+                    expect(command).to_be_visible()
+                    self.assertFalse(field.evaluate('(el) => document.activeElement === el'))
+                    page.keyboard.press('Escape')
+                    expect(command).to_be_hidden()
+                    page.keyboard.press('/')
+                    expect(command).to_be_visible()
+                    self.assertTrue(field.evaluate('(el) => document.activeElement === el'))
+                    field.fill('초안 유지')
+                    field.press('Escape')
+                    expect(command).to_be_visible()
+                    self.assertEqual(field.input_value(), '초안 유지')
+                    page.locator('#board-command-close').click()
+                    if os.environ.get('NS93_CAPTURE') == '1':
+                        shots = ROOT / '.ui-captures' / 'NS-93-1'
+                        shots.mkdir(parents=True, exist_ok=True)
+                        for theme in ('light', 'dark'):
+                            page.evaluate('(theme) => document.documentElement.dataset.theme = theme', theme)
+                            for width, height in ((1300, 850), (390, 800)):
+                                page.set_viewport_size({'width': width, 'height': height})
+                                page.evaluate('''(mobile) => {
+                                    document.getElementById('board-tree').hidden = mobile;
+                                    document.getElementById('board-world').style.visibility = 'hidden';
+                                }''', width < 700)
+                                page.screenshot(path=str(shots / f'{theme}-{width}.png'), full_page=True)
+                        page.set_viewport_size({'width': 1300, 'height': 850})
+                    page.reload()
+                    expect(opener).to_be_visible()
+                    page.evaluate('async (id) => { await fetchProjects(); showTab("prboard", {projectId: id}); }', project_id)
+                    opener.click()
+                    self.assertEqual(field.input_value(), '')
+                    page.locator('#board-viewport').click(position={'x': 350, 'y': 250})
+                    page.keyboard.press('`')
+                    expect(page.locator('#composer')).to_be_visible()
+                    expect(command).to_be_hidden()
+                    expect(opener).to_be_hidden()
+                    page.locator('#cmp-input').press('Escape')
+                    expect(page.locator('#composer')).to_be_hidden()
+                    expect(command).to_be_visible()
                     page.evaluate('showTab("home")')
                     self.assertFalse(field.is_visible())
                     browser.close()
