@@ -86,6 +86,82 @@ class BoardCommandUITests(unittest.TestCase):
                     field.blur()
                     page.keyboard.press('Control+z')
                     page.locator('.board-node-text').wait_for(state='detached')
+                    paste_text = '''(value) => {
+                        const transfer = new DataTransfer();
+                        transfer.setData('text/plain', value);
+                        document.getElementById('board-command-input').dispatchEvent(
+                            new ClipboardEvent('paste', {bubbles:true, cancelable:true, clipboardData:transfer}));
+                    }'''
+                    field.fill('')
+                    page.evaluate(paste_text, '첫 줄\n\n- 둘째 줄\n1. /text 그대로')
+                    choice = page.locator('#board-command-paste-choice')
+                    expect(choice).to_be_visible()
+                    self.assertIn('3장', choice.inner_text())
+                    if os.environ.get('NS99_CAPTURE') == '1':
+                        shots = ROOT / '.ui-captures' / 'NS-99-1'
+                        shots.mkdir(parents=True, exist_ok=True)
+                        for theme in ('light', 'dark'):
+                            page.evaluate('(value) => document.documentElement.dataset.theme = value', theme)
+                            for width, height in ((1300, 850), (390, 800)):
+                                page.set_viewport_size({'width': width, 'height': height})
+                                page.evaluate('(mobile) => document.getElementById("board-tree").hidden = mobile', width < 700)
+                                page.screenshot(path=str(shots / f'choice-{theme}-{width}.png'), full_page=True)
+                        page.set_viewport_size({'width': 1300, 'height': 850})
+                        page.evaluate('document.getElementById("board-tree").hidden = false')
+                    field.press('Enter')
+                    expect(page.locator('.board-node-text')).to_have_count(3)
+                    self.assertEqual(page.locator('.board-node-text.selected').count(), 3)
+                    self.assertEqual([item.input_value() for item in page.locator('.board-node-textarea').all()],
+                                     ['첫 줄', '둘째 줄', '/text 그대로'])
+                    positions = page.locator('.board-node-text').evaluate_all('''nodes => nodes.map(el =>
+                        ({x:parseFloat(el.style.left), y:parseFloat(el.style.top)}))''')
+                    self.assertEqual([item['y'] for item in positions], [positions[0]['y']] * 3)
+                    self.assertEqual([item['x'] - positions[0]['x'] for item in positions], [0, 240, 480])
+                    field.blur()
+                    page.keyboard.press('Control+z')
+                    expect(page.locator('.board-node-text')).to_have_count(0)
+                    page.evaluate('''() => {
+                        window.ns99BoardApi = boardApi;
+                        let creates = 0;
+                        boardApi = (...args) => {
+                            if(args[1] === 'POST' && args[2] === '/nodes' && ++creates === 2) return Promise.resolve(null);
+                            return window.ns99BoardApi(...args);
+                        };
+                    }''')
+                    field.fill('')
+                    page.evaluate(paste_text, '첫 메모\n둘째 메모\n셋째 메모')
+                    field.press('Enter')
+                    expect(page.locator('.board-node-text')).to_have_count(1)
+                    self.assertIn('3장 중 1장', page.locator('#board-command-error').inner_text())
+                    page.evaluate('() => { boardApi = window.ns99BoardApi; }')
+                    field.blur()
+                    page.keyboard.press('Control+z')
+                    expect(page.locator('.board-node-text')).to_have_count(0)
+                    field.fill('')
+                    page.evaluate(paste_text, '한 줄\n두 줄')
+                    field.press('Escape')
+                    expect(choice).to_be_hidden()
+                    self.assertEqual(field.input_value(), '한 줄\n두 줄')
+                    field.press('Enter')
+                    expect(page.locator('.board-node-text')).to_have_count(1)
+                    self.assertEqual(page.locator('.board-node-textarea').input_value(), '한 줄\n두 줄')
+                    field.blur()
+                    page.keyboard.press('Control+z')
+                    expect(page.locator('.board-node-text')).to_have_count(0)
+                    field.fill('')
+                    page.evaluate(paste_text, '\n'.join(f'{i}번째 줄' for i in range(51)))
+                    field.press('Enter')
+                    self.assertIn('50줄까지', page.locator('#board-command-error').inner_text())
+                    self.assertEqual(page.locator('.board-node').count(), 0)
+                    field.fill('직접')
+                    field.press('Shift+Enter')
+                    field.type('쓴 글')
+                    expect(choice).to_be_hidden()
+                    field.press('Enter')
+                    expect(page.locator('.board-node-text')).to_have_count(1)
+                    field.blur()
+                    page.keyboard.press('Control+z')
+                    expect(page.locator('.board-node-text')).to_have_count(0)
                     field.fill('')
                     field.press('Enter')
                     self.assertEqual(page.locator('.board-node').count(), 0)
