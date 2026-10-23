@@ -639,8 +639,8 @@
     </div>
     <div class="board-command" id="board-command">
       <div class="board-command-menu" id="board-command-menu" role="listbox" hidden></div>
-      <label class="board-command-label" for="board-command-input">빠른 카드</label>
-      <textarea id="board-command-input" rows="1" placeholder="메모를 적거나 /명령을 입력해요" aria-label="보드 빠른 카드 명령"></textarea>
+      <label class="board-command-label" for="board-command-input">퀵바</label>
+      <textarea id="board-command-input" rows="1" placeholder="메모를 적거나 /명령을 입력해요" aria-label="퀵바"></textarea>
       <div class="board-command-error" id="board-command-error" role="status"></div>
     </div>
   </div>
@@ -652,7 +652,7 @@
      프로젝트 것만 보여주는 단순한 그리드다(전체 갤러리 UI를 그대로 옮기지 않음). -->
 <div class="modal-overlay" id="board-command-help" style="display:none;">
   <div class="modal-panel">
-    <div class="modal-header"><div class="modal-title">보드 빠른 명령</div><button class="modal-close" type="button" aria-label="닫기">&times;</button></div>
+    <div class="modal-header"><div class="modal-title">퀵바 명령</div><button class="modal-close" type="button" aria-label="닫기">&times;</button></div>
     <div class="modal-body">
       <p>메모를 바로 입력하거나 아래 명령을 사용해요. / 키로 입력창에 커서를 놓고 Esc로 빠져나가요.</p>
       <ul id="board-command-help-list"></ul>
@@ -1976,8 +1976,8 @@
   </div>
 </div>
 
-<!-- 백틱 빠른 실행창(NS-52, DESIGN.md 8절 "빠른 입력창") — 17d-composer.js -->
-<div class="composer" id="composer" hidden role="dialog" aria-label="빠른 실행">
+<!-- 퀵런(NS-52, DESIGN.md 8절 "빠른 입력창") — 17d-composer.js -->
+<div class="composer" id="composer" hidden role="dialog" aria-label="퀵런">
   <div class="cmp-files" id="cmp-files"></div>
   <textarea id="cmp-input" rows="1" placeholder="예: 1girl, sitting on a bench, sunset — Enter로 보내요" aria-label="프롬프트"></textarea>
   <p class="cmp-error" id="cmp-error" role="alert"></p>
@@ -2001,7 +2001,7 @@
   </div>
 </div>
 
-<!-- 빠른 실행창 라이브러리 고르기(NS-52-3) — 한 장을 고르면 NS-51 생성 방식 모달로 넘어간다 -->
+<!-- 퀵런 라이브러리 고르기(NS-52-3) — 한 장을 고르면 NS-51 생성 방식 모달로 넘어간다 -->
 <div class="modal-overlay" id="cmp-library-modal" style="display:none;">
   <div class="modal-panel">
     <div class="modal-header">

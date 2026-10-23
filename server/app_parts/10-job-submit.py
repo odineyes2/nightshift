@@ -872,7 +872,7 @@ def _read_recent_workflow(store, entry) -> dict | None:
 
 @app.get("/api/quick-run/presets")
 def quick_run_presets(request: Request):
-    # 백틱 빠른 실행창(NS-52)의 워크플로우 프리셋 — 최근 워크플로우 10개와 각 분류 결과.
+    # 퀵런(NS-52)의 워크플로우 프리셋 — 최근 워크플로우 10개와 각 분류 결과.
     store = recent_store("workflows", me(request))
     out = []
     for meta in store.list_meta()[:10]:
@@ -884,7 +884,7 @@ def quick_run_presets(request: Request):
 
 @app.post("/api/quick-run")
 async def quick_run_submit(request: Request):
-    # 빠른 실행창의 보내기 — 프리셋을 분류해 템플릿·옵션을 정하고 파드 없이 곧장 대기 큐(queued)에 넣는다.
+    # 퀵런의 보내기 — 프리셋을 분류해 템플릿·옵션을 정하고 파드 없이 곧장 대기 큐(queued)에 넣는다.
     # 받는 값: {workflow_id | workflow+workflow_filename, prompt, project_id, images[], library}
     user = me(request)
     try:

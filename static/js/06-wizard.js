@@ -860,7 +860,7 @@ function renderNewJobTabs(){
   document.getElementById('new-job-details-panel').style.display = newJobActiveTab === 'details' ? '' : 'none';
 }
 
-// 빠른 실행창 "(새로 만들기)"(NS-52-3)로 연 마법사면 참 — "다음"에서 세부 설정 대신 빠른 실행창으로 돌아간다.
+// 퀵런 "(새로 만들기)"(NS-52-3)로 연 마법사면 참 — "다음"에서 세부 설정 대신 퀵런으로 돌아간다.
 let quickRunReturn = false;
 
 // "다음" 버튼과 "세부 설정" 탭이 똑같이 이 함수로 넘어간다 — 그래야 탭을 직접 눌러
