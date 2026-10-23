@@ -403,7 +403,12 @@
   .board-gen-port::before{ content:""; position:absolute; inset:-7px; border-radius:50%; }   /* 누르기 쉽게 넓힌 자리 */
   .board-gen-port:hover{ transform:scale(1.35); }
   .board-gen-fields{ flex:1; min-height:0; overflow:hidden; padding:4px 12px 10px; display:flex; flex-direction:column; gap:6px; }
-  .board-gen-slot.filled .board-gen-port{ background:var(--running); }
+  /* 글칸 모서리 연결점 — 라벨 줄 왼쪽 위, 카드 왼쪽 가장자리에 걸친다(카드 안쪽 여백 12px) */
+  .board-gen-field.has-port{ position:relative; }
+  .board-gen-field.has-port > .board-gen-port{ left:-19px; top:1px; margin-top:0; cursor:default; }
+  .board-gen-port.filled, .board-gen-slot.filled .board-gen-port{ background:var(--running); }
+  .board-gen-port.connect-slot{ transform:scale(1.35); background:rgba(var(--running-rgb),0.4); }
+  .board-gen-input:disabled{ cursor:not-allowed; opacity:0.7; }
   .board-gen-slot.text .board-gen-port{ cursor:default; }
   .board-gen-slot.connect-slot{ background:rgba(var(--running-rgb),0.14); }
   .board-gen-slot-state img{ width:22px; height:22px; object-fit:cover; border-radius:4px; vertical-align:middle; margin-right:3px; }
