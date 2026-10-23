@@ -115,6 +115,7 @@ nightshift `01-base.css`의 값이 원본이다. 두 프로젝트가 같은 토�
 
 두 프로젝트가 같은 모양·같은 키로 쓴다. 원본 구현은 dev(DEV-93·DEV-96): `static/index.html`의 `#composer`, `static/app.css`의
 `.composer`·`.cmp-*`, `static/app.js`의 "빠른 발행 입력창" 절. 마지막 줄의 도구만 프로젝트마다 다르다.
+nightshift에서는 이 부품을 **퀵런**(백틱)과 **퀵바**(보드 `/`)로 쓴다.
 
 **모양** (Claude·ChatGPT 채팅 입력창식)
 - 화면 아래 가운데 고정 카드: 폭 `min(760px, 100vw - 28px)`, 아래 여백 16, 안쪽 12·12·8, 세로 간격 8,
@@ -192,4 +193,5 @@ nightshift `01-base.css`의 값이 원본이다. 두 프로젝트가 같은 토�
 ## 결정 기록
 
 - 2026-09-30 처음 씀(DEV-10). 원본 값은 nightshift `static/css/01-base.css`, dev `static/app.css`(DEV-2·DEV-4).
-- 2026-10-08 8절에 "빠른 입력창"을 공용 부품으로 적음 — dev DEV-93·96 구현에서 뽑았고 nightshift 빠른 실행창이 따른다.
+- 2026-10-08 8절에 "빠른 입력창"을 공용 부품으로 적음 — dev DEV-93·96 구현에서 뽑았고 nightshift 퀵런이 따른다.
+- 2026-10-23 nightshift의 빠른 입력창 이름을 퀵런·퀵바로 명시함(NS-91).

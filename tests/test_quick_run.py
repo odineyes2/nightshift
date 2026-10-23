@@ -1,4 +1,4 @@
-"""백틱 빠른 실행창 서버 쪽(NS-52-1) — 워크플로우 분류·옵션 조립과 POST /api/quick-run.
+"""퀵런 서버 쪽(NS-52-1) — 워크플로우 분류·옵션 조립과 POST /api/quick-run.
 임시 데이터 폴더를 쓰고 파드가 없어 작업은 queued로만 남는다. 실행: python tests/test_quick_run.py"""
 import json, os, sys, tempfile
 from pathlib import Path

@@ -1,4 +1,4 @@
-// 보드 플로팅 명령창 — 짧은 명령을 카드로 만들고 입력 기록과 완성을 관리한다.
+// 퀵바 — 보드 탭의 `/` 명령창에서 카드를 만들고 입력 기록과 완성을 관리한다.
 const BOARD_COMMANDS = [
   { cmd: 'text', aliases: ['t'], description: '메모 카드', example: '/text 내용' },
   { cmd: 'frame', aliases: ['f'], description: '묶음 틀', example: '/frame 이름' },
