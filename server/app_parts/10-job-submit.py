@@ -483,7 +483,8 @@ async def create_job(
                                if isinstance(n, dict) and n.get("class_type") == "EmptyLatentImage"), {})
             base = int((int(dimensions.get("width", 1024)) * int(dimensions.get("height", 1024))) ** 0.5)
             csv_bytes, prompt_overrides = prompt_options.apply_csv_options(
-                csv_bytes, base, expand_repeat=template_id != "csv_batch")
+                csv_bytes, base, expand_repeat=template_id != "csv_batch",
+                allow_video=template_id in ("img2video_i2v_csv_batch", "img2video_flf2v_csv_batch"))
             for entry in prompt_overrides:
                 prompt_options.validate_workflow_options(workflow, entry)
             loader_count = sum(isinstance(n, dict) and n.get("class_type") in ("LoraLoader", "LoraLoaderModelOnly")
@@ -530,6 +531,8 @@ async def create_job(
         if errors:
             raise HTTPException(400, "; ".join(errors))
         if overrides:
+            if any(key in overrides for key in ("frames", "fps", "dur")):
+                raise HTTPException(400, "영상 옵션은 영상 템플릿에서만 쓸 수 있어요.")
             try:
                 prompt_options.validate_workflow_options(
                     json.loads(workflow_bytes) if workflow_bytes else {}, overrides)
@@ -547,6 +550,12 @@ async def create_job(
             count_option = {"seed_batch": "seed_count", "pose_batch": "pose_count", "depth_batch": "depth_count",
                             "lineart_batch": "lineart_count", "input_image_batch": "image_count",
                             "ipadapter_batch": "image_count"}.get(template_id)
+            if "seed_range" in overrides:
+                if count_option is None:
+                    raise HTTPException(400, "이 템플릿은 시드 범위를 지원하지 않아요.")
+                first, last = overrides["seed_range"]
+                raw_options["seed_start"] = str(first)
+                raw_options[count_option] = str(last - first + 1)
             for key, target in (("repeat", count_option), ("model", "checkpoint"), ("steps", "steps"), ("cfg", "cfg"), ("seed", "seed_start"),
                                 ("sampler", "sampler"), ("scheduler", "scheduler"), ("denoise", "denoise"),
                                 ("detail", "detail"), ("upscale", "upscale")):

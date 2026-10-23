@@ -1,6 +1,7 @@
 """프롬프트 옵션 해석과 CSV·워크플로우 적용을 검사한다."""
 
 import csv
+import copy
 import io
 import json
 import os
@@ -17,9 +18,50 @@ sys.path.insert(0, str(ROOT / "templates"))
 import prompt_options
 import prompt_row
 import csv_batch
+import img2video_i2v_csv_batch
+import img2video_flf2v_csv_batch
 
 
 class PromptOptionsTests(unittest.TestCase):
+    def test_seed_range_and_choices(self):
+        clean, options, errors = prompt_options.parse_prompt_options("dress --seed 1..4")
+        self.assertEqual((clean, options, errors), ("dress", {"seed_range": (1, 4)}, []))
+        source = 'main_prompt\n"dress {red, blue} {silk, cotton} --seed 1..4"\n'
+        result, _ = prompt_options.apply_csv_options(source.encode())
+        rows = list(csv.DictReader(io.StringIO(result.decode())))
+        self.assertEqual(len(rows), 16)
+        self.assertEqual([row["seed"] for row in rows[:4]], ["1", "2", "3", "4"])
+        self.assertEqual(rows[0]["main_prompt"], "dress red silk")
+        self.assertEqual(rows[-1]["main_prompt"], "dress blue cotton")
+        escaped, _ = prompt_options.apply_csv_options(b'main_prompt\n"dress \\{red, blue}"\n')
+        self.assertEqual(next(csv.DictReader(io.StringIO(escaped.decode())))["main_prompt"], "dress {red, blue}")
+        for prompt in ("cat --seed 4..1", "cat --seed 1..65", "cat --seed 1..4 --r 2"):
+            with self.subTest(prompt=prompt):
+                self.assertTrue(prompt_options.parse_prompt_options(prompt)[2])
+        with self.assertRaisesRegex(ValueError, "64줄"):
+            prompt_options.apply_csv_options(('main_prompt\n"' + "{a,b}" * 7 + '"\n').encode())
+
+    def test_video_columns_and_workflow_injection(self):
+        source = 'main_prompt,user_prompt\ncat,"walking --dur 5s --fps 24"\n'
+        with self.assertRaisesRegex(ValueError, "영상 템플릿"):
+            prompt_options.apply_csv_options(source.encode())
+        result, _ = prompt_options.apply_csv_options(source.encode(), allow_video=True)
+        row = next(csv.DictReader(io.StringIO(result.decode())))
+        self.assertEqual((row["frames"], row["fps"], row["user_prompt"]), ("120", "24", "walking"))
+        override, _ = prompt_options.apply_csv_options(
+            b'main_prompt\ncat --dur 5s --fps 24 --frames 81\n', allow_video=True)
+        self.assertEqual(next(csv.DictReader(io.StringIO(override.decode())))["frames"], "81")
+        for module in (img2video_i2v_csv_batch, img2video_flf2v_csv_batch):
+            with self.subTest(module=module.__name__):
+                workflow = copy.deepcopy(module.load_workflow(module.VIDEO_WORKFLOW_PATH))
+                prompt_row.apply_video(workflow, row, module.set_linked_value)
+                length = next(node["inputs"]["length"] for node in workflow.values()
+                              if node.get("class_type") in ("WanImageToVideo", "WanFirstLastFrameToVideo"))
+                fps = next(node["inputs"]["fps"] for node in workflow.values() if node.get("class_type") == "CreateVideo")
+                if isinstance(fps, list):
+                    fps = workflow[str(fps[0])]["inputs"]["value"]
+                self.assertEqual((length, fps), (120, 24))
+
     def test_help_specs_match_parser_names_and_aliases(self):
         self.assertEqual({item["name"] for item in prompt_options.OPTION_SPECS}, prompt_options._KNOWN)
         self.assertEqual({alias: item["name"] for item in prompt_options.OPTION_SPECS
@@ -215,6 +257,32 @@ class PromptOptionsHTTPTests(unittest.TestCase):
             self.assertEqual({key: response.json()["options"][key] for key in
                               ("sampler", "scheduler", "denoise", "detail")},
                              {"sampler": "heun", "scheduler": "karras", "denoise": "0.25", "detail": "False"})
+        finally:
+            client.close()
+
+    def test_jobs_route_expands_seed_and_rejects_video_options_on_image(self):
+        from fastapi.testclient import TestClient
+        headers = {"X-Requested-With": "nightshift"}
+        workflow = {"1": {"class_type": "KSampler", "inputs": {"seed": 0}}}
+        client = TestClient(self.app.app)
+        try:
+            self.assertEqual(client.post("/api/auth/login", json={"username": "prompt-http",
+                              "password": "Test-Passw0rd-xyz!"}, headers=headers).status_code, 200)
+            body = {"template_id": "csv_batch", "workflow": workflow,
+                    "csv": 'main_prompt\n"cat {red, blue} --seed 1..4"\n'}
+            response = client.post("/api/jobs", json=body, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            rows = list(csv.DictReader(io.StringIO((self.app.JOBS_DIR / response.json()["csv_filename"]).read_text(encoding="utf-8"))))
+            self.assertEqual(len(rows), 8)
+            self.assertEqual([row["seed"] for row in rows[:4]], ["1", "2", "3", "4"])
+            body["csv"] = "main_prompt\ncat --frames 81\n"
+            self.assertEqual(client.post("/api/jobs", json=body, headers=headers).status_code, 400)
+            body = {"template_id": "img2video_i2v_csv_batch", "workflow": workflow,
+                    "csv": 'main_prompt,user_prompt\ncat,"walking --dur 5s --fps 24"\n'}
+            response = client.post("/api/jobs", json=body, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            row = next(csv.DictReader(io.StringIO((self.app.JOBS_DIR / response.json()["csv_filename"]).read_text(encoding="utf-8"))))
+            self.assertEqual((row["frames"], row["fps"]), ("120", "24"))
         finally:
             client.close()
 
