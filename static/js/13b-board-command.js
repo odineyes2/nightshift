@@ -5,6 +5,7 @@ const BOARD_COMMANDS = [
   { cmd: 'job', aliases: [], description: '작업 카드', example: '/job 작업ID' },
   { cmd: 'image', aliases: ['img', 'i'], description: '이미지 고르기', example: '/image 검색어' },
   { cmd: 'video', aliases: ['v'], description: '영상 고르기', example: '/video 검색어' },
+  { cmd: 'exit', aliases: ['q'], description: '퀵바 닫기', example: '/exit' },
   { cmd: 'help', aliases: ['?'], description: '명령 도움말', example: '/help' },
 ];
 const BOARD_COMMAND_HISTORY_KEY = 'nightshift.boardCommands';
@@ -152,6 +153,11 @@ async function boardCommandRun(){
   try{
     let node = null;
     if(parsed.cmd === 'help') { boardCommandHelp(); success = true; }
+    else if(parsed.cmd === 'exit'){
+      input.value = '';
+      boardCommandSetOpen(false);
+      return;
+    }
     else if(parsed.cmd === 'image' || parsed.cmd === 'video'){
       openBoardAssetPicker(parsed.cmd, null, boardCommandGeometry(parsed.cmd), parsed.args, value);
       return;
@@ -232,7 +238,7 @@ boardCommandInput.addEventListener('keydown', e => {
   if(e.key === 'Enter' && !e.shiftKey){
     e.preventDefault();
     if(boardCommandChoices.length && !boardCommandInput.value.endsWith(' ')
-        && !/\/(?:image|img|i|video|v)$/i.test(boardCommandInput.value)) boardCommandComplete();
+        && !/\/(?:image|img|i|video|v|exit|q)$/i.test(boardCommandInput.value)) boardCommandComplete();
     else boardCommandRun();
     return;
   }

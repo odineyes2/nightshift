@@ -194,6 +194,14 @@ async function cmpUpload(file){
 }
 
 async function cmpSend(){
+  if(/^\/exit$/i.test(cmpInput.value.trim())){
+    cmpInput.value = '';
+    cmpServerError = '';
+    closeComposer();
+    cmpAutosize();
+    cmpUpdate();
+    return;
+  }
   if(cmpSendBtn.disabled) return;
   const p = cmpCurrentPreset();
   cmpSaving = true;
