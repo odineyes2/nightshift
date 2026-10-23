@@ -293,10 +293,11 @@ async def create_board_node_api(project_id: int, request: Request):
     asset_path = _board_asset_path_or_error(user, kind, body.get("asset_path"))
     job_id = None
     if kind == "job":
-        job_id = str(body.get("job_id") or "").strip()
-        if not job_id:
-            raise HTTPException(400, "작업 카드는 job_id가 필요해요.")
-        job_or_404(user, job_id)   # 자기(admin은 전부) 작업만 — 남의 작업 id를 짐작해 끌어오지 못하게
+        job_id = str(body.get("job_id") or "").strip() or None
+        if job_id:
+            job = job_or_404(user, job_id)
+            if job.get("project_id") != project_id:
+                raise HTTPException(404, "이 프로젝트의 작업이 아니에요.")
     data = None
     if kind == "gen":
         try:
@@ -418,6 +419,16 @@ async def update_board_node_api(project_id: int, node_id: int, request: Request)
         if node["kind"] not in ("image", "video"):
             raise HTTPException(400, "이미지/영상 카드만 결과물을 바꿀 수 있어요.")
         fields["asset_path"] = _board_asset_path_or_error(user, node["kind"], body["asset_path"])
+    if "job_id" in body:
+        node = board_store.get_node(project_id, node_id)
+        if node["kind"] != "job":
+            raise HTTPException(400, "작업 카드만 작업을 바꿀 수 있어요.")
+        job_id = str(body["job_id"] or "").strip() or None
+        if job_id:
+            job = job_or_404(user, job_id)
+            if job.get("project_id") != project_id:
+                raise HTTPException(404, "이 프로젝트의 작업이 아니에요.")
+        fields["job_id"] = job_id
     if "values" in body:
         # 생성 카드의 꺼낸 옵션 값 — 카드에 꺼내 둔 옵션만, 문자열로. 나머지 내용(프리셋 사본·실행 기록)은 그대로.
         node = board_store.get_node(project_id, node_id)
@@ -530,7 +541,7 @@ async def restore_board_api(project_id: int, request: Request):
                 "id": int(n["id"]) if n.get("id") is not None else None,
                 "kind": kind,
                 "asset_path": _board_asset_path_or_error(user, kind, n.get("asset_path")),
-                "job_id": _board_restore_job_id(user, kind, n.get("job_id")),
+                "job_id": _board_restore_job_id(user, project_id, kind, n.get("job_id")),
                 "data": _board_gen_data_or_error(n.get("data")) if kind == "gen" else
                         n.get("data") if kind == "frame" and isinstance(n.get("data"), dict) else None,
                 "text": str(n.get("text") or ""),
@@ -551,7 +562,7 @@ async def restore_board_api(project_id: int, request: Request):
         raise HTTPException(404, "선의 양 끝 카드가 이 보드에 없어요.")
 
 
-def _board_restore_job_id(user, kind: str, raw) -> str | None:
+def _board_restore_job_id(user, project_id: int, kind: str, raw) -> str | None:
     """되살릴 작업 카드의 job_id. 그 사이 작업이 아예 사라졌으면 카드는 "지워진 작업"으로
     살린다(None). 남아 있는데 남의 작업이면 404 — 되살리기 요청에 남의 작업을 끼워 넣지 못하게."""
     if kind != "job" or not raw:
@@ -561,7 +572,9 @@ def _board_restore_job_id(user, kind: str, raw) -> str | None:
         exists = job_id in jobs
     if not exists:
         return None
-    job_or_404(user, job_id)
+    job = job_or_404(user, job_id)
+    if job.get("project_id") != project_id:
+        raise HTTPException(404, "이 프로젝트의 작업이 아니에요.")
     return job_id
 
 
@@ -586,6 +599,9 @@ def board_jobs_api(project_id: int, request: Request):
     out = {}
     with lock:
         for node_id, job_id in cards:
+            if job_id is None:
+                out[node_id] = {"job_id": None, "missing": False}
+                continue
             job = jobs.get(job_id) if job_id else None
             if job is None or job.get("deleted") or not auth.can_access(user, job.get("owner_id")):
                 out[node_id] = {"job_id": job_id, "missing": True}

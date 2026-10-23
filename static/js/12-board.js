@@ -938,7 +938,8 @@ const boardJobInfo = new Map();
 let boardJobTimer = null;
 let boardJobSeq = 0;
 
-function boardJobBodyHtml(info){
+function boardJobBodyHtml(info, node){
+  if(node && !node.job_id) return `<div class="board-job-note"><button type="button" class="board-node-fill" data-board-fill="${node.id}" aria-label="작업 카드 채우기">${ico('plus')}<span>작업을 골라 주세요</span></button></div>`;
   if(!info) return '<div class="board-job-note">불러오는 중…</div>';
   if(info.missing) return `<div class="board-job-note">${ico('trash-2')}<span>지워진 작업이에요</span></div>`;
   const head = `<div class="board-job-head"><span class="badge ${escapeHtml(info.status || '')}"><span class="bdot"></span>`
@@ -966,7 +967,8 @@ function boardJobBodyHtml(info){
 function paintBoardJobCards(){
   for(const el of document.querySelectorAll('#board-world .board-node-job')){
     const body = el.querySelector('.board-job-body');
-    const html = boardJobBodyHtml(boardJobInfo.get(Number(el.dataset.nodeId)));
+    const id = Number(el.dataset.nodeId);
+    const html = boardJobBodyHtml(boardJobInfo.get(id), boardNodes.find(n => n.id === id));
     if(body && body._html !== html){ body.innerHTML = html; body._html = html; }
   }
   for(const el of document.querySelectorAll('#board-world .board-node-gen')){
@@ -1007,6 +1009,8 @@ async function fetchBoardJobs(){
 // 작업 카드를 톡 누르면 작업 목록 화면과 같은 상세 창을 연다. 그 창은 화면이 받아 둔 작업
 // 목록(lastJobs)에서 작업을 찾으므로, 보드에서 열 때는 목록을 한 번 새로 받는다.
 async function openBoardJobDetail(nodeId){
+  const node = boardNodes.find(n => n.id === nodeId);
+  if(node && !node.job_id){ openBoardAssetPicker('job', null, null, '', null, nodeId); return; }
   const info = boardJobInfo.get(nodeId);
   if(!info || info.missing || !info.job_id){ flashNotice('지워진 작업이라 열 수 없어요.'); return; }
   await fetchJobs();
