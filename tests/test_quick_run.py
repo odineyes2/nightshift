@@ -95,11 +95,13 @@ def test_api():
         assert presets2[0]["id"] == presets[1]["id"] and len(presets2) == len(presets)  # 맨 앞으로, 새 항목 없음
 
         jobs_before_exit = len(c.get("/api/jobs", headers=H).json()["jobs"])
-        for prompt in ("/exit", "  /EXIT  "):
+        for prompt in ("/exit", "  /EXIT  ", "/bar", "/BAR 메모", "/퀵바", " /퀵바 메모 "):
             r = c.post("/api/quick-run", json={"workflow": T2I, "prompt": prompt}, headers=H)
             assert r.status_code == 400 and r.json()["detail"] == "명령이에요, 프롬프트가 아니에요.", r.text
         assert len(c.get("/api/jobs", headers=H).json()["jobs"]) == jobs_before_exit
         r = c.post("/api/quick-run", json={"workflow": T2I, "prompt": "/exit 그림"}, headers=H)
+        assert r.status_code == 200, r.text
+        r = c.post("/api/quick-run", json={"workflow": T2I, "prompt": "/barcelona street"}, headers=H)
         assert r.status_code == 200, r.text
 
         for body in ({"workflow": I2I, "prompt": "x"}, {"workflow": T2I, "prompt": " "},

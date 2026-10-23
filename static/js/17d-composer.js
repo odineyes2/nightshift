@@ -194,6 +194,24 @@ async function cmpUpload(file){
 }
 
 async function cmpSend(){
+  const barCommand = /^\/(?:bar|퀵바)(?:\s+([\s\S]*))?$/i.exec(cmpInput.value.trim());
+  if(barCommand){
+    if(currentTab !== 'prboard'){
+      cmpServerError = '퀵바는 프로젝트 보드 탭에서만 쓸 수 있어요';
+      cmpUpdate();
+      return;
+    }
+    cmpServerError = '';
+    closeComposer();
+    boardCommandFocus();
+    if(barCommand[1]){
+      const input = document.getElementById('board-command-input');
+      input.value = barCommand[1];
+      boardCommandPaint();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+    return;
+  }
   if(/^\/exit$/i.test(cmpInput.value.trim())){
     cmpInput.value = '';
     cmpServerError = '';
