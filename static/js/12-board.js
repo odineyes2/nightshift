@@ -406,7 +406,7 @@ function initBoardCanvas(){
       .filter(sl => boardGenSlotAccepts(sl, source));
     if(!slots.length || !source) return null;
     const under = document.elementFromPoint(clientX, clientY);
-    const row = under && under.closest('.board-gen-slot');
+    const row = under && under.closest('[data-gen-slot]');   // 입구 줄 또는 글칸 모서리 연결점
     if(row && targetEl.contains(row)) return slots.some(sl => sl.name === row.dataset.genSlot) ? row.dataset.genSlot : null;
     const filled = new Set(boardEdges.filter(e => e.to_node_id === target.id && e.to_slot).map(e => e.to_slot));
     return (slots.find(sl => !filled.has(sl.name)) || slots[0]).name;
@@ -430,11 +430,11 @@ function initBoardCanvas(){
       connect.targetEl = targetEl;
     }
     const slot = boardSlotFor(targetEl, e.clientX, e.clientY);
-    document.querySelectorAll('#board-world .board-gen-slot.connect-slot').forEach(r => {
+    document.querySelectorAll('#board-world .connect-slot').forEach(r => {
       if(!(targetEl && r.closest('.board-node') === targetEl && r.dataset.genSlot === slot)) r.classList.remove('connect-slot');
     });
     if(targetEl && slot){
-      const row = targetEl.querySelector(`.board-gen-slot[data-gen-slot="${CSS.escape(slot)}"]`);
+      const row = targetEl.querySelector(`[data-gen-slot="${CSS.escape(slot)}"]`);
       if(row) row.classList.add('connect-slot');
     }
   });
@@ -443,7 +443,7 @@ function initBoardCanvas(){
     const targetEl = e.type === 'pointerup' ? boardNodeUnder(e.clientX, e.clientY) : null;
     const slot = targetEl ? boardSlotFor(targetEl, e.clientX, e.clientY) : null;
     if(connect.targetEl) connect.targetEl.classList.remove('connect-target', 'connect-no-slot');
-    document.querySelectorAll('#board-world .board-gen-slot.connect-slot').forEach(r => r.classList.remove('connect-slot'));
+    document.querySelectorAll('#board-world .connect-slot').forEach(r => r.classList.remove('connect-slot'));
     const fromId = connect.fromId;
     connect = null;
     viewport.classList.remove('connecting');
@@ -477,8 +477,9 @@ function initBoardCanvas(){
     const port = e.target.closest('.board-gen-port');
     if(port){   // 생성 카드 입구 점 — 이미지를 골라 카드로 놓고 이 입구에 잇는다
       const nodeEl = port.closest('.board-node');
-      if(port.closest('.board-gen-slot').dataset.genKind === 'text'){ flashNotice('프롬프트 칸이에요 — 메모 카드를 끌어 이어 주세요.'); return; }
-      openBoardAssetPicker('image', { nodeId: Number(nodeEl.dataset.nodeId), slot: port.closest('.board-gen-slot').dataset.genSlot });
+      const portHost = port.closest('[data-gen-slot]');
+      if(portHost.dataset.genKind === 'text'){ flashNotice('프롬프트 칸이에요 — 메모 카드를 끌어 이어 주세요.'); return; }
+      openBoardAssetPicker('image', { nodeId: Number(nodeEl.dataset.nodeId), slot: portHost.dataset.genSlot });
     }
     const edgeDelBtn = e.target.closest('.board-edge-del');
     if(edgeDelBtn) deleteBoardEdge(Number(edgeDelBtn.dataset.edgeDel));

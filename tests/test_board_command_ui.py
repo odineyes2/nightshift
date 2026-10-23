@@ -608,7 +608,7 @@ class BoardCommandUITests(unittest.TestCase):
                     expect(page.locator('.board-node-gen')).to_have_count(2)
                     field.fill('/gen "이미지 생성" 필수 입구 없음')
                     field.press('Enter')
-                    expect(page.locator('#board-command-error')).to_contain_text('이미지가 비어 있어요')   # 입력 카드가 자동으로 이어져 빈 이미지 카드가 입구를 채운다
+                    expect(page.locator('#board-command-error')).to_contain_text('비어 있는 필수 입구가 있어요')   # 입력 카드를 자동으로 만들지 않아 필수 입구가 비어 있다
                     expect(page.locator('.board-node-gen')).to_have_count(3)
                     self.assertEqual(len(page.request.get(base + '/api/jobs').json()['jobs']), jobs_before_exit + 1)
                     field.fill('/gen')

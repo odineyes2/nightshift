@@ -4,7 +4,7 @@
 // 옵션(fields) 정의, 꺼낸 옵션의 지금 값(values)을 전부 자기 data에 들고 있어서, 프리셋을 지우거나
 // 고쳐도 이미 놓은 카드는 그대로다(서버 _board_gen_data_from_preset). 입구는 템플릿의 입력 이미지
 // 칸마다 하나 — 이미지 카드에서 선을 이어 채운다. 꺼낸 옵션은 카드 안에서 바로 고친다.
-function boardGenFieldHtml(nodeId, f, value){
+function boardGenFieldHtml(nodeId, f, value, slots){
   const attrs = `class="board-gen-input" data-gen-node="${nodeId}" data-gen-field="${escapeHtml(f.name)}"`;
   const ph = f.placeholder ? ` placeholder="${escapeHtml(f.placeholder)}"` : '';
   let control;
@@ -20,7 +20,18 @@ function boardGenFieldHtml(nodeId, f, value){
   const copy = f.type === 'textarea'
     ? `<button type="button" class="board-gen-copy" data-gen-copy-node="${nodeId}" data-gen-copy-field="${escapeHtml(f.name)}" title="${escapeHtml(f.label)} 복사" aria-label="${escapeHtml(f.label)} 복사">${ico('copy')}</button>` : '';
   const help = f.type === 'textarea' ? promptOptionsHelpButtonHtml() : '';
-  return `<label class="board-gen-field${f.type === 'textarea' ? ' grow' : ''}"><span class="board-gen-field-label">${escapeHtml(f.label)}${copy}${help}</span>${control}</label>`;
+  // 프롬프트 입구가 이 글칸 몫이면 라벨 줄 왼쪽 모서리에 연결점을 둔다 — 메모 카드를 이으면 글칸이 비워지고 잠긴다.
+  const port = f.type === 'textarea' && boardGenFieldSlot(slots, f.name)
+    ? `<span class="board-gen-port" data-gen-slot="${escapeHtml(f.name)}" data-gen-kind="text" title="메모 카드를 끌어 이으면 그 글이 프롬프트로 쓰여요"></span>` : '';
+  return `<label class="board-gen-field${f.type === 'textarea' ? ' grow' : ''}${port ? ' has-port' : ''}">${port}<span class="board-gen-field-label">${escapeHtml(f.label)}${copy}${help}</span>${control}</label>`;
+}
+
+// 이 글칸 이름의 프롬프트(text) 입구 — 있으면 입구 줄 대신 글칸 모서리 연결점이 맡는다.
+function boardGenFieldSlot(slots, name){
+  return (slots || []).find(sl => sl.kind === 'text' && sl.name === name) || null;
+}
+function boardGenSlotInField(d, sl){
+  return sl.kind === 'text' && (d.fields || []).some(f => f.type === 'textarea' && f.name === sl.name);
 }
 
 // 입구 종류(kind 'text' = 프롬프트, 없으면 이미지)에 맞는 카드인가 — 서버 엣지 검사와 같은 규칙.
@@ -31,11 +42,11 @@ function boardGenSlotAccepts(sl, source){
 
 function boardGenCardHtml(node, style, delBtn){
   const d = node.data || {};
-  const slots = (d.slots || []).map(sl => `<div class="board-gen-slot${sl.kind === 'text' ? ' text' : ''}" data-gen-slot="${escapeHtml(sl.name)}" data-gen-kind="${sl.kind === 'text' ? 'text' : 'image'}">`
+  const slots = (d.slots || []).filter(sl => !boardGenSlotInField(d, sl)).map(sl => `<div class="board-gen-slot${sl.kind === 'text' ? ' text' : ''}" data-gen-slot="${escapeHtml(sl.name)}" data-gen-kind="${sl.kind === 'text' ? 'text' : 'image'}">`
     + `<span class="board-gen-port" title="${sl.kind === 'text' ? '메모 카드를 끌어 이으면 그 글이 프롬프트로 쓰여요' : '눌러서 이미지 고르기 — 이미지 카드를 끌어 이어도 돼요'}"></span>`
     + `<span class="board-gen-slot-label">${escapeHtml(sl.label)}${sl.required ? '' : ' <em>(선택)</em>'}</span>`
     + `<span class="board-gen-slot-state">비어 있음</span></div>`).join('');
-  const fields = (d.fields || []).map(f => boardGenFieldHtml(node.id, f, (d.values || {})[f.name] ?? '')).join('');
+  const fields = (d.fields || []).map(f => boardGenFieldHtml(node.id, f, (d.values || {})[f.name] ?? '', d.slots)).join('');
   return `<div class="board-node board-node-gen" data-node-id="${node.id}" style="${style}">`
     + `<div class="board-gen-head">${ico('wand-sparkles')}<span class="board-gen-name">${escapeHtml(d.preset_name || '생성')}</span>`
     + `<span class="board-gen-tpl">${escapeHtml(d.template_label || d.template_id || '')}</span></div>`
@@ -71,10 +82,21 @@ function paintBoardGenSlots(){
     if(!node || !node.data) continue;
     const empty = [];
     for(const sl of node.data.slots || []){
-      const row = el.querySelector(`.board-gen-slot[data-gen-slot="${CSS.escape(sl.name)}"]`);
-      if(!row) continue;
       const edge = boardEdges.find(e => e.to_node_id === node.id && e.to_slot === sl.name);
       const src = edge && boardNodes.find(n => n.id === edge.from_node_id);
+      if(boardGenSlotInField(node.data, sl)){   // 글칸 모서리 연결점 — 이어지면 글칸을 비운 채 잠근다
+        const port = el.querySelector(`.board-gen-port[data-gen-slot="${CSS.escape(sl.name)}"]`);
+        const ta = el.querySelector(`.board-gen-input[data-gen-field="${CSS.escape(sl.name)}"]`);
+        if(port) port.classList.toggle('filled', !!src);
+        if(ta){
+          ta.disabled = !!src;
+          if(src && ta.value) ta.value = '';
+          ta.placeholder = src ? '메모 카드와 연결됨' : ((node.data.fields || []).find(f => f.name === sl.name) || {}).placeholder || '';
+        }
+        continue;
+      }
+      const row = el.querySelector(`.board-gen-slot[data-gen-slot="${CSS.escape(sl.name)}"]`);
+      if(!row) continue;
       let html = '비어 있음';
       if(src && sl.kind === 'text'){
         html = '글 연결됨';   // 연결된 메모의 글이 카드 안 글칸 대신 쓰인다(비어 있으면 카드 안 글)
@@ -87,10 +109,6 @@ function paintBoardGenSlots(){
         empty.push(sl.label);
       }
       row.classList.toggle('filled', !!(src && (sl.kind === 'text' || src.asset_path)));
-      if(sl.kind === 'text'){   // 글이 이어지면 카드 안 같은 이름의 글칸은 잠근다
-        const ta = el.querySelector(`.board-gen-input[data-gen-field="${CSS.escape(sl.name)}"]`);
-        if(ta) ta.disabled = !!src;
-      }
       const state = row.querySelector('.board-gen-slot-state');
       if(state && state._html !== html){ state.innerHTML = html; state._html = html; }
     }
@@ -341,8 +359,21 @@ function boardEdgeCurveById(edge){
   const b = boardNodes.find(n => n.id === edge.to_node_id);
   if(!a || !b) return null;
   if(edge.to_slot && b.kind === 'gen'){
-    const i = ((b.data && b.data.slots) || []).findIndex(sl => sl.name === edge.to_slot);
+    const bd = b.data || {};
+    const sl = (bd.slots || []).find(s => s.name === edge.to_slot);
+    if(sl && boardGenSlotInField(bd, sl)){   // 글칸 모서리 연결점 — 화면에 그려진 자리를 읽는다
+      const cardEl = document.querySelector(`#board-world .board-node[data-node-id="${b.id}"]`);
+      const portEl = cardEl && cardEl.querySelector(`.board-gen-port[data-gen-slot="${CSS.escape(sl.name)}"]`);
+      if(portEl){
+        const cr = cardEl.getBoundingClientRect(), pr = portEl.getBoundingClientRect();
+        const scale = cr.width / (b.width || 1) || 1;
+        return boardEdgeCurveToPort(a, { x: b.x - 1, y: b.y + (pr.top + pr.height / 2 - cr.top) / scale });
+      }
+    }
+    const rows = (bd.slots || []).filter(s => !boardGenSlotInField(bd, s));
+    const i = rows.findIndex(s => s.name === edge.to_slot);
     if(i >= 0) return boardEdgeCurveToPort(a, { x: b.x - 1, y: b.y + BOARD_GEN_PORT_Y0 + BOARD_GEN_SLOT_H * i });
+    if(sl) return boardEdgeCurveToPort(a, { x: b.x - 1, y: b.y + BOARD_GEN_PORT_Y0 + BOARD_GEN_SLOT_H * rows.length + 12 });
   }
   return boardEdgeCurve(a, b);
 }
@@ -587,30 +618,16 @@ async function createBoardEdge(fromId, toId, toSlot, record = true){
   if(boardEdges.some(e => e.id === edge.id)){ if(replaced.length) renderBoardEdges(); return; }
   boardEdges.push(edge);
   renderBoardEdges();
+  const gen = toSlot && boardNodes.find(n => n.id === toId && n.kind === 'gen');
+  const fieldSlot = gen && (gen.data.slots || []).find(sl => sl.name === toSlot);
+  if(fieldSlot && boardGenSlotInField(gen.data, fieldSlot)){   // 글칸 연결점에 이으면 칸의 글을 비운다(ComfyUI에서 입력이 연결되면 위젯이 잠기는 것과 같게)
+    boardGenPending.delete(`${toId}:${toSlot}`);
+    setBoardGenValueLocal(toId, toSlot, '');
+    boardApi(projectId, 'PATCH', `/nodes/${toId}`, { values: { [toSlot]: '' } }, false, boardId);
+    paintBoardGenSlots();
+  }
   if(record) pushBoardHistory({ type: 'edge-add', edge: { ...edge }, replaced });
   return edge;
-}
-
-// 새로 놓은 생성 카드의 입구마다 왼쪽에 빈 입력 카드(프롬프트 → 메모, 이미지 → 이미지)를 쌓아 놓고 잇는다.
-// 카드·입력 카드·선을 'paste' 기록 한 칸으로 묶어, 실행 취소 한 번에 함께 되돌린다.
-async function boardGenAddInputs(node){
-  const slots = (node.data && node.data.slots) || [];
-  const made = [], edges = [];
-  let y = node.y;
-  for(const sl of slots){
-    const isText = sl.kind === 'text';
-    const h = isText ? 160 : 220;
-    const src = await createBoardNode(isText ? 'text' : 'image', '', '', { x: node.x - 220 - 60, y, width: 220, height: h }, false);
-    if(!src) break;
-    made.push(src);
-    y += h + 20;
-    const edge = await createBoardEdge(src.id, node.id, sl.name, false);
-    if(edge) edges.push({ ...edge });
-  }
-  const nodes = [node, ...made].map(boardNodeSnapshot);
-  setBoardSelection(new Set([node.id]));
-  pushBoardHistory({ type: 'paste', nodes, edges });
-  return node;
 }
 
 async function deleteBoardEdge(edgeId){
@@ -662,8 +679,7 @@ async function createBoardNode(kind, assetPath, text, geom, record = true, draft
   boardNodes.push(node);
   appendBoardNodeEls([node]);
   setBoardSelection(new Set([node.id]));
-  if(kind === 'gen' && record) await boardGenAddInputs(node);   // 입력 카드까지 한 기록으로
-  else if(record) pushBoardHistory({ type: 'create', node: { ...node } });
+  if(record) pushBoardHistory({ type: 'create', node: { ...node } });
   if(kind === 'job') fetchBoardJobs();
   return node;
 }
@@ -679,7 +695,7 @@ const BOARD_MIN_SIZE = {   // 크기 바꾸기의 최소 크기(월드 px)
 function boardGenMinSize(node){
   const d = node.data || {};
   const fields = (d.fields || []).reduce((s, f) => s + (f.type === 'textarea' ? 96 : 60), 0);
-  return { w: 240, h: Math.max(140, 52 + 30 * (d.slots || []).length + fields + 14 + 46) };
+  return { w: 240, h: Math.max(140, 52 + 30 * (d.slots || []).filter(sl => !boardGenSlotInField(d, sl)).length + fields + 14 + 46) };
 }
 const BOARD_FRAME_PAD = 30, BOARD_FRAME_BAR = 40;
 
