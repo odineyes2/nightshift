@@ -604,7 +604,7 @@ function boardViewportCenterWorld(){
 }
 
 // geom({ x, y, width, height })을 주면 그 자리에 놓는다(묶음 틀을 고른 카드 둘레에 만들 때).
-async function createBoardNode(kind, assetPath, text, geom, record = true){
+async function createBoardNode(kind, assetPath, text, geom, record = true, draft = null){
   const projectId = currentProjectId;
   const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
@@ -616,7 +616,8 @@ async function createBoardNode(kind, assetPath, text, geom, record = true){
   if(kind === 'job') body.job_id = assetPath;   // 고르기 창은 작업 id를 같은 자리로 넘긴다
   if(kind === 'gen'){
     // 프리셋 id. 크기는 서버가 입구·꺼낸 옵션 수로 정한다(여기서는 아직 모른다).
-    body.preset_id = Number(assetPath);
+    if(draft) body.draft = draft;   // 새 작업 만들기 — 프리셋 없이 폼 값으로 바로 만든다
+    else body.preset_id = Number(assetPath);
     delete body.width;
     delete body.height;
   }
@@ -1045,8 +1046,10 @@ async function openBoardAssetPicker(kind, slot, geom, query, command, fillId){
   search.value = query || '';
   grid.innerHTML = '';
   grid.classList.toggle('jobs', kind === 'job' || kind === 'gen');
+  // 새 작업 만들기는 새로 놓는 생성 카드에서만 — 입구에서 열었거나 카드를 채울 때는 숨긴다.
+  document.getElementById('board-gen-new-btn').style.display = kind === 'gen' && !boardPickerSlot && !boardPickerFillId ? '' : 'none';
   empty.textContent = kind === 'job' ? '이 프로젝트에 작업이 없어요'
-    : kind === 'gen' ? '저장한 보드 프리셋이 없어요 — 새 작업 창의 "보드 프리셋으로 저장"으로 만들어 주세요.'
+    : kind === 'gen' ? '저장한 보드 프리셋이 없어요 — "새 작업 만들기"로 바로 만들거나, 새 작업 창의 "보드 프리셋으로 저장"으로 만들어 주세요.'
     : '이 프로젝트에 결과물이 없어요';
   empty.style.display = 'none';
   document.getElementById('board-asset-picker-modal').style.display = 'flex';
@@ -1122,6 +1125,12 @@ function closeBoardAssetPicker(){
   boardPickerGeometry = null;
 }
 document.getElementById('board-asset-picker-close').addEventListener('click', closeBoardAssetPicker);
+document.getElementById('board-gen-new-btn').addEventListener('click', () => {
+  const geom = boardPickerGeometry;
+  closeBoardAssetPicker();
+  setBoardCardMode({ projectId: currentProjectId, boardId: currentBoardId, geom });
+  openNewJobModal();
+});
 document.getElementById('board-asset-picker-modal').addEventListener('click', (e) => {
   if(e.target === document.getElementById('board-asset-picker-modal')) closeBoardAssetPicker();
 });

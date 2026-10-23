@@ -583,6 +583,7 @@
             <button class="modal-btn-secondary" id="reset-form-btn" type="button" title="마법사 전체 초기화"><svg class="ico"><use href="#i-rotate-ccw"/></svg> 초기화</button>
             <div class="new-job-next-right">
               <button class="modal-btn-secondary" id="save-board-preset-btn" type="button" title="지금 설정을 프로젝트 보드의 생성 카드 프리셋으로 저장"><svg class="ico"><use href="#i-network"/></svg><span class="btn-label"> 보드 프리셋으로 저장</span><span class="btn-label-short"> 프리셋</span></button>
+              <button class="submit-btn" id="place-board-card-btn" type="button" style="display:none;" title="지금 설정으로 보드에 생성 카드를 놓아요"><svg class="ico"><use href="#i-network"/></svg> 보드에 카드로 놓기</button>
               <button class="submit-btn" id="submit-btn" title="큐에 추가"><svg class="ico"><use href="#i-plus"/></svg> 추가</button>
             </div>
           </div>
@@ -668,6 +669,7 @@
       <button class="modal-close" id="board-asset-picker-close" aria-label="닫기">&times;</button>
     </div>
     <div class="modal-body">
+      <button class="modal-btn-secondary board-gen-new-btn" id="board-gen-new-btn" type="button" style="display:none;"><svg class="ico"><use href="#i-plus"/></svg> 새 작업 만들기</button>
       <div class="board-asset-picker-grid" id="board-asset-picker-grid"></div>
       <div class="empty" id="board-asset-picker-empty" style="display:none;">이 프로젝트에 결과물이 없어요</div>
     </div>

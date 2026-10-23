@@ -260,16 +260,17 @@ const BOARD_PRESET_EXPOSABLE = ['textarea', 'number', 'number_optional', 'select
 const BOARD_PRESET_SLOT_TYPES = ['input_image', 'input_image_optional'];
 let boardPresetDraft = null;   // 저장 창을 여는 순간 폼에서 읽은 값 { template_id, workflow, video_workflow, options, lora_trigger }
 
-async function openBoardPresetSave(){
+// 폼의 현재 값을 보드 카드/프리셋 초안으로 읽는다. 못 읽으면 오류 문구를 띄우고 null.
+async function readBoardDraftFromForm(){
   const errorEl = document.getElementById('upload-error');
   errorEl.textContent = '';
   const template = templatesById[templateSelect.value];
-  if(!template){ errorEl.textContent = '템플릿을 먼저 골라 주세요.'; return; }
-  if(template.requires_csv){ errorEl.textContent = 'CSV로 여러 줄을 도는 템플릿은 보드 프리셋으로 저장할 수 없어요.'; return; }
+  if(!template){ errorEl.textContent = '템플릿을 먼저 골라 주세요.'; return null; }
+  if(template.requires_csv){ errorEl.textContent = 'CSV로 여러 줄을 도는 템플릿은 보드 카드로 만들 수 없어요.'; return null; }
   let workflow = null, videoWorkflow = null;
   try{
     if(template.requires_workflow !== false){
-      if(!selectedFiles.workflow){ errorEl.textContent = '워크플로우를 먼저 넣어 주세요.'; return; }
+      if(!selectedFiles.workflow){ errorEl.textContent = '워크플로우를 먼저 넣어 주세요.'; return null; }
       workflow = JSON.parse(await selectedFiles.workflow.text());
     }
     if(template.optional_video_workflow && selectedFiles.video_workflow){
@@ -277,7 +278,7 @@ async function openBoardPresetSave(){
     }
   }catch(e){
     errorEl.textContent = '워크플로우 파일을 JSON으로 읽지 못했어요.';
-    return;
+    return null;
   }
   const options = {};
   optionsFields.querySelectorAll('.option-input[data-name]').forEach(input => { options[input.dataset.name] = input.value; });
@@ -287,7 +288,15 @@ async function openBoardPresetSave(){
   // 마법사가 칸 수를 정하는 템플릿(MiniMax r2v 참조 이미지 0~9, i2v 첫/끝 프레임)은 워크플로우에 실제로
   // 있는 칸만 새 작업 창에 나온다 — 보드 카드의 입구도 그 칸만 만들도록 여기서 골라 보낸다.
   const slotNames = opts.filter(o => BOARD_PRESET_SLOT_TYPES.includes(o.type) && !isWizardRefSlotHidden(o.name)).map(o => o.name);
-  boardPresetDraft = { template_id: template.id, workflow, video_workflow: videoWorkflow, options, lora_trigger: loraTrigger, slots: slotNames };
+  return { template, opts, slotNames,
+    draft: { template_id: template.id, workflow, video_workflow: videoWorkflow, options, lora_trigger: loraTrigger, slots: slotNames } };
+}
+
+async function openBoardPresetSave(){
+  const read = await readBoardDraftFromForm();
+  if(!read) return;
+  const { template, opts, slotNames } = read;
+  boardPresetDraft = read.draft;
 
   document.getElementById('board-preset-name').value = template.label || template.id;
   const exposable = opts.filter(o => BOARD_PRESET_EXPOSABLE.includes(o.type));
@@ -341,6 +350,37 @@ async function saveBoardPreset(){
   closeBoardPresetModal();
   document.getElementById('load-notice').textContent = `보드 프리셋 '${name}'을(를) 저장했어요.`;
 }
+
+// ---- 보드 모드(고르기 창의 "새 작업 만들기") ----
+// 같은 새 작업 폼을 열되 "큐에 추가"·"프리셋" 대신 "보드에 카드로 놓기"만 보인다. 누르면 폼 값이
+// 초안(draft)이 되어 생성 카드가 놓이고, 프리셋은 저장하지 않는다. 폼을 닫으면 모드도 끝난다.
+let boardCardMode = null;   // { projectId, boardId, geom }
+function setBoardCardMode(mode){
+  boardCardMode = mode;
+  document.getElementById('place-board-card-btn').style.display = mode ? '' : 'none';
+  document.getElementById('submit-btn').style.display = mode ? 'none' : '';
+  document.getElementById('save-board-preset-btn').style.display = mode ? 'none' : '';
+}
+async function placeBoardCardFromForm(){
+  const mode = boardCardMode;
+  if(!mode) return;
+  const read = await readBoardDraftFromForm();
+  if(!read) return;
+  if(mode.projectId !== currentProjectId || mode.boardId !== currentBoardId){
+    document.getElementById('upload-error').textContent = '보드가 바뀌었어요. 고르기 창부터 다시 열어 주세요.';
+    return;
+  }
+  // 카드 안에서 고칠 옵션은 글 칸(프롬프트 등)만 꺼낸다. 나머지는 지금 폼의 값으로 고정된다.
+  const exposed = read.opts.filter(o => o.type === 'textarea').map(o => o.name);
+  const node = await createBoardNode('gen', null, '', mode.geom, true, { ...read.draft, exposed });
+  if(!node) return;
+  closeNewJobModal();
+  flashNotice('보드에 생성 카드를 놓았어요.');
+}
+document.getElementById('place-board-card-btn').addEventListener('click', placeBoardCardFromForm);
+new MutationObserver(() => {
+  if(boardCardMode && document.getElementById('new-job-modal').style.display === 'none') setBoardCardMode(null);
+}).observe(document.getElementById('new-job-modal'), { attributes: true, attributeFilter: ['style'] });
 
 function closeBoardPresetModal(){ document.getElementById('board-preset-modal').style.display = 'none'; }
 document.getElementById('save-board-preset-btn').addEventListener('click', openBoardPresetSave);
