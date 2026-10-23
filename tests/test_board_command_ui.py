@@ -1,5 +1,7 @@
 """격리 서버와 브라우저에서 보드 빠른 명령의 카드 생성·오류·실행 취소를 검사한다."""
 import os
+import io
+import base64
 import secrets
 import socket
 import subprocess
@@ -10,6 +12,7 @@ import unittest
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,6 +66,13 @@ class BoardCommandUITests(unittest.TestCase):
                     self.assertEqual([item.get('cmd') for item in parsed[:3]], ['text', 'text', 'text'])
                     self.assertEqual(parsed[2]['args'], '/slash')
                     self.assertIn('모르는 명령', parsed[3]['error'])
+                    aliases = page.evaluate('''() => [
+                        parseBoardCommand('/image'), parseBoardCommand('/img'),
+                        parseBoardCommand('/i 고양이'), parseBoardCommand('/video'),
+                        parseBoardCommand('/v 영상')
+                    ]''')
+                    self.assertEqual([item['cmd'] for item in aliases], ['image', 'image', 'image', 'video', 'video'])
+                    self.assertEqual(aliases[2]['args'], '고양이')
                     field = page.locator('#board-command-input')
                     field.wait_for(state='visible')
                     page.locator('#board-viewport').click(position={'x': 350, 'y': 250})
@@ -111,6 +121,52 @@ class BoardCommandUITests(unittest.TestCase):
                     page.locator('#board-command-help').wait_for(state='visible')
                     page.keyboard.press('Escape')
                     self.assertFalse(page.locator('#board-command-help').is_visible())
+                    png = io.BytesIO()
+                    Image.new('RGB', (2, 2), 'red').save(png, format='PNG')
+                    for name, mime, content in [('찾을사진.png', 'image/png', png.getvalue()),
+                                                ('찾을영상.mp4', 'video/mp4', b'video')]:
+                        uploaded = page.request.post(base + '/api/output-assets/upload', multipart={
+                            'files': {'name': name, 'mimeType': mime, 'buffer': content},
+                            'project_id': str(project_id),
+                        }, headers={'X-Requested-With': 'nightshift'})
+                        self.assertTrue(uploaded.ok, uploaded.text())
+                    field.fill('/image 찾을사진')
+                    expected_position = page.evaluate('() => boardCommandGeometry("image")')
+                    field.press('Enter')
+                    picker = page.locator('#board-asset-picker-modal')
+                    picker.wait_for(state='visible')
+                    page.locator('#board-asset-picker-grid [data-pick]:visible').wait_for()
+                    self.assertEqual(page.locator('#board-asset-picker-search').input_value(), '찾을사진')
+                    page.locator('#board-asset-picker-grid [data-pick]:visible').click()
+                    image = page.locator('.board-node-image')
+                    image.wait_for()
+                    self.assertEqual(image.count(), 1)
+                    self.assertEqual(page.locator('.board-node-image.selected').count(), 1)
+                    placed_position = image.evaluate('(el) => ({x: parseFloat(el.style.left), y: parseFloat(el.style.top)})')
+                    self.assertEqual(placed_position, {key: expected_position[key] for key in ('x', 'y')})
+                    self.assertEqual(field.input_value(), '')
+                    field.blur()
+                    page.keyboard.press('Control+z')
+                    image.wait_for(state='detached')
+                    field.fill('/video')
+                    field.press('Enter')
+                    picker.wait_for(state='visible')
+                    page.locator('#board-asset-picker-grid [data-pick]:visible').click()
+                    page.locator('.board-node-video.selected').wait_for()
+                    field.fill('/image')
+                    field.press('Enter')
+                    picker.wait_for(state='visible')
+                    page.keyboard.press('Escape')
+                    self.assertFalse(picker.is_visible())
+                    self.assertTrue(field.evaluate('(el) => document.activeElement === el'))
+                    self.assertEqual(field.input_value(), '/image')
+                    field.fill('')
+                    page.evaluate('''(encoded) => {
+                        const file = new File([Uint8Array.from(atob(encoded), c => c.charCodeAt(0))], '붙여넣기.png', {type:'image/png'});
+                        const transfer = new DataTransfer(); transfer.items.add(file);
+                        document.getElementById('board-command-input').dispatchEvent(new ClipboardEvent('paste', {bubbles:true, cancelable:true, clipboardData:transfer}));
+                    }''', base64.b64encode(png.getvalue()).decode())
+                    expect(page.locator('.board-node-image')).to_have_count(1)
                     page.evaluate('showTab("home")')
                     self.assertFalse(field.is_visible())
                     browser.close()

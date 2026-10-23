@@ -997,15 +997,34 @@ function boardFitToNodes(){
 // ---- 프로젝트 보드 — 이미지/영상 카드를 놓을 때 "이 프로젝트 결과물 중 고르기" ----
 let boardPickerKind = null;   // 'image' | 'video' | 'job'
 let boardPickerSlot = null;   // 생성 카드 입구 점을 눌러 열었으면 { nodeId, slot } — 고른 이미지 카드를 그 입구에 잇는다
+let boardPickerCommand = null;
+let boardPickerGeometry = null;
 
-async function openBoardAssetPicker(kind, slot){
+async function openBoardAssetPicker(kind, slot, geom, query, command){
   if(typeof currentProjectId !== 'number') return;
   boardPickerKind = kind;
   boardPickerSlot = slot || null;
+  boardPickerCommand = command || null;
+  boardPickerGeometry = geom || null;
   document.getElementById('board-asset-picker-title').textContent =
     kind === 'image' ? '이미지 고르기' : kind === 'video' ? '영상 고르기' : kind === 'job' ? '작업 고르기' : '보드 프리셋 고르기';
   const grid = document.getElementById('board-asset-picker-grid');
   const empty = document.getElementById('board-asset-picker-empty');
+  let search = document.getElementById('board-asset-picker-search');
+  if(!search){
+    search = document.createElement('input');
+    search.id = 'board-asset-picker-search';
+    search.type = 'search';
+    search.placeholder = '파일 이름으로 검색해요';
+    search.setAttribute('aria-label', '파일 이름 검색');
+    grid.before(search);
+    search.addEventListener('input', () => {
+      const term = search.value.trim().toLowerCase();
+      grid.querySelectorAll('[data-pick]').forEach(item => { item.hidden = !item.dataset.pick.toLowerCase().includes(term); });
+    });
+  }
+  search.hidden = kind !== 'image' && kind !== 'video';
+  search.value = query || '';
   grid.innerHTML = '';
   grid.classList.toggle('jobs', kind === 'job' || kind === 'gen');
   empty.textContent = kind === 'job' ? '이 프로젝트에 작업이 없어요'
@@ -1013,6 +1032,7 @@ async function openBoardAssetPicker(kind, slot){
     : '이 프로젝트에 결과물이 없어요';
   empty.style.display = 'none';
   document.getElementById('board-asset-picker-modal').style.display = 'flex';
+  if(boardPickerCommand) search.focus();
   if(kind === 'job'){ fillBoardJobPicker(grid, empty); return; }
   if(kind === 'gen'){ fillBoardGenPicker(grid, empty); return; }
   let items = [];
@@ -1040,6 +1060,7 @@ async function openBoardAssetPicker(kind, slot){
     const url = window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(name)}`);
     return `<button type="button" class="board-picker-item" data-pick="${escapeHtml(name)}"><video muted preload="metadata" src="${url}#t=0.1"></video></button>`;
   }).join('');
+  search.dispatchEvent(new Event('input'));
 }
 // 작업 고르기 — 이 프로젝트의 작업을 최근 것부터 한 줄씩(상태·템플릿·프롬프트 앞부분·등록 시각).
 async function fillBoardJobPicker(grid, empty){
@@ -1076,17 +1097,31 @@ async function fillBoardGenPicker(grid, empty){
     + `</button>`).join('');
 }
 
-function closeBoardAssetPicker(){ document.getElementById('board-asset-picker-modal').style.display = 'none'; }
+function closeBoardAssetPicker(){
+  document.getElementById('board-asset-picker-modal').style.display = 'none';
+  if(boardPickerCommand) boardCommandFocus();
+  boardPickerCommand = null;
+  boardPickerGeometry = null;
+}
 document.getElementById('board-asset-picker-close').addEventListener('click', closeBoardAssetPicker);
 document.getElementById('board-asset-picker-modal').addEventListener('click', (e) => {
   if(e.target === document.getElementById('board-asset-picker-modal')) closeBoardAssetPicker();
 });
-document.getElementById('board-asset-picker-grid').addEventListener('click', (e) => {
+document.getElementById('board-asset-picker-modal').addEventListener('keydown', e => {
+  if(e.key === 'Escape'){ e.preventDefault(); closeBoardAssetPicker(); }
+});
+document.getElementById('board-asset-picker-grid').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-pick]');
   if(!btn) return;
+  const command = boardPickerCommand;
+  const geom = boardPickerGeometry;
   closeBoardAssetPicker();
   const target = boardPickerSlot && boardNodes.find(n => n.id === boardPickerSlot.nodeId);
-  if(!target){ createBoardNode(boardPickerKind, btn.dataset.pick, ''); return; }
+  if(!target){
+    const node = await createBoardNode(boardPickerKind, btn.dataset.pick, '', geom);
+    if(node && command){ boardCommandAdvance(node); boardCommandFinish(command); }
+    return;
+  }
   // 입구 줄 높이에 맞춰 생성 카드 왼쪽에 놓고 그 입구로 잇는다.
   const slotName = boardPickerSlot.slot;
   const i = Math.max(0, ((target.data && target.data.slots) || []).findIndex(sl => sl.name === slotName));
