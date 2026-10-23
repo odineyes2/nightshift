@@ -1,4 +1,4 @@
-/* 보드 빠른 카드 명령창 — 캔버스 아래에서 입력과 명령 완성을 제공한다. */
+/* 퀵바의 열림·닫힘 상태와 명령 완성을 보드 캔버스에 표시한다. */
 .board-command{
   position:absolute; z-index:9; left:50%; bottom:16px; transform:translateX(-50%);
   width:min(760px, calc(100% - 32px)); box-sizing:border-box;
@@ -7,6 +7,23 @@
   border-radius:12px; box-shadow:0 8px 24px rgba(16,24,40,.12); opacity:.72;
   cursor:text; transition:opacity .12s ease;
 }
+.board-command[hidden],.board-command-fab[hidden]{ display:none; }
+.board-command-head{ display:block; }
+.board-command-close{
+  position:absolute; right:4px; top:4px;
+  width:40px; height:40px; display:flex; align-items:center; justify-content:center;
+  border:0; border-radius:6px; background:transparent; color:var(--text-dim); cursor:pointer;
+}
+.board-command-close:hover{ background:var(--panel-2); color:var(--text); }
+.board-command-close .ico{ width:15px; height:15px; }
+.board-command-fab{
+  position:absolute; z-index:9; right:72px; bottom:16px; min-width:44px; height:44px;
+  display:flex; align-items:center; justify-content:center; gap:4px; padding:0 8px;
+  border:1px solid var(--border); border-radius:999px; background:var(--panel); color:var(--text);
+  box-shadow:0 8px 24px rgba(16,24,40,.12); font-size:14px; cursor:pointer;
+}
+.board-command-fab .ico{ width:15px; height:15px; }
+.board-command-fab:hover{ border-color:var(--accent); }
 .board-command:hover,.board-command:focus-within{ opacity:1; }
 .board-command:focus-within{ border-color:var(--accent); }
 .board-command-label{ font:600 11px var(--mono); letter-spacing:.12em; color:var(--text-dim); }
@@ -33,8 +50,8 @@
 }
 .board-command-menu button[aria-selected="true"],.board-command-menu button:hover{ background:var(--bg); }
 .board-command-menu span{ color:var(--text-dim); }
-.board-viewport:has(.board-command) .board-selection-bar{ bottom:96px; }
+.board-viewport:has(.board-command:not([hidden])) .board-selection-bar{ bottom:96px; }
 @media(max-width:700px){
   .board-command{ bottom:8px; width:calc(100% - 16px); }
-  .board-viewport:has(.board-command) .board-selection-bar{ bottom:88px; }
+  .board-viewport:has(.board-command:not([hidden])) .board-selection-bar{ bottom:88px; }
 }

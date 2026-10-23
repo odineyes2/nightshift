@@ -630,6 +630,7 @@
     <div class="board-world" id="board-world"></div>
     <!-- 전체 보기 — 모든 카드가 한눈에 들어오게 위치·확대를 맞춘다(보드를 열 때도 저절로). 캔버스 오른쪽 아래에 떠 있다. -->
     <button class="board-fit-fab" id="board-fit-btn" type="button" title="모든 카드가 한눈에 보이게 맞추기" aria-label="전체 보기"><svg class="ico"><use href="#i-maximize"/></svg></button>
+    <button class="board-command-fab" id="board-command-open" type="button" title="퀵바 열기" aria-label="퀵바 열기" hidden><svg class="ico"><use href="#i-plus"/></svg><span>/</span></button>
     <!-- 카드를 고르면 캔버스 아래쪽에 뜨는 막대 — 툴바에 넣으면 고를 때마다 툴바 높이가
          바뀌어 캔버스 크기가 어긋나고, 폰에서는 툴바 폭도 모자라서 캔버스 위에 띄운다. -->
     <div class="board-selection-bar" id="board-selection-bar" style="display:none;">
@@ -639,7 +640,7 @@
     </div>
     <div class="board-command" id="board-command">
       <div class="board-command-menu" id="board-command-menu" role="listbox" hidden></div>
-      <label class="board-command-label" for="board-command-input">퀵바</label>
+      <div class="board-command-head"><label class="board-command-label" for="board-command-input">퀵바</label><button class="board-command-close" id="board-command-close" type="button" title="퀵바 닫기" aria-label="퀵바 닫기"><svg class="ico"><use href="#i-x"/></svg></button></div>
       <textarea id="board-command-input" rows="1" placeholder="메모를 적거나 /명령을 입력해요" aria-label="퀵바"></textarea>
       <div class="board-command-error" id="board-command-error" role="status"></div>
     </div>

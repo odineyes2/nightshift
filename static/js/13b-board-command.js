@@ -8,6 +8,9 @@ const BOARD_COMMANDS = [
   { cmd: 'help', aliases: ['?'], description: '명령 도움말', example: '/help' },
 ];
 const BOARD_COMMAND_HISTORY_KEY = 'nightshift.boardCommands';
+const BOARD_COMMAND_OPEN_KEY = 'nightshift.quickbarOpen';
+let boardCommandOpen = true;
+try{ boardCommandOpen = localStorage.getItem(BOARD_COMMAND_OPEN_KEY) !== 'false'; }catch(e){ /* 저장소가 없으면 기본값을 쓴다. */ }
 let boardCommandPoint = null;
 let boardCommandNext = null;
 let boardCommandBusy = false;
@@ -73,9 +76,22 @@ function boardCommandFinish(value){
 }
 function boardCommandFocus(){
   if(currentTab !== 'prboard') return;
+  boardCommandSetOpen(true);
   const input = document.getElementById('board-command-input');
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
+}
+function boardCommandSyncVisibility(){
+  const composerOpen = !document.getElementById('composer').hidden;
+  document.getElementById('board-command').hidden = !boardCommandOpen || composerOpen;
+  document.getElementById('board-command-open').hidden = boardCommandOpen || composerOpen;
+}
+function boardCommandSetOpen(open){
+  boardCommandOpen = open;
+  try{ localStorage.setItem(BOARD_COMMAND_OPEN_KEY, String(open)); }catch(e){ /* 이번 화면의 상태는 유지한다. */ }
+  if(!open && document.getElementById('board-command').contains(document.activeElement)) document.activeElement.blur();
+  boardCommandSyncVisibility();
+  boardCommandPaint();
 }
 
 function boardCommandPlaceAboveKeyboard(){
@@ -186,6 +202,9 @@ boardCommandInput.addEventListener('paste', e => {
   boardCommandUpload(e.clipboardData.files);
 });
 const boardCommandBox = document.getElementById('board-command');
+boardCommandSyncVisibility();
+document.getElementById('board-command-open').addEventListener('click', boardCommandFocus);
+document.getElementById('board-command-close').addEventListener('click', () => boardCommandSetOpen(false));
 boardCommandBox.addEventListener('dragover', e => { if(e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault(); });
 boardCommandBox.addEventListener('drop', e => {
   if(!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
@@ -198,7 +217,17 @@ boardCommandInput.addEventListener('focus', boardCommandPaint);
 boardCommandInput.addEventListener('blur', () => { setTimeout(boardCommandPaint, 0); });
 boardCommandInput.addEventListener('keydown', e => {
   if(e.isComposing || e.keyCode === 229) return;
-  if(e.key === 'Escape'){ e.preventDefault(); boardCommandInput.blur(); boardCommandPaint(); return; }
+  if(e.key === 'Escape'){
+    e.preventDefault();
+    e.stopPropagation();
+    if(!document.getElementById('board-command-menu').hidden){
+      document.getElementById('board-command-menu').hidden = true;
+      return;
+    }
+    boardCommandInput.blur();
+    boardCommandPaint();
+    return;
+  }
   if(e.key === 'Tab' && boardCommandChoices.length){ e.preventDefault(); boardCommandComplete(); return; }
   if(e.key === 'Enter' && !e.shiftKey){
     e.preventDefault();
@@ -224,6 +253,13 @@ boardCommandInput.addEventListener('keydown', e => {
     boardCommandInput.value = boardCommandHistoryIndex === boardCommandHistory.length ? boardCommandDraft : boardCommandHistory[boardCommandHistoryIndex];
     boardCommandPaint();
   }
+});
+document.addEventListener('keydown', e => {
+  if(e.key !== 'Escape' || e.isComposing || currentTab !== 'prboard' || !boardCommandOpen
+      || !document.getElementById('composer').hidden || document.activeElement === boardCommandInput
+      || (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]'))
+      || [...document.querySelectorAll('.modal-overlay')].some(m => m.style.display && m.style.display !== 'none')) return;
+  boardCommandSetOpen(false);
 });
 document.getElementById('board-command-menu').addEventListener('pointerdown', e => e.preventDefault());
 document.getElementById('board-command-menu').addEventListener('click', e => {

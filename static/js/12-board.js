@@ -92,7 +92,7 @@ function initBoardCanvas(){
       else addBoardPanPointer(e);
       return;
     }
-    if(e.target.closest('.board-node, .board-edge-del, .board-selection-bar, .board-fit-fab, .board-command')) return;
+    if(e.target.closest('.board-node, .board-edge-del, .board-selection-bar, .board-fit-fab, .board-command-fab, .board-command')) return;
     // 선(투명한 굵은 선) 위를 누르면 팬 대신 그 선을 고른다. 여기서 바로 처리하는
     // 이유: 팬이 viewport에 포인터 캡처를 걸면 click 이벤트가 선이 아니라
     // viewport로 가서, click으로는 어느 선인지 알 수 없다.
@@ -491,7 +491,7 @@ function initBoardCanvas(){
     if([...document.querySelectorAll('.modal-overlay')].some(m => m.style.display && m.style.display !== 'none')) return;
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
-    if(!mod && !e.altKey && key === '/' && !e.isComposing){ e.preventDefault(); boardCommandFocus(); return; }
+    if(!mod && !e.altKey && key === '/' && !e.isComposing && document.getElementById('composer').hidden){ e.preventDefault(); boardCommandFocus(); return; }
     if(mod && key === 'z'){ e.preventDefault(); boardUndoRedo(e.shiftKey ? 'redo' : 'undo'); return; }
     if(mod && key === 'y'){ e.preventDefault(); boardUndoRedo('redo'); return; }
     if(mod && key === 'c' && boardSelectedIds.size){ e.preventDefault(); copyBoardNodes([...boardSelectedIds]); return; }

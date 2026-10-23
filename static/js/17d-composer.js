@@ -69,6 +69,7 @@ function cmpIsEditable(el){
 
 function openComposer(){
   composerEl.hidden = false;
+  boardCommandSyncVisibility();
   cmpRenderProjects();
   cmpLoadPresets();
   cmpAutosize();
@@ -79,6 +80,7 @@ function closeComposer(){
   cmpClosePresetMenu();
   cmpCloseLibraryMenu();
   composerEl.hidden = true;
+  boardCommandSyncVisibility();
   if(composerEl.contains(document.activeElement)) document.activeElement.blur();
 }
 
