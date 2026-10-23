@@ -3,6 +3,8 @@ const BOARD_COMMANDS = [
   { cmd: 'text', aliases: ['t'], description: '메모 카드', example: '/text 내용' },
   { cmd: 'frame', aliases: ['f'], description: '묶음 틀', example: '/frame 이름' },
   { cmd: 'job', aliases: [], description: '작업 카드', example: '/job 작업ID' },
+  { cmd: 'image', aliases: ['img', 'i'], description: '이미지 고르기', example: '/image 검색어' },
+  { cmd: 'video', aliases: ['v'], description: '영상 고르기', example: '/video 검색어' },
   { cmd: 'help', aliases: ['?'], description: '명령 도움말', example: '/help' },
 ];
 const BOARD_COMMAND_HISTORY_KEY = 'nightshift.boardCommands';
@@ -59,6 +61,16 @@ function boardCommandAdvance(node){
 }
 
 function boardCommandError(message){ document.getElementById('board-command-error').textContent = message || ''; }
+function boardCommandFinish(value){
+  const input = document.getElementById('board-command-input');
+  boardCommandHistory.push(value);
+  boardCommandHistory = boardCommandHistory.slice(-50);
+  try{ localStorage.setItem(BOARD_COMMAND_HISTORY_KEY, JSON.stringify(boardCommandHistory)); }catch(e){ /* 이번 화면 기록은 유지한다. */ }
+  boardCommandHistoryIndex = boardCommandHistory.length;
+  boardCommandDraft = '';
+  input.value = '';
+  boardCommandPaint();
+}
 function boardCommandFocus(){
   if(currentTab !== 'prboard') return;
   const input = document.getElementById('board-command-input');
@@ -124,6 +136,10 @@ async function boardCommandRun(){
   try{
     let node = null;
     if(parsed.cmd === 'help') { boardCommandHelp(); success = true; }
+    else if(parsed.cmd === 'image' || parsed.cmd === 'video'){
+      openBoardAssetPicker(parsed.cmd, null, boardCommandGeometry(parsed.cmd), parsed.args, value);
+      return;
+    }
     else if(parsed.cmd === 'job'){
       const response = await fetch('/api/jobs');
       if(!response.ok) throw new Error('작업 목록을 읽지 못했어요.');
@@ -138,16 +154,45 @@ async function boardCommandRun(){
   }catch(e){ boardCommandError(e.message || '명령을 실행하지 못했어요.'); }
   finally{ boardCommandBusy = false; }
   if(!success) return;
-  boardCommandHistory.push(value);
-  boardCommandHistory = boardCommandHistory.slice(-50);
-  try{ localStorage.setItem(BOARD_COMMAND_HISTORY_KEY, JSON.stringify(boardCommandHistory)); }catch(e){ /* 이번 화면 기록은 유지한다. */ }
-  boardCommandHistoryIndex = boardCommandHistory.length;
-  boardCommandDraft = '';
-  input.value = '';
-  boardCommandPaint();
+  boardCommandFinish(value);
+}
+
+async function boardCommandUpload(files){
+  files = Array.from(files).filter(f => !f.type || /^(image|video)\//.test(f.type));
+  if(!files.length){ boardCommandError('이미지나 영상 파일만 올릴 수 있어요.'); return; }
+  if(boardCommandBusy || assetUploadXhr){ boardCommandError('다른 파일을 올리는 중이에요.'); return; }
+  const projectId = currentProjectId;
+  if(typeof projectId !== 'number') return;
+  boardCommandBusy = true;
+  try{
+    const data = await uploadAssetFiles(files, projectId, '', r => flashNotice(r < 1 ? `올리는 중… ${Math.floor(r * 100)}%` : '저장하는 중…'));
+    if(projectId !== currentProjectId) return;
+    const geom = boardCommandGeometry('image');
+    let last = null;
+    for(const [i, path] of data.paths.entries()){
+      const kind = /\.(mp4|webm|mov|m4v)$/i.test(path) ? 'video' : 'image';
+      last = await createBoardNode(kind, path, '', { x: geom.x + (i % 4) * 240, y: geom.y + Math.floor(i / 4) * 240, width: 220, height: 220 });
+    }
+    if(last) boardCommandAdvance(last);
+    if(data.errors && data.errors.length) boardCommandError(`올리지 못한 파일: ${data.errors.join(' / ')}`);
+  }catch(e){ boardCommandError(e.message || '파일을 올리지 못했어요.'); }
+  finally{ assetUploadXhr = null; boardCommandBusy = false; }
 }
 
 const boardCommandInput = document.getElementById('board-command-input');
+boardCommandInput.addEventListener('paste', e => {
+  if(!e.clipboardData || !e.clipboardData.files.length) return;
+  e.preventDefault();
+  boardCommandUpload(e.clipboardData.files);
+});
+const boardCommandBox = document.getElementById('board-command');
+boardCommandBox.addEventListener('dragover', e => { if(e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault(); });
+boardCommandBox.addEventListener('drop', e => {
+  if(!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  boardCommandUpload(e.dataTransfer.files);
+});
 boardCommandInput.addEventListener('input', () => { boardCommandChoice = 0; boardCommandPaint(); });
 boardCommandInput.addEventListener('focus', boardCommandPaint);
 boardCommandInput.addEventListener('blur', () => { setTimeout(boardCommandPaint, 0); });
@@ -157,7 +202,8 @@ boardCommandInput.addEventListener('keydown', e => {
   if(e.key === 'Tab' && boardCommandChoices.length){ e.preventDefault(); boardCommandComplete(); return; }
   if(e.key === 'Enter' && !e.shiftKey){
     e.preventDefault();
-    if(boardCommandChoices.length && !boardCommandInput.value.endsWith(' ')) boardCommandComplete();
+    if(boardCommandChoices.length && !boardCommandInput.value.endsWith(' ')
+        && !/\/(?:image|img|i|video|v)$/i.test(boardCommandInput.value)) boardCommandComplete();
     else boardCommandRun();
     return;
   }
