@@ -601,7 +601,7 @@ function boardViewportCenterWorld(){
 }
 
 // geom({ x, y, width, height })을 주면 그 자리에 놓는다(묶음 틀을 고른 카드 둘레에 만들 때).
-async function createBoardNode(kind, assetPath, text, geom){
+async function createBoardNode(kind, assetPath, text, geom, record = true){
   const projectId = currentProjectId;
   const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
@@ -624,7 +624,7 @@ async function createBoardNode(kind, assetPath, text, geom){
   boardNodes.push(node);
   appendBoardNodeEls([node]);
   setBoardSelection(new Set([node.id]));
-  pushBoardHistory({ type: 'create', node: { ...node } });
+  if(record) pushBoardHistory({ type: 'create', node: { ...node } });
   if(kind === 'job') fetchBoardJobs();
   return node;
 }
