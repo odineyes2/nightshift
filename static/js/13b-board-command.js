@@ -146,8 +146,8 @@ async function boardCommandRun(){
   const input = document.getElementById('board-command-input');
   const value = input.value;
   const parsed = parseBoardCommand(value);
+  if(!value.trim()) return;
   if(parsed.error){ boardCommandError(parsed.error); return; }
-  if((parsed.cmd === 'text' || parsed.cmd === 'job') && !parsed.args){ boardCommandError('내용을 입력해 주세요.'); return; }
   boardCommandBusy = true;
   let success = false;
   try{
@@ -162,6 +162,10 @@ async function boardCommandRun(){
       openBoardAssetPicker(parsed.cmd, null, boardCommandGeometry(parsed.cmd), parsed.args, value);
       return;
     }
+    else if(parsed.cmd === 'job' && !parsed.args){
+      openBoardAssetPicker('job', null, boardCommandGeometry('job'), '', value);
+      return;
+    }
     else if(parsed.cmd === 'job'){
       const response = await fetch('/api/jobs');
       if(!response.ok) throw new Error('작업 목록을 읽지 못했어요.');
@@ -171,7 +175,14 @@ async function boardCommandRun(){
     }else if(parsed.cmd === 'frame'){
       node = await createBoardFrame(parsed.args || '묶음', boardSelectedIds.size ? undefined : boardCommandGeometry('frame'));
     }else node = await createBoardNode('text', null, parsed.args, boardCommandGeometry('text'));
-    if(node){ boardCommandAdvance(node); success = true; }
+    if(node){
+      boardCommandAdvance(node);
+      success = true;
+      if(parsed.cmd === 'text' && !parsed.args){
+        const textarea = document.querySelector(`#board-world .board-node-textarea[data-board-text="${node.id}"]`);
+        if(textarea) textarea.focus();
+      }
+    }
     if(!success) boardCommandError('카드를 만들지 못했어요. 다시 시도해 주세요.');
   }catch(e){ boardCommandError(e.message || '명령을 실행하지 못했어요.'); }
   finally{ boardCommandBusy = false; }
@@ -238,7 +249,7 @@ boardCommandInput.addEventListener('keydown', e => {
   if(e.key === 'Enter' && !e.shiftKey){
     e.preventDefault();
     if(boardCommandChoices.length && !boardCommandInput.value.endsWith(' ')
-        && !/\/(?:image|img|i|video|v|exit|q)$/i.test(boardCommandInput.value)) boardCommandComplete();
+        && !/\/(?:text|t|job|image|img|i|video|v|exit|q)$/i.test(boardCommandInput.value)) boardCommandComplete();
     else boardCommandRun();
     return;
   }
