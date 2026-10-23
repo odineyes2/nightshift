@@ -3,6 +3,7 @@ const BOARD_COMMANDS = [
   { cmd: 'text', aliases: ['t'], description: '메모 카드', example: '/text 내용' },
   { cmd: 'frame', aliases: ['f'], description: '묶음 틀', example: '/frame 이름' },
   { cmd: 'job', aliases: [], description: '작업 카드', example: '/job 작업ID' },
+  { cmd: 'gen', aliases: ['g'], description: '프리셋으로 생성 카드', example: '/gen 프리셋 프롬프트' },
   { cmd: 'image', aliases: ['img', 'i'], description: '빈 이미지 카드 · 검색어가 있으면 이미지 고르기', example: '/image [검색어]' },
   { cmd: 'video', aliases: ['v'], description: '빈 영상 카드 · 검색어가 있으면 영상 고르기', example: '/video [검색어]' },
   { cmd: 'run', aliases: ['퀵런'], description: '퀵런 열기', example: '/run [글]' },
@@ -18,6 +19,8 @@ let boardCommandNext = null;
 let boardCommandBusy = false;
 let boardCommandChoices = [];
 let boardCommandChoice = 0;
+let boardGenPresets = null;
+let boardPromptOptions = null;
 let boardCommandHistory = [];
 try{
   const saved = JSON.parse(localStorage.getItem(BOARD_COMMAND_HISTORY_KEY) || '[]');
@@ -115,6 +118,7 @@ function boardCommandSyncVisibility(){
   document.getElementById('board-command-open').hidden = boardCommandOpen || composerOpen;
 }
 function boardCommandSetOpen(open){
+  if(open && !boardCommandOpen) boardGenPresets = null;
   boardCommandOpen = open;
   try{ localStorage.setItem(BOARD_COMMAND_OPEN_KEY, String(open)); }catch(e){ /* 이번 화면의 상태는 유지한다. */ }
   if(!open && document.getElementById('board-command').contains(document.activeElement)) document.activeElement.blur();
@@ -139,6 +143,12 @@ function boardCommandComplete(){
   const input = document.getElementById('board-command-input');
   const choice = boardCommandChoices[boardCommandChoice];
   if(!choice) return false;
+  if(choice.complete){
+    input.value = choice.complete;
+    input.focus();
+    boardCommandPaint();
+    return true;
+  }
   const prefix = /^\/([^\s]*)$/.exec(input.value);
   const name = prefix && prefix[1] && choice.aliases.find(alias => alias.startsWith(prefix[1].toLowerCase())) || choice.cmd;
   input.value = '/' + name + ' ';
@@ -153,11 +163,28 @@ function boardCommandPaint(){
   const value = input.value;
   const prefix = /^\/([^\s]*)$/.exec(value);
   boardCommandChoices = prefix ? BOARD_COMMANDS.filter(c => [c.cmd, ...c.aliases].some(name => name.startsWith(prefix[1].toLowerCase()))) : [];
+  const gen = /^\/(?:gen|g)\s+([\s\S]*)$/i.exec(value);
+  if(gen){
+    if(!boardGenPresets) boardCommandLoadGenPresets();
+    const option = /(^|\s)--([\w-]*)$/.exec(gen[1]);
+    if(option){
+      if(!boardPromptOptions) boardCommandLoadPromptOptions();
+      boardCommandChoices = (boardPromptOptions || []).filter(o => [o.name, ...(o.aliases || [])].some(n => n.startsWith(option[2].toLowerCase())))
+        .map(o => ({ cmd: o.name, example: o.example, description: o.description,
+          complete: value.slice(0, value.length - option[2].length) + o.name + ' ' }));
+    }else if(!/\s/.test(gen[1].trim()) && boardGenPresets){
+      const term = gen[1].trim().replace(/^"/, '').toLowerCase();
+      boardCommandChoices = boardGenPresets.filter(p => p.name.toLowerCase().startsWith(term)).map(p => ({
+        cmd: String(p.id), example: p.name, description: p.template_label || p.template_id,
+        complete: '/gen ' + (/\s/.test(p.name) ? `"${p.name}"` : p.name) + ' ',
+      }));
+    }else boardCommandChoices = [];
+  }
   boardCommandChoice = Math.min(boardCommandChoice, Math.max(0, boardCommandChoices.length - 1));
   menu.hidden = !boardCommandChoices.length || document.activeElement !== input;
   menu.innerHTML = boardCommandChoices.map((c, i) => {
-    const name = prefix[1] && c.aliases.find(alias => alias.startsWith(prefix[1].toLowerCase())) || c.cmd;
-    return `<button type="button" role="option" aria-selected="${i === boardCommandChoice}" data-command="${c.cmd}"><b>${name === c.cmd ? c.example : '/' + name}</b><span>${c.description}</span></button>`;
+    const name = prefix && prefix[1] && c.aliases && c.aliases.find(alias => alias.startsWith(prefix[1].toLowerCase())) || c.cmd;
+    return `<button type="button" role="option" aria-selected="${i === boardCommandChoice}" data-command="${escapeHtml(c.cmd)}"><b>${escapeHtml(name === c.cmd ? c.example : '/' + name)}</b><span>${escapeHtml(c.description || '')}</span></button>`;
   }).join('');
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 6 * 23) + 'px';
@@ -198,6 +225,33 @@ async function boardCommandRunPaste(){
   if(nodes.length < lines.length) boardCommandError(`${lines.length}장 중 ${nodes.length}장을 만들었어요.`);
 }
 
+async function boardCommandLoadGenPresets(){
+  boardGenPresets = [];
+  try{
+    const res = await fetch('/api/board-presets');
+    if(res.ok) boardGenPresets = (await res.json()).presets || [];
+  }catch(e){ /* 프리셋 조회 실패는 실행할 때 오류로 알린다. */ }
+  boardCommandPaint();
+}
+
+async function boardCommandLoadPromptOptions(){
+  boardPromptOptions = [];
+  try{
+    const res = await fetch('/api/prompt-options/spec');
+    if(res.ok) boardPromptOptions = (await res.json()).options || [];
+  }catch(e){ /* 옵션 목록을 읽지 못해도 원문 입력은 가능하다. */ }
+  boardCommandPaint();
+}
+
+function boardCommandGenArgs(args){
+  const match = /^(?:"([^"]+)"|(\S+))(?:\s+([\s\S]*))?$/.exec(args);
+  return match ? { name: match[1] || match[2], prompt: match[3] || '' } : null;
+}
+
+function boardCommandFindGenPreset(presets, name){
+  return presets.filter(p => p.name.toLowerCase().startsWith(name.toLowerCase()));
+}
+
 function boardCommandHelp(){
   const modal = document.getElementById('board-command-help');
   document.getElementById('board-command-help-list').innerHTML = BOARD_COMMANDS.map(c =>
@@ -207,7 +261,7 @@ function boardCommandHelp(){
   modal.querySelector('.modal-close').focus();
 }
 
-async function boardCommandRun(){
+async function boardCommandRun(placeOnly = false){
   if(boardCommandBusy) return;
   const input = document.getElementById('board-command-input');
   const value = input.value;
@@ -223,6 +277,48 @@ async function boardCommandRun(){
       input.value = '';
       boardCommandSetOpen(false);
       return;
+    }
+    else if(parsed.cmd === 'gen'){
+      if(!parsed.args){ openBoardAssetPicker('gen', null, boardCommandGeometry('gen'), '', value); return; }
+      const args = boardCommandGenArgs(parsed.args);
+      if(!args) throw new Error('프리셋 이름을 입력해 주세요.');
+      const res = await fetch('/api/board-presets');
+      if(!res.ok) throw new Error('프리셋 목록을 읽지 못했어요.');
+      boardGenPresets = (await res.json()).presets || [];
+      const matches = boardCommandFindGenPreset(boardGenPresets, args.name);
+      if(!matches.length) throw new Error('없는 프리셋이에요.');
+      if(matches.length > 1) throw new Error(`프리셋을 더 구체적으로 입력해 주세요: ${matches.map(p => p.name).join(', ')}`);
+      const selectedImage = boardSelectedIds.size === 1 ? boardNodes.find(n => n.id === [...boardSelectedIds][0] && n.kind === 'image') : null;
+      node = await createBoardNode('gen', matches[0].id, '', boardCommandGeometry('gen'));
+      if(!node) throw new Error('카드를 만들지 못했어요.');
+      const fields = (node.data && node.data.fields) || [];
+      const promptField = fields.find(f => f.type === 'textarea' && /prompt/i.test(f.name)) || fields.find(f => f.type === 'textarea');
+      if(args.prompt && !promptField){
+        const removed = await boardApi(currentProjectId, 'POST', '/nodes/delete', { ids: [node.id] }, false, currentBoardId);
+        if(!removed) throw new Error('프롬프트 칸이 없어요. 카드는 남아 있어요.');
+        removeBoardNodesLocal(new Set([node.id]));
+        boardUndoStack.pop();
+        paintBoardHistoryButtons();
+        throw new Error('이 프리셋에는 프롬프트 칸이 없어요.');
+      }
+      if(args.prompt){
+        const saved = await boardApi(currentProjectId, 'PATCH', `/nodes/${node.id}`, { values: { [promptField.name]: args.prompt } }, false, currentBoardId);
+        if(!saved) throw new Error('프롬프트를 저장하지 못했어요. 카드는 남아 있어요.');
+        setBoardGenValueLocal(node.id, promptField.name, args.prompt);
+      }
+      if(selectedImage){
+        const slot = ((node.data && node.data.slots) || [])[0];
+        if(slot){
+          const edge = await createBoardEdge(selectedImage.id, node.id, slot.name, false);
+          if(!edge) throw new Error('이미지를 잇지 못했어요. 카드는 남아 있어요.');
+        }else flashNotice('이 프리셋에는 이미지 입구가 없어요.');
+      }
+      boardCommandAdvance(node);
+      success = true;
+      if(!placeOnly && args.prompt){
+        const result = await runBoardGen(node.id);
+        if(!result || !result.ok) throw new Error((result && result.error) || '실행하지 못했어요. 카드는 남아 있어요.');
+      }
     }
     else if(parsed.cmd === 'run'){
       input.value = '';
@@ -253,7 +349,7 @@ async function boardCommandRun(){
     }else if(parsed.cmd === 'frame'){
       node = await createBoardFrame(parsed.args || '묶음', boardSelectedIds.size ? undefined : boardCommandGeometry('frame'));
     }else node = await createBoardNode('text', null, parsed.args, boardCommandGeometry('text'));
-    if(node){
+    if(node && parsed.cmd !== 'gen'){
       boardCommandAdvance(node);
       success = true;
       if(parsed.cmd === 'text' && !parsed.args){
@@ -262,7 +358,7 @@ async function boardCommandRun(){
       }
     }
     if(!success) boardCommandError('카드를 만들지 못했어요. 다시 시도해 주세요.');
-  }catch(e){ boardCommandError(e.message || '명령을 실행하지 못했어요.'); }
+  }catch(e){ success = false; boardCommandError(e.message || '명령을 실행하지 못했어요.'); }
   finally{ boardCommandBusy = false; }
   if(!success) return;
   boardCommandFinish(value);
@@ -339,9 +435,9 @@ boardCommandInput.addEventListener('keydown', e => {
   if(e.key === 'Enter' && !e.shiftKey){
     e.preventDefault();
     if(boardCommandPaste){ boardCommandRunPaste(); return; }
-    if(boardCommandChoices.length && !boardCommandInput.value.endsWith(' ')
-        && !/\/(?:text|t|job|image|img|i|video|v|exit|q|run|퀵런)$/i.test(boardCommandInput.value)) boardCommandComplete();
-    else boardCommandRun();
+    if(boardCommandChoices.length && !/^\/(?:gen|g)(?:\s|$)/i.test(boardCommandInput.value) && !boardCommandInput.value.endsWith(' ')
+        && !/\/(?:text|t|job|image|img|i|video|v|gen|g|exit|q|run|퀵런)$/i.test(boardCommandInput.value)) boardCommandComplete();
+    else boardCommandRun(e.ctrlKey || e.metaKey);
     return;
   }
   if((e.key === 'ArrowUp' || e.key === 'ArrowDown') && boardCommandChoices.length){

@@ -104,21 +104,22 @@ function paintBoardGenSlots(){
 async function runBoardGen(nodeId){
   const projectId = currentProjectId;
   const boardId = currentBoardId;
-  if(typeof projectId !== 'number') return;
+  if(typeof projectId !== 'number') return { ok: false, error: '보드를 찾지 못했어요.' };
   const btn = document.querySelector(`#board-world [data-gen-run="${nodeId}"]`);
   if(btn) btn.disabled = true;
   await flushAllBoardGenSaves(false);
-  if(!boardScopeMatches(projectId, boardId)) return;
+  if(!boardScopeMatches(projectId, boardId)) return { ok: false, error: '보드가 바뀌었어요.' };
   let res = null, data = {};
   try{
     res = await fetch(`/api/projects/${projectId}/board/nodes/${nodeId}/run?board_id=${boardId}`, { method: 'POST' });
     data = await res.json().catch(() => ({}));
   }catch(e){ /* 아래에서 실패로 처리 */ }
-  if(!boardScopeMatches(projectId, boardId)) return;
+  if(!boardScopeMatches(projectId, boardId)) return { ok: false, error: '보드가 바뀌었어요.' };
   if(!res || !res.ok){
-    flashNotice(data.detail || '실행하지 못했어요. 잠시 뒤 다시 해 주세요.');
+    const error = data.detail || '실행하지 못했어요. 잠시 뒤 다시 해 주세요.';
+    flashNotice(error);
     paintBoardGenSlots();
-    return;
+    return { ok: false, error };
   }
   const node = boardNodes.find(n => n.id === nodeId);
   if(node && data.node) node.data = data.node.data;
@@ -128,6 +129,7 @@ async function runBoardGen(nodeId){
   paintBoardGenSlots();
   flashNotice('실행했어요 — 필요한 모델을 갖춘 워커가 잡히면 시작해요.');
   fetchBoardJobs();
+  return { ok: true };
 }
 
 // 멈추기(#22) — 대기 중(pending·queued)이면 일시정지로 큐에서 빼고 지운다(소프트 삭제 — 지운 작업에서 되살릴 수 있다).
@@ -551,7 +553,7 @@ async function boardSaveFailed(projectId, boardId = currentBoardId){
 
 // toSlot을 주면 생성 카드의 그 입구로 잇는다 — 입구 하나에는 선 하나라, 서버가 그 입구로 오던 선(과
 // 같은 두 카드 사이의 선)을 지우고 replaced로 알려 준다. 되돌리기는 그 선들을 되살린다.
-async function createBoardEdge(fromId, toId, toSlot){
+async function createBoardEdge(fromId, toId, toSlot, record = true){
   const projectId = currentProjectId;
   const boardId = currentBoardId;
   if(typeof projectId !== 'number') return;
@@ -573,7 +575,8 @@ async function createBoardEdge(fromId, toId, toSlot){
   if(boardEdges.some(e => e.id === edge.id)){ if(replaced.length) renderBoardEdges(); return; }
   boardEdges.push(edge);
   renderBoardEdges();
-  pushBoardHistory({ type: 'edge-add', edge: { ...edge }, replaced });
+  if(record) pushBoardHistory({ type: 'edge-add', edge: { ...edge }, replaced });
+  return edge;
 }
 
 async function deleteBoardEdge(edgeId){
@@ -1128,12 +1131,24 @@ document.getElementById('board-asset-picker-grid').addEventListener('click', asy
   const command = boardPickerCommand;
   const geom = boardPickerGeometry;
   const fillId = boardPickerFillId;
+  const selectedImage = boardSelectedIds.size === 1 ? boardNodes.find(n => n.id === [...boardSelectedIds][0] && n.kind === 'image') : null;
   closeBoardAssetPicker();
   if(fillId){ await boardSetNodeAsset(fillId, btn.dataset.pick); return; }
   const target = boardPickerSlot && boardNodes.find(n => n.id === boardPickerSlot.nodeId);
   if(!target){
     const node = await createBoardNode(boardPickerKind, btn.dataset.pick, '', geom);
-    if(node && command){ boardCommandAdvance(node); boardCommandFinish(command); }
+    if(node && command){
+      boardCommandAdvance(node);
+      if(boardPickerKind === 'gen'){
+        const slot = ((node.data && node.data.slots) || [])[0];
+        if(selectedImage && slot && !await createBoardEdge(selectedImage.id, node.id, slot.name, false)){
+          boardCommandError('이미지를 잇지 못했어요. 카드는 남아 있어요.');
+          return;
+        }
+        if(selectedImage && !slot) flashNotice('이 프리셋에는 이미지 입구가 없어요.');
+      }
+      boardCommandFinish(command);
+    }
     return;
   }
   // 입구 줄 높이에 맞춰 생성 카드 왼쪽에 놓고 그 입구로 잇는다.

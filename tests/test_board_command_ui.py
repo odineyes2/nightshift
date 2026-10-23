@@ -525,6 +525,102 @@ class BoardCommandUITests(unittest.TestCase):
                                 prompt.press('Enter')
                         page.set_viewport_size({'width': 1300, 'height': 850})
                         page.evaluate('document.getElementById("board-tree").hidden = false')
+                    # ---- NS-95-1: /gen ----
+                    for name in ('장면 테스트', '장면 비교'):
+                        preset = page.request.post(base + '/api/board-presets', data={
+                            'name': name, 'template_id': 'seed_batch', 'workflow': {},
+                            'options': {'seed_count': '1'}, 'exposed': ['main_prompt'], 'slots': [],
+                        }, headers={'X-Requested-With': 'nightshift'})
+                        self.assertTrue(preset.ok, preset.text())
+                    field.fill('/gen 없는것 프롬프트')
+                    field.press('Enter')
+                    expect(page.locator('#board-command-error')).to_contain_text('없는 프리셋')
+                    self.assertEqual(page.locator('.board-node-gen').count(), 0)
+                    field.fill('/g 장면 프롬프트')
+                    field.press('Enter')
+                    expect(page.locator('#board-command-error')).to_contain_text('장면 테스트')
+                    self.assertEqual(page.locator('.board-node-gen').count(), 0)
+                    field.fill('/gen 장면')
+                    expect(page.locator('#board-command-menu')).to_be_visible()
+                    field.press('Tab')
+                    self.assertIn(field.input_value(), ('/gen "장면 테스트" ', '/gen "장면 비교" '))
+                    field.fill('/gen "장면 테스트" 1girl --ar 2:3 --seed 7')
+                    field.press('Control+Enter')
+                    gen = page.locator('.board-node-gen')
+                    expect(gen).to_have_count(1)
+                    expect(gen.locator('[data-gen-field="main_prompt"]')).to_have_value('1girl --ar 2:3 --seed 7')
+                    self.assertEqual(len(page.request.get(base + '/api/jobs').json()['jobs']), jobs_before_exit)
+                    if os.environ.get('NS95_CAPTURE') == '1':
+                        shots = ROOT / '.ui-captures' / 'NS-95-1'
+                        shots.mkdir(parents=True, exist_ok=True)
+                        page.evaluate('''() => {
+                            document.getElementById('board-world').style.visibility = 'hidden';
+                            document.getElementById('board-selection-bar').style.visibility = 'hidden';
+                        }''')
+                        for theme in ('light', 'dark'):
+                            page.evaluate('(value) => document.documentElement.dataset.theme = value', theme)
+                            for width, height in ((1300, 850), (390, 800)):
+                                page.set_viewport_size({'width': width, 'height': height})
+                                page.evaluate('(mobile) => document.getElementById("board-tree").hidden = mobile', width < 700)
+                                field.fill('/gen 장')
+                                expect(page.locator('#board-command-menu')).to_be_visible()
+                                page.screenshot(path=str(shots / f'gen-{theme}-{width}.png'), full_page=True)
+                        page.set_viewport_size({'width': 1300, 'height': 850})
+                        page.evaluate('''() => {
+                            document.getElementById('board-world').style.visibility = '';
+                            document.getElementById('board-selection-bar').style.visibility = '';
+                            document.getElementById('board-tree').hidden = false;
+                        }''')
+                    field.fill('/gen "장면 테스트" 1girl --ar 2:3 --seed 7')
+                    with page.expect_response(lambda r: '/board/nodes/' in r.url and r.url.split('?')[0].endswith('/run')):
+                        field.press('Enter')
+                    expect(page.locator('.board-node-gen')).to_have_count(2)
+                    jobs = page.request.get(base + '/api/jobs').json()['jobs']
+                    self.assertEqual(len(jobs), jobs_before_exit + 1)
+                    self.assertEqual(jobs[0]['prompt_overrides'][0]['seed'], 7)
+                    field.fill('/gen "장면 테스트" 1girl --se')
+                    expect(page.locator('#board-command-menu')).to_contain_text('--seed')
+                    field.press('Tab')
+                    self.assertTrue(field.input_value().endswith('--seed '))
+                    image_id = page.evaluate('() => boardNodes.find(n => n.kind === "image" && n.asset_path).id')
+                    page.evaluate('(id) => setBoardSelection(new Set([id]))', image_id)
+                    image_preset = page.request.post(base + '/api/board-presets', data={
+                        'name': '이미지 생성', 'template_id': 'input_image_batch', 'workflow': {},
+                        'exposed': ['main_prompt'], 'slots': ['input_image'],
+                    }, headers={'X-Requested-With': 'nightshift'})
+                    self.assertTrue(image_preset.ok, image_preset.text())
+                    field.fill('/gen "이미지 생성" 연결 확인')
+                    field.press('Control+Enter')
+                    expect(page.locator('.board-node-gen')).to_have_count(3)
+                    linked_id = page.evaluate('() => boardNodes.findLast(n => n.kind === "gen").id')
+                    page.wait_for_function('(ids) => boardEdges.some(e => e.from_node_id === ids[0] && e.to_node_id === ids[1])', arg=[image_id, linked_id])
+                    field.blur()
+                    page.keyboard.press('Control+z')
+                    expect(page.locator('.board-node-gen')).to_have_count(2)
+                    self.assertFalse(page.evaluate('(id) => boardEdges.some(e => e.to_node_id === id)', linked_id))
+                    no_prompt = page.request.post(base + '/api/board-presets', data={
+                        'name': '글칸 없음', 'template_id': 'seed_batch', 'workflow': {}, 'exposed': [], 'slots': [],
+                    }, headers={'X-Requested-With': 'nightshift'})
+                    self.assertTrue(no_prompt.ok, no_prompt.text())
+                    field.fill('/gen "글칸 없음" 입력')
+                    field.press('Control+Enter')
+                    expect(page.locator('#board-command-error')).to_contain_text('프롬프트 칸이 없어요')
+                    expect(page.locator('.board-node-gen')).to_have_count(2)
+                    field.fill('/gen "이미지 생성" 필수 입구 없음')
+                    field.press('Enter')
+                    expect(page.locator('#board-command-error')).to_contain_text('비어 있는 필수 입구')
+                    expect(page.locator('.board-node-gen')).to_have_count(3)
+                    self.assertEqual(len(page.request.get(base + '/api/jobs').json()['jobs']), jobs_before_exit + 1)
+                    field.fill('/gen')
+                    field.press('Enter')
+                    expect(page.locator('#board-asset-picker-modal')).to_be_visible()
+                    page.locator('#board-asset-picker-grid [data-pick]').filter(has_text='장면 테스트').click()
+                    expect(page.locator('.board-node-gen')).to_have_count(4)
+                    self.assertEqual(len(page.request.get(base + '/api/jobs').json()['jobs']), jobs_before_exit + 1)
+                    field.fill('/gen "장면 비교"')
+                    field.press('Enter')
+                    expect(page.locator('.board-node-gen')).to_have_count(5)
+                    self.assertEqual(len(page.request.get(base + '/api/jobs').json()['jobs']), jobs_before_exit + 1)
                     page.evaluate('showTab("home")')
                     self.assertFalse(field.is_visible())
                     browser.close()
