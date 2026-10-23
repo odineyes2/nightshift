@@ -215,6 +215,14 @@
   .board-node-image img, .board-node-video video{
     width:100%; height:100%; object-fit:contain; display:block; pointer-events:none;
   }
+  .board-node-empty{ border:1px dashed var(--border); }
+  .board-node-fill{
+    width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:8px; padding:16px; border:0; background:var(--panel-2); color:var(--text-dim);
+    font:inherit; font-size:13px; text-align:center; cursor:pointer;
+  }
+  .board-node-fill .ico{ width:24px; height:24px; }
+  .board-node-fill:focus-visible{ outline:2px solid var(--accent); outline-offset:-4px; }
   .board-node-textarea{
     width:100%; height:100%; border:none; resize:none; box-sizing:border-box;
     padding:10px; font-family:var(--sans); font-size:13px; line-height:1.5;

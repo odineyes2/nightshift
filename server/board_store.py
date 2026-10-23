@@ -156,9 +156,9 @@ def node_project_id(node_id: int) -> int | None:
 
 
 def update_node(node_id: int, fields: dict) -> dict | None:
-    """드래그가 끝났을 때(위치) · 텍스트 카드를 고쳐 썼을 때 호출 — 넘겨준 필드만 바꾼다."""
+    """위치·글·결과물 등 넘겨준 카드 필드만 바꾼다."""
     sets, params = [], []
-    for key in ("text", "x", "y", "width", "height"):
+    for key in ("text", "x", "y", "width", "height", "asset_path"):
         if key in fields:
             sets.append(f"{key}=?")
             params.append(fields[key])

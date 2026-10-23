@@ -3,8 +3,8 @@ const BOARD_COMMANDS = [
   { cmd: 'text', aliases: ['t'], description: '메모 카드', example: '/text 내용' },
   { cmd: 'frame', aliases: ['f'], description: '묶음 틀', example: '/frame 이름' },
   { cmd: 'job', aliases: [], description: '작업 카드', example: '/job 작업ID' },
-  { cmd: 'image', aliases: ['img', 'i'], description: '이미지 고르기', example: '/image 검색어' },
-  { cmd: 'video', aliases: ['v'], description: '영상 고르기', example: '/video 검색어' },
+  { cmd: 'image', aliases: ['img', 'i'], description: '빈 이미지 카드 · 검색어가 있으면 이미지 고르기', example: '/image [검색어]' },
+  { cmd: 'video', aliases: ['v'], description: '빈 영상 카드 · 검색어가 있으면 영상 고르기', example: '/video [검색어]' },
   { cmd: 'exit', aliases: ['q'], description: '퀵바 닫기', example: '/exit' },
   { cmd: 'help', aliases: ['?'], description: '명령 도움말', example: '/help' },
 ];
@@ -159,8 +159,11 @@ async function boardCommandRun(){
       return;
     }
     else if(parsed.cmd === 'image' || parsed.cmd === 'video'){
-      openBoardAssetPicker(parsed.cmd, null, boardCommandGeometry(parsed.cmd), parsed.args, value);
-      return;
+      if(parsed.args){
+        openBoardAssetPicker(parsed.cmd, null, boardCommandGeometry(parsed.cmd), parsed.args, value);
+        return;
+      }
+      node = await createBoardNode(parsed.cmd, null, '', boardCommandGeometry(parsed.cmd));
     }
     else if(parsed.cmd === 'job' && !parsed.args){
       openBoardAssetPicker('job', null, boardCommandGeometry('job'), '', value);

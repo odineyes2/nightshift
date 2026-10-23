@@ -249,7 +249,7 @@ function initBoardCanvas(){
       if(bgPointers.size){ addBoardPanPointer(e); return; }
     }
     if(dragNode || marquee) return;
-    if(e.target.closest('.board-node-del, .board-node-handle, .board-frame-resize, .board-node-resize, .board-node-textarea, .board-gen-input, .board-gen-btn, .board-frame-fold, .board-gen-copy, .prompt-options-help-button, .board-gen-port')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
+    if(e.target.closest('.board-node-del, .board-node-fill, .board-node-handle, .board-frame-resize, .board-node-resize, .board-node-textarea, .board-gen-input, .board-gen-btn, .board-frame-fold, .board-gen-copy, .prompt-options-help-button, .board-gen-port')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
     const id = Number(nodeEl.dataset.nodeId);
     if(!boardNodes.some(n => n.id === id)) return;
     const selBefore = new Set(boardSelectedIds);   // 핀치로 바뀌면 이걸로 되돌린다
@@ -453,6 +453,12 @@ function initBoardCanvas(){
   // 카드 삭제 · 선 끊기 · 텍스트 카드 저장(포커스 벗어날 때) — innerHTML로 카드를
   // 통째로 다시 그리므로 델리게이트로 한 번만 건다.
   viewport.addEventListener('click', (e) => {
+    const fillBtn = e.target.closest('[data-board-fill]');
+    if(fillBtn){
+      const node = boardNodes.find(n => n.id === Number(fillBtn.dataset.boardFill));
+      if(node) openBoardAssetPicker(node.kind, null, null, '', null, node.id);
+      return;
+    }
     const delBtn = e.target.closest('.board-node-del');
     if(delBtn) deleteBoardNodes([Number(delBtn.dataset.boardDel)]);
     const foldBtn = e.target.closest('.board-frame-fold');
@@ -610,6 +616,7 @@ function initBoardCanvas(){
   viewport.addEventListener('dragover', (e) => {
     if(!hasFiles(e)) return;
     e.preventDefault();
+    if(e.target.closest('.board-node-empty')) return;
     viewport.classList.add('upload-drop');
   });
   viewport.addEventListener('dragleave', (e) => { if(!viewport.contains(e.relatedTarget)) viewport.classList.remove('upload-drop'); });
@@ -617,6 +624,21 @@ function initBoardCanvas(){
     if(!hasFiles(e)) return;
     e.preventDefault();
     viewport.classList.remove('upload-drop');
+    const emptyCard = e.target.closest('.board-node-empty');
+    if(emptyCard){
+      const node = boardNodes.find(n => n.id === Number(emptyCard.dataset.nodeId));
+      const file = e.dataTransfer.files[0];
+      if(!node || !file || (file.type && !file.type.startsWith(node.kind + '/'))){ flashNotice('카드 종류에 맞는 파일을 놓아 주세요.'); return; }
+      if(assetUploadXhr){ flashNotice('다른 파일을 올리는 중이에요. 끝나면 다시 놓아 주세요.'); return; }
+      const projectId = currentProjectId, boardId = currentBoardId;
+      try{
+        const data = await uploadAssetFiles([file], projectId, '', r => flashNotice(r < 1 ? `올리는 중… ${Math.floor(r * 100)}%` : '저장하는 중…'));
+        if(data.paths.length && boardScopeMatches(projectId, boardId)) await boardSetNodeAsset(node.id, data.paths[0]);
+        else if(data.errors && data.errors.length) flashNotice(data.errors.join(' / '));
+      }catch(err){ flashNotice(err.message); }
+      finally{ assetUploadXhr = null; }
+      return;
+    }
     const projectId = currentProjectId;
     const files = Array.from(e.dataTransfer.files).filter(f => !f.type || /^(image|video)\//.test(f.type));
     if(typeof projectId !== 'number' || !files.length){ flashNotice('이미지나 영상 파일만 올릴 수 있어요'); return; }

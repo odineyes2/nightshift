@@ -72,12 +72,13 @@ function paintBoardGenSlots(){
       let html = '비어 있음';
       if(src){
         const hidden = src.nsfw && nsfwMode !== 'show';
-        html = hidden || src.kind !== 'image' ? '연결됨'
+        html = !src.asset_path ? '이미지가 비어 있어요' : hidden || src.kind !== 'image' ? '연결됨'
           : `<img src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(src.asset_path)}/thumbnail?size=60&fit=cover`)}" alt=""> 연결됨`;
+        if(!src.asset_path) empty.push('이미지가 비어 있어요');
       }else if(sl.required){
         empty.push(sl.label);
       }
-      row.classList.toggle('filled', !!src);
+      row.classList.toggle('filled', !!(src && src.asset_path));
       const state = row.querySelector('.board-gen-slot-state');
       if(state && state._html !== html){ state.innerHTML = html; state._html = html; }
     }
@@ -92,7 +93,7 @@ function paintBoardGenSlots(){
       runBtn.classList.toggle('busy', busy);
       runBtn.title = busy ? (running ? '실행 중이에요 — 누르면 확인 후 멈춰요(지금까지 만든 결과는 남아요)'
                                      : '대기 중이에요 — 누르면 멈추고, 고쳐서 다시 실행할 수 있어요')
-        : empty.length ? `이미지 카드를 이어 주세요: ${empty.join(', ')}` : '이 카드 설정으로 작업을 만들어 바로 대기 큐에 넣어요';
+        : empty.length ? (empty.includes('이미지가 비어 있어요') ? '이미지가 비어 있어요' : `이미지 카드를 이어 주세요: ${empty.join(', ')}`) : '이 카드 설정으로 작업을 만들어 바로 대기 큐에 넣어요';
       const html = busy ? `${ico('pause')} ${running ? '실행 중 · 멈추기' : '대기 중 · 멈추기'}` : `${ico('play')} 실행`;
       if(runBtn._html !== html){ runBtn.innerHTML = html; runBtn._html = html; }
     }
@@ -267,6 +268,12 @@ function boardNodeHtml(node){
   if(node.kind === 'job'){
     return `<div class="board-node board-node-job" data-node-id="${node.id}" style="${style}" title="눌러서 작업 자세히 보기">`
       + `<div class="board-job-body">${boardJobBodyHtml(boardJobInfo.get(node.id))}</div>${delBtn}</div>`;
+  }
+  if((node.kind === 'image' || node.kind === 'video') && !node.asset_path){
+    return `<div class="board-node board-node-${node.kind} board-node-empty" data-node-id="${node.id}" style="${style}">`
+      + `<button type="button" class="board-node-fill" data-board-fill="${node.id}" aria-label="${node.kind === 'image' ? '이미지' : '영상'} 카드 채우기">`
+      + `${ico(node.kind === 'image' ? 'images' : 'play')}<span>눌러서 고르기 · 파일 놓기</span></button>${delBtn}`
+      + `<span class="board-node-resize" title="끌어서 크기 바꾸기"></span></div>`;
   }
   if((node.kind === 'image' || node.kind === 'video') && node.nsfw && nsfwMode !== 'show'){
     const hidden = nsfwMode === 'hide';
@@ -913,6 +920,9 @@ async function applyBoardHistoryEntry(projectId, entry, dir, boardId){
     if(ta) ta.value = text;
     return !!await boardApi(projectId, 'PATCH', `/nodes/${entry.id}`, { text }, false, boardId);
   }
+  if(entry.type === 'asset-fill'){
+    return !!await boardSetNodeAsset(entry.id, undo ? entry.from : entry.to, false, projectId, boardId);
+  }
   if(entry.type === 'create' || entry.type === 'delete' || entry.type === 'paste'){
     // 놓기를 되돌리기 = 지우기, 지우기를 되돌리기 = 되살리기(다시 하기는 그 반대)
     const removing = (entry.type !== 'delete') === undo;
@@ -999,15 +1009,17 @@ let boardPickerKind = null;   // 'image' | 'video' | 'job'
 let boardPickerSlot = null;   // 생성 카드 입구 점을 눌러 열었으면 { nodeId, slot } — 고른 이미지 카드를 그 입구에 잇는다
 let boardPickerCommand = null;
 let boardPickerGeometry = null;
+let boardPickerFillId = null;
 
-async function openBoardAssetPicker(kind, slot, geom, query, command){
+async function openBoardAssetPicker(kind, slot, geom, query, command, fillId){
   if(typeof currentProjectId !== 'number') return;
   boardPickerKind = kind;
   boardPickerSlot = slot || null;
   boardPickerCommand = command || null;
   boardPickerGeometry = geom || null;
+  boardPickerFillId = fillId || null;
   document.getElementById('board-asset-picker-title').textContent =
-    kind === 'image' ? '이미지 고르기' : kind === 'video' ? '영상 고르기' : kind === 'job' ? '작업 고르기' : '보드 프리셋 고르기';
+    boardPickerFillId ? '이 카드 채우기' : kind === 'image' ? '이미지 고르기' : kind === 'video' ? '영상 고르기' : kind === 'job' ? '작업 고르기' : '보드 프리셋 고르기';
   const grid = document.getElementById('board-asset-picker-grid');
   const empty = document.getElementById('board-asset-picker-empty');
   let search = document.getElementById('board-asset-picker-search');
@@ -1032,7 +1044,7 @@ async function openBoardAssetPicker(kind, slot, geom, query, command){
     : '이 프로젝트에 결과물이 없어요';
   empty.style.display = 'none';
   document.getElementById('board-asset-picker-modal').style.display = 'flex';
-  if(boardPickerCommand) search.focus();
+  if(boardPickerCommand || boardPickerFillId) search.focus();
   if(kind === 'job'){ fillBoardJobPicker(grid, empty); return; }
   if(kind === 'gen'){ fillBoardGenPicker(grid, empty); return; }
   let items = [];
@@ -1115,7 +1127,9 @@ document.getElementById('board-asset-picker-grid').addEventListener('click', asy
   if(!btn) return;
   const command = boardPickerCommand;
   const geom = boardPickerGeometry;
+  const fillId = boardPickerFillId;
   closeBoardAssetPicker();
+  if(fillId){ await boardSetNodeAsset(fillId, btn.dataset.pick); return; }
   const target = boardPickerSlot && boardNodes.find(n => n.id === boardPickerSlot.nodeId);
   if(!target){
     const node = await createBoardNode(boardPickerKind, btn.dataset.pick, '', geom);
@@ -1129,6 +1143,22 @@ document.getElementById('board-asset-picker-grid').addEventListener('click', asy
   createBoardNode('image', btn.dataset.pick, '', { x: target.x - 220 - 60, y: portY - 110, width: 220, height: 220 })
     .then(node => { if(node) createBoardEdge(node.id, target.id, slotName); });
 });
+
+async function boardSetNodeAsset(id, path, record = true, projectId = currentProjectId, boardId = currentBoardId){
+  const node = boardNodes.find(n => n.id === id);
+  if(!node || !boardScopeMatches(projectId, boardId)) return false;
+  const before = node.asset_path || null;
+  const res = await boardApi(projectId, 'PATCH', `/nodes/${id}`, { asset_path: path }, false, boardId);
+  if(!res){ flashNotice('카드를 채우지 못했어요. 다시 시도해 주세요.'); return false; }
+  if(!boardScopeMatches(projectId, boardId)) return false;
+  node.asset_path = path || null;
+  const old = document.querySelector(`#board-world .board-node[data-node-id="${id}"]`);
+  if(old){ old.outerHTML = boardNodeHtml(node); boardObserveMedia(document.getElementById('board-world')); }
+  paintBoardSelection();
+  paintBoardGenSlots();
+  if(record && before !== node.asset_path) pushBoardHistory({ type: 'asset-fill', id, from: before, to: node.asset_path });
+  return true;
+}
 
 // ---- 프로젝트 보드 — 복사 / 붙여넣기 ----
 // 고른 카드(묶음이면 안에 든 카드까지)와 그 사이의 선을 localStorage에 떠 둔다 — 다른 프로젝트 보드나
