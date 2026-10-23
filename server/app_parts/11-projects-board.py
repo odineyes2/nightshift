@@ -332,8 +332,12 @@ async def create_board_node_api(project_id: int, request: Request):
 
 def _board_gen_height(data: dict) -> float:
     """생성 카드 기본 높이 — 머리 + 입구 줄 + 꺼낸 옵션 칸(글칸은 더 크게) + 아래 실행 줄. index.html의 .board-gen-* 크기와 맞춘다."""
-    fields = sum(96 if f.get("type") == "textarea" else 60 for f in data.get("fields", []))
-    return max(140, 52 + 30 * len(data.get("slots", [])) + fields + 14 + 46)   # 46 = 아래 실행 줄
+    fields = data.get("fields", [])
+    boxed = {f.get("name") for f in fields if f.get("type") == "textarea"}
+    # 같은 이름의 글칸이 있는 text 입구는 줄 없이 글칸 모서리 포트로 그려진다 — 줄 수에서 뺀다.
+    rows = sum(1 for s in data.get("slots", []) if not (s.get("kind") == "text" and s.get("name") in boxed))
+    height = sum(96 if f.get("type") == "textarea" else 60 for f in fields)
+    return max(140, 52 + 30 * rows + height + 14 + 46)   # 46 = 아래 실행 줄
 
 
 def _board_gen_data_from_preset(preset: dict) -> dict:
