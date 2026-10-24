@@ -6,12 +6,12 @@
   .model-table{ display:flex; flex-direction:column; gap:2px; }
   .model-cols{
     display:grid;
-    grid-template-columns: 44px minmax(150px,2.4fr) minmax(90px,1.1fr) minmax(110px,1.4fr) 52px 40px 22px;
+    grid-template-columns: 44px minmax(150px,2.4fr) minmax(90px,1.1fr) minmax(110px,1.4fr) 52px 64px 40px 22px;
     align-items:center;
     gap:10px;
   }
   .model-cols.lora{
-    grid-template-columns: 44px minmax(150px,2.2fr) minmax(90px,1fr) minmax(110px,1.3fr) minmax(110px,1.3fr) 52px 40px 22px;
+    grid-template-columns: 44px minmax(150px,2.2fr) minmax(90px,1fr) minmax(110px,1.3fr) minmax(110px,1.3fr) 52px 64px 40px 22px;
   }
   .model-header{
     padding:6px 8px;
@@ -37,12 +37,15 @@
   .model-chevron{ justify-self:end; transition:transform .15s; color:var(--text-dim); }
   .model-row.open .model-chevron{ transform:rotate(180deg); }
   .model-editor{ grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); }
+  .model-size{ white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .model-editor > .model-size-mobile{ display:none; }
   .model-editor > .model-usage, .model-editor > .model-field.wide, .model-editor > .model-full{ grid-column:1 / -1; }
   @media (max-width:760px){
     .model-cols, .model-cols.lora{ grid-template-columns: 44px minmax(100px,2fr) 22px; }
     .model-cols > :not(.model-thumb):not(.lora-tab-name):not(.model-chevron){ display:none; }
     .model-header{ display:none; }
     .model-editor{ grid-template-columns:1fr; padding-left:12px; }
+    .model-editor > .model-size-mobile{ display:flex; }
   }
   .model-field{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-dim); margin-top:6px; }
   .model-field .option-input{ max-width:none; }

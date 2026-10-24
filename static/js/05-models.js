@@ -48,6 +48,7 @@ async function fetchModelRegistry(){
 }
 
 let modelUsage = {};   // modelKey -> {count, images, videos, favorites, last_used, samples}
+let modelSizes = {};
 let modelSort = 'name';
 let modelBaseFilter = '';
 
@@ -61,6 +62,23 @@ async function fetchModelUsage(){
 }
 
 function usageOf(kind, name){ return modelUsage[modelKey(kind, name)] || null; }
+
+async function fetchModelSizes(){
+  modelSizes = {};
+  try{
+    const res = await fetch('/api/models/sizes');
+    if(res.ok) modelSizes = (await res.json()).sizes || {};
+  }catch(e){ /* 크기를 못 받아오면 -로 표시한다 */ }
+}
+
+function modelSizeText(kind, name){
+  const size = modelSizes[kind]?.[name];
+  if(!Number.isFinite(size) || size < 0) return '-';
+  if(size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(1)} GB`;
+  if(size >= 1024 ** 2) return `${(size / 1024 ** 2).toFixed(1)} MB`;
+  if(size >= 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${size} B`;
+}
 
 function openGalleryForModel(name, mediaKind){
   const isVideo = mediaKind === 'video';
@@ -240,7 +258,7 @@ function modelThumbHtml(kind, name){
 
 function modelHeaderHtml(isLora){
   return `<div class="model-cols${isLora ? ' lora' : ''} model-header">
-    <span></span><span>파일명</span><span>베이스 모델</span>${isLora ? '<span>트리거 키워드</span>' : ''}<span>태그</span><span>사용</span><span>주소</span><span></span>
+    <span></span><span>파일명</span><span>베이스 모델</span>${isLora ? '<span>트리거 키워드</span>' : ''}<span>태그</span><span>사용</span><span>용량</span><span>주소</span><span></span>
   </div>`;
 }
 
@@ -266,6 +284,7 @@ function modelRowHtml(kind, name, isAdmin){
       ${isLora ? `<div class="gallery-details-col" title="${escapeHtml(e.trigger_keyword)}">${e.trigger_keyword ? escapeHtml(e.trigger_keyword) : '<span class="dim">-</span>'}</div>` : ''}
       ${tagsHtml}
       <div class="gallery-details-col dim">${usage ? usage.count : '-'}</div>
+      <div class="gallery-details-col dim model-size">${modelSizeText(kind, name)}</div>
       <div class="gallery-details-col dim">${links || '-'}</div>
       <svg class="ico model-chevron"><use href="#i-chevron-down"/></svg>
     </div>`;
@@ -281,6 +300,7 @@ function modelRowHtml(kind, name, isAdmin){
     editor = `
     <div class="model-editor" data-kind="${escapeHtml(kind)}" data-name="${escapeHtml(name)}">
       ${usageHtml(kind, name)}
+      <div class="model-field model-size-mobile"><span>용량</span><span>${modelSizeText(kind, name)}</span></div>
       <label class="model-field"><span>종류</span>
         <select class="option-input" data-field="kind" ${dis}>${kindOptions}</select></label>
       ${d.kind === 'custom_nodes' ? `<label class="model-field"><span>폴더 이름 <span style="opacity:.6">(custom_nodes 아래, 받을 주소는 https://github.com/소유자/저장소 — 파드를 시작할 때 설치돼요)</span></span>
@@ -527,7 +547,7 @@ async function initModelsTab(force){
   setModelError('');
   document.getElementById('lora-tab-list').innerHTML =
     '<div class="model-list-loading"><span class="btn-spinner"></span>모델 정보를 불러오는 중…</div>';
-  await Promise.all([fetchModelRegistry(), fetchModelUsage()]);
+  await Promise.all([fetchModelRegistry(), fetchModelUsage(), fetchModelSizes()]);
   renderModelRegistry();
   if(pendingModelAdd){
     // 워커 Models 탭의 "등록"으로 왔다 — 그 종류 탭에서 추가 칸을 열고 파일명을 채워 둔다.
