@@ -288,7 +288,10 @@
     position:absolute; left:0; top:0; width:1px; height:1px;
     overflow:visible; pointer-events:none;
   }
+  .board-edges-top{ z-index:5; }
   .board-edge-line{ fill:none; stroke:var(--text-dim); stroke-width:2; pointer-events:none; }
+  .board-edge-arrow{ fill:none; stroke:transparent; stroke-width:2; pointer-events:none; }
+  .board-edge-arrow.selected{ stroke-width:3; }
   .board-edge-hit{ fill:none; stroke:transparent; stroke-width:16; pointer-events:stroke; cursor:pointer; }
   .board-edge-hit:hover + .board-edge-line{ stroke:var(--text); }
   .board-edge-line.selected{ stroke:var(--queued); stroke-width:3; }
