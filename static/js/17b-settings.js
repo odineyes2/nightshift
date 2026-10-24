@@ -15,6 +15,7 @@ async function openSettingsTab(){
   setSettingsError('');
   if(settingsSubtab === 'notifications') return loadNotifySettings();
   if(settingsSubtab === 'runpod-gpus') return loadRunpodGpuSettings();
+  if(settingsSubtab === 'moodboard') return loadBoardDisplaySettings();
   await fetchModelRegistry();
   renderBaseModelSettings();
 }
@@ -24,6 +25,60 @@ document.getElementById('settings-subtabs').addEventListener('click', (e) => {
   if(!btn || btn.dataset.settingsTab === settingsSubtab) return;
   settingsSubtab = btn.dataset.settingsTab;
   openSettingsTab();
+});
+
+// 선택은 미리보기에만 반영하고, 저장이 성공했을 때 보드에 적용한다.
+function boardDisplayChoice(){
+  return {
+    arrow_size: document.querySelector('[name="board-arrow-size"]:checked')?.value || 'medium',
+    port_size: document.querySelector('[name="board-port-size"]:checked')?.value || 'medium',
+  };
+}
+
+function renderBoardDisplayPreview(){
+  const choice = boardDisplayChoice();
+  const arrow = BOARD_ARROW_SIZES[choice.arrow_size];
+  const port = BOARD_PORT_SIZES[choice.port_size];
+  document.getElementById('board-display-preview').innerHTML = `<svg viewBox="0 0 260 100" role="img" aria-label="입구 점으로 들어가는 연결선">
+    <defs><marker id="board-preview-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="${arrow}" markerHeight="${arrow}" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--text-dim)"/></marker></defs>
+    <path d="M20,72 C85,72 90,50 178,50" fill="none" stroke="var(--text-dim)" stroke-width="2" marker-end="url(#board-preview-arrow)"/>
+    <circle cx="180" cy="50" r="${port / 2}" fill="var(--panel)" stroke="var(--running)" stroke-width="2"/>
+  </svg>`;
+}
+
+async function loadBoardDisplaySettings(){
+  try{
+    const res = await fetch('/api/settings/board-display');
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || `설정을 불러오지 못했어요 (${res.status})`);
+    for(const [name, size] of [['board-arrow-size', data.arrow_size], ['board-port-size', data.port_size]]){
+      const radio = document.querySelector(`[name="${name}"][value="${size}"]`);
+      if(radio) radio.checked = true;
+    }
+    document.getElementById('board-display-state').textContent = '';
+    renderBoardDisplayPreview();
+  }catch(err){ setSettingsError(err.message); }
+}
+
+document.getElementById('settings-moodboard').addEventListener('change', (e) => {
+  if(e.target.matches('[type="radio"]')){
+    document.getElementById('board-display-state').textContent = '저장하면 보드에 적용돼요.';
+    renderBoardDisplayPreview();
+  }
+});
+
+document.getElementById('board-display-save').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/settings/board-display', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(boardDisplayChoice()) });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || `저장하지 못했어요 (${res.status})`);
+    applyBoardDisplay(data);
+    setSettingsError('');
+    document.getElementById('board-display-state').textContent = '저장했어요.';
+  }catch(err){ setSettingsError(err.message); }
+  finally{ btn.disabled = false; }
 });
 
 // ---- RunPod GPU — 서버의 패밀리별 순서를 편집하고 한 번에 저장한다 ----

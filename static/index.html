@@ -1015,10 +1015,28 @@
         <button class="pod-subtab-btn active" type="button" data-settings-tab="base-models">Base Model</button>
         <button class="pod-subtab-btn" type="button" data-settings-tab="notifications">Notification</button>
         <button class="pod-subtab-btn" type="button" data-settings-tab="runpod-gpus">RunPod GPU</button>
+        <button class="pod-subtab-btn" type="button" data-settings-tab="moodboard">Moodboard</button>
       </div>
       <div class="upload-error" id="settings-error"></div>
       <div id="settings-base-models" class="settings-pane"></div>
       <div id="settings-runpod-gpus" class="settings-pane" style="display:none;"></div>
+      <div id="settings-moodboard" class="settings-pane" style="display:none;">
+        <div class="settings-form">
+          <fieldset class="settings-moodboard-group"><legend class="field-label">화살표 끝</legend>
+            <label><input type="radio" name="board-arrow-size" value="small"> 작게</label>
+            <label><input type="radio" name="board-arrow-size" value="medium"> 보통</label>
+            <label><input type="radio" name="board-arrow-size" value="large"> 크게</label>
+          </fieldset>
+          <fieldset class="settings-moodboard-group"><legend class="field-label">입구 점</legend>
+            <label><input type="radio" name="board-port-size" value="small"> 작게</label>
+            <label><input type="radio" name="board-port-size" value="medium"> 보통</label>
+            <label><input type="radio" name="board-port-size" value="large"> 크게</label>
+          </fieldset>
+          <div class="field-label">미리보기</div>
+          <div class="settings-moodboard-preview" id="board-display-preview" aria-label="화살표 끝과 입구 점 크기 미리보기"></div>
+          <div class="settings-bm-row"><button type="button" class="submit-btn" id="board-display-save">저장</button><span class="dl-meta" id="board-display-state"></span></div>
+        </div>
+      </div>
       <div id="settings-notifications" class="settings-pane" style="display:none;">
         <div class="dl-meta">잡이 끝나면 ntfy로 알림을 보내요. 폰의 ntfy 앱에서 같은 토픽을 구독해 주세요. 공개 서버의 토픽은 이름만 알면 누구나 구독할 수 있으니 추측하기 어려운 이름을 써 주세요.</div>
         <div class="settings-form">

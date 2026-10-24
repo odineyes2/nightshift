@@ -11,6 +11,13 @@
 .settings-field{ display:flex; flex-direction:column; gap:4px; }
 .settings-form label{ cursor:pointer; }
 
+/* Moodboard 크기 선택과 연결선 미리보기 */
+.settings-moodboard-group{ display:flex; flex-wrap:wrap; gap:12px; margin:0; padding:12px; border:1px solid var(--border); border-radius:8px; }
+.settings-moodboard-group legend{ padding:0 4px; }
+.settings-moodboard-group label{ display:inline-flex; align-items:center; gap:4px; min-height:40px; }
+.settings-moodboard-preview{ display:flex; align-items:center; justify-content:center; min-height:120px; padding:12px; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; }
+.settings-moodboard-preview svg{ display:block; width:min(100%, 320px); height:auto; }
+
 /* RunPod GPU 패밀리 설정 */
 .settings-gpu-family{ margin:16px 0; padding:16px; border:1px solid var(--border); border-radius:8px; background:var(--panel); }
 .settings-gpu-clouds{ display:flex; flex-direction:column; gap:4px; margin:12px 0; }
