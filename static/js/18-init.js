@@ -200,6 +200,7 @@ async function initDanbooru(){
 // 전에 먼저 받아버리면 잘못된 목록을 그린 뒤 다시 그리는 경합이 생긴다.
 window.__nightshiftAuthReady.then(user => {
   if(!user) return;   // 로그인 화면이 떠 있다 — 로그인하면 화면을 새로 불러온다
+  loadBoardDisplay();
   fetchPods().then(fetchProjects).then(applyHashRoute).then(fetchTemplates);
 });
 fetchJobs();
