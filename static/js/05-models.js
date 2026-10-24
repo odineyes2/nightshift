@@ -71,13 +71,32 @@ async function fetchModelSizes(){
   }catch(e){ /* 크기를 못 받아오면 -로 표시한다 */ }
 }
 
-function modelSizeText(kind, name){
-  const size = modelSizes[kind]?.[name];
-  if(!Number.isFinite(size) || size < 0) return '-';
+function fmtModelBytes(size){
   if(size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(1)} GB`;
   if(size >= 1024 ** 2) return `${(size / 1024 ** 2).toFixed(1)} MB`;
   if(size >= 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${size} B`;
+}
+
+// 켜진 파드에서 잰 값(실측)이 있으면 그것을, 없으면 등록부 값(입력/자동)을 보여 주고 출처를 작게 덧붙인다.
+const modelSizeSourceLabel = { manual: '입력', auto: '자동', measured: '실측' };
+function modelSizeInfo(kind, name){
+  const measured = modelSizes[kind]?.[name];
+  if(Number.isFinite(measured) && measured >= 0) return { size: measured, source: 'measured' };
+  const e = modelRegistry.items[modelKey(kind, name)];
+  if(e && Number.isFinite(e.size_bytes) && e.size_bytes > 0) return { size: e.size_bytes, source: e.size_source || 'manual' };
+  return null;
+}
+
+function modelSizeText(kind, name){
+  const info = modelSizeInfo(kind, name);
+  if(!info) return '-';
+  const label = modelSizeSourceLabel[info.source];
+  return `${fmtModelBytes(info.size)}${label ? ` <small class="model-size-src">${label}</small>` : ''}`;
+}
+
+function modelSizeGbText(bytes){
+  return Number.isFinite(bytes) && bytes > 0 ? String(+(bytes / 1024 ** 3).toFixed(2)) : '';
 }
 
 function openGalleryForModel(name, mediaKind){
@@ -202,7 +221,7 @@ function modelDraftFromEntry(kind, name){
   const e = modelEntry(kind, name);
   return { origKind: kind, kind, origName: name, filename: name, base_models: [...basesOf(e)], notes: e.notes,
            tags: [...(e.tags || [])], trigger_keyword: e.trigger_keyword, page_url: e.page_url, download_url: e.download_url,
-           sweet: modelSweetDraft(kind, e.sweet) };
+           size_gb: modelSizeGbText(e.size_bytes), sweet: modelSweetDraft(kind, e.sweet) };
 }
 
 function modelDraftDirty(){
@@ -229,6 +248,15 @@ async function saveModelDraft(){
   }
   const fields = { base_models: d.base_models, notes: d.notes, tags: d.tags,
                     trigger_keyword: d.trigger_keyword, page_url: d.page_url, download_url: d.download_url, sweet: modelSweetPayload(d) };
+  // 용량은 GB 입력이 바뀐 경우에만 새 값(비우면 삭제)으로 보낸다 — 아니면 기존 바이트를 그대로 둬 출처가 바뀌지 않는다
+  const origSize = modelEntry(d.origKind, d.origName).size_bytes || null;
+  if(d.size_gb !== modelSizeGbText(origSize)){
+    const gb = d.size_gb.trim() === '' ? null : Number(d.size_gb);
+    if(gb !== null && !(gb > 0)){ setModelError('용량은 0보다 큰 숫자(GB)로 입력하세요.'); return; }
+    fields.size_bytes = gb === null ? null : Math.round(gb * 1024 ** 3);
+  }else if(moved && origSize){
+    fields.size_bytes = origSize;
+  }
   try{
     await putModelEntry({ kind: d.kind, filename: newName, ...fields });
     if(moved){
@@ -315,6 +343,8 @@ function modelRowHtml(kind, name, isAdmin){
         <input type="url" class="option-input" data-field="page_url" ${dis} placeholder="https://civitai.com/models/… 또는 https://huggingface.co/…" value="${escapeHtml(d.page_url)}"></label>
       <label class="model-field"><span>다운로드 주소${link(d.download_url)}</span>
         <input type="url" class="option-input" data-field="download_url" ${dis} placeholder="https://civitai.com/api/download/models/… 또는 https://huggingface.co/…/resolve/…" value="${escapeHtml(d.download_url)}"></label>
+      <label class="model-field"><span>용량 (GB) <span style="opacity:.6">(파드에서 실제 크기를 받으면 그 값으로 바뀌어요)</span></span>
+        <input type="number" min="0" step="0.01" class="option-input" data-field="size_gb" ${dis} placeholder="예: 6.46 — 모르면 비워둠" value="${escapeHtml(d.size_gb)}"></label>
       <label class="model-field"><span>태그 (쉼표로 구분)</span>
         <input type="text" class="option-input" data-field="tags" ${dis} placeholder="예: 캐릭터, 스타일, 실사" value="${escapeHtml((d.tags || []).join(', '))}"></label>
       ${modelSweetHtml(d, dis)}
@@ -378,6 +408,8 @@ function renderModelRegistry(){
   const notice = '';
   const addBtn = document.getElementById('model-add-toggle');
   if(addBtn) addBtn.style.display = isAdminUser() ? '' : 'none';
+  const fillBtn = document.getElementById('model-fill-sizes');
+  if(fillBtn) fillBtn.style.display = isAdminUser() ? '' : 'none';
   if(shown.length === 0){
     listEl.innerHTML = notice + `<div class="comfy-model-empty">${filtered && all.length > 0 ? '거른 결과가 없어요' : '이 종류의 모델이 없어요'}</div>`;
     return;
@@ -406,6 +438,24 @@ function renderModelAddForm(){
       </div>
     </div>`;
 }
+
+// 용량이 빈 항목을 다운로드 주소(Civitai·Hugging Face)로 한 번에 채운다(관리자).
+document.getElementById('model-add-toggle').insertAdjacentHTML('afterend',
+  '<button class="load-btn" id="model-fill-sizes" type="button" style="display:none;" title="다운로드 주소로 용량이 빈 항목을 채워요">용량 채우기</button>');
+document.getElementById('model-fill-sizes').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/models/backfill-sizes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '용량을 채우지 못했어요.');
+    await fetchModelRegistry();
+    renderModelRegistry();
+    setModelError('');
+    flashNotice(`용량 ${data.filled}개를 채웠어요${data.skipped ? ` (${data.skipped}개는 알 수 없어 건너뛰었어요)` : ''}.`);
+  }catch(err){ setModelError(err.message || '용량을 채우지 못했어요.'); }
+  finally{ btn.disabled = false; }
+});
 
 document.getElementById('model-add-toggle').addEventListener('click', () => {
   const el = document.getElementById('model-add-form');
