@@ -98,8 +98,12 @@ class BoardContextUITests(unittest.TestCase):
                             # 점의 중심이 라벨 줄이 아니라 textarea 좌상단 모서리 근처에 있다
                             pbox = port.bounding_box()
                             tbox = card.locator('textarea[data-gen-field="main_prompt"]').bounding_box()
-                            self.assertLess(abs(pbox['y'] + pbox['height'] / 2 - tbox['y']), 10)
-                            self.assertLess(abs(pbox['x'] + pbox['width'] / 2 - (tbox['x'] - 7)), 12)
+                            self.assertLess(abs(pbox['y'] + pbox['height'] / 2 - tbox['y']), 3)
+                            self.assertLess(abs(pbox['x'] + pbox['width'] / 2 - tbox['x']), 3)
+                            # 글칸 묶음(overflow:hidden)에 잘리지 않고 점 전체가 보인다
+                            fbox = card.locator('.board-gen-fields').bounding_box()
+                            self.assertGreaterEqual(pbox['x'], fbox['x'])
+                            self.assertGreaterEqual(pbox['y'], fbox['y'])
                             self.assertEqual(page.evaluate('() => boardGenSlotAccepts({kind: "text"}, {kind: "image"})'), False)
                             # 메모 카드를 이으면 글칸이 비워지고 잠기며, 선을 끊으면 풀린다
                             textarea = card.locator('textarea[data-gen-field="main_prompt"]')
@@ -110,6 +114,19 @@ class BoardContextUITests(unittest.TestCase):
                             self.assertTrue(textarea.is_disabled())
                             self.assertEqual(textarea.input_value(), '')
                             self.assertTrue(port.evaluate('(el) => el.classList.contains("filled")'))
+                            # 선 끝이 글칸 모서리 점에 닿는다 — 다른 화면에 갔다 와서 보드를 통째로 다시 그려도 마찬가지
+                            end_gap = '''() => {
+                              const d = document.querySelector('.board-edge-line').getAttribute('d').trim().split(/[ ,MC]+/).filter(Boolean).map(Number);
+                              const world = document.getElementById('board-world').getBoundingClientRect();
+                              const p = document.querySelector('.board-gen-control > .board-gen-port').getBoundingClientRect();
+                              const s = boardState.scale;
+                              return [Math.abs(world.left + d.at(-2) * s - p.left), Math.abs(world.top + d.at(-1) * s - (p.top + p.height / 2))];
+                            }'''
+                            for gap in page.evaluate(end_gap):
+                                self.assertLess(gap, 2)
+                            page.evaluate('() => renderBoard()')
+                            for gap in page.evaluate(end_gap):
+                                self.assertLess(gap, 2)
                             stored = context.request.get(f'{base}/api/projects/{project_id}/board').json()['nodes']
                             self.assertEqual(next(n for n in stored if n['id'] == gen['id'])['data']['values']['main_prompt'], '')
                             page.evaluate('(id) => deleteBoardEdge(id)', page.evaluate('() => boardEdges[0].id'))

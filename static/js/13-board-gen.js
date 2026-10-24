@@ -365,10 +365,10 @@ function boardEdgeCurveById(edge){
     if(sl && boardGenSlotInField(bd, sl)){   // 글칸 모서리 연결점 — 화면에 그려진 자리를 읽는다
       const cardEl = document.querySelector(`#board-world .board-node[data-node-id="${b.id}"]`);
       const portEl = cardEl && cardEl.querySelector(`.board-gen-port[data-gen-slot="${CSS.escape(sl.name)}"]`);
-      if(portEl){
-        const cr = cardEl.getBoundingClientRect(), pr = portEl.getBoundingClientRect();
-        const scale = cr.width / (b.width || 1) || 1;
-        return boardEdgeCurveToPort(a, { x: b.x - 1, y: b.y + (pr.top + pr.height / 2 - cr.top) / scale });
+      const cr = cardEl && cardEl.getBoundingClientRect(), pr = portEl && portEl.getBoundingClientRect();
+      if(pr && cr.width && pr.width){   // 숨겨진 화면에서는 크기가 0이라 잴 수 없다 — 아래 근사로 그리고 renderBoard가 다시 잰다
+        const scale = cr.width / (b.width || 1);
+        return boardEdgeCurveToPort(a, { x: b.x + (pr.left - cr.left) / scale, y: b.y + (pr.top + pr.height / 2 - cr.top) / scale });
       }
     }
     const rows = (bd.slots || []).filter(s => !boardGenSlotInField(bd, s));
@@ -434,6 +434,8 @@ function renderBoard(){
   paintBoardSelection();
   paintBoardGenSlots();
   paintBoardCollapse();
+  // 선은 카드보다 먼저 문자열로 만들어져 글칸 모서리 점을 잴 수 없었다 — 카드가 놓인 뒤 생성 카드로 가는 선만 다시 잰다.
+  updateBoardEdgePaths(new Set(boardNodes.filter(n => n.kind === 'gen').map(n => n.id)));
 }
 
 // 보드 전체를 다시 그리지 않고 카드 몇 장만 붙인다 — 다시 그리면 영상 카드가 전부

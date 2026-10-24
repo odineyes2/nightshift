@@ -403,10 +403,11 @@
   .board-gen-port::before{ content:""; position:absolute; inset:-7px; border-radius:50%; }   /* 누르기 쉽게 넓힌 자리 */
   .board-gen-port:hover{ transform:scale(1.35); }
   .board-gen-fields{ flex:1; min-height:0; overflow:hidden; padding:4px 12px 10px; display:flex; flex-direction:column; gap:6px; }
-  /* 글칸 모서리 연결점 — 글상자 좌상단 모서리, 카드 왼쪽 가장자리에 걸친다(카드 안쪽 여백 12px) */
+  /* 글칸 모서리 연결점 — 점의 가운데가 글상자 좌상단 모서리에 온다(ComfyUI식). 글칸 묶음(.board-gen-fields)이
+     overflow:hidden이라 카드 가장자리로 내보내면 반쯤 잘린다 — 안쪽 여백(12px) 안에 두어야 한다. */
   .board-gen-control{ position:relative; flex:1 0 auto; display:flex; flex-direction:column; }
   .board-gen-control > textarea.board-gen-input{ flex:1 0 auto; }
-  .board-gen-control > .board-gen-port{ left:-19px; top:0; margin-top:0; cursor:default; }
+  .board-gen-control > .board-gen-port{ left:-6px; top:-6px; margin-top:0; z-index:1; cursor:default; }
   .board-gen-port.filled, .board-gen-slot.filled .board-gen-port{ background:var(--running); }
   .board-gen-port.connect-slot{ transform:scale(1.35); background:rgba(var(--running-rgb),0.4); }
   .board-gen-input:disabled{ cursor:not-allowed; opacity:0.7; }
