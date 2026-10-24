@@ -3,7 +3,7 @@
 let galleryImages = [];
 let lightboxIndex = -1;
 let selectedGalleryNames = new Set();
-let galleryViewMode = 'all'; // 'all' | 'byjob' | 'byproject' | 'bydate'
+let galleryViewMode = 'byjob'; // 'all' | 'byjob' | 'byproject' | 'bydate'
 let galleryDisplayMode = 'grid'; // 'grid' | 'details' — 그룹 방식(galleryViewMode)과는 별개로, 카드/한 줄 목록 중 어떻게 그릴지
 let galleryJobLabels = {}; // job_id -> 사람이 읽을 수 있는 라벨(템플릿명 · 옵션)
 // 현재 화면에 실제로 그려진 순서 — 전체 보기는 galleryImages와 같고, 작업별 보기는
