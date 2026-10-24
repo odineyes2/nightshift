@@ -9,7 +9,7 @@
 let galleryVideos = [];
 let vLightboxIndex = -1;
 let selectedGalleryVideoNames = new Set();
-let videoGalleryViewMode = 'all'; // 'all' | 'byjob' | 'byproject' | 'bydate'
+let videoGalleryViewMode = 'byjob'; // 'all' | 'byjob' | 'byproject' | 'bydate'
 let displayedGalleryVideos = [];
 const videoGalleryLightbox = document.getElementById('video-gallery-lightbox');
 
