@@ -20,10 +20,11 @@ function boardGenFieldHtml(nodeId, f, value, slots){
   const copy = f.type === 'textarea'
     ? `<button type="button" class="board-gen-copy" data-gen-copy-node="${nodeId}" data-gen-copy-field="${escapeHtml(f.name)}" title="${escapeHtml(f.label)} 복사" aria-label="${escapeHtml(f.label)} 복사">${ico('copy')}</button>` : '';
   const help = f.type === 'textarea' ? promptOptionsHelpButtonHtml() : '';
-  // 프롬프트 입구가 이 글칸 몫이면 라벨 줄 왼쪽 모서리에 연결점을 둔다 — 메모 카드를 이으면 글칸이 비워지고 잠긴다.
+  // 프롬프트 입구가 이 글칸 몫이면 글상자(textarea) 좌상단 모서리에 연결점을 둔다 — 메모 카드를 이으면 글칸이 비워지고 잠긴다.
   const port = f.type === 'textarea' && boardGenFieldSlot(slots, f.name)
     ? `<span class="board-gen-port" data-gen-slot="${escapeHtml(f.name)}" data-gen-kind="text" title="메모 카드를 끌어 이으면 그 글이 프롬프트로 쓰여요"></span>` : '';
-  return `<label class="board-gen-field${f.type === 'textarea' ? ' grow' : ''}${port ? ' has-port' : ''}">${port}<span class="board-gen-field-label">${escapeHtml(f.label)}${copy}${help}</span>${control}</label>`;
+  if(port) control = `<span class="board-gen-control">${port}${control}</span>`;
+  return `<label class="board-gen-field${f.type === 'textarea' ? ' grow' : ''}${port ? ' has-port' : ''}"><span class="board-gen-field-label">${escapeHtml(f.label)}${copy}${help}</span>${control}</label>`;
 }
 
 // 이 글칸 이름의 프롬프트(text) 입구 — 있으면 입구 줄 대신 글칸 모서리 연결점이 맡는다.

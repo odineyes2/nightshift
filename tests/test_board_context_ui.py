@@ -93,8 +93,13 @@ class BoardContextUITests(unittest.TestCase):
                             gen = page.evaluate('() => boardNodes.find(n => n.kind === "gen")')
                             card = page.locator(f'[data-node-id="{gen["id"]}"]')
                             self.assertEqual(card.locator('.board-gen-slot.text[data-gen-slot="main_prompt"]').count(), 0)
-                            port = card.locator('.board-gen-field.has-port > .board-gen-port[data-gen-slot="main_prompt"]')
+                            port = card.locator('.board-gen-field.has-port .board-gen-control > .board-gen-port[data-gen-slot="main_prompt"]')
                             self.assertEqual(port.count(), 1)
+                            # 점의 중심이 라벨 줄이 아니라 textarea 좌상단 모서리 근처에 있다
+                            pbox = port.bounding_box()
+                            tbox = card.locator('textarea[data-gen-field="main_prompt"]').bounding_box()
+                            self.assertLess(abs(pbox['y'] + pbox['height'] / 2 - tbox['y']), 10)
+                            self.assertLess(abs(pbox['x'] + pbox['width'] / 2 - (tbox['x'] - 7)), 12)
                             self.assertEqual(page.evaluate('() => boardGenSlotAccepts({kind: "text"}, {kind: "image"})'), False)
                             # 메모 카드를 이으면 글칸이 비워지고 잠기며, 선을 끊으면 풀린다
                             textarea = card.locator('textarea[data-gen-field="main_prompt"]')
