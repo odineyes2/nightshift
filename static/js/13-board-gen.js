@@ -31,6 +31,38 @@ function boardGenFieldHtml(nodeId, f, value, slots){
 function boardGenFieldSlot(slots, name){
   return (slots || []).find(sl => sl.kind === 'text' && sl.name === name) || null;
 }
+
+// 화면비·해상도는 폼처럼 너비/높이를 계산하는 보조 입력이다. 저장되는 옵션은 width/height뿐이다.
+function boardGenResolutionHtml(nodeId, fields, values){
+  if(!fields.some(f => f.name === 'width') || !fields.some(f => f.name === 'height')) return '';
+  const width = Number(values.width), height = Number(values.height);
+  const match = ASPECT_RATIOS.flatMap(r => Object.keys(RESOLUTION_TIERS).map(t =>
+    ({ ratio: r.value, tier: t, px: computeResolutionPx(r.value, t) })))
+    .find(x => x.px.width === width && x.px.height === height);
+  const choices = (items, current, label) => `<option value=""${current ? '' : ' selected'}>현재 ${label}</option>`
+    + items.map(item => `<option value="${escapeHtml(item.value)}"${item.value === current ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('');
+  return `<label class="board-gen-field"><span class="board-gen-field-label">화면비</span><select class="board-gen-input board-gen-resolution" data-gen-node="${nodeId}" data-resolution="ratio">${choices(ASPECT_RATIOS, match?.ratio, '화면비')}</select></label>`
+    + `<label class="board-gen-field"><span class="board-gen-field-label">해상도</span><select class="board-gen-input board-gen-resolution" data-gen-node="${nodeId}" data-resolution="tier">${choices(Object.keys(RESOLUTION_TIERS).map(k => ({value:k, label:k})), match?.tier, '해상도')}</select></label>`;
+}
+
+document.getElementById('board-world').addEventListener('change', (e) => {
+  const select = e.target.closest('.board-gen-resolution');
+  if(!select) return;
+  const card = select.closest('.board-node-gen');
+  const ratio = card.querySelector('[data-resolution="ratio"]');
+  const tier = card.querySelector('[data-resolution="tier"]');
+  if(!ratio.value) ratio.value = '1:1';
+  if(!tier.value) tier.value = '1MP';
+  const px = computeResolutionPx(ratio.value, tier.value);
+  if(!px) return;
+  for(const [name, value] of Object.entries({width: px.width, height: px.height})){
+    const input = card.querySelector(`.board-gen-input[data-gen-field="${name}"]`);
+    if(input && input.value !== String(value)){
+      input.value = value;
+      input.dispatchEvent(new Event('change', {bubbles: true}));
+    }
+  }
+});
 function boardGenSlotInField(d, sl){
   return sl.kind === 'text' && (d.fields || []).some(f => f.type === 'textarea' && f.name === sl.name);
 }
@@ -48,11 +80,12 @@ function boardGenCardHtml(node, style, delBtn){
     + `<span class="board-gen-slot-label">${escapeHtml(sl.label)}${sl.required ? '' : ' <em>(선택)</em>'}</span>`
     + `<span class="board-gen-slot-state">비어 있음</span></div>`).join('');
   const fields = (d.fields || []).map(f => boardGenFieldHtml(node.id, f, (d.values || {})[f.name] ?? '', d.slots)).join('');
+  const resolution = boardGenResolutionHtml(node.id, d.fields || [], d.values || {});
   return `<div class="board-node board-node-gen" data-node-id="${node.id}" style="${style}">`
     + `<div class="board-gen-head">${ico('wand-sparkles')}<span class="board-gen-name">${escapeHtml(d.preset_name || '생성')}</span>`
     + `<span class="board-gen-tpl">${escapeHtml(d.template_label || d.template_id || '')}</span></div>`
     + (slots ? `<div class="board-gen-slots">${slots}</div>` : '')
-    + `<div class="board-gen-fields">${fields}</div>`
+    + `<div class="board-gen-fields">${fields}${resolution}</div>`
     + `<div class="board-gen-foot"><div class="board-gen-status">${boardGenStatusHtml(boardJobInfo.get(node.id), node)}</div>`
     + `<button type="button" class="board-gen-btn" data-gen-detail="${node.id}" title="새 작업 창을 이 카드 값으로 채워 열기(복잡한 설정은 거기서)">자세히</button>`
     + `<button type="button" class="board-gen-btn primary" data-gen-run="${node.id}">${ico('play')} 실행</button></div>`

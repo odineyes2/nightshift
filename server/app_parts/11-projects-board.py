@@ -337,6 +337,8 @@ def _board_gen_height(data: dict) -> float:
     # 같은 이름의 글칸이 있는 text 입구는 줄 없이 글칸 모서리 포트로 그려진다 — 줄 수에서 뺀다.
     rows = sum(1 for s in data.get("slots", []) if not (s.get("kind") == "text" and s.get("name") in boxed))
     height = sum(96 if f.get("type") == "textarea" else 60 for f in fields)
+    if {"width", "height"} <= {f.get("name") for f in fields}:
+        height += 120   # 화면비·해상도 보조 선택 두 줄
     return max(140, 52 + 30 * rows + height + 14 + 46)   # 46 = 아래 실행 줄
 
 
@@ -351,9 +353,11 @@ def _board_gen_data_from_preset(preset: dict) -> dict:
     slots = [{"name": o["name"], "label": o.get("label") or o["name"], "required": o.get("type") == "input_image"}
              for o in template.get("options", [])
              if o.get("type") in BOARD_PRESET_SLOT_TYPES and (keep is None or o["name"] in keep)]
+    exposed = set(preset.get("exposed") or [])
     slots += [{"name": o["name"], "label": o.get("label") or o["name"], "kind": "text", "required": False}
               for o in template.get("options", [])
-              if o.get("type") == "textarea" and (o["name"] == "prompt" or o["name"].endswith("_prompt"))]
+              if o.get("type") == "textarea" and o["name"] in exposed
+              and (o["name"] == "prompt" or o["name"].endswith("_prompt"))]
     fields = []
     for name in preset.get("exposed") or []:
         o = opts.get(name)
