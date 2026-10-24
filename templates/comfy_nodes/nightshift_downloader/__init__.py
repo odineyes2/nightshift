@@ -6,6 +6,7 @@ ComfyUI에는 모델 파일을 내려받는 API가 없어서, nightshift가 파�
 시작하면 아래 라우트가 생긴다(nightshift의 "Model download" 패널이 설치 스크립트를 만들어 준다).
 
   GET  /nightshift/dl/ping     설치 여부·버전·저장 가능한 폴더 종류
+  GET  /nightshift/models/sizes 종류별 모델 파일 크기(바이트)
   POST /nightshift/dl/start    {url, folder, filename, headers?, overwrite?} 다운로드 시작
   GET  /nightshift/dl/status   진행 목록
   POST /nightshift/dl/cancel   {id}
@@ -18,6 +19,7 @@ ComfyUI에는 모델 파일을 내려받는 API가 없어서, nightshift가 파�
 쓰는 폴더 안으로만 제한하고, 모델 파일 확장자만 허용한다.
 """
 
+import asyncio
 import hmac
 import http.client
 import json
@@ -38,7 +40,7 @@ from aiohttp import web
 import folder_paths
 from server import PromptServer
 
-VERSION = 4   # 3: 노드팩 설치·ComfyUI 재시작, 4: 받은 크기 확인·이어 받기
+VERSION = 5   # 3: 노드팩 설치·ComfyUI 재시작, 4: 이어 받기, 5: 모델 크기 조회
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # nightshift의 종류 이름 -> ComfyUI folder_paths 이름 후보(버전마다 이름이 달랐다).
@@ -92,6 +94,27 @@ def _folder_base(kind):
     if kind in FALLBACK_DIRS:
         return os.path.join(folder_paths.models_dir, FALLBACK_DIRS[kind])
     return None
+
+
+def _model_sizes():
+    """종류별 모델 폴더의 허용된 파일만 상대경로와 바이트 크기로 모은다."""
+    sizes = {}
+    for kind in FOLDER_ALIASES:
+        base = _folder_base(kind)
+        files = {}
+        if base and os.path.isdir(base):
+            for root, dirs, names in os.walk(base):
+                dirs[:] = [name for name in dirs if not os.path.islink(os.path.join(root, name))]
+                for name in names:
+                    path = os.path.join(root, name)
+                    if not name.lower().endswith(ALLOWED_EXT) or os.path.islink(path):
+                        continue
+                    try:
+                        files[os.path.relpath(path, base).replace(os.sep, "/")] = os.path.getsize(path)
+                    except OSError:
+                        continue
+        sizes[kind] = files
+    return sizes
 
 
 def _safe_target(kind, filename):
@@ -231,6 +254,13 @@ async def dl_ping(request):
         return web.json_response({"error": "unauthorized"}, status=401)
     folders = {k: _folder_base(k) is not None for k in FOLDER_ALIASES}
     return web.json_response({"ok": True, "version": VERSION, "folders": folders})
+
+
+@routes.get("/nightshift/models/sizes")
+async def model_sizes(request):
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    return web.json_response({"sizes": await asyncio.to_thread(_model_sizes)})
 
 
 @routes.post("/nightshift/dl/start")

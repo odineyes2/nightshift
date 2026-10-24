@@ -17,6 +17,42 @@ def _download_call(fn, *args, **kwargs):
 
 
 _downloads_seen_done: set = set()
+_model_sizes_cache: dict = {}
+_model_sizes_ttl = 60
+
+
+@app.get("/api/models/sizes")
+async def get_model_sizes(request: Request):
+    """접근 가능한 활성 ComfyUI 워커의 모델 크기를 합친다."""
+    user = me(request)
+    pods = [p for p in visible_pods_for(user) if p.get("kind") == pod_registry.DEFAULT_KIND
+            and p.get("enabled") and p.get("url")]
+
+    def one(pod):
+        cached = _model_sizes_cache.get(pod["id"])
+        now = time.monotonic()
+        if cached and now - cached[0] < _model_sizes_ttl:
+            return cached[1]
+        try:
+            result = model_download.call_node(pod, "GET", "/nightshift/models/sizes")
+        except model_download.DownloadError:
+            return {}
+        sizes = result.get("sizes") if isinstance(result, dict) else None
+        if not isinstance(sizes, dict):
+            return {}
+        _model_sizes_cache[pod["id"]] = (now, sizes)
+        return sizes
+
+    merged = {}
+    for sizes in await asyncio.gather(*(asyncio.to_thread(one, pod) for pod in pods)):
+        for kind, files in sizes.items():
+            if kind not in model_registry.KIND_IDS or not isinstance(files, dict):
+                continue
+            target = merged.setdefault(kind, {})
+            for name, size in files.items():
+                if isinstance(name, str) and isinstance(size, int) and not isinstance(size, bool) and size >= 0:
+                    target[name] = max(size, target.get(name, 0))
+    return {"sizes": merged}
 
 
 @app.post("/api/models/resolve")
@@ -75,6 +111,7 @@ async def list_model_downloads(request: Request, pod_id: str):
         key = (pod["id"], item.get("id"))
         if item.get("status") == "done" and key not in _downloads_seen_done:
             _downloads_seen_done.add(key)
+            _model_sizes_cache.pop(pod["id"], None)
             model_download.ComfyUIDriver.invalidate_capabilities(pod["id"])   # 새 파일이 설치 목록에 바로 보이게
     return result
 
