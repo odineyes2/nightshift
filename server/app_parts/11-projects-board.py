@@ -4,6 +4,28 @@
 # 프로젝트는 파드와 무관하게 작업(job)과 결과물(asset)을 묶는다. project_id가 없는 것은
 # "미분류". 프로젝트를 지워도 그 안의 작업/결과물은 지워지지 않고 미분류로 돌아온다.
 
+@app.get("/api/settings/board-display")
+def get_board_display_settings(request: Request):
+    """로그인한 회원에게 보드 공통 크기 설정을 제공한다."""
+    from board_display import load
+
+    me(request)
+    return load()
+
+
+@app.put("/api/settings/board-display")
+async def put_board_display_settings(request: Request):
+    """관리자가 보드 공통 크기 설정을 저장한다."""
+    from board_display import save
+
+    admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        return save(body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 def _clean_project_fields(body: dict, creating: bool) -> dict:
     fields: dict = {}
     if "name" in body or creating:
