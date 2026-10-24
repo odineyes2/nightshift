@@ -60,6 +60,25 @@ function initBoardCanvas(){
 
   viewport.addEventListener('wheel', (e) => {
     e.preventDefault();
+    const input = e.target.closest('.board-node-gen .board-gen-input[type="number"][data-gen-field]');
+    if(input && document.activeElement === input){
+      const name = input.dataset.genField;
+      if(name === 'seed_count' || name === 'width' || name === 'height'){
+        if(!e.deltaY) return;
+        const step = name === 'seed_count' ? 1 : 4;
+        const field = boardNodes.find(n => n.id === Number(input.dataset.genNode))?.data?.fields?.find(f => f.name === name);
+        const min = Number.isFinite(Number(field?.min)) ? Math.max(step, Number(field.min)) : step;
+        const max = field?.max == null || field.max === '' ? Infinity : Number(field.max);
+        const current = Number(input.value);
+        if(!Number.isFinite(current)) return;
+        const next = Math.min(max, Math.max(min, Math.round(current / step) * step + (e.deltaY < 0 ? step : -step)));
+        if(next === current) return;
+        input.value = String(next);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return;
+      }
+    }
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
     boardZoomAt(e.clientX, e.clientY, factor);
   }, { passive: false });
