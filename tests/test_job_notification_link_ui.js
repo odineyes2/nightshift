@@ -19,7 +19,8 @@ function harness({ jobs = [], ok = true, reject = false } = {}){
       createElement: () => notice,
       querySelector: () => ({ before(){ notice.inserted = true; } }),
     },
-    jobSearch: { value: 'previous' }, jobStatusFilter: { value: 'failed' }, jobShowDone: { checked: false },
+    jobSearch: { value: 'previous' }, jobStatusFilter: { value: 'failed' },
+    jobFamilyFilter: { value: 'SDXL' }, jobModelFilter: { value: 'model.safetensors' }, jobShowDone: { checked: false },
     lastJobs: [], lastJobsRowsSignature: 'old', jobLinkRouteToken: 0, openJobDetailId: null,
     showTab(tab, options){ calls.push(['tab', tab, options]); context.jobLinkRouteToken++; context.location.hash = (options && options.routeHash) || `#${tab}`; },
     fetchJobs: async () => {
@@ -48,6 +49,8 @@ test('로그인 완료 뒤 전역 작업 목록에서 인코딩된 ID의 상세�
   assert.equal(h.calls[0][2].skipJobsFetch, true);
   assert.equal(h.context.jobSearch.value, '');
   assert.equal(h.context.jobStatusFilter.value, 'all');
+  assert.equal(h.context.jobFamilyFilter.value, '');
+  assert.equal(h.context.jobModelFilter.value, '');
   assert.equal(h.context.jobShowDone.checked, true);
   assert.equal(h.context.lastJobsRowsSignature, null);
   assert.equal(h.context.location.hash, '#job/a%2Fb%20%ED%95%9C%EA%B8%80');
