@@ -258,7 +258,20 @@ document.getElementById('project-bar-select').addEventListener('change', (e) => 
 // 채우는 입구가 되므로 저장하지 않고, 카드에서 바로 고칠 옵션(꺼낼 옵션)만 사람이 고른다.
 const BOARD_PRESET_EXPOSABLE = ['textarea', 'number', 'number_optional', 'select'];
 const BOARD_PRESET_SLOT_TYPES = ['input_image', 'input_image_optional'];
+const BOARD_INTERNAL_OPTIONS = new Set(['pose_sequence', 'danbooru_seed_prompts']);
 let boardPresetDraft = null;   // 저장 창을 여는 순간 폼에서 읽은 값 { template_id, workflow, video_workflow, options, lora_trigger }
+
+function boardFormOptionVisible(name){
+  if(BOARD_INTERNAL_OPTIONS.has(name)) return false;
+  const input = [...optionsFields.querySelectorAll('.option-input[data-name]')].find(el => el.dataset.name === name);
+  if(!input) return false;
+  const field = input.closest('.field');
+  // 화면비·해상도 모드에서는 직접 입력 칸만 접힌다. 계산된 너비/높이는 여전히 폼 값이다.
+  if((name === 'width' || name === 'height') && input.closest('.resolution-control')){
+    return getComputedStyle(input.closest('.resolution-control')).display !== 'none';
+  }
+  return !!field && field.getClientRects().length > 0;
+}
 
 // 폼의 현재 값을 보드 카드/프리셋 초안으로 읽는다. 못 읽으면 오류 문구를 띄우고 null.
 async function readBoardDraftFromForm(){
@@ -287,7 +300,8 @@ async function readBoardDraftFromForm(){
   const opts = template.options || [];
   // 마법사가 칸 수를 정하는 템플릿(MiniMax r2v 참조 이미지 0~9, i2v 첫/끝 프레임)은 워크플로우에 실제로
   // 있는 칸만 새 작업 창에 나온다 — 보드 카드의 입구도 그 칸만 만들도록 여기서 골라 보낸다.
-  const slotNames = opts.filter(o => BOARD_PRESET_SLOT_TYPES.includes(o.type) && !isWizardRefSlotHidden(o.name)).map(o => o.name);
+  const slotNames = opts.filter(o => BOARD_PRESET_SLOT_TYPES.includes(o.type) && !isWizardRefSlotHidden(o.name)
+    && boardFormOptionVisible(o.name)).map(o => o.name);
   return { template, opts, slotNames,
     draft: { template_id: template.id, workflow, video_workflow: videoWorkflow, options, lora_trigger: loraTrigger, slots: slotNames } };
 }
@@ -370,8 +384,11 @@ async function placeBoardCardFromForm(){
     document.getElementById('upload-error').textContent = '보드가 바뀌었어요. 고르기 창부터 다시 열어 주세요.';
     return;
   }
-  // 카드 안에서 고칠 옵션은 글 칸(프롬프트 등)만 꺼낸다. 나머지는 지금 폼의 값으로 고정된다.
-  const exposed = read.opts.filter(o => o.type === 'textarea').map(o => o.name);
+  // 폼에 보이는 글 칸과 기본 생성 설정만 꺼낸다. 내부용·숨긴 옵션은 고정값으로 남긴다.
+  const defaults = new Set(['seed_count', 'seed_mode', 'width', 'height']);
+  const exposed = read.opts.filter(o => boardFormOptionVisible(o.name)
+    && (o.type === 'textarea' || defaults.has(o.name))
+    && BOARD_PRESET_EXPOSABLE.includes(o.type)).map(o => o.name);
   const node = await createBoardNode('gen', null, '', mode.geom, true, { ...read.draft, exposed });
   if(!node) return;
   closeNewJobModal();
