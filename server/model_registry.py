@@ -42,7 +42,11 @@ NODEPACK_DIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 MAX_TEXT = 4000
 MAX_LIST = 50
-FIELDS = ("base_model", "base_models", "notes", "tags", "trigger_keyword", "page_url", "download_url", "sweet")
+FIELDS = ("base_model", "base_models", "notes", "tags", "trigger_keyword", "page_url", "download_url", "sweet",
+          "size_bytes", "size_source")
+# 용량 출처: manual(사람이 입력) / auto(등록·받기·채우기 때 주소에서 알아낸 값) / measured(파드에서 잰 실제 값)
+SIZE_SOURCES = ("manual", "auto", "measured")
+MAX_SIZE_BYTES = 10 * 1024 ** 4   # 10 TB
 
 
 def base_id(base_model: str) -> str:
@@ -73,6 +77,15 @@ def _clean_url(value, field: str) -> str:
     parsed = urllib.parse.urlparse(value)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise RegistryError(f"{field}은(는) http:// 또는 https://로 시작하는 주소여야 해요.")
+    return value
+
+
+def _clean_size(value, field: str = "용량") -> int | None:
+    """바이트 수 — 양의 정수만(bool·소수·문자열 거절). None은 값 없음."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= MAX_SIZE_BYTES:
+        raise RegistryError(f"{field}은(는) 1바이트 이상 10TB 이하의 정수여야 해요.")
     return value
 
 
@@ -116,6 +129,8 @@ def _row_to_entry(row, links: dict) -> dict:
         "page_url": row["page_url"],
         "download_url": row["download_url"],
         "sweet": json.loads(row["sweet_json"] or "{}"),
+        "size_bytes": row["size_bytes"],
+        "size_source": row["size_source"] or "",
         "updated_at": row["updated_at"],
     }
 
@@ -473,7 +488,7 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
         row = conn.execute("SELECT * FROM models WHERE kind=? AND filename=?", (kind, filename)).fetchone()
         current = _row_to_entry(row, _links(conn, kind, filename)) if row else {
             "base_model": "", "base_models": [], "notes": "", "tags": [], "trigger_keyword": "",
-            "page_url": "", "download_url": "", "sweet": {}}
+            "page_url": "", "download_url": "", "sweet": {}, "size_bytes": None, "size_source": ""}
         # base_models(목록)가 우선이고, 예전처럼 base_model 문자열만 오면 [값]으로 본다.
         if "base_models" in fields or "base_model" in fields:
             raw = fields["base_models"] if "base_models" in fields else [fields["base_model"] or ""]
@@ -503,6 +518,15 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
             current["download_url"] = _clean_url(fields["download_url"], "다운로드 주소")
         if "sweet" in fields and kind in MODEL_SWEET_FIELDS:
             current["sweet"] = _clean_sweet(fields["sweet"] or {}, MODEL_SWEET_FIELDS[kind])
+        if "size_bytes" in fields:
+            size = _clean_size(fields["size_bytes"])
+            source = fields.get("size_source", "manual")
+            if source not in ("manual", "auto"):   # measured는 record_measured_sizes만 기록한다
+                raise RegistryError("용량 출처가 올바르지 않아요.")
+            if size is None:
+                current["size_bytes"], current["size_source"] = None, ""
+            elif size != current["size_bytes"] or source != current["size_source"]:
+                current["size_bytes"], current["size_source"] = size, source
         if kind not in MODEL_SWEET_FIELDS:   # 스윗 포인트는 체크포인트·UNet·LoRA만의 개념이다
             current["sweet"] = {}
         if kind == NODEPACK_KIND:
@@ -514,28 +538,56 @@ def upsert(kind: str, filename: str, fields: dict) -> dict | None:
         if kind != "loras":   # 트리거 키워드는 LoRA만의 개념이다
             current["trigger_keyword"] = ""
         empty = not (current["base_model"] or current["notes"] or current["tags"] or current["trigger_keyword"]
-                     or current["page_url"] or current["download_url"] or current["sweet"])
+                     or current["page_url"] or current["download_url"] or current["sweet"]
+                     or current["size_bytes"])
         if empty:
             conn.execute("DELETE FROM models WHERE kind=? AND filename=?", (kind, filename))
             return None
         updated = db.now_iso()
         conn.execute(
             "INSERT INTO models(kind, filename, base_model, notes, tags_json, trigger_keyword, "
-            "page_url, download_url, sweet_json, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) "
+            "page_url, download_url, sweet_json, size_bytes, size_source, updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(kind, filename) DO UPDATE SET "
             "base_model=excluded.base_model, notes=excluded.notes, tags_json=excluded.tags_json, "
             "trigger_keyword=excluded.trigger_keyword, page_url=excluded.page_url, "
-            "download_url=excluded.download_url, sweet_json=excluded.sweet_json, updated_at=excluded.updated_at",
+            "download_url=excluded.download_url, sweet_json=excluded.sweet_json, "
+            "size_bytes=excluded.size_bytes, size_source=excluded.size_source, updated_at=excluded.updated_at",
             (kind, filename, current["base_model"], current["notes"],
              json.dumps(current["tags"], ensure_ascii=False), current["trigger_keyword"],
              current["page_url"], current["download_url"], json.dumps(current["sweet"], ensure_ascii=False),
-             updated),
+             current["size_bytes"], current["size_source"], updated),
         )
         conn.execute("DELETE FROM model_base_models WHERE kind=? AND filename=?", (kind, filename))
         conn.executemany("INSERT INTO model_base_models(kind, filename, base_model, position) VALUES(?,?,?,?)",
                          [(kind, filename, b, i) for i, b in enumerate(current["base_models"])])
     current.update({"kind": kind, "filename": filename, "updated_at": updated})
     return current
+
+
+def record_measured_sizes(kind: str, sizes: dict) -> list[dict]:
+    """파드에서 잰 실제 크기({파일명: 바이트})를 등록부에 기록한다. 이미 있는 행만 고치고 새로 만들지 않는다.
+    값이 다르거나 출처가 measured가 아니면 덮어쓴다(사람이 입력한 값도). 바뀐 항목 [{kind, filename, size_bytes,
+    size_source}]를 돌려준다. 잘못된 값은 건너뛴다."""
+    if kind not in KIND_IDS:
+        raise RegistryError("알 수 없는 모델 종류예요.")
+    changed = []
+    with db.connect() as conn:
+        for filename, size in (sizes or {}).items():
+            try:
+                size = _clean_size(size)
+            except RegistryError:
+                continue
+            if size is None:
+                continue
+            row = conn.execute("SELECT size_bytes, size_source FROM models WHERE kind=? AND filename=?",
+                               (kind, filename)).fetchone()
+            if not row or (row["size_bytes"] == size and row["size_source"] == "measured"):
+                continue
+            conn.execute("UPDATE models SET size_bytes=?, size_source='measured', updated_at=? "
+                         "WHERE kind=? AND filename=?", (size, db.now_iso(), kind, filename))
+            changed.append({"kind": kind, "filename": filename, "size_bytes": size, "size_source": "measured"})
+    return changed
 
 
 def import_legacy_lora_triggers(state_file: Path) -> int:
