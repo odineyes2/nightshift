@@ -43,11 +43,14 @@ const board = { innerHTML: '', handlers: {}, contains: () => false,
   },
 };
 const search = { value: '' }, filter = { value: 'all' }, showDone = { checked: true };
+const familyFilter = { value: '', innerHTML: '' }, modelFilter = { value: '', innerHTML: '', disabled: true };
 const ctx = vm.createContext({
   document: { getElementById(id){ return id === 'job-board' ? board : null; }, activeElement: null },
   window: { getSelection: () => ({ isCollapsed: true }) },
   lastJobs: [], lastJobsRowsSignature: null, currentTab: 'jobs', openJobDetailId: null,
   jobPodFilter: null, jobProjectFilter: null, jobSearch: search, jobStatusFilter: filter, jobShowDone: showDone,
+  jobFamilyFilter: familyFilter, jobModelFilter: modelFilter,
+  modelEntry: () => ({ base_models: [] }), basesOf: entry => entry.base_models,
   projectMatches: (id, scope) => String(id) === String(scope),
   projectName: id => `프로젝트 ${id}`, podName: id => id ? `워커 ${id}` : '',
   jobBatchModeLabel: (_, label) => label, jobBaseModelLabel: j => j.base || '',
@@ -60,7 +63,7 @@ const ctx = vm.createContext({
   fetch: async (url, options) => { calls.push(['fetch', url, options.method]); return { ok: true, json: async () => ({started:[], no_url:[], failed:[]}) }; },
   fetchJobs: () => {}, alert: () => {},
 });
-vm.runInContext(['jobMatchesSearch', 'jobFinishedLabel', 'buildJobCard', 'render'].map(pick).join('\n'), ctx);
+vm.runInContext(['jobModelInfo', 'updateJobModelFilters', 'jobMatchesSearch', 'jobFinishedLabel', 'buildJobCard', 'render'].map(pick).join('\n'), ctx);
 const jobs = [
   { id:'1', status:'done', template_label:'인물 사진', base:'Flux', project_id:2, pod_id:'gpu', finished_at:'2026-10-13T10:20:00Z' },
   { id:'2', status:'failed', template_label:'풍경', finished_at:'2026-10-13T10:20:00Z' },

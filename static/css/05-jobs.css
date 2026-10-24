@@ -131,6 +131,8 @@
   .job-list-toolbar input{ flex:1 1 220px; min-width:0; }
   .job-list-toolbar .job-show-done{ display:inline-flex; align-items:center; gap:6px; min-height:40px; cursor:pointer; }
   .job-list-toolbar .job-show-done input{ flex:none; width:auto; min-height:0; padding:0; accent-color:var(--accent); }
+  .job-list-toolbar select{ max-width:100%; min-width:0; }
+  .job-list-toolbar select:disabled{ opacity:.5; }
   .job-list-toolbar :focus-visible, .job-card:focus-visible, .job-card-actions button:focus-visible{
     outline:2px solid var(--accent); outline-offset:2px;
   }
@@ -179,8 +181,11 @@
   @media(max-width:640px){
     .job-card{ grid-template-columns:1fr 1fr; padding:14px; }
     .job-progress, .job-finished{ grid-column:auto; }
-    .job-list-toolbar input[type="search"]{ flex-basis:100%; }
-    .job-list-toolbar select{ flex:1; }
+    .job-list-toolbar{ display:grid; grid-template-columns:auto minmax(0,1fr); }
+    .job-list-toolbar > label[for="job-search"],
+    .job-list-toolbar input[type="search"],
+    .job-list-toolbar .job-show-done{ grid-column:1 / -1; }
+    .job-list-toolbar select{ width:100%; }
     #job-add-btn{ margin-left:0; }
   }
   .job-detail-actions{ display:flex; flex-wrap:wrap; gap:8px; }

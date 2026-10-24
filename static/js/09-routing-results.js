@@ -343,6 +343,8 @@ async function openJobHashRoute(raw){
   const token = jobLinkRouteToken;
   jobSearch.value = '';
   jobStatusFilter.value = 'all';
+  jobFamilyFilter.value = '';
+  jobModelFilter.value = '';
   jobShowDone.checked = true;
   lastJobsRowsSignature = null;
   render(lastJobs);

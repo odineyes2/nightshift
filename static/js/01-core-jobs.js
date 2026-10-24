@@ -238,9 +238,16 @@ document.getElementById('clear-done-jobs').addEventListener('click', async () =>
 
 const jobSearch = document.getElementById('job-search');
 const jobStatusFilter = document.getElementById('job-status-filter');
+const jobFamilyFilter = document.getElementById('job-family-filter');
+const jobModelFilter = document.getElementById('job-model-filter');
 document.getElementById('job-add-btn').addEventListener('click', openNewJobModal);
 jobSearch.addEventListener('input', () => render(lastJobs));
 jobStatusFilter.addEventListener('change', () => render(lastJobs));
+jobFamilyFilter.addEventListener('change', () => {
+  jobModelFilter.value = '';
+  render(lastJobs);
+});
+jobModelFilter.addEventListener('change', () => render(lastJobs));
 const jobShowDone = document.getElementById('job-show-done');
 jobShowDone.addEventListener('change', () => render(lastJobs));
 
@@ -251,6 +258,46 @@ function jobMatchesSearch(j, query){
     .some(value => String(value || '').toLocaleLowerCase().includes(query));
 }
 
+function jobModelInfo(j){
+  const tid = j.template_id || '';
+  let file = j.options && j.options.checkpoint;
+  if(!file && tid.startsWith('wan22_')) return { file: '', families: ['Wan 2.2'] };
+  if(!file && tid.startsWith('minimax_h3_')) return { file: '', families: ['MiniMax-H3'] };
+  if(!file && j.workflow_filename){
+    if(j.id in jobWorkflowCheckpointCache) file = jobWorkflowCheckpointCache[j.id];
+    else fetchJobWorkflowCheckpoint(j.id);
+  }
+  if(!file) return { file: '', families: [] };
+  const checkpoint = modelEntry('checkpoints', file);
+  const families = basesOf(checkpoint).length ? basesOf(checkpoint) : basesOf(modelEntry('diffusion_models', file));
+  return { file, families };
+}
+
+function updateJobModelFilters(jobs){
+  const infos = jobs.map(jobModelInfo);
+  const families = new Set(infos.flatMap(info => info.families.length ? info.families : ['__uncategorized__']));
+  if(jobFamilyFilter.value && !families.has(jobFamilyFilter.value)) jobFamilyFilter.value = '';
+  const selectedFamily = jobFamilyFilter.value;
+  const familyOptions = '<option value="">전체 모델</option>' + [...families].sort((a, b) => a.localeCompare(b)).map(family =>
+    `<option value="${escapeHtml(family)}">${family === '__uncategorized__' ? '미분류' : escapeHtml(family)}</option>`).join('');
+  if(jobFamilyFilter.innerHTML !== familyOptions){
+    jobFamilyFilter.innerHTML = familyOptions;
+    jobFamilyFilter.value = selectedFamily;
+  }
+  const files = new Set(infos.filter(info => info.families.includes(selectedFamily) ||
+    (selectedFamily === '__uncategorized__' && !info.families.length)).map(info => info.file).filter(Boolean));
+  if(!selectedFamily || !files.has(jobModelFilter.value)) jobModelFilter.value = '';
+  const selectedFile = jobModelFilter.value;
+  const modelOptions = '<option value="">전체</option>' + [...files].sort((a, b) => a.localeCompare(b)).map(file =>
+    `<option value="${escapeHtml(file)}">${escapeHtml(file)}</option>`).join('');
+  if(jobModelFilter.innerHTML !== modelOptions){
+    jobModelFilter.innerHTML = modelOptions;
+    jobModelFilter.value = selectedFile;
+  }
+  jobModelFilter.disabled = !selectedFamily || !files.size;
+  return infos;
+}
+
 function render(jobs, pendingCount, running, perPod){
   lastJobs = jobs;
   // "📝 결과" 탭이 열려 있는 동안 새 작업이 끝나면 목록에 바로 반영되게, 작업
@@ -259,6 +306,14 @@ function render(jobs, pendingCount, running, perPod){
   // 작업 목록은 언제나 지금 들어와 있는 파드 것만 보여준다(파드 스코프 바 참고).
   if(jobPodFilter) jobs = jobs.filter(j => j.pod_id === jobPodFilter);
   if(jobProjectFilter !== null) jobs = jobs.filter(j => projectMatches(j.project_id, jobProjectFilter));
+  const modelInfos = updateJobModelFilters(jobs);
+  const family = jobFamilyFilter.value;
+  const model = jobModelFilter.value;
+  jobs = jobs.filter((j, index) => {
+    const info = modelInfos[index];
+    return (!family || info.families.includes(family) || (family === '__uncategorized__' && !info.families.length))
+      && (!model || info.file === model);
+  });
   updateClearDoneJobs();
   const query = jobSearch.value.trim().toLocaleLowerCase();
   const status = jobStatusFilter.value;
@@ -287,7 +342,7 @@ function render(jobs, pendingCount, running, perPod){
 
   // 화면에 실제로 영향을 주는 값만 서명에 넣는다 — template_label/options 같은
   // 것들은 작업이 생성될 때 정해지고 이후 안 바뀌므로 뺐다.
-  const rowsSignature = JSON.stringify([jobPodFilter, jobProjectFilter, query, status, showDone, jobs.map(j => [
+  const rowsSignature = JSON.stringify([jobPodFilter, jobProjectFilter, family, model, query, status, showDone, jobs.map(j => [
     j.id, j.status, j.waiting_for_comfy, j.pod_id, j.started_at, j.finished_at,
     j.progress && j.progress.done, j.progress && j.progress.total,
     j.project_id, j.project_id != null ? projectName(j.project_id) : '',
