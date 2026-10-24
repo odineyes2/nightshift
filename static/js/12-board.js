@@ -582,24 +582,25 @@ function initBoardCanvas(){
   // 되돌리기 기록. focusin에서 고치기 전 값을 기억해 둔다.
   const genStart = new Map();   // "노드id:옵션이름" -> 고치기 전 값
   viewport.addEventListener('focusin', (e) => {
-    const el = e.target.closest('.board-gen-input');
+    const el = e.target.closest('.board-gen-input[data-gen-field]');
     if(el) genStart.set(`${el.dataset.genNode}:${el.dataset.genField}`, el.value);
   });
   viewport.addEventListener('input', (e) => {
-    const el = e.target.closest('.board-gen-input');
+    const el = e.target.closest('.board-gen-input[data-gen-field]');
     if(!el) return;
     const nodeId = Number(el.dataset.genNode);
     setBoardGenValueLocal(nodeId, el.dataset.genField, el.value);
     scheduleBoardGenSave(nodeId, el.dataset.genField, el.value);
   });
   viewport.addEventListener('change', (e) => {
-    const el = e.target.closest('.board-gen-input');
+    const el = e.target.closest('.board-gen-input[data-gen-field]');
     if(!el) return;
     const nodeId = Number(el.dataset.genNode), name = el.dataset.genField, key = `${nodeId}:${name}`;
+    const oldValue = boardNodes.find(n => n.id === nodeId)?.data?.values?.[name];
     setBoardGenValueLocal(nodeId, name, el.value);
     scheduleBoardGenSave(nodeId, name, el.value);
     flushBoardGenSave(key);
-    const from = genStart.has(key) ? genStart.get(key) : el.value;
+    const from = genStart.has(key) ? genStart.get(key) : oldValue ?? el.value;
     if(from !== el.value) pushBoardHistory({ type: 'gen-value', id: nodeId, name, from, to: el.value });
     genStart.set(key, el.value);
   });

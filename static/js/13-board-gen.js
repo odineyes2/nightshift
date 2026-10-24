@@ -288,6 +288,7 @@ async function openBoardGenDetail(nodeId){
 const boardGenPending = new Map();   // "노드id:옵션이름" -> { projectId, nodeId, name, value, timer }
 
 function scheduleBoardGenSave(nodeId, name, value){
+  if(!name) return;
   const key = `${nodeId}:${name}`;
   const prev = boardGenPending.get(key);
   if(prev) clearTimeout(prev.timer);
