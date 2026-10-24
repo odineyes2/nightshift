@@ -220,6 +220,60 @@ def _resolve_civitai(parsed, token):
     }
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def _head_size(url: str, token: str | None = None) -> int | None:
+    """HEAD로 파일 크기를 구한다 — 리다이렉트는 따라가지 않고 그 응답의 X-Linked-Size/Content-Length를 쓴다.
+    허용 호스트가 아니거나 실패하면 None."""
+    if (urllib.parse.urlparse(url).hostname or "").lower() not in API_HOSTS:
+        return None
+    headers = {"User-Agent": COMFY_USER_AGENT}
+    headers.update(auth_header_for(url, token))
+    req = urllib.request.Request(url, headers=headers, method="HEAD")
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=FETCH_TIMEOUT) as resp:
+            got = resp.headers
+    except urllib.error.HTTPError as e:   # 302도 HTTPError로 올라온다
+        got = e.headers
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return None
+    for key in ("X-Linked-Size", "Content-Length"):
+        try:
+            value = int(got.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return None
+
+
+def size_for_filename(url: str, filename: str, token: str | None = None) -> int | None:
+    """등록부 항목(주소+파일명)의 크기를 구한다. Civitai는 버전의 파일 목록에서 파일명이 같은 파일 → 파일이
+    하나뿐이면 그 파일, Hugging Face는 HEAD. 알 수 없으면 None."""
+    parsed = urllib.parse.urlparse((url or "").strip())
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https":
+        return None
+    try:
+        if host in CIVITAI_HOSTS:
+            m = re.match(r"^/api/download/models/(\d+)", parsed.path)
+            if not m:
+                return None
+            v = _get_json(f"https://civitai.com/api/v1/model-versions/{int(m.group(1))}", token)
+            files = [f for f in (v.get("files") or []) if str(f.get("name", "")).lower().endswith(MODEL_EXT)]
+            same = [f for f in files if _clean_filename(str(f.get("name", ""))) == filename]
+            pick = same[0] if same else (files[0] if len(files) == 1 else None)
+            return int((pick.get("sizeKB") or 0) * 1024) or None if pick else None
+        if host in ("huggingface.co", "www.huggingface.co"):
+            return _head_size(parsed.geturl(), token)
+    except DownloadError:
+        return None
+    return None
+
+
 def _resolve_hf(parsed, token):
     parts = [p for p in parsed.path.split("/") if p]
     if len(parts) < 2:
@@ -231,12 +285,14 @@ def _resolve_hf(parsed, token):
         if not file_path.lower().endswith(MODEL_EXT):
             raise DownloadError("모델 파일(.safetensors 등)을 가리키는 주소를 넣어주세요.")
         quoted = urllib.parse.quote(file_path)
+        download_url = f"https://huggingface.co/{repo}/resolve/{urllib.parse.quote(rev)}/{quoted}"
         return {
             "source": "huggingface",
             "name": f"{repo}/{file_path.split('/')[-1]}",
-            "download_url": f"https://huggingface.co/{repo}/resolve/{urllib.parse.quote(rev)}/{quoted}",
+            "download_url": download_url,
             "filename": _clean_filename(file_path.split("/")[-1]),
-            "kind": None, "base_model": "", "trigger_keyword": "", "size_bytes": None, "preview_url": None,
+            "kind": None, "base_model": "", "trigger_keyword": "", "size_bytes": _head_size(download_url, token),
+            "preview_url": None,
             "page_url": f"https://huggingface.co/{repo}/blob/{rev}/{file_path}",
         }
     info = _get_json(f"https://huggingface.co/api/models/{repo}", token)

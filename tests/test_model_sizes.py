@@ -99,19 +99,100 @@ class ModelSizeTests(unittest.TestCase):
              patch.object(A.model_download, "call_node", side_effect=call_node) as mocked:
             result = self.client.get(path)
             self.assertEqual(result.status_code, 200, result.text)
-            self.assertEqual(result.json(), {"sizes": {"checkpoints": {"nested/a.safetensors": 20, "b.ckpt": 4}}})
+            self.assertEqual(result.json(), {"sizes": {"checkpoints": {"nested/a.safetensors": 20, "b.ckpt": 4}},
+                                             "updated": []})
             self.assertEqual(mocked.call_count, 2)
             self.assertEqual(self.client.get(path).json(), result.json())
             self.assertEqual(mocked.call_count, 2)
             pods.clear()
-            self.assertEqual(self.client.get(path).json(), {"sizes": {}})
+            self.assertEqual(self.client.get(path).json(), {"sizes": {}, "updated": []})
             self.assertEqual(mocked.call_count, 2)
         A._model_sizes_cache.clear()
         pods.append({"id": "size-old", "owner_id": owner, "kind": "comfyui", "enabled": True,
                      "url": "https://old.example.test"})
         with patch.object(A.pod_registry, "list_pods", side_effect=list_pods), \
              patch.object(A.model_download, "call_node", side_effect=A.model_download.DownloadError("구버전", 404)):
-            self.assertEqual(self.client.get(path).json(), {"sizes": {}})
+            self.assertEqual(self.client.get(path).json(), {"sizes": {}, "updated": []})
+
+    def _admin(self):
+        c = TestClient(A.app)
+        self.addCleanup(c.close)
+        r = c.post("/api/auth/login", json={"username": "admin", "password": PASSWORD},
+                   headers={"X-Requested-With": "nightshift"})
+        self.assertEqual(r.status_code, 200, r.text)
+        return c
+
+    def test_measured_sizes_update_registry_only_existing_rows(self):
+        A.model_registry.upsert("checkpoints", "reg-a.safetensors", {"size_bytes": 5})   # manual
+        pod = {"id": "size-reg", "owner_id": self.user["id"], "kind": "comfyui", "enabled": True,
+               "url": "https://r.example.test"}
+        sizes = {"sizes": {"checkpoints": {"reg-a.safetensors": 99, "pod-only.safetensors": 7}}}
+        A._model_sizes_cache.clear()
+        with patch.object(A.pod_registry, "list_pods", return_value=[pod]), \
+             patch.object(A.model_download, "call_node", return_value=sizes):
+            data = self.client.get("/api/models/sizes").json()
+        self.assertEqual([(u["filename"], u["size_bytes"]) for u in data["updated"]], [("reg-a.safetensors", 99)])
+        entry = A.model_registry.get_entry("checkpoints", "reg-a.safetensors")
+        self.assertEqual((entry["size_bytes"], entry["size_source"]), (99, "measured"))
+        self.assertIsNone(A.model_registry.get_entry("checkpoints", "pod-only.safetensors"))
+
+    def test_put_models_size_is_manual_and_source_not_client_controlled(self):
+        admin = self._admin()
+        h = {"X-Requested-With": "nightshift"}
+        body = {"kind": "loras", "filename": "put-size.safetensors", "size_bytes": 1234, "size_source": "auto"}
+        self.assertEqual(self.client.put("/api/models", json=body, headers=h).status_code, 403)
+        r = admin.put("/api/models", json=body, headers=h)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["entry"]["size_bytes"], r.json()["entry"]["size_source"]), (1234, "manual"))
+        A.model_registry.record_measured_sizes("loras", {"put-size.safetensors": 1234})
+        # 값이 그대로인 저장은 출처를 바꾸지 않는다
+        r = admin.put("/api/models", json={**body, "notes": "n"}, headers=h)
+        self.assertEqual(r.json()["entry"]["size_source"], "measured")
+        r = admin.put("/api/models", json={**body, "size_bytes": -1}, headers=h)
+        self.assertEqual(r.status_code, 400)
+
+    def test_download_meta_fills_auto_and_done_records_measured(self):
+        admin = self._admin()
+        h = {"X-Requested-With": "nightshift"}
+        pod = {"id": "size-dl", "owner_id": "x", "kind": "comfyui", "enabled": True, "url": "https://d.example.test"}
+        A.model_registry.upsert("vae", "manual.safetensors", {"size_bytes": 11})
+        statuses = {"downloads": [{"id": "d1", "status": "done", "kind": "vae", "filename": "auto.safetensors",
+                                   "downloaded": 4321, "total": 4321}]}
+        def call(p, method, route, body=None):
+            return statuses if route.endswith("status") else {"id": "d1"}
+        with patch.object(A.pod_registry, "get_pod", return_value=pod), \
+             patch.object(A.model_download, "call_node", side_effect=call):
+            for name in ("auto.safetensors", "manual.safetensors"):
+                r = admin.post("/api/models/download", headers=h, json={
+                    "pod_id": "size-dl", "url": "https://civitai.com/api/download/models/1", "kind": "vae",
+                    "filename": name, "meta": {"size_bytes": 777, "size_source": "manual", "notes": "x"}})
+                self.assertEqual(r.status_code, 200, r.text)
+            e = A.model_registry.get_entry("vae", "auto.safetensors")
+            self.assertEqual((e["size_bytes"], e["size_source"]), (777, "auto"))
+            e = A.model_registry.get_entry("vae", "manual.safetensors")
+            self.assertEqual((e["size_bytes"], e["size_source"]), (11, "manual"))
+            self.assertEqual(admin.get("/api/models/downloads", params={"pod_id": "size-dl"}).status_code, 200)
+        e = A.model_registry.get_entry("vae", "auto.safetensors")
+        self.assertEqual((e["size_bytes"], e["size_source"]), (4321, "measured"))
+
+    def test_backfill_sizes_admin_only_with_mock_resolver(self):
+        h = {"X-Requested-With": "nightshift"}
+        A.model_registry.upsert("checkpoints", "bf-ok.safetensors", {"download_url": "https://civitai.com/api/download/models/5"})
+        A.model_registry.upsert("checkpoints", "bf-no.safetensors", {"download_url": "https://example.com/x.safetensors"})
+        A.model_registry.upsert("checkpoints", "bf-has.safetensors",
+                                {"download_url": "https://civitai.com/api/download/models/6", "size_bytes": 3})
+        self.assertEqual(self.client.post("/api/models/backfill-sizes", headers=h).status_code, 403)
+        admin = self._admin()
+        version = {"files": [{"name": "bf-ok.safetensors", "sizeKB": 2, "primary": True},
+                             {"name": "other.safetensors", "sizeKB": 9}]}
+        with patch.object(A.model_download, "_get_json", return_value=version):
+            r = admin.post("/api/models/backfill-sizes", headers=h)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["filled"], 1)
+        e = A.model_registry.get_entry("checkpoints", "bf-ok.safetensors")
+        self.assertEqual((e["size_bytes"], e["size_source"]), (2048, "auto"))
+        self.assertIsNone(A.model_registry.get_entry("checkpoints", "bf-no.safetensors")["size_bytes"])
+        self.assertEqual(A.model_registry.get_entry("checkpoints", "bf-has.safetensors")["size_source"], "manual")
 
 
 if __name__ == "__main__":
