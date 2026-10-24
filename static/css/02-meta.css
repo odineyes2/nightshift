@@ -80,6 +80,10 @@
   }
   .am-toggle .ico{ transition:transform .15s ease; }
   .am-toggle.open .ico{ transform:rotate(180deg); }
+  @media (min-width:900px){
+    .lightbox-overlay:not(.lightbox-fullscreen) .am-toggle .ico{ transform:rotate(-90deg); }
+    .lightbox-overlay:not(.lightbox-fullscreen) .am-toggle.open .ico{ transform:rotate(90deg); }
+  }
   .am-toggle:hover{ background:rgba(255,255,255,0.14); }
   .am-body{
     margin-top:8px; padding:10px 12px; display:flex; flex-direction:column; gap:8px;
