@@ -12,8 +12,8 @@ const BOARD_COMMANDS = [
 ];
 const BOARD_COMMAND_HISTORY_KEY = 'nightshift.boardCommands';
 const BOARD_COMMAND_OPEN_KEY = 'nightshift.quickbarOpen';
-let boardCommandOpen = true;
-try{ boardCommandOpen = localStorage.getItem(BOARD_COMMAND_OPEN_KEY) !== 'false'; }catch(e){ /* 저장소가 없으면 기본값을 쓴다. */ }
+let boardCommandOpen = false;
+try{ boardCommandOpen = localStorage.getItem(BOARD_COMMAND_OPEN_KEY) === 'true'; }catch(e){ /* 저장소가 없으면 기본값을 쓴다. */ }
 let boardCommandPoint = null;
 let boardCommandNext = null;
 let boardCommandBusy = false;
