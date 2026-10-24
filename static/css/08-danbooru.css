@@ -333,6 +333,11 @@
   .lightbox-nav:disabled{ opacity:.25; cursor:not-allowed; }
   .lightbox-prev{ left:20px; }
   .lightbox-next{ right:20px; }
+  @media (min-width:900px){
+    .lightbox-overlay:not(.lightbox-fullscreen):has(.am-body:not([hidden])) .lightbox-next{
+      right:calc(40px + 320px + 20px + 8px);
+    }
+  }
   /* 폰: 위쪽은 닫기·전체 화면 버튼 자리만 남기고 좌우·아래 여백을 줄여 이미지와 조작 줄에 화면을 더 준다. */
   @media (max-width:640px){ .lightbox-overlay{ padding:44px 12px 12px; } }
 
