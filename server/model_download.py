@@ -28,7 +28,7 @@ import db
 from drivers.comfyui import COMFY_USER_AGENT, ComfyUIDriver
 
 NODE_DIR = Path(__file__).resolve().parent.parent / "templates" / "comfy_nodes" / "nightshift_downloader"
-NODE_VERSION = 4   # 2: ultralytics 폴더, 3: 노드팩 설치·ComfyUI 재시작, 4: 받은 크기 확인·이어 받기(NS-85)
+NODE_VERSION = 5   # 2: ultralytics 폴더, 3: 노드팩, 4: 이어 받기, 5: 모델 크기 조회
 FETCH_TIMEOUT = 15
 UNREACHABLE = 424   # 파드에 연결 못 함 — 응답 코드로 그대로 나간다
 MODEL_EXT = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf")
