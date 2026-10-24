@@ -52,7 +52,46 @@ async def get_model_sizes(request: Request):
             for name, size in files.items():
                 if isinstance(name, str) and isinstance(size, int) and not isinstance(size, bool) and size >= 0:
                     target[name] = max(size, target.get(name, 0))
-    return {"sizes": merged}
+    # 실측값으로 등록부를 고친다(이미 있는 항목만) — 바뀐 항목은 화면이 바로 쓰게 updated로 알려 준다.
+    updated = []
+    for kind, files in merged.items():
+        try:
+            updated += await asyncio.to_thread(model_registry.record_measured_sizes, kind, files)
+        except model_registry.RegistryError:
+            continue
+    return {"sizes": merged, "updated": updated}
+
+
+@app.post("/api/models/backfill-sizes")
+async def backfill_model_sizes(request: Request):
+    """등록부에서 용량이 빈 항목 중 Civitai·Hugging Face 주소가 있는 것의 크기를 주소로 알아내 채운다(관리자)."""
+    admin_only(request)
+    token = None
+    try:
+        body = json.loads((await request.body()).decode("utf-8") or "{}")
+        if isinstance(body, dict):
+            token = str(body.get("token") or "").strip() or None
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        pass
+    targets = [e for e in model_registry.list_entries() if not e.get("size_bytes") and e.get("download_url")]
+
+    def run():
+        filled, skipped = [], 0
+        for e in targets:
+            size = model_download.size_for_filename(e["download_url"], e["filename"], token)
+            if not size:
+                skipped += 1
+                continue
+            try:
+                model_registry.upsert(e["kind"], e["filename"], {"size_bytes": size, "size_source": "auto"})
+            except model_registry.RegistryError:
+                skipped += 1
+                continue
+            filled.append({"kind": e["kind"], "filename": e["filename"], "size_bytes": size})
+        return filled, skipped
+
+    filled, skipped = await asyncio.to_thread(run)
+    return {"filled": len(filled), "skipped": skipped, "items": filled}
 
 
 @app.post("/api/models/resolve")
@@ -95,7 +134,12 @@ async def start_model_download(request: Request):
     # 등록부는 관리자만 고칠 수 있다 — 관리자가 받을 때만 Civitai/HF에서 알아낸 정보를 함께 적어 둔다.
     meta = data.get("meta")
     if auth.is_admin(user) and isinstance(meta, dict):
-        fields = {k: meta[k] for k in model_registry.FIELDS if k in meta}
+        fields = {k: meta[k] for k in model_registry.FIELDS if k in meta and k not in ("size_bytes", "size_source")}
+        # 주소에서 알아낸 크기는 auto로 — 사람이 입력한 값(manual)은 덮지 않는다.
+        size = meta.get("size_bytes")
+        current = model_registry.get_entry(kind, filename)
+        if size and not (current and current.get("size_bytes") and current.get("size_source") == "manual"):
+            fields["size_bytes"], fields["size_source"] = size, "auto"
         try:
             model_registry.upsert(kind, filename, fields)
         except model_registry.RegistryError:
@@ -113,6 +157,12 @@ async def list_model_downloads(request: Request, pod_id: str):
             _downloads_seen_done.add(key)
             _model_sizes_cache.pop(pod["id"], None)
             model_download.ComfyUIDriver.invalidate_capabilities(pod["id"])   # 새 파일이 설치 목록에 바로 보이게
+            size = item.get("downloaded") or item.get("total")
+            if item.get("kind") in model_registry.KIND_IDS and item.get("filename") and isinstance(size, int):
+                try:
+                    model_registry.record_measured_sizes(item["kind"], {item["filename"]: size})
+                except model_registry.RegistryError:
+                    pass
     return result
 
 
@@ -220,9 +270,14 @@ async def put_model_registry_entry(request: Request):
         raise HTTPException(400, "유효한 JSON이 아니에요.")
     if not isinstance(data, dict):
         raise HTTPException(400, "{kind, filename, ...} 형태의 객체여야 해요.")
-    fields = {k: data[k] for k in model_registry.FIELDS if k in data}
+    fields = {k: data[k] for k in model_registry.FIELDS if k in data and k != "size_source"}   # 출처는 서버가 정한다
+    kind, filename = str(data.get("kind") or ""), str(data.get("filename") or "")
+    if "size_bytes" in fields:   # 값이 그대로면 보내온 전체 항목 때문에 출처가 manual로 바뀌지 않게 뺀다
+        current = model_registry.get_entry(kind, filename)
+        if current and current.get("size_bytes") == fields["size_bytes"]:
+            del fields["size_bytes"]
     try:
-        entry = model_registry.upsert(str(data.get("kind") or ""), str(data.get("filename") or ""), fields)
+        entry = model_registry.upsert(kind, filename, fields)
     except model_registry.RegistryError as e:
         raise HTTPException(400, str(e))
     return {"entry": entry}
