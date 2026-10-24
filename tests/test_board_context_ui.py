@@ -189,6 +189,8 @@ class BoardContextUITests(unittest.TestCase):
                             page.wait_for_function('() => boardNodes.length === 4')
                             shots = ROOT / '.ui-captures' / 'NS-100-1'
                             shots.mkdir(exist_ok=True)
+                            sidebar_shots = ROOT / '.ui-captures' / 'NS-112-1'
+                            sidebar_shots.mkdir(exist_ok=True)
                             for theme in ('light', 'dark'):
                                 for width, height in ((1300, 850), (390, 800)):
                                     shot_context = browser.new_context(service_workers='block', color_scheme=theme,
@@ -199,8 +201,21 @@ class BoardContextUITests(unittest.TestCase):
                                     shot_page = shot_context.new_page()
                                     shot_page.goto(f'{base}/#project/{project_id}/prboard')
                                     shot_page.wait_for_function("() => currentTab === 'prboard' && boardNodes.length === 4")
-                                    if width == 390 and not shot_page.locator('#board-tree').evaluate('(el) => el.hidden'):
-                                        shot_page.locator('#board-tree-toggle').click()
+                                    tree = shot_page.locator('#board-tree')
+                                    toggle = shot_page.locator('#board-tree-toggle')
+                                    if not tree.evaluate('(el) => el.hidden'):
+                                        toggle.click()
+                                    self.assertTrue(tree.is_visible())
+                                    self.assertAlmostEqual(tree.bounding_box()['width'], 12, delta=1)
+                                    self.assertFalse(shot_page.locator('#board-tree-list').is_visible())
+                                    self.assertEqual(toggle.get_attribute('aria-expanded'), 'false')
+                                    tree.click()
+                                    self.assertFalse(tree.evaluate('(el) => el.hidden'))
+                                    self.assertTrue(shot_page.locator('#board-tree-list').is_visible())
+                                    self.assertEqual(toggle.get_attribute('aria-expanded'), 'true')
+                                    toggle.click()
+                                    self.assertAlmostEqual(tree.bounding_box()['width'], 12, delta=1)
+                                    shot_page.screenshot(path=str(sidebar_shots / f'{theme}-{width}.png'), full_page=True)
                                     shot_box = shot_page.locator('#board-viewport').bounding_box()
                                     shot_page.evaluate('([x,y]) => openBoardCtxMenu(x,y,null)',
                                                        [shot_box['x'] + 20, shot_box['y'] + 80])
