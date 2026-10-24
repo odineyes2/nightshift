@@ -438,11 +438,21 @@ function boardEdgesSvg(){
     if(!c) return '';
     const sel = edge.id === boardSelectedEdgeId;
     return `<path class="board-edge-hit" data-edge-id="${edge.id}" d="${c.d}"/>`
-      + `<path class="board-edge-line${sel ? ' selected' : ''}" data-edge-id="${edge.id}" d="${c.d}" marker-end="url(#${sel ? 'board-arrow-sel' : 'board-arrow'})"/>`;
+      + `<path class="board-edge-line${sel ? ' selected' : ''}" data-edge-id="${edge.id}" d="${c.d}"/>`;
   }).join('');
   const marker = (id) => `<marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>`;
   return `<svg class="board-edges" id="board-edges"><defs>${marker('board-arrow')}${marker('board-arrow-sel')}</defs>${paths}`
     + `<path class="board-edge-temp" id="board-edge-temp" d=""/></svg>`;
+}
+
+function boardArrowheadsSvg(){
+  const paths = boardEdges.map(edge => {
+    const c = boardEdgeCurveById(edge);
+    if(!c) return '';
+    const sel = edge.id === boardSelectedEdgeId;
+    return `<path class="board-edge-arrow${sel ? ' selected' : ''}" data-edge-id="${edge.id}" d="${c.d}" marker-end="url(#${sel ? 'board-arrow-sel' : 'board-arrow'})"/>`;
+  }).join('');
+  return `<svg class="board-edges board-edges-top" id="board-edges-top">${paths}</svg>`;
 }
 
 function boardEdgeDelHtml(){
@@ -454,7 +464,7 @@ function boardEdgeDelHtml(){
     + `style="left:${c.mid.x}px; top:${c.mid.y}px; transform:scale(${1 / boardState.scale});"><svg class="ico"><use href="#i-x"/></svg></button>`;
 }
 
-// 선 층(svg)을 카드보다 먼저 넣어 카드 아래에 깔리게 한다.
+// 선은 카드 아래에, 화살표 머리는 카드 위에 그린다.
 function renderBoard(){
   const world = document.getElementById('board-world');
   if(!world) return;
@@ -462,7 +472,7 @@ function renderBoard(){
   // 묶음 틀은 선·카드보다 먼저 넣어 맨 뒤에 깔고, 큰 틀부터 넣어 안쪽(작은) 틀의 제목 띠가 위에 오게 한다.
   const frames = boardNodes.filter(n => n.kind === 'frame').sort((a, b) => b.width * b.height - a.width * a.height);
   world.innerHTML = frames.map(boardNodeHtml).join('') + boardEdgesSvg()
-    + boardNodes.filter(n => n.kind !== 'frame').map(boardNodeHtml).join('') + boardEdgeDelHtml();
+    + boardNodes.filter(n => n.kind !== 'frame').map(boardNodeHtml).join('') + boardArrowheadsSvg() + boardEdgeDelHtml();
   boardObserveMedia(world);
   paintBoardSelection();
   paintBoardGenSlots();
@@ -478,6 +488,8 @@ function appendBoardNodeEls(nodes){
   if(!document.getElementById('board-edges')){ renderBoard(); return; }
   world.insertAdjacentHTML('afterbegin', nodes.filter(n => n.kind === 'frame').map(boardNodeHtml).join(''));   // 틀은 맨 뒤
   world.insertAdjacentHTML('beforeend', nodes.filter(n => n.kind !== 'frame').map(boardNodeHtml).join(''));
+  const arrowheads = document.getElementById('board-edges-top');
+  if(arrowheads) world.appendChild(arrowheads);
   const edgeDel = document.getElementById('board-edge-del');
   if(edgeDel) world.appendChild(edgeDel);   // 끊기 버튼은 늘 맨 위
   boardObserveMedia(world);
@@ -539,6 +551,9 @@ function renderBoardEdges(){
   const svg = document.getElementById('board-edges');
   if(!svg){ renderBoard(); return; }
   svg.outerHTML = boardEdgesSvg();
+  const top = document.getElementById('board-edges-top');
+  if(top) top.outerHTML = boardArrowheadsSvg();
+  else document.getElementById('board-world').insertAdjacentHTML('beforeend', boardArrowheadsSvg());
   const oldBtn = document.getElementById('board-edge-del');
   if(oldBtn) oldBtn.remove();
   document.getElementById('board-world').insertAdjacentHTML('beforeend', boardEdgeDelHtml());
@@ -583,7 +598,8 @@ function selectBoardEdge(edgeId){
   if(edgeId === boardSelectedEdgeId) return;
   const world = document.getElementById('board-world');
   if(!world) return;
-  world.querySelectorAll('.board-edge-line.selected').forEach(p => {
+  world.querySelectorAll('.board-edge-line.selected').forEach(p => p.classList.remove('selected'));
+  world.querySelectorAll('.board-edge-arrow.selected').forEach(p => {
     p.classList.remove('selected');
     p.setAttribute('marker-end', 'url(#board-arrow)');
   });
@@ -592,9 +608,11 @@ function selectBoardEdge(edgeId){
   boardSelectedEdgeId = edgeId;
   if(edgeId === null) return;
   const line = world.querySelector(`.board-edge-line[data-edge-id="${edgeId}"]`);
-  if(line){
-    line.classList.add('selected');
-    line.setAttribute('marker-end', 'url(#board-arrow-sel)');
+  if(line) line.classList.add('selected');
+  const arrow = world.querySelector(`.board-edge-arrow[data-edge-id="${edgeId}"]`);
+  if(arrow){
+    arrow.classList.add('selected');
+    arrow.setAttribute('marker-end', 'url(#board-arrow-sel)');
   }
   world.insertAdjacentHTML('beforeend', boardEdgeDelHtml());
 }
