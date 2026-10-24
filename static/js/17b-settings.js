@@ -40,8 +40,8 @@ function renderBoardDisplayPreview(){
   const arrow = BOARD_ARROW_SIZES[choice.arrow_size];
   const port = BOARD_PORT_SIZES[choice.port_size];
   document.getElementById('board-display-preview').innerHTML = `<svg viewBox="0 0 260 100" role="img" aria-label="입구 점으로 들어가는 연결선">
-    <defs><marker id="board-preview-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="${arrow}" markerHeight="${arrow}" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--text-dim)"/></marker></defs>
-    <path d="M20,72 C85,72 90,50 178,50" fill="none" stroke="var(--text-dim)" stroke-width="2" marker-end="url(#board-preview-arrow)"/>
+    ${arrow ? `<defs><marker id="board-preview-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="${arrow}" markerHeight="${arrow}" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--text-dim)"/></marker></defs>` : ''}
+    <path d="M20,72 C85,72 90,50 178,50" fill="none" stroke="var(--text-dim)" stroke-width="2"${arrow ? ' marker-end="url(#board-preview-arrow)"' : ''}/>
     <circle cx="180" cy="50" r="${port / 2}" fill="var(--panel)" stroke="var(--running)" stroke-width="2"/>
   </svg>`;
 }
