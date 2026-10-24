@@ -9,13 +9,15 @@ from data_paths import DATA_DIR
 FILE = DATA_DIR / "board_display.json"
 DEFAULT = {"arrow_size": "medium", "port_size": "medium"}
 SIZES = {"small", "medium", "large"}
+ARROW_SIZES = SIZES | {"none"}
 
 
 def validate(value: object) -> dict:
     """두 크기 단계가 모두 지정됐는지 확인한다."""
     if (not isinstance(value, dict) or set(value) != set(DEFAULT)
-            or any(not isinstance(value[key], str) or value[key] not in SIZES for key in DEFAULT)):
-        raise ValueError("화살표 끝과 입구 점 크기를 작게·보통·크게 중에서 골라 주세요.")
+            or not isinstance(value["arrow_size"], str) or value["arrow_size"] not in ARROW_SIZES
+            or not isinstance(value["port_size"], str) or value["port_size"] not in SIZES):
+        raise ValueError("화살표 끝은 없음·작게·보통·크게, 입구 점은 작게·보통·크게 중에서 골라 주세요.")
     return {key: value[key] for key in DEFAULT}
 
 

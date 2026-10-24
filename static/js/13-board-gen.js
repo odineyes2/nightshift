@@ -434,13 +434,13 @@ function boardEdgeCurveToPort(a, p3){
 }
 
 // 보드 공통 크기. 보통·작게는 기존 화살표 7, 입구 점 12px보다 작게 둔다.
-const BOARD_ARROW_SIZES = { small: 4, medium: 5, large: 7 };
+const BOARD_ARROW_SIZES = { none: 0, small: 4, medium: 5, large: 7 };
 const BOARD_PORT_SIZES = { small: 8, medium: 10, large: 12 };
 let boardDisplay = { arrow_size: 'medium', port_size: 'medium' };
 let boardDisplayBoardScope = null;
 
 function applyBoardDisplay(value){
-  if(!value || !BOARD_ARROW_SIZES[value.arrow_size] || !BOARD_PORT_SIZES[value.port_size]) return;
+  if(!value || !Object.hasOwn(BOARD_ARROW_SIZES, value.arrow_size) || !Object.hasOwn(BOARD_PORT_SIZES, value.port_size)) return;
   boardDisplay = { arrow_size: value.arrow_size, port_size: value.port_size };
   document.documentElement.style.setProperty('--board-port-size', `${BOARD_PORT_SIZES[boardDisplay.port_size]}px`);
   if(document.getElementById('board-edges')) renderBoardEdges();
@@ -463,7 +463,7 @@ function boardEdgesSvg(){
   }).join('');
   const size = BOARD_ARROW_SIZES[boardDisplay.arrow_size];
   const marker = (id) => `<marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="${size}" markerHeight="${size}" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>`;
-  return `<svg class="board-edges" id="board-edges"><defs>${marker('board-arrow')}${marker('board-arrow-sel')}</defs>${paths}`
+  return `<svg class="board-edges" id="board-edges"><defs>${size ? marker('board-arrow') + marker('board-arrow-sel') : ''}</defs>${paths}`
     + `<path class="board-edge-temp" id="board-edge-temp" d=""/></svg>`;
 }
 
@@ -472,7 +472,7 @@ function boardArrowheadsSvg(){
     const c = boardEdgeCurveById(edge);
     if(!c) return '';
     const sel = edge.id === boardSelectedEdgeId;
-    return `<path class="board-edge-arrow${sel ? ' selected' : ''}" data-edge-id="${edge.id}" d="${c.d}" marker-end="url(#${sel ? 'board-arrow-sel' : 'board-arrow'})"/>`;
+    return `<path class="board-edge-arrow${sel ? ' selected' : ''}" data-edge-id="${edge.id}" d="${c.d}"${boardDisplay.arrow_size === 'none' ? '' : ` marker-end="url(#${sel ? 'board-arrow-sel' : 'board-arrow'})"`}/>`;
   }).join('');
   return `<svg class="board-edges board-edges-top" id="board-edges-top">${paths}</svg>`;
 }
