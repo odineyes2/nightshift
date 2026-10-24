@@ -603,6 +603,9 @@ function createAssetMetaPanel(root, kind){
   function paintInfo(d){
     let params = {};
     try{ params = d.params_json ? JSON.parse(d.params_json) : {}; }catch(e){ /* 못 읽으면 빈 값 */ }
+    const model = d.checkpoint || (Array.isArray(params.unets) && params.unets[0]) || '';
+    const baseModels = model ? basesOf(modelEntry('checkpoints', model)) : [];
+    const family = (baseModels.length ? baseModels : model ? basesOf(modelEntry('diffusion_models', model)) : []).join(', ');
     const paramText = [
       params.sampler_name, params.scheduler, params.steps != null ? `${params.steps} steps` : null,
       params.cfg != null ? `cfg ${params.cfg}` : null, params.denoise != null && params.denoise !== 1 ? `denoise ${params.denoise}` : null,
@@ -620,7 +623,7 @@ function createAssetMetaPanel(root, kind){
     const negative = d.negative_prompt
       ? `<div class="am-prompt-head"><span>네거티브 프롬프트</span></div><div class="am-prompt">${escapeHtml(d.negative_prompt)}</div>`
       : '';
-    const facts = row('작업', d.job_label) + row('워커', d.pod_name) + row('체크포인트', d.checkpoint)
+    const facts = row('작업', d.job_label) + row('워커', d.pod_name) + row('베이스 모델', family) + row('모델', model)
       + row('시드', d.seed) + row('샘플링', paramText) + row('LoRA', (params.loras || []).join(', ')) + row('해상도', dims)
       + poseRow(params.pose);
     infoEl.innerHTML = (facts ? `<dl class="am-facts">${facts}</dl>` : '') + prompt + enhanced + negative
@@ -712,6 +715,7 @@ function createAssetMetaPanel(root, kind){
       statusEl.textContent = '';
       paintBar(); paintTags(); setOpen(assetMetaOpen);
       const requested = path;
+      const registryLoad = Object.keys(modelRegistry.items).length ? null : fetchModelRegistry();
       try{
         const res = await fetch(`/api/output-assets/detail?path=${encodeURIComponent(requested)}`);
         if(!res.ok) throw new Error('failed');
@@ -723,6 +727,7 @@ function createAssetMetaPanel(root, kind){
         if(!dirty.nsfw) state.nsfw = !!d.nsfw;
         savedNote = d.note || ''; noteEl.value = savedNote;
         paintBar(); paintTags(); paintInfo(d);
+        if(registryLoad) registryLoad.then(() => { if(path === requested && infoEl._detail === d) paintInfo(d); });
       }catch(e){
         if(path === requested) infoEl.innerHTML = '<span class="am-empty">정보를 불러오지 못했어요.</span>';
       }
