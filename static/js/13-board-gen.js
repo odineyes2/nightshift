@@ -240,7 +240,7 @@ async function openBoardGenDetail(nodeId){
   // (갤러리 "영상 만들기"와 같은 순서).
   await fetchInputImages(true);
   if(!boardScopeMatches(projectId, boardId)) return;
-  showTab('jobs', { projectId });
+  // 새 작업 창은 화면 위에 겹쳐 열리므로 보드와 프로젝트 경로를 그대로 둔다.
   await loadJobSettings({ id: null, template_id: data.template_id, options: data.options }, data);
   // 템플릿·워크플로우·값이 다 채워졌으니 바로 "2. 세부 설정"을 보여 준다. goToNewJobDetails는 마법사
   // 설정을 다시 적용할 수 있어(카드 워크플로우를 덮을 수 있음) 쓰지 않고 탭만 바꾼다.

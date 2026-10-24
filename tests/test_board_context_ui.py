@@ -14,6 +14,59 @@ from capture_ui_support import BOOTSTRAP, child_environment, copy_sources, free_
 
 
 class BoardContextUITests(unittest.TestCase):
+    def test_gen_detail_closes_to_same_board(self):
+        from playwright.sync_api import sync_playwright
+
+        (ROOT / '.ui-captures').mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / '.ui-captures') as tmp:
+            directory = Path(tmp)
+            copy_sources(ROOT, tracked_files(ROOT), directory / 'src')
+            env = child_environment(directory)
+            port = free_port()
+            base = f'http://127.0.0.1:{port}'
+            (directory / 'capture_app.py').write_text(BOOTSTRAP, encoding='utf-8')
+            with (directory / 'server.log').open('w', encoding='utf-8') as log:
+                process = subprocess.Popen([sys.executable, str(directory / 'capture_app.py'), str(ROOT / 'scripts'),
+                                            str(directory / 'src' / 'server'), str(port)],
+                                           cwd=directory, env=env, stdout=log, stderr=log)
+                try:
+                    wait_server(process, base)
+                    with isolated_environment(env, directory / 'tmp'), sync_playwright() as playwright:
+                        browser = playwright.chromium.launch(env=env)
+                        try:
+                            context = browser.new_context(service_workers='block', viewport={'width': 1300, 'height': 850})
+                            context.route('**/*', lambda route: route.continue_() if local_request(route.request.url, base) else route.abort())
+                            login(context, base, env)
+                            project = context.request.post(base + '/api/projects',
+                                                           headers={'x-requested-with': 'nightshift',
+                                                                    'content-type': 'application/json'},
+                                                           data=json.dumps({'name': 'Detail UI'})).json()
+                            page = context.new_page()
+                            board_hash = f'#project/{project["id"]}/prboard'
+                            page.goto(f'{base}/{board_hash}')
+                            page.wait_for_function("() => currentTab === 'prboard' && currentBoardId !== null")
+                            page.locator('#board-world .board-empty-notice').wait_for(state='hidden')
+                            page.evaluate('''() => createBoardNode('gen', null, '', null, true,
+                                { template_id: 'seed_batch', workflow: {}, options: { main_prompt: '기본' }, exposed: ['main_prompt'] })''')
+                            detail = page.locator('[data-gen-detail]').first
+                            detail.click()
+                            page.locator('#new-job-modal').wait_for(state='visible')
+                            prompt = page.locator('#new-job-modal .enhance-raw')
+                            self.assertEqual(prompt.input_value(), '기본')
+                            prompt.fill('수정한 프롬프트')
+                            self.assertEqual(page.evaluate('() => currentTab'), 'prboard')
+                            self.assertEqual(page.evaluate('() => location.hash'), board_hash)
+                            page.locator('#new-job-modal-close').click()
+                            page.locator('#new-job-modal').wait_for(state='hidden')
+                            self.assertEqual(page.evaluate('() => currentTab'), 'prboard')
+                            self.assertEqual(page.evaluate('() => location.hash'), board_hash)
+                            self.assertTrue(detail.is_visible())
+                            context.close()
+                        finally:
+                            browser.close()
+                finally:
+                    stop_process(process)
+
     def test_empty_context_cards_and_history(self):
         from playwright.sync_api import sync_playwright
 
