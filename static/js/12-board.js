@@ -260,7 +260,9 @@ function initBoardCanvas(){
   viewport.addEventListener('pointerdown', (e) => {
     const nodeEl = e.target.closest('.board-node');
     if(!nodeEl) return;
-    if(e.pointerType === 'mouse' && e.button !== 0) return;
+    if(e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
+    const middleDrag = e.pointerType === 'mouse' && e.button === 1;
+    if(middleDrag) e.preventDefault();   // 가운데 버튼 자동 스크롤·입력칸 포커스 이동 방지
     // 두 번째 손가락 → 핀치로(카드의 휴지통·연결 점·글칸 위에 닿았더라도)
     if(e.pointerType === 'touch'){
       if(dragNode){ pinchFromNodeDrag(e); return; }
@@ -268,7 +270,7 @@ function initBoardCanvas(){
       if(bgPointers.size){ addBoardPanPointer(e); return; }
     }
     if(dragNode || marquee) return;
-    if(e.target.closest('.board-node-del, .board-node-fill, .board-node-handle, .board-frame-resize, .board-node-resize, .board-node-textarea, .board-gen-input, .board-gen-btn, .board-frame-fold, .board-gen-copy, .prompt-options-help-button, .board-gen-port')) return;   // 삭제 버튼/연결 점/틀 크기 손잡이/글쓰기 중인 글칸/생성 카드 입력칸은 드래그 시작 안 함
+    if(!middleDrag && e.target.closest('.board-node-del, .board-node-fill, .board-node-handle, .board-frame-resize, .board-node-resize, .board-node-textarea, .board-gen-input, .board-gen-btn, .board-frame-fold, .board-gen-copy, .prompt-options-help-button, .board-gen-port')) return;   // 왼쪽 버튼은 기존 입력·버튼 동작을 따른다
     const id = Number(nodeEl.dataset.nodeId);
     if(!boardNodes.some(n => n.id === id)) return;
     const selBefore = new Set(boardSelectedIds);   // 핀치로 바뀌면 이걸로 되돌린다
@@ -292,7 +294,7 @@ function initBoardCanvas(){
     const group = boardNodes.filter(n => moveIds.has(n.id)).map(n => ({
       node: n, el: world.querySelector(`.board-node[data-node-id="${n.id}"]`), startX: n.x, startY: n.y,
     })).filter(g => g.el);
-    dragNode = { id, el: nodeEl, pointerId: e.pointerId, pointerType: e.pointerType, additive, active: false,
+    dragNode = { id, el: nodeEl, pointerId: e.pointerId, pointerType: e.pointerType, middleDrag, additive, active: false,
                  onGrip: !!e.target.closest('.board-node-grip'), selBefore,
                  wasSole: selBefore.size === 1 && selBefore.has(id),
                  startClientX: e.clientX, startClientY: e.clientY, lastX: e.clientX, lastY: e.clientY, group };
@@ -325,7 +327,7 @@ function initBoardCanvas(){
     dragNode = null;
     for(const g of d.group) g.el.classList.remove('dragging');
     const moved = d.group.filter(g => g.node.x !== g.startX || g.node.y !== g.startY);
-    if(e.type === 'pointerup' && !d.active && !d.additive){
+    if(e.type === 'pointerup' && !d.active && !d.additive && !d.middleDrag){
       // 끌지 않고 톡 누름 — 여러 장 골라 둔 상태였으면 이 카드만 남긴다.
       if(boardSelectedIds.size > 1) setBoardSelection(new Set([d.id]));
       if(d.el.classList.contains('board-node-job')) openBoardJobDetail(d.id);   // 작업 카드 → 상세 창
@@ -356,6 +358,15 @@ function initBoardCanvas(){
     }
   };
   for(const type of ['pointerup', 'pointercancel', 'pointerleave']) viewport.addEventListener(type, endBoardNodeDrag);
+  viewport.addEventListener('mousedown', (e) => {
+    if(e.button === 1 && e.target.closest('.board-node')) e.preventDefault();
+  });
+  for(const type of ['click', 'auxclick']) viewport.addEventListener(type, (e) => {
+    if(e.button === 1 && e.target.closest('.board-node')){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }, true);
 
   // 크기 바꾸기(묶음 틀 · 이미지 · 영상 · 텍스트 · 생성 카드) — 오른쪽 아래 손잡이를 끈다. 끄는 동안 붙은 선이
   // 따라오고, 끝났을 때 한 번만 저장하고 되돌리기 기록을 남긴다. 최소 크기는 종류마다(BOARD_MIN_SIZE).
