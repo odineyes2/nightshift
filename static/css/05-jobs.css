@@ -181,8 +181,11 @@
   @media(max-width:640px){
     .job-card{ grid-template-columns:1fr 1fr; padding:14px; }
     .job-progress, .job-finished{ grid-column:auto; }
-    .job-list-toolbar input[type="search"]{ flex-basis:100%; }
-    .job-list-toolbar select{ flex:1; }
+    .job-list-toolbar{ display:grid; grid-template-columns:auto minmax(0,1fr); }
+    .job-list-toolbar > label[for="job-search"],
+    .job-list-toolbar input[type="search"],
+    .job-list-toolbar .job-show-done{ grid-column:1 / -1; }
+    .job-list-toolbar select{ width:100%; }
     #job-add-btn{ margin-left:0; }
   }
   .job-detail-actions{ display:flex; flex-wrap:wrap; gap:8px; }
