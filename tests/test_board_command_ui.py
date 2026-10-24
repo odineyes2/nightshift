@@ -59,6 +59,13 @@ class BoardCommandUITests(unittest.TestCase):
                     project_id = project.json()['id']
                     page.goto(base + '/')
                     page.evaluate('async (id) => { await fetchProjects(); showTab("prboard", {projectId: id}); }', project_id)
+                    # 저장값이 없으면 퀵바·퀵런 모두 닫힌 채 시작하고, `/`로 열면 'true'가 저장된다.
+                    expect(page.locator('#board-command')).to_be_hidden()
+                    expect(page.locator('#composer')).to_be_hidden()
+                    self.assertIsNone(page.evaluate('localStorage.getItem("nightshift.quickbarOpen")'))
+                    page.keyboard.press('/')
+                    expect(page.locator('#board-command')).to_be_visible()
+                    self.assertEqual(page.evaluate('localStorage.getItem("nightshift.quickbarOpen")'), 'true')
                     parsed = page.evaluate('''() => [
                         parseBoardCommand('메모'), parseBoardCommand('/t 제목'),
                         parseBoardCommand('//slash'), parseBoardCommand('/txet')
