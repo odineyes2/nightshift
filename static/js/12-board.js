@@ -751,6 +751,7 @@ function initBoardTree(){
     toggle.setAttribute('aria-expanded', String(!tree.hidden));
     resizeBoardViewport();
   });
+  tree.addEventListener('click', () => { if(tree.hidden) toggle.click(); });
   document.getElementById('board-tree-add').addEventListener('click', addProjectBoard);
   const list = document.getElementById('board-tree-list');
   list.addEventListener('dblclick', e => {
