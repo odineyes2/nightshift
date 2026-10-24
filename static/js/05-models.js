@@ -440,8 +440,6 @@ function renderModelAddForm(){
 }
 
 // 용량이 빈 항목을 다운로드 주소(Civitai·Hugging Face)로 한 번에 채운다(관리자).
-document.getElementById('model-add-toggle').insertAdjacentHTML('afterend',
-  '<button class="load-btn" id="model-fill-sizes" type="button" style="display:none;" title="다운로드 주소로 용량이 빈 항목을 채워요">용량 채우기</button>');
 document.getElementById('model-fill-sizes').addEventListener('click', async (e) => {
   const btn = e.currentTarget;
   btn.disabled = true;
