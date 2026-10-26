@@ -180,6 +180,34 @@ def list_deleted_jobs(request: Request):
     return {"jobs": ordered, "retention": DELETED_JOBS_RETENTION}
 
 
+@app.get("/api/jobs/{job_id}/outputs")
+def job_outputs(job_id: str, request: Request):
+    """작업 소유자에게 색인된 결과 이미지만 내려받기 주소와 함께 보여 준다."""
+    user = me(request)
+    with lock:
+        job = jobs.get(job_id)
+        status = job.get("status") if job else None
+        owner_id = job.get("owner_id") if job else None
+    if job is None:
+        raise HTTPException(404, "없는 작업이에요.")
+    if not auth.can_access(user, owner_id):
+        raise HTTPException(403, "이 작업을 볼 수 없어요.")
+    _sync_assets_quietly()
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT path FROM assets WHERE job_id=? AND owner_id IS ? "
+            "AND kind='image' AND deleted_at IS NULL ORDER BY path",
+            (job_id, owner_id),
+        ).fetchall()
+    images = []
+    for row in rows:
+        path = Path(OUTPUT_DIR) / row["path"]
+        if path.is_file():
+            images.append({"name": row["path"], "size": path.stat().st_size,
+                           "url": "/api/output-images/" + urllib.parse.quote(row["path"], safe="/")})
+    return {"status": status, "images": images}
+
+
 @app.get("/api/jobs/{job_id}/log")
 def job_log(job_id: str, request: Request, tail: int = 200):
     job_or_404(me(request), job_id)
