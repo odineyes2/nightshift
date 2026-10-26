@@ -197,18 +197,19 @@ async def forget_comfy_outputs(request: Request):
     return {"forgotten": removed, **sync_state_summary()}
 
 
-def _require_output_owner(rel_path: str, not_found: str) -> None:
-    """결과 파일 하나에 접근해도 되는지 — 관리자는 전부, 일반 회원은 자기 것만(남의 것은 없는 것처럼 404)."""
+def _require_output_owner(rel_path: str, denied_status: int = 404) -> None:
+    """결과 파일 하나에 접근해도 되는지 — 관리자는 전부, 일반 회원은 자기 것만 확인한다."""
     user = auth.current_user.get()
     if user is None:
         raise HTTPException(401, "로그인이 필요해요.")
     if auth.is_admin(user):
         return
     if assets_index.owner_of(rel_path) != user["id"]:
-        raise HTTPException(404, not_found)
+        detail = "이미지를 찾을 수 없어요." if denied_status == 404 else "이 이미지를 볼 수 없어요."
+        raise HTTPException(denied_status, detail)
 
 
-def resolve_output_image(filename: str) -> Path:
+def resolve_output_image(filename: str, denied_status: int = 404) -> Path:
     # filename은 "job_id/파일명.png"처럼 한 단계 하위 폴더를 포함할 수 있다(작업별
     # 폴더 구조, output_images.py 참고). ".."로 상위 폴더를 벗어나려는 시도나 절대
     # 경로는 막고, 정규화한 최종 경로가 여전히 OUTPUT_DIR 내부인지 다시 한번 확인한다
@@ -221,7 +222,7 @@ def resolve_output_image(filename: str) -> Path:
         raise HTTPException(400, "올바르지 않은 파일명이에요.")
     if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
         raise HTTPException(404, "이미지를 찾을 수 없어요.")
-    _require_output_owner(path.relative_to(base).as_posix(), "이미지를 찾을 수 없어요.")
+    _require_output_owner(path.relative_to(base).as_posix(), denied_status)
     return path
 
 
@@ -273,7 +274,7 @@ def get_output_image_thumbnail(filename: str, request: Request, size: int = 320,
     # 긴 이미지의 짧은 변이 칸보다 작아져 CSS가 늘려 그리는 바람에 흐릿해졌다.
     if fit not in ("inside", "cover"):
         raise HTTPException(400, "fit은 inside 또는 cover여야 해요.")
-    path = resolve_output_image(filename)
+    path = resolve_output_image(filename, denied_status=403)
     size = thumb_size_step(size)
     stat = path.stat()
     prefix = _thumb_cache_prefix(path)
@@ -312,7 +313,7 @@ def get_output_image_thumbnail(filename: str, request: Request, size: int = 320,
 @app.get("/api/output-images/{filename:path}")
 def get_output_image(filename: str):
     # 갤러리 라이트박스에서 원본 크기로 보여주는 용도.
-    return FileResponse(resolve_output_image(filename))
+    return FileResponse(resolve_output_image(filename, denied_status=403))
 
 
 @app.delete("/api/output-images/{filename:path}")
