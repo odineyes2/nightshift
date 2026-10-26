@@ -414,6 +414,7 @@ async def create_job(
     project_id: int | None = None,
     user: dict | None = None,
     start_paused: bool = False,
+    parse_inline_options: bool = True,
 ) -> dict:
     # POST /api/upload(사람이 브라우저에서 파일 첨부)와 POST /api/jobs(LLM 등
     # 프로그램이 JSON으로 호출)가 공유하는 실제 잡 생성 로직 — 두 경로 모두
@@ -526,7 +527,7 @@ async def create_job(
 
     # 순차 생성 포즈 목록(NS-42)은 옵션(환경변수)으로 넘기지 않고 파일로 저장한다.
     raw_options = dict(raw_options)
-    if not requires_csv and raw_options.get("main_prompt"):
+    if parse_inline_options and not requires_csv and raw_options.get("main_prompt"):
         clean, overrides, errors = prompt_options.parse_prompt_options(raw_options["main_prompt"])
         if errors:
             raise HTTPException(400, "; ".join(errors))
@@ -898,6 +899,63 @@ def quick_run_presets(request: Request):
         wf = _read_recent_workflow(store, entry) if entry else None
         out.append({**meta, **quick_run.classify_workflow(wf)})
     return {"presets": out}
+
+
+@app.get("/api/generate/presets")
+def list_generate_presets(request: Request):
+    user = me(request)
+    if user.get("role") == "admin":
+        return {"presets": generate_presets.list_presets()}
+    return {"presets": generate_presets.list_presets(user["id"])}
+
+
+@app.get("/api/generate/capacity")
+def generate_capacity(request: Request):
+    me(request)
+    pods = [p for p in pod_registry.list_pods() if p.get("kind") == pod_registry.DEFAULT_KIND]
+    with lock:
+        active = [j for j in jobs.values() if not j.get("deleted")]
+        queued = sum(j["status"] in ("queued", "pending") for j in active)
+        running = sum(j["status"] == "running" for j in active)
+    return {"pods_online": sum(bool(p.get("enabled")) for p in pods), "pods_total": len(pods),
+            "queued_jobs": queued, "running_jobs": running}
+
+
+@app.post("/api/generate")
+async def generate_image(request: Request):
+    user = me(request)
+    body = await read_json_object(request, allow_empty=False)
+    name = body.get("preset")
+    if not isinstance(name, str):
+        raise HTTPException(400, "프리셋을 골라 주세요.")
+    preset = generate_presets.get(name)
+    if preset is None:
+        raise HTTPException(404, "프리셋을 찾을 수 없어요.")
+    if not preset["enabled"] or (user.get("role") != "admin" and user["id"] not in preset["user_ids"]):
+        raise HTTPException(403, "이 프리셋을 사용할 수 없어요.")
+    prompt = body.get("prompt")
+    negative = body.get("negative_prompt", "")
+    if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000:
+        raise HTTPException(400, "프롬프트는 1~4000자로 입력해 주세요.")
+    if not isinstance(negative, str) or len(negative) > 4000:
+        raise HTTPException(400, "네거티브 프롬프트는 4000자 이하여야 해요.")
+    try:
+        count = generate_presets._integer(body.get("count", 1), "장수", 1, min(8, preset["max_count"]))
+        seed = generate_presets._integer(body.get("seed", secrets.randbelow(2**32)), "시드", 0, 2**32 - 1)
+    except generate_presets.PresetError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    aspect = body.get("aspect")
+    if aspect is None:
+        aspect = next(iter(preset["aspects"]))
+    if not isinstance(aspect, str) or aspect not in preset["aspects"]:
+        raise HTTPException(400, "허용되지 않은 비율이에요.")
+    workflow = generate_presets.build_workflow(preset, prompt.strip(), negative, aspect, seed)
+    options = {"main_prompt": prompt.strip(), "negative_prompt": negative, "seed_count": str(count),
+               "seed_mode": "sequential", "seed_start": str(seed), "width": str(preset["aspects"][aspect][0]),
+               "height": str(preset["aspects"][aspect][1]), "steps": str(preset["steps"])}
+    job = await create_job(resolve_template("seed_batch"), json.dumps(workflow, ensure_ascii=False).encode(),
+                           f"preset_{name}.json", None, None, options, user=user, parse_inline_options=False)
+    return {"job_id": job["id"], "status": job["status"]}
 
 
 @app.post("/api/quick-run")

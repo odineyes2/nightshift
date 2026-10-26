@@ -66,7 +66,7 @@ class ServiceTokenHTTPTests(unittest.TestCase):
         self.assertNotIn("token", listed[0])
         self.assertNotIn("token_hash", listed[0])
         header = {"Authorization": f"Bearer {token}"}
-        self.assertEqual(self.client.get("/api/generate/capacity", headers=header).status_code, 404)
+        self.assertEqual(self.client.get("/api/generate/capacity", headers=header).status_code, 200)
         revoked = self.admin.delete(f"/api/admin/service-tokens/{issued['id']}", headers=self.write)
         self.assertEqual(revoked.status_code, 200, revoked.text)
         self.assertIsNotNone(revoked.json()["revoked_at"])
@@ -79,8 +79,8 @@ class ServiceTokenHTTPTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/admin/users", headers=header).status_code, 403)
         self.assertEqual(self.client.get("/api/auth/me", headers=header).status_code, 403)
         self.assertEqual(self.client.get("/api/projects", headers=header).status_code, 403)
-        # 생성 API는 다음 Task에서 등록된다. 지금은 인증·허용 목록을 통과한 뒤 405다.
-        self.assertEqual(self.client.post("/api/generate", headers=header, json={}).status_code, 405)
+        # 인증·허용 목록을 통과한 뒤에는 본문 검증으로 넘어간다.
+        self.assertEqual(self.client.post("/api/generate", headers=header, json={}).status_code, 400)
         self.assertEqual(self.admin.get("/api/admin/users", headers=header).status_code, 403)
         with db.connect() as conn:
             conn.execute("INSERT INTO assets(path, kind, created_at, owner_id) VALUES(?,?,?,?)",
