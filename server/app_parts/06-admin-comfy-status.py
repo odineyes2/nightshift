@@ -34,6 +34,35 @@ def admin_list_users(request: Request):
     return {"users": auth.list_users()}
 
 
+@app.get("/api/admin/service-tokens")
+def admin_list_service_tokens(request: Request):
+    admin_only(request)
+    return {"tokens": service_tokens.list_tokens()}
+
+
+@app.post("/api/admin/service-tokens")
+async def admin_issue_service_token(request: Request):
+    admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        user_id = int(body.get("user_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "회원 ID를 입력해 주세요.")
+    try:
+        return service_tokens.issue(user_id, body.get("name"))
+    except service_tokens.ServiceTokenError as exc:
+        raise HTTPException(exc.status, str(exc))
+
+
+@app.delete("/api/admin/service-tokens/{token_id}")
+def admin_revoke_service_token(token_id: int, request: Request):
+    admin_only(request)
+    try:
+        return service_tokens.revoke(token_id)
+    except service_tokens.ServiceTokenError as exc:
+        raise HTTPException(exc.status, str(exc))
+
+
 @app.post("/api/admin/users/{user_id}/status")
 async def admin_set_user_status(user_id: int, request: Request):
     admin = admin_only(request)

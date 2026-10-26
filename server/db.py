@@ -600,12 +600,26 @@ ALTER TABLE models ADD COLUMN size_bytes INTEGER;
 ALTER TABLE models ADD COLUMN size_source TEXT NOT NULL DEFAULT ''
 """
 
+SCHEMA_V30 = """
+CREATE TABLE service_tokens (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  last4 TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT,
+  last_used_at TEXT
+);
+CREATE INDEX service_tokens_user ON service_tokens(user_id, created_at DESC)
+"""
+
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
               (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16), (17, SCHEMA_V17), (18, SCHEMA_V18),
               (19, SCHEMA_V19), (20, SCHEMA_V20), (21, SCHEMA_V21), (22, SCHEMA_V22), (23, SCHEMA_V23), (24, SCHEMA_V24),
               (25, SCHEMA_V25), (26, SCHEMA_V26), (27, SCHEMA_V27), (28, SCHEMA_V28),
-              (29, SCHEMA_V29)]
+              (29, SCHEMA_V29), (30, SCHEMA_V30)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}

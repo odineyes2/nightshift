@@ -27,6 +27,14 @@ MCP_KEY_BLOCKED_RE = re.compile(r"^/api/(auth|admin)/")
 MCP_KEY_PROXY_HEADERS = ("cf-connecting-ip", "x-forwarded-for")
 LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
 
+# 서비스 토큰은 생성·자기 작업 조회·결과 이미지 GET에만 쓴다.
+SERVICE_TOKEN_ROUTES = (
+    ("POST", re.compile(r"^/api/generate$")),
+    ("GET", re.compile(r"^/api/generate/(?:capacity|presets)$")),
+    ("GET", re.compile(r"^/api/jobs/[^/]+(?:/outputs)?$")),
+    ("GET", re.compile(r"^/api/output-images/[^/]+(?:/[^/]+)*(?:/thumbnail)?$")),
+)
+
 # 로그인 쿠키에 Domain을 찍으면(예: lomebrote.com) 다른 서브도메인(opencut.lomebrote.com의
 # 로그인 게이트 등)도 같은 쿠키를 받아 SSO가 된다. 비워 두면 지금처럼 이 서브도메인 전용(host-only)이다.
 COOKIE_DOMAIN = os.environ.get("NIGHTSHIFT_COOKIE_DOMAIN", "").strip() or None
@@ -52,6 +60,8 @@ async def authenticate_request(request: Request, call_next):
     path = request.url.path
     request.state.user = None
     request.state.internal = False
+    authorization = request.headers.get("authorization", "")
+    service_token = authorization[7:] if authorization.startswith("Bearer nst_") else None
     if not path.startswith("/api/"):
         response = await call_next(request)
         # 화면 파일은 매번 재검증한다(업데이트 뒤 옛 index.html과 새 JS가 섞이지 않게)
@@ -85,7 +95,7 @@ async def authenticate_request(request: Request, call_next):
         if internal_ok:
             request.state.internal = True
             return await call_next(request)
-        if request.headers.get(CSRF_HEADER, "").lower() != CSRF_VALUE:
+        if service_token is None and request.headers.get(CSRF_HEADER, "").lower() != CSRF_VALUE:
             return JSONResponse({"detail": "요청이 올바르지 않아요(화면을 새로고침해 주세요)."}, status_code=403)
 
     try:
@@ -93,7 +103,24 @@ async def authenticate_request(request: Request, call_next):
             return JSONResponse({"detail": "요청이 너무 커요."}, status_code=413)
     except ValueError:
         pass
-    if request.headers.get(MCP_KEY_HEADER):
+    if service_token is not None:
+        user = await asyncio.to_thread(service_tokens.user_for_token, service_token)
+        if user is None:
+            return JSONResponse({"detail": "서비스 토큰이 올바르지 않아요."}, status_code=401)
+        if not any(method == request.method and pattern.fullmatch(path)
+                   for method, pattern in SERVICE_TOKEN_ROUTES):
+            return JSONResponse({"detail": "서비스 토큰으로는 이 API를 쓸 수 없어요."}, status_code=403)
+        if path.startswith("/api/output-images/"):
+            image_path = path.removeprefix("/api/output-images/")
+            if image_path.endswith("/thumbnail"):
+                image_path = image_path.removesuffix("/thumbnail")
+            # 결과 API가 소유 범위를 검사하기 전에도 토큰으로 남의 파일을 읽을 수 없게 한다.
+            with db.connect() as conn:
+                asset = conn.execute("SELECT owner_id FROM assets WHERE path=? AND kind='image' "
+                                     "AND deleted_at IS NULL", (image_path,)).fetchone()
+            if asset is None or asset["owner_id"] != user["id"]:
+                return JSONResponse({"detail": "이 이미지를 볼 수 없어요."}, status_code=403)
+    elif request.headers.get(MCP_KEY_HEADER):
         user = await asyncio.to_thread(_mcp_key_user, request)
         if user is None:
             return JSONResponse({"detail": "MCP 내부 키가 올바르지 않거나, 이 경로로는 쓸 수 없어요."}, status_code=401)
