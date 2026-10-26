@@ -8,6 +8,7 @@ function setSettingsError(msg){ document.getElementById('settings-error').textCo
 let settingsSubtab = 'base-models';
 
 async function openSettingsTab(){
+  if(settingsSubtab !== 'service-tokens') dismissIssuedServiceToken();
   document.querySelectorAll('#settings-subtabs [data-settings-tab]').forEach(b =>
     b.classList.toggle('active', b.dataset.settingsTab === settingsSubtab));
   document.querySelectorAll('#tab-settings .settings-pane').forEach(p =>
@@ -16,6 +17,8 @@ async function openSettingsTab(){
   if(settingsSubtab === 'notifications') return loadNotifySettings();
   if(settingsSubtab === 'runpod-gpus') return loadRunpodGpuSettings();
   if(settingsSubtab === 'moodboard') return loadBoardDisplaySettings();
+  if(settingsSubtab === 'service-tokens') return loadServiceTokenSettings();
+  if(settingsSubtab === 'generate-presets') return loadGeneratePresetSettings();
   await fetchModelRegistry();
   renderBaseModelSettings();
 }
@@ -25,6 +28,148 @@ document.getElementById('settings-subtabs').addEventListener('click', (e) => {
   if(!btn || btn.dataset.settingsTab === settingsSubtab) return;
   settingsSubtab = btn.dataset.settingsTab;
   openSettingsTab();
+});
+
+// 서비스 토큰 원문은 현재 발급 응답에서만 화면에 두고, 확인하거나 탭을 떠나면 지운다.
+function dismissIssuedServiceToken(){
+  document.getElementById('service-token-value').value = '';
+  document.getElementById('service-token-issued').hidden = true;
+}
+document.getElementById('service-token-dismiss').addEventListener('click', dismissIssuedServiceToken);
+window.addEventListener('hashchange', () => { if(location.hash !== '#settings') dismissIssuedServiceToken(); });
+
+let settingsUsers = [];
+let settingsPresets = [];
+let editingPresetName = null;
+
+async function settingsAdminRequest(url, options){
+  const res = await fetch(url, options);
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok) throw new Error(data.detail || `요청하지 못했어요 (${res.status})`);
+  return data;
+}
+
+async function loadServiceTokenSettings(){
+  try{
+    const [users, tokens] = await Promise.all([settingsAdminRequest('/api/admin/users'), settingsAdminRequest('/api/admin/service-tokens')]);
+    settingsUsers = users.users.filter(u => u.role !== 'admin' && u.status === 'active');
+    const picker = document.getElementById('service-token-user');
+    picker.innerHTML = settingsUsers.length ? settingsUsers.map(u => `<option value="${u.id}">${escapeHtml(u.username)}</option>`).join('') : '<option value="">활성 일반 회원이 없어요</option>';
+    document.querySelector('#service-token-form button[type="submit"]').disabled = !settingsUsers.length;
+    document.getElementById('service-token-list').innerHTML = tokens.tokens.length ? tokens.tokens.map(t => {
+      const owner = users.users.find(u => u.id === t.user_id);
+      return `<div class="settings-record"><div><strong>${escapeHtml(t.name)}</strong><div class="dl-meta">${escapeHtml(owner?.username || String(t.user_id))} · 끝 4자리 ${escapeHtml(t.last4)} · ${t.revoked_at ? '폐기됨' : '사용 중'}</div></div>${t.revoked_at ? '' : `<button class="modal-btn-secondary" type="button" data-revoke-token="${t.id}">폐기</button>`}</div>`;
+    }).join('') : '<div class="empty">발급한 서비스 토큰이 없어요.</div>';
+  }catch(err){ setSettingsError(err.message); }
+}
+
+document.getElementById('service-token-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = e.currentTarget.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try{
+    const data = await settingsAdminRequest('/api/admin/service-tokens', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:Number(document.getElementById('service-token-user').value), name:document.getElementById('service-token-name').value.trim()})});
+    dismissIssuedServiceToken();
+    document.getElementById('service-token-value').value = data.token;
+    document.getElementById('service-token-issued').hidden = false;
+    document.getElementById('service-token-name').value = '';
+    await loadServiceTokenSettings();
+    setSettingsError('');
+  }catch(err){ setSettingsError(err.message); }
+  finally{ btn.disabled = false; }
+});
+
+document.getElementById('service-token-list').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-revoke-token]');
+  if(!btn || !confirm('이 서비스 토큰을 폐기할까요?')) return;
+  btn.disabled = true;
+  try{
+    await settingsAdminRequest(`/api/admin/service-tokens/${btn.dataset.revokeToken}`, {method:'DELETE'});
+    dismissIssuedServiceToken();
+    await loadServiceTokenSettings();
+    setSettingsError(''); flashNotice('토큰을 폐기했어요.');
+  }catch(err){ btn.disabled = false; setSettingsError(err.message); }
+});
+
+function renderGeneratePresetUsers(selected=[]){
+  document.getElementById('generate-preset-users').innerHTML = settingsUsers.length ? settingsUsers.map(u => `<label><input type="checkbox" value="${u.id}"${selected.includes(u.id) ? ' checked' : ''}> ${escapeHtml(u.username)}</label>`).join('') : '<div class="empty">활성 일반 회원이 없어요.</div>';
+}
+
+function resetGeneratePresetForm(){
+  editingPresetName = null;
+  document.getElementById('generate-preset-form').reset();
+  document.getElementById('generate-preset-aspects').value = '';
+  document.getElementById('generate-preset-enabled').setAttribute('aria-checked', 'true');
+  document.getElementById('generate-preset-form-title').textContent = '프리셋 추가';
+  document.getElementById('generate-preset-cancel').hidden = true;
+  renderGeneratePresetUsers();
+}
+
+async function loadGeneratePresetSettings(){
+  try{
+    const [users, data] = await Promise.all([settingsAdminRequest('/api/admin/users'), settingsAdminRequest('/api/admin/generate-presets')]);
+    settingsUsers = users.users.filter(u => u.role !== 'admin' && u.status === 'active');
+    settingsPresets = data.presets;
+    document.getElementById('generate-preset-list').innerHTML = settingsPresets.length ? settingsPresets.map((p, i) => `<div class="settings-record"><div><strong>${escapeHtml(p.name)}</strong><div class="dl-meta">${p.width} × ${p.height} · ${p.steps}단계 · 최대 ${p.max_count}장 · ${p.enabled ? '사용 중' : '꺼짐'}</div></div><div class="settings-bm-row"><button class="modal-btn-secondary" type="button" data-edit-preset="${i}">편집</button><button class="modal-btn-secondary settings-danger" type="button" data-delete-preset="${i}">삭제</button></div></div>`).join('') : '<div class="empty">등록된 생성 프리셋이 없어요.</div>';
+    if(editingPresetName && !settingsPresets.some(p => p.name === editingPresetName)) resetGeneratePresetForm();
+    else renderGeneratePresetUsers(editingPresetName ? settingsPresets.find(p => p.name === editingPresetName)?.user_ids : []);
+  }catch(err){ setSettingsError(err.message); }
+}
+
+document.getElementById('generate-preset-list').addEventListener('click', async e => {
+  const edit = e.target.closest('[data-edit-preset]');
+  const del = e.target.closest('[data-delete-preset]');
+  if(edit){
+    const p = settingsPresets[Number(edit.dataset.editPreset)];
+    editingPresetName = p.name;
+    for(const key of ['name','width','height','steps','max_count']) document.getElementById('generate-preset-' + key.replace('_','-')).value = p[key];
+    document.getElementById('generate-preset-aspects').value = JSON.stringify(p.aspects, null, 2);
+    document.getElementById('generate-preset-workflow').value = JSON.stringify(p.workflow, null, 2);
+    document.getElementById('generate-preset-enabled').setAttribute('aria-checked', String(p.enabled));
+    document.getElementById('generate-preset-form-title').textContent = `프리셋 편집: ${p.name}`;
+    document.getElementById('generate-preset-cancel').hidden = false;
+    renderGeneratePresetUsers(p.user_ids);
+    document.getElementById('generate-preset-form').scrollIntoView({block:'nearest'});
+  }
+  if(del){
+    const p = settingsPresets[Number(del.dataset.deletePreset)];
+    if(!confirm(`${p.name} 프리셋을 삭제할까요?`)) return;
+    del.disabled = true;
+    try{
+      await settingsAdminRequest(`/api/admin/generate-presets/${encodeURIComponent(p.name)}`, {method:'DELETE'});
+      if(editingPresetName === p.name) resetGeneratePresetForm();
+      await loadGeneratePresetSettings(); setSettingsError(''); flashNotice('프리셋을 삭제했어요.');
+    }catch(err){ del.disabled = false; setSettingsError(err.message); }
+  }
+});
+
+document.getElementById('generate-preset-enabled').addEventListener('click', e => e.currentTarget.setAttribute('aria-checked', String(e.currentTarget.getAttribute('aria-checked') !== 'true')));
+document.getElementById('generate-preset-cancel').addEventListener('click', resetGeneratePresetForm);
+document.getElementById('generate-preset-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('generate-preset-save');
+  let body;
+  try{
+    const width = Number(document.getElementById('generate-preset-width').value);
+    const height = Number(document.getElementById('generate-preset-height').value);
+    const aspectsText = document.getElementById('generate-preset-aspects').value.trim();
+    body = {
+      name:document.getElementById('generate-preset-name').value.trim(), width, height,
+      steps:Number(document.getElementById('generate-preset-steps').value),
+      max_count:Number(document.getElementById('generate-preset-max-count').value),
+      aspects:aspectsText ? JSON.parse(aspectsText) : {default:[width,height]},
+      workflow:JSON.parse(document.getElementById('generate-preset-workflow').value),
+      user_ids:[...document.querySelectorAll('#generate-preset-users input:checked')].map(x => Number(x.value)),
+      enabled:document.getElementById('generate-preset-enabled').getAttribute('aria-checked') === 'true',
+    };
+  }catch(err){ setSettingsError('비율별 크기와 워크플로를 올바른 JSON으로 입력해 주세요.'); return; }
+  btn.disabled = true; btn.textContent = '저장 중…';
+  try{
+    const path = editingPresetName ? `/api/admin/generate-presets/${encodeURIComponent(editingPresetName)}` : '/api/admin/generate-presets';
+    await settingsAdminRequest(path, {method:editingPresetName ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    resetGeneratePresetForm(); await loadGeneratePresetSettings(); setSettingsError(''); flashNotice('프리셋을 저장했어요.');
+  }catch(err){ setSettingsError(err.message); }
+  finally{ btn.disabled = false; btn.textContent = '프리셋 저장'; }
 });
 
 // 선택은 미리보기에만 반영하고, 저장이 성공했을 때 보드에 적용한다.

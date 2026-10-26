@@ -1016,6 +1016,8 @@
         <button class="pod-subtab-btn" type="button" data-settings-tab="notifications">Notification</button>
         <button class="pod-subtab-btn" type="button" data-settings-tab="runpod-gpus">RunPod GPU</button>
         <button class="pod-subtab-btn" type="button" data-settings-tab="moodboard">Moodboard</button>
+        <button class="pod-subtab-btn" type="button" data-settings-tab="service-tokens">서비스 토큰</button>
+        <button class="pod-subtab-btn" type="button" data-settings-tab="generate-presets">생성 프리셋</button>
       </div>
       <div class="upload-error" id="settings-error"></div>
       <div id="settings-base-models" class="settings-pane"></div>
@@ -1037,6 +1039,38 @@
           <div class="settings-moodboard-preview" id="board-display-preview" aria-label="화살표 끝과 입구 점 크기 미리보기"></div>
           <div class="settings-bm-row"><button type="button" class="submit-btn" id="board-display-save">저장</button><span class="dl-meta" id="board-display-state"></span></div>
         </div>
+      </div>
+      <div id="settings-service-tokens" class="settings-pane" style="display:none;">
+        <p class="dl-meta">활성 일반 회원에게 발급해요. 토큰 원문은 발급 직후 한 번만 볼 수 있어요.</p>
+        <form id="service-token-form" class="settings-form">
+          <label class="settings-field"><span class="field-label">회원</span><select class="option-input" id="service-token-user" required></select></label>
+          <label class="settings-field"><span class="field-label">토큰 이름</span><input class="option-input" id="service-token-name" maxlength="80" required placeholder="예: Moai 기사 이미지"></label>
+          <div><button class="submit-btn" type="submit">토큰 발급</button></div>
+        </form>
+        <div id="service-token-issued" class="settings-issued" hidden>
+          <div class="field-label">지금 발급한 토큰 — 닫으면 다시 볼 수 없어요.</div>
+          <div class="settings-bm-row"><input class="option-input" id="service-token-value" type="text" readonly autocomplete="off" aria-label="발급된 서비스 토큰"><button class="modal-btn-secondary" id="service-token-dismiss" type="button">확인했어요</button></div>
+        </div>
+        <div class="section-label">발급 내역</div><div id="service-token-list" class="settings-record-list"></div>
+      </div>
+      <div id="settings-generate-presets" class="settings-pane" style="display:none;">
+        <p class="dl-meta">조립된 t2i ComfyUI 워크플로 JSON을 등록해요. 허용한 회원만 이름으로 이미지를 요청할 수 있어요.</p>
+        <div id="generate-preset-list" class="settings-record-list"></div>
+        <form id="generate-preset-form" class="settings-form settings-preset-form">
+          <div class="section-label" id="generate-preset-form-title">프리셋 추가</div>
+          <label class="settings-field"><span class="field-label">이름</span><input class="option-input" id="generate-preset-name" required maxlength="64" placeholder="예: article_image"></label>
+          <div class="settings-preset-grid">
+            <label class="settings-field"><span class="field-label">기본 너비</span><input class="option-input" id="generate-preset-width" type="number" min="64" max="2048" step="8" value="1024" required></label>
+            <label class="settings-field"><span class="field-label">기본 높이</span><input class="option-input" id="generate-preset-height" type="number" min="64" max="2048" step="8" value="1024" required></label>
+            <label class="settings-field"><span class="field-label">단계 수</span><input class="option-input" id="generate-preset-steps" type="number" min="1" max="150" value="30" required></label>
+            <label class="settings-field"><span class="field-label">최대 장수</span><input class="option-input" id="generate-preset-max-count" type="number" min="1" max="8" value="1" required></label>
+          </div>
+          <label class="settings-field"><span class="field-label">비율별 크기 (JSON)</span><textarea class="option-input settings-json-input" id="generate-preset-aspects" spellcheck="false" placeholder='예: {"default":[1024,1024]}'></textarea></label>
+          <label class="settings-field"><span class="field-label">워크플로 (JSON)</span><textarea class="option-input settings-json-input" id="generate-preset-workflow" spellcheck="false" required placeholder="ComfyUI API 워크플로 JSON"></textarea></label>
+          <div class="field-label">사용 허용 회원</div><div id="generate-preset-users" class="settings-user-choices"></div>
+          <label class="settings-bm-row"><button class="pod-switch" id="generate-preset-enabled" type="button" role="switch" aria-checked="true" aria-label="프리셋 사용"></button> 사용</label>
+          <div class="settings-bm-row"><button class="submit-btn" id="generate-preset-save" type="submit">프리셋 저장</button><button class="modal-btn-secondary" id="generate-preset-cancel" type="button" hidden>편집 취소</button></div>
+        </form>
       </div>
       <div id="settings-notifications" class="settings-pane" style="display:none;">
         <div class="dl-meta">잡이 끝나면 ntfy로 알림을 보내요. 폰의 ntfy 앱에서 같은 토픽을 구독해 주세요. 공개 서버의 토픽은 이름만 알면 누구나 구독할 수 있으니 추측하기 어려운 이름을 써 주세요.</div>

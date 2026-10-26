@@ -11,6 +11,26 @@
 .settings-field{ display:flex; flex-direction:column; gap:4px; }
 .settings-form label{ cursor:pointer; }
 
+/* 서비스 토큰과 생성 프리셋 관리 */
+.settings-record-list{ display:flex; flex-direction:column; gap:8px; margin:12px 0 24px; }
+.settings-record{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:12px 16px; border:1px solid var(--border); border-radius:8px; background:var(--panel); overflow-wrap:anywhere; }
+.settings-record > div:first-child{ min-width:0; flex:1; }
+.settings-record strong{ font-size:14px; font-weight:600; }
+.settings-record button{ min-height:40px; }
+.settings-issued{ max-width:560px; padding:16px; margin:16px 0 24px; border:1px solid var(--accent); border-radius:8px; background:var(--panel-2); }
+.settings-issued .settings-bm-row{ margin-top:8px; }
+.settings-preset-form{ max-width:720px; }
+.settings-preset-grid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.settings-json-input{ width:100%; min-height:120px; font-family:monospace; overflow-wrap:anywhere; }
+.settings-user-choices{ display:flex; flex-wrap:wrap; gap:8px 16px; }
+.settings-user-choices label{ display:inline-flex; align-items:center; gap:4px; min-height:40px; }
+.settings-danger{ color:var(--failed); }
+@media (max-width:640px){ .settings-preset-grid{ grid-template-columns:1fr; } .settings-record button{ flex:1; } }
+@media (max-width:640px){
+  #settings-subtabs{ flex-wrap:wrap; }
+  #settings-subtabs .pod-subtab-btn{ flex:1 1 40%; min-height:40px; white-space:nowrap; }
+}
+
 /* Moodboard 크기 선택과 연결선 미리보기 */
 .settings-moodboard-group{ display:flex; flex-wrap:wrap; gap:12px; margin:0; padding:12px; border:1px solid var(--border); border-radius:8px; }
 .settings-moodboard-group legend{ padding:0 4px; }
