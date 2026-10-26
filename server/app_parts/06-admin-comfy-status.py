@@ -34,6 +34,41 @@ def admin_list_users(request: Request):
     return {"users": auth.list_users()}
 
 
+@app.get("/api/admin/generate-presets")
+def admin_list_generate_presets(request: Request):
+    admin_only(request)
+    return {"presets": generate_presets.list_presets()}
+
+
+@app.post("/api/admin/generate-presets")
+async def admin_create_generate_preset(request: Request):
+    admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        return generate_presets.save(body)
+    except generate_presets.PresetError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@app.put("/api/admin/generate-presets/{name}")
+async def admin_update_generate_preset(name: str, request: Request):
+    admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        return generate_presets.save(body, existing_name=name)
+    except generate_presets.PresetError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@app.delete("/api/admin/generate-presets/{name}")
+def admin_delete_generate_preset(name: str, request: Request):
+    admin_only(request)
+    try:
+        return generate_presets.delete(name)
+    except generate_presets.PresetError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
 @app.get("/api/admin/service-tokens")
 def admin_list_service_tokens(request: Request):
     admin_only(request)

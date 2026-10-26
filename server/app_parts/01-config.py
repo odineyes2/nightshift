@@ -54,6 +54,7 @@ from PIL import Image, ImageOps
 
 import auth
 import service_tokens
+import generate_presets
 import comfy_outputs
 from comfy_outputs import OutputSyncError, forget_downloaded, sync_outputs, sync_state_summary, synced_pod_ids
 from data_paths import data_dir, data_path
