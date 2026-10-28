@@ -30,7 +30,7 @@ LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
 # 서비스 토큰은 생성·자기 작업 조회·결과 이미지 GET에만 쓴다.
 SERVICE_TOKEN_ROUTES = (
     ("POST", re.compile(r"^/api/generate$")),
-    ("GET", re.compile(r"^/api/generate/(?:capacity|presets)$")),
+    ("GET", re.compile(r"^/api/generate/(?:capacity|presets|models)$")),
     ("GET", re.compile(r"^/api/jobs/[^/]+(?:/outputs)?$")),
     ("GET", re.compile(r"^/api/output-images/[^/]+(?:/[^/]+)*(?:/thumbnail)?$")),
 )

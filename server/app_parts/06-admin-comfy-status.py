@@ -89,6 +89,27 @@ async def admin_issue_service_token(request: Request):
         raise HTTPException(exc.status, str(exc))
 
 
+@app.post("/api/admin/service-tokens/connect")
+async def admin_connect_service(request: Request):
+    # 외부 서비스(Moai)의 "Nightshift 연동" 버튼이 관리자 세션으로 부른다 — 토큰 원문은 그 서비스에만 간다.
+    admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        return service_tokens.connect(body.get("service"))
+    except service_tokens.ServiceTokenError as exc:
+        raise HTTPException(exc.status, str(exc))
+
+
+@app.post("/api/admin/service-tokens/disconnect")
+async def admin_disconnect_service(request: Request):
+    admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        return service_tokens.disconnect(body.get("service"))
+    except service_tokens.ServiceTokenError as exc:
+        raise HTTPException(exc.status, str(exc))
+
+
 @app.delete("/api/admin/service-tokens/{token_id}")
 def admin_revoke_service_token(token_id: int, request: Request):
     admin_only(request)

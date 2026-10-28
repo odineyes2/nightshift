@@ -909,6 +909,13 @@ def list_generate_presets(request: Request):
     return {"presets": generate_presets.list_presets(user["id"])}
 
 
+@app.get("/api/generate/models")
+def list_generate_models(request: Request):
+    # 프리셋 없이 고를 수 있는 생성 모델 — 외부 서비스가 이 id를 /api/generate의 preset 칸에 그대로 보낸다.
+    me(request)
+    return {"models": generate_models.list_models(), "aspects": list(generate_models.ASPECTS)}
+
+
 @app.get("/api/generate/capacity")
 def generate_capacity(request: Request):
     me(request)
@@ -930,7 +937,10 @@ async def generate_image(request: Request):
         raise HTTPException(400, "프리셋을 골라 주세요.")
     preset = generate_presets.get(name)
     if preset is None:
-        raise HTTPException(404, "프리셋을 찾을 수 없어요.")
+        model = generate_models.find(name)
+        if model is None:
+            raise HTTPException(404, "프리셋이나 생성 모델을 찾을 수 없어요.")
+        return await _generate_with_model(user, model, body)
     if not preset["enabled"] or (user.get("role") != "admin" and user["id"] not in preset["user_ids"]):
         raise HTTPException(403, "이 프리셋을 사용할 수 없어요.")
     prompt = body.get("prompt")
@@ -955,6 +965,37 @@ async def generate_image(request: Request):
                "height": str(preset["aspects"][aspect][1]), "steps": str(preset["steps"])}
     job = await create_job(resolve_template("seed_batch"), json.dumps(workflow, ensure_ascii=False).encode(),
                            f"preset_{name}.json", None, None, options, user=user, parse_inline_options=False)
+    return {"job_id": job["id"], "status": job["status"]}
+
+
+def _generate_prompt(body):
+    prompt = body.get("prompt")
+    negative = body.get("negative_prompt", "")
+    if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000:
+        raise HTTPException(400, "프롬프트는 1~4000자로 입력해 주세요.")
+    if not isinstance(negative, str) or len(negative) > 4000:
+        raise HTTPException(400, "네거티브 프롬프트는 4000자 이하여야 해요.")
+    return prompt.strip(), negative
+
+
+async def _generate_with_model(user, model, body):
+    """등록부의 생성 모델로 t2i 워크플로우를 조립해 일반 작업 하나로 큐에 넣는다."""
+    prompt, negative = _generate_prompt(body)
+    try:
+        count = generate_presets._integer(body.get("count", 1), "장수", 1, generate_models.MAX_COUNT)
+        seed = generate_presets._integer(body.get("seed", secrets.randbelow(2**32)), "시드", 0, 2**32 - 1)
+    except generate_presets.PresetError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    aspect = body.get("aspect") or "1:1"
+    try:
+        workflow, width, height, steps, positive = generate_models.build(model, prompt, negative, aspect, seed)
+    except generate_models.ModelError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    options = {"main_prompt": positive, "negative_prompt": negative, "seed_count": str(count),
+               "seed_mode": "sequential", "seed_start": str(seed), "width": str(width),
+               "height": str(height), "steps": str(steps)}
+    job = await create_job(resolve_template("seed_batch"), json.dumps(workflow, ensure_ascii=False).encode(),
+                           "generate_model.json", None, None, options, user=user, parse_inline_options=False)
     return {"job_id": job["id"], "status": job["status"]}
 
 

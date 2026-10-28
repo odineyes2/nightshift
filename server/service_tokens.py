@@ -1,6 +1,7 @@
 """일반 회원용 서비스 토큰을 해시로 저장하고 발급·폐기·인증한다."""
 
 import hashlib
+import re
 import secrets
 import time
 
@@ -42,6 +43,48 @@ def issue(user_id: int, name: str) -> dict:
             (user_id, name, _hash(token), token[-4:], db.now_iso()))
         row = conn.execute("SELECT * FROM service_tokens WHERE id=?", (cur.lastrowid,)).fetchone()
     return {**_public(row), "token": token}
+
+
+# 외부 서비스 연동: 서비스마다 전용 일반 회원(<서비스>-bot) 하나와 그 서비스 이름의 토큰 하나를 둔다.
+SERVICE_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
+
+
+def _service_names(service) -> tuple[str, str]:
+    if not isinstance(service, str) or not SERVICE_RE.match(service):
+        raise ServiceTokenError("서비스 이름이 올바르지 않아요.")
+    return f"{service}-bot", f"{service} 연동"
+
+
+def connect(service) -> dict:
+    """전용 계정을 준비하고(없으면 로그인할 수 없는 계정으로 만든다) 기존 연동 토큰을 폐기한 뒤 새로 발급한다."""
+    username, token_name = _service_names(service)
+    now = db.now_iso()
+    with db.connect() as conn:
+        user = conn.execute("SELECT id, role, status FROM users WHERE username=?", (username,)).fetchone()
+        if user is None:
+            # 비밀번호는 아무도 모르는 무작위 값이라 이 계정으로는 로그인할 수 없다.
+            cur = conn.execute(
+                "INSERT INTO users(username, email, password_hash, role, status, created_at) VALUES(?,?,?,?,?,?)",
+                (username, f"{username}@service.invalid", auth.hash_password(secrets.token_urlsafe(48)),
+                 auth.ROLE_USER, auth.STATUS_ACTIVE, now))
+            user_id = cur.lastrowid
+        elif user["role"] != auth.ROLE_USER or user["status"] != auth.STATUS_ACTIVE:
+            raise ServiceTokenError(f"'{username}' 계정이 활성 일반 회원이 아니에요.", 409)
+        else:
+            user_id = user["id"]
+        conn.execute("UPDATE service_tokens SET revoked_at=? WHERE user_id=? AND name=? AND revoked_at IS NULL",
+                     (now, user_id, token_name))
+    return {**issue(user_id, token_name), "username": username}
+
+
+def disconnect(service) -> dict:
+    """그 서비스의 연동 토큰을 모두 폐기한다. 계정은 남긴다(작업·결과물의 소유자라서)."""
+    username, token_name = _service_names(service)
+    with db.connect() as conn:
+        cur = conn.execute(
+            "UPDATE service_tokens SET revoked_at=? WHERE name=? AND revoked_at IS NULL "
+            "AND user_id=(SELECT id FROM users WHERE username=?)", (db.now_iso(), token_name, username))
+    return {"revoked": cur.rowcount}
 
 
 def list_tokens() -> list[dict]:
