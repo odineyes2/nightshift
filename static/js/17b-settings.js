@@ -30,12 +30,23 @@ document.getElementById('settings-subtabs').addEventListener('click', (e) => {
   openSettingsTab();
 });
 
-// 서비스 토큰 원문은 현재 발급 응답에서만 화면에 두고, 확인하거나 탭을 떠나면 지운다.
+// 서비스 토큰 원문은 현재 발급 응답에서만 화면에 두고, 새로 발급하거나 탭을 떠나면 지운다.
 function dismissIssuedServiceToken(){
   document.getElementById('service-token-value').value = '';
+  document.getElementById('service-token-copy-status').textContent = '';
   document.getElementById('service-token-issued').hidden = true;
 }
-document.getElementById('service-token-dismiss').addEventListener('click', dismissIssuedServiceToken);
+document.getElementById('service-token-copy').addEventListener('click', async () => {
+  const status = document.getElementById('service-token-copy-status');
+  const value = document.getElementById('service-token-value').value;
+  if(!value) return;
+  try{
+    await copyTextToClipboard(value);
+    status.textContent = '복사했어요';
+  }catch(err){
+    status.textContent = '복사하지 못했어요. 직접 선택해 복사해 주세요';
+  }
+});
 window.addEventListener('hashchange', () => { if(location.hash !== '#settings') dismissIssuedServiceToken(); });
 
 let settingsUsers = [];

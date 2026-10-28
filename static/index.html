@@ -1048,8 +1048,9 @@
           <div><button class="submit-btn" type="submit">토큰 발급</button></div>
         </form>
         <div id="service-token-issued" class="settings-issued" hidden>
-          <div class="field-label">지금 발급한 토큰 — 닫으면 다시 볼 수 없어요.</div>
-          <div class="settings-bm-row"><input class="option-input" id="service-token-value" type="text" readonly autocomplete="off" aria-label="발급된 서비스 토큰"><button class="modal-btn-secondary" id="service-token-dismiss" type="button">확인했어요</button></div>
+          <div class="field-label">지금 발급한 토큰 — 이 화면을 떠나면 다시 볼 수 없어요.</div>
+          <div class="settings-bm-row account-secret-input"><input class="option-input" id="service-token-value" type="text" readonly autocomplete="off" aria-label="발급된 서비스 토큰"><button class="icon-btn icon-btn-neutral" id="service-token-copy" type="button" title="토큰 복사" aria-label="토큰 복사"><svg class="ico"><use href="#i-copy"/></svg></button></div>
+          <div class="job-detail-copy-status" id="service-token-copy-status" role="status" aria-live="polite"></div>
         </div>
         <div class="section-label">발급 내역</div><div id="service-token-list" class="settings-record-list"></div>
       </div>

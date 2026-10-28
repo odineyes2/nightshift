@@ -47,7 +47,8 @@ class ServiceTokenSettingsUITests(unittest.TestCase):
             try:
                 with sync_playwright() as playwright:
                     browser = playwright.chromium.launch(headless=True)
-                    page = browser.new_page(viewport={'width': 1300, 'height': 850})
+                    page = browser.new_page(viewport={'width': 1300, 'height': 850},
+                                             permissions=['clipboard-read', 'clipboard-write'])
                     base = f'http://127.0.0.1:{port}'
                     for _ in range(100):
                         try:
@@ -83,8 +84,14 @@ class ServiceTokenSettingsUITests(unittest.TestCase):
                     self.assertIn(issued[-4:], page.locator('#service-token-list').inner_text())
                     self.assertNotIn(issued, page.locator('#service-token-list').inner_text())
                     capture_settings(page, 'service-token-issued')
-                    page.locator('#service-token-dismiss').click()
+                    page.locator('#service-token-copy').click()
+                    expect(page.locator('#service-token-copy-status')).to_have_text('복사했어요')
+                    self.assertEqual(page.evaluate('navigator.clipboard.readText()'), issued)
+                    # 원문은 설정 화면을 떠나면 지워진다.
+                    page.evaluate("location.hash = '#jobs'")
                     expect(page.locator('#service-token-issued')).to_be_hidden()
+                    page.evaluate("location.hash = '#settings'")
+                    page.locator('[data-settings-tab="service-tokens"]').click()
                     self.assertEqual(page.locator('#service-token-value').input_value(), '')
                     capture_settings(page, 'service-tokens')
                     page.once('dialog', lambda dialog: dialog.accept())
