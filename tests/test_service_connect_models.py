@@ -65,8 +65,11 @@ class ServiceConnectTests(unittest.TestCase):
         login = self.client.post("/api/auth/login", headers=self.write, json={"username": "moai-bot", "password": "moai-bot"})
         self.assertNotEqual(login.status_code, 200)
         self.assertEqual(self.client.get("/api/generate/capacity", headers=self.bearer(first["token"])).status_code, 200)
-        # 다시 연동하면 같은 계정에 새 토큰이 나오고 이전 토큰은 폐기된다.
+        # 손으로 발급한 토큰이 있어도 다시 연동하면 전용 계정의 토큰은 새 토큰 하나만 남는다.
+        manual = self.admin.post("/api/admin/service-tokens", headers=self.write,
+                                 json={"user_id": first["user_id"], "name": "manual"}).json()["token"]
         second = self.connect()
+        self.assertEqual(self.client.get("/api/generate/capacity", headers=self.bearer(manual)).status_code, 401)
         self.assertEqual(second["user_id"], first["user_id"])
         self.assertEqual(self.client.get("/api/generate/capacity", headers=self.bearer(first["token"])).status_code, 401)
         self.assertEqual(self.client.get("/api/generate/capacity", headers=self.bearer(second["token"])).status_code, 200)

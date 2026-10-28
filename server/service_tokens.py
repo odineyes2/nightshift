@@ -72,18 +72,18 @@ def connect(service) -> dict:
             raise ServiceTokenError(f"'{username}' 계정이 활성 일반 회원이 아니에요.", 409)
         else:
             user_id = user["id"]
-        conn.execute("UPDATE service_tokens SET revoked_at=? WHERE user_id=? AND name=? AND revoked_at IS NULL",
-                     (now, user_id, token_name))
+        # 전용 계정이라 이전 연동 토큰뿐 아니라 손으로 발급한 토큰까지 모두 폐기하고 하나만 남긴다.
+        conn.execute("UPDATE service_tokens SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL", (now, user_id))
     return {**issue(user_id, token_name), "username": username}
 
 
 def disconnect(service) -> dict:
-    """그 서비스의 연동 토큰을 모두 폐기한다. 계정은 남긴다(작업·결과물의 소유자라서)."""
-    username, token_name = _service_names(service)
+    """그 서비스 전용 계정의 토큰을 모두 폐기한다. 계정은 남긴다(작업·결과물의 소유자라서)."""
+    username, _ = _service_names(service)
     with db.connect() as conn:
         cur = conn.execute(
-            "UPDATE service_tokens SET revoked_at=? WHERE name=? AND revoked_at IS NULL "
-            "AND user_id=(SELECT id FROM users WHERE username=?)", (db.now_iso(), token_name, username))
+            "UPDATE service_tokens SET revoked_at=? WHERE revoked_at IS NULL "
+            "AND user_id=(SELECT id FROM users WHERE username=?)", (db.now_iso(), username))
     return {"revoked": cur.rowcount}
 
 
