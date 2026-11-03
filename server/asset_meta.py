@@ -83,6 +83,17 @@ def meta_by_path(owner_id: int | None = None) -> dict[str, dict]:
     }
 
 
+def dims_by_path(owner_id: int | None = None) -> dict[str, tuple]:
+    """{경로: (size_bytes, mtime_ns, width, height)} — 갤러리 목록이 파일을 열지 않고 해상도를 쓰도록.
+    owner_id 범위는 meta_by_path와 같다."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT path, size_bytes, mtime_ns, width, height FROM assets WHERE deleted_at IS NULL"
+            + (" AND owner_id = ?" if owner_id is not None else ""),
+            (owner_id,) if owner_id is not None else ()).fetchall()
+    return {r["path"]: (r["size_bytes"], r["mtime_ns"], r["width"], r["height"]) for r in rows}
+
+
 def _build_where(q=None, tags=None, favorite=None, min_rating=None, kind=None,
                  project=None, job_id=None, owner_id=None, model=None, hide_nsfw=False) -> tuple[list[str], list]:
     where, params = ["a.deleted_at IS NULL"], []

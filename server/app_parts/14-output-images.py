@@ -77,6 +77,10 @@ def list_output_images_meta(user: dict) -> list[dict]:
     # 정보가 있으니, job_id가 없을 때 쓸 수 있게 같이 넘긴다.
     pod_ids = synced_pod_ids()
     meta_of = _meta_resolver(scope)
+    try:
+        dims = asset_meta.dims_by_path(scope)
+    except Exception:
+        dims = {}
     items = []
     for f in files:
         stat = f.stat()
@@ -87,16 +91,19 @@ def list_output_images_meta(user: dict) -> list[dict]:
         # "작업별 보기"가 이 값으로 묶는다. 하위 폴더 없이 바로 밑에 있는(예전 방식
         # 또는 JOB_ID 없이 실행된) 이미지는 job_id가 없다.
         job_id = rel.parts[0] if len(rel.parts) > 1 else None
-        # 갤러리 "자세히 보기"에 해상도를 보여주려고 읽는다 — PIL은 헤더만 읽고
-        # 픽셀 데이터는 지연 로드하므로(.load()를 안 부르면) 전체 디코드보다 훨씬
-        # 가볍다. 손상된 파일이어도 목록 자체는 계속 보여야 하니 실패하면 조용히
-        # None으로 둔다.
-        width = height = None
-        try:
-            with Image.open(f) as img:
-                width, height = img.size
-        except Exception:
-            pass
+        # 갤러리 "자세히 보기"의 해상도 — 색인(assets)의 크기·mtime이 지금 파일과 같으면
+        # 색인 값을 쓴다. 회전처럼 파일만 바뀌고 sync가 아직 안 돈 경우엔 그 파일만 연다
+        # (PIL은 헤더만 읽는다). 손상된 파일이어도 목록은 계속 보여야 하니 실패하면 None.
+        known = dims.get(name)
+        if known and known[0] == stat.st_size and known[1] == stat.st_mtime_ns and known[2] is not None:
+            width, height = known[2], known[3]
+        else:
+            width = height = None
+            try:
+                with Image.open(f) as img:
+                    width, height = img.size
+            except Exception:
+                pass
         items.append({
             "name": name,
             "job_id": job_id,

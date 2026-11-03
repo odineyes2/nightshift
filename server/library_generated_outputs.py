@@ -148,7 +148,49 @@ def _cleanup(files):
 
 
 def sync(base: Path, found: dict):
-    """갤러리 색인 연결이 닫힌 다음 실행한다. 부분 완료 작업도 현재 있는 PNG부터 등록한다."""
-    for path, (_, kind) in found.items():
-        if kind == "image":
+    """갤러리 색인 연결이 닫힌 다음 실행한다. 부분 완료 작업도 현재 있는 PNG부터 등록한다.
+    읽기 전용 일괄 조회로 아직 할 일이 남은 경로만 골라 _register(쓰기 잠금)를 부른다."""
+    images = {path for path, (_, kind) in found.items() if kind == "image"}
+    if not images:
+        return
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT a.path, a.job_id, j.data_json FROM assets a JOIN jobs j ON j.id = a.job_id"
+            " WHERE a.kind='image' AND a.deleted_at IS NULL AND a.job_id IS NOT NULL"
+            " AND j.deleted_at IS NULL").fetchall()
+        # _register의 조기 반환 조건과 같은 "끝난" 키.
+        done = {(r["path"], r["source_kind"], r["article_id"]) for r in conn.execute(
+            "SELECT path, source_kind, article_id, status, reason FROM library_generated_outputs")
+            if r["status"] == "registered" or r["reason"] in ("source_deleted", "source_image_deleted")}
+    parsed = {}
+    for row in rows:
+        path, job_id = row["path"], row["job_id"]
+        if path not in images:
+            continue
+        if job_id not in parsed:
+            try:
+                job = json.loads(row["data_json"])
+                job["id"] = job_id
+                if not job.get("library_generation_context") and not job.get("library_output_origins"):
+                    job = False   # 일반 작업 — 이 job의 경로는 모두 건너뛴다.
+            except Exception:
+                job = None        # 파싱 실패는 _register가 지금처럼 처리한다.
+            parsed[job_id] = job
+        job = parsed[job_id]
+        if job is False:
+            continue
+        if job is None:
             _register(base, path)
+            continue
+        try:
+            origin, reason = match_path(job, path)
+        except Exception:
+            _register(base, path)
+            continue
+        if origin is None:
+            if reason:
+                _diagnose(job_id, reason)
+            continue
+        if (path, origin["source_kind"], origin["article_id"]) in done:
+            continue
+        _register(base, path)

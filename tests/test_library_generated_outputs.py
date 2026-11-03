@@ -249,6 +249,33 @@ class GeneratedOutputsTests(unittest.TestCase):
         self.assertEqual(self.count(), 2)
         self.assertEqual(self.record(path)["status"], "registered")
 
+    # NS-116-1: 끝난 경로와 일반 작업 이미지에는 _register(쓰기 잠금)를 부르지 않는다.
+    def test_register_only_unfinished_candidates(self):
+        normal = f"job-{uuid.uuid4().hex}"
+        jobs = db.load_jobs()
+        jobs[normal] = {"id": normal, "owner_id": self.user, "status": "done", "options": {}}
+        db.save_jobs(jobs)
+        for i in range(3):
+            path = Path(A.OUTPUT_DIR) / normal / f"seed_batch_1_seed{i}_00001_.png"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(png())
+        self.output(1)
+        broken = self.output(3, data=b"broken png")
+        self.sync()
+        self.assertEqual(self.record(broken)["status"], "retry")
+        with mock.patch.object(G, "_register", wraps=G._register) as spy:
+            self.sync()
+        # 다른 검사가 남긴 끝나지 않은 경로(permission_mismatch 등)는 빼고 이 검사의 작업만 본다.
+        def mine(spy):
+            return {c.args[1] for c in spy.call_args_list if c.args[1].split("/")[0] in (self.jid, normal)}
+        self.assertEqual(mine(spy), {broken.relative_to(Path(A.OUTPUT_DIR)).as_posix()})
+        self.output(3)
+        self.sync()
+        self.assertEqual(self.record(broken)["status"], "registered")
+        with mock.patch.object(G, "_register", wraps=G._register) as spy:
+            self.sync()
+        self.assertEqual(mine(spy), set())
+
     # NS-56-5: 누락 사유를 작업 ID·사유 코드로 구분하고 일반 작업에는 경고하지 않는다.
     def logs(self):
         """이 작업의 경고만 모은다(다른 검사 작업의 경고는 제외)."""
