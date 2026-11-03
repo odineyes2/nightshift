@@ -24,20 +24,31 @@ def _diagnose(job_id, reason):
 
 def match_path(job, path):
     """(생성원, 사유 코드)를 돌려준다. 생성원이 없고 사유도 None이면 라이브러리 생성이 아닌 일반 작업이다.
-    seed_batch 실행기의 전용 저장 이름만 받아 다른 결과를 추측하지 않는다."""
+    seed_batch 실행기의 전용 저장 이름만 받아 다른 결과를 추측하지 않는다.
+    순차 생성은 '<게시물이름>_seed<시드>'(NS-117, 매핑 names), 그 밖은 'seed_batch_<실행 번호>_seed<시드>'다."""
     mapping = job.get("library_output_origins") or {}
     context = job.get("library_generation_context") or []
     if not context:
         return None, ("missing_origin" if mapping else None)
     if not mapping.get("save_node_id"):
         return None, "no_save_node_mapping"
-    match = re.fullmatch(re.escape(job["id"]) +
-                        r"/seed_batch_([1-9][0-9]*)_seed([0-9]+)_([0-9]+)_\.png", path)
-    if not match or int(match[2]) > 2**31 - 1 or int(match[3]) < 1:
-        return None, "output_name_mismatch"
-    if job.get("options", {}).get("seed_mode") == "sequential" and int(match[2]) != int(match[1]) - 1:
-        return None, "output_name_mismatch"
-    origin = mapping.get("executions", {}).get(match[1])
+    names = mapping.get("names") or {}
+    named = re.fullmatch(re.escape(job["id"]) + r"/(.+)_seed([0-9]+)_([0-9]+)_\.png", path)
+    if named and named[1] in names:
+        if int(named[2]) > 2**31 - 1 or int(named[3]) < 1:
+            return None, "output_name_mismatch"
+        origin = names[named[1]]
+    else:
+        match = re.fullmatch(re.escape(job["id"]) +
+                            r"/seed_batch_([1-9][0-9]*)_seed([0-9]+)_([0-9]+)_\.png", path)
+        if not match:
+            # 이름 규칙은 맞지만 매핑에 없는 이름이면 연결할 실행이 없는 것이다.
+            return None, ("execution_unmapped" if named and names else "output_name_mismatch")
+        if int(match[2]) > 2**31 - 1 or int(match[3]) < 1:
+            return None, "output_name_mismatch"
+        if job.get("options", {}).get("seed_mode") == "sequential" and int(match[2]) != int(match[1]) - 1:
+            return None, "output_name_mismatch"
+        origin = mapping.get("executions", {}).get(match[1])
     if not origin:
         return None, "execution_unmapped"
     # 실행 매핑과 제출 시 검증된 선택 스냅샷을 함께 확인한다.

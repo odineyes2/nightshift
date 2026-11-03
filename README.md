@@ -806,7 +806,7 @@ CheckpointLoaderSimple → LoraLoader 체인(0개 이상) → CLIPTextEncode 긍
 
 | 템플릿 | `filename_prefix` 형식 | 예시 (실제 저장 파일명) |
 |---|---|---|
-| `seed_batch` | `seed_batch_<순번>_seed<시드값>` | `seed_batch_3_seed482913_00001_.png` |
+| `seed_batch` | `seed_batch_<순번>_seed<시드값>` — Library 순차 생성은 `<포즈·Position·Lighting 이름>_seed<시드값>` | `seed_batch_3_seed482913_00001_.png`, `서서_손들기_seed482913_00001_.png` |
 | `csv_batch` | `<title(안전한 문자로 치환, 없으면 batch_<순번>)>_seed<시드값>` | `고양이_seed482913_00001_.png` |
 | `pose_batch` | `pose_batch_<순번>_seed<시드값>_<포즈 파일명(확장자 제외)>` | `pose_batch_3_seed482913_standing_01_00001_.png` |
 | `depth_batch` | `depth_batch_<순번>_seed<시드값>_<depth 파일명(확장자 제외)>` | `depth_batch_3_seed482913_room_01_00001_.png` |
@@ -814,6 +814,8 @@ CheckpointLoaderSimple → LoraLoader 체인(0개 이상) → CLIPTextEncode 긍
 | `pose_csv_batch` | `<title(안전한 문자로 치환, 없으면 batch_<순번>)>_seed<시드값>[_<포즈 파일명(확장자 제외)>]` | `고양이_seed482913_standing_01_00001_.png` (pose가 비어 있으면 참조 부분 생략) |
 | `depth_csv_batch` | 위와 동일, depth 컬럼 기준 | `고양이_seed482913_room_01_00001_.png` |
 | `lineart_csv_batch` | 위와 동일, lineart 컬럼 기준 | `고양이_seed482913_sketch_01_00001_.png` |
+
+순차 생성의 이름은 서버가 제출할 때 정합니다 — 파일명에 못 쓰는 문자(`/ \ : * ? " < > |`, 제어문자)는 지우고 공백은 `_`로 바꾸고 80자까지 씁니다(한글은 그대로). 이름이 비면 `pose_<k>`·`position_<k>`, 한 작업에서 이름이 겹치면 둘째부터 `_2`, `_3`…을 붙입니다. 생성 결과의 원본 게시물 자동 등록은 이 이름으로 원본을 찾고, 예전 `seed_batch_<순번>` 이름의 작업도 계속 등록합니다.
 
 `title` 컬럼이 없거나 비어 있으면 `csv_batch`는 `batch_<순번>_seed<시드값>`으로 대체합니다. 이 규칙을 바꾸고 싶다면 각 스크립트의 `apply_filename_prefix()`를 수정하세요.
 

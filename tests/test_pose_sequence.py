@@ -78,7 +78,8 @@ class PoseSequenceTests(unittest.TestCase):
     def test_parse_pose_sequence(self):
         name = A.save_input_image("seq_pose.png", png())
         items = A.parse_pose_sequence(json.dumps([{"image": name, "pose_id": 3, "tags": "sitting", "width": 896, "height": 1152}]))
-        self.assertEqual(items[0], {"image": name, "pose_id": 3, "pose_name": "", "tags": "sitting", "width": 896, "height": 1152})
+        self.assertEqual(items[0], {"image": name, "pose_id": 3, "pose_name": "", "tags": "sitting", "width": 896, "height": 1152,
+                                    "output_name": "pose_1"})
         self.assertIsNone(A.parse_pose_sequence(""))
         for bad in ("[]", "{", json.dumps([{"image": "missing.png"}]), json.dumps([{"image": name, "width": "x"}])):
             with self.assertRaises(HTTPException) as e:
@@ -91,7 +92,8 @@ class PoseSequenceTests(unittest.TestCase):
     def test_parse_position_sequence(self):
         # Position 순차 실행(NS-43) — image 없이 tags만, 섞인 목록은 400
         items = A.parse_pose_sequence(json.dumps([{"kind": "position", "tags": "standing"}, {"tags": ""}]))
-        self.assertEqual(items[0], {"image": "", "pose_id": None, "pose_name": "", "tags": "standing", "kind": "position"})
+        self.assertEqual(items[0], {"image": "", "pose_id": None, "pose_name": "", "tags": "standing", "kind": "position",
+                                    "output_name": "position_1"})
         self.assertEqual(len(items), 2)
         name = A.save_input_image("seq_mix.png", png())
         for bad in ([{"image": name}, {"tags": "x"}], [{"tags": "x"}, {"image": name}], [{"tags": "x"}, "y"]):
@@ -152,6 +154,30 @@ class PoseSequenceTests(unittest.TestCase):
         labels = [p[2] for p in progress]
         self.assertEqual(labels, ["포즈 1/3"] * 2 + ["포즈 2/3"] * 2 + ["포즈 3/3"] * 3)
         self.assertEqual(progress[-1][:2], (6, 6))
+
+    def test_output_names(self):
+        # NS-117 — 게시물 이름을 파일명으로 정리하고, 겹치면 _2·_3, 비면 대체 이름
+        items = A.parse_pose_sequence(json.dumps([
+            {"kind": "position", "pose_name": " 서서 손들기 "}, {"pose_name": "서서 손들기"},
+            {"pose_name": 'a/b\\c:*?"<>|\x01d'}, {"pose_name": "..숨김_"}, {"pose_name": "   "},
+            {"pose_name": "x" * 100}, {"pose_name": "서서_손들기"}]))
+        self.assertEqual([i["output_name"] for i in items],
+                         ["서서_손들기", "서서_손들기_2", "abcd", "숨김", "position_5", "x" * 80, "서서_손들기_3"])
+        lit = A.parse_pose_sequence(json.dumps([{"pose_name": "", "source_kind": "lighting"}]))
+        self.assertEqual(lit[0]["output_name"], "lighting_1")
+
+    def test_template_pose_names(self):
+        poses = [{"image": "p1.png", "output_name": "서서_손들기"}, {"image": "p2.png", "output_name": "앉기"}]
+        calls, _ = self._run_template({"SEED_COUNT": "2"}, poses)
+        self.assertEqual([k["output_name"] for _, k in calls], ["서서_손들기"] * 2 + ["앉기"] * 2)
+        # 실제 SaveImage filename_prefix — 이름이 있으면 '<job>/<이름>_seed<시드>', 없거나 경로면 예전 규칙
+        wf = {"9": {"class_type": "SaveImage", "_meta": {"title": "Save"}, "inputs": {}}}
+        with mock.patch.dict(os.environ, {"JOB_ID": "ab12cd"}):
+            SB.apply_filename_prefix(wf, 3, 482913, "서서_손들기")
+            self.assertEqual(wf["9"]["inputs"]["filename_prefix"], "ab12cd/서서_손들기_seed482913")
+            for bad in (None, "", "../x", "a/b"):
+                SB.apply_filename_prefix(wf, 3, 7, bad)
+                self.assertEqual(wf["9"]["inputs"]["filename_prefix"], "ab12cd/seed_batch_3_seed7")
 
     def test_template_without_poses(self):
         calls, progress = self._run_template({"SEED_COUNT": "3"})
