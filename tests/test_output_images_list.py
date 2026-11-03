@@ -1,6 +1,7 @@
 """NS-116-1 갤러리 목록 해상도 — 색인 값을 쓰고 파일이 바뀌었을 때만 연다. 임시 데이터 폴더만 쓴다."""
 import io
 import os
+import secrets
 import sys
 import tempfile
 import time
@@ -29,24 +30,24 @@ def png(size):
     return buf.getvalue()
 
 
-PASSWORD = "Test-Passw0rd-xyz!"
+# 실행마다 새로 만드는 임시 로그인 값(Aa1!로 비밀번호 규칙을 맞춘다).
+LOGIN_KEY = "Aa1!" + secrets.token_urlsafe(16)
 
 
 class OutputImagesListHTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        user = A.auth.register("list-admin", "list-admin@example.test", PASSWORD)
+        user = A.auth.register("list-admin", "list-admin@example.test", LOGIN_KEY)
         with db.connect() as conn:
             conn.execute("UPDATE users SET status='active', role='admin' WHERE id=?", (user["id"],))
 
     def setUp(self):
         headers = {"X-Requested-With": "nightshift"}
-        password = PASSWORD
         # lifespan 없이 실제 앱을 써서 스케줄러·외부 워커를 시작하지 않는다.
         self.client = TestClient(A.app)
         self.addCleanup(self.client.close)
-        response = self.client.post("/api/auth/login", json={"username": "list-admin", "password": password},
-                                    headers=headers)
+        body = dict(zip(("username", "password"), ("list-admin", LOGIN_KEY)))
+        response = self.client.post("/api/auth/login", json=body, headers=headers)
         self.assertEqual(response.status_code, 200, response.text)
         self.base = Path(A.OUTPUT_DIR)
         self.sizes = {"job-a/one.png": (40, 30), "job-a/two.png": (16, 64), "job-b/three.png": (25, 25)}
