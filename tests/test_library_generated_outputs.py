@@ -276,6 +276,22 @@ class GeneratedOutputsTests(unittest.TestCase):
             self.sync()
         self.assertEqual(mine(spy), set())
 
+    # NS-117: 순차 생성은 '게시물이름_seed시드'로 저장하고 매핑 names로 원본을 찾는다.
+    def test_named_outputs_register_and_legacy_still_works(self):
+        self.job["library_output_origins"]["names"] = {"서서_손들기": self.origins[0], "seed_batch_3": self.origins[1]}
+        self.save_job()
+        self.output(name="서서_손들기_seed482913_00001_.png")
+        self.output(name="서서_손들기_seed77_00002_.png")
+        self.output(name="seed_batch_3_seed5_00001_.png")   # 이름이 옛 규칙처럼 보여도 names가 먼저
+        self.output(1)                                       # 옛 이름 작업도 계속 등록
+        self.sync()
+        self.assertEqual((self.count(), self.count("position")), (4, 2))
+        self.assertEqual(G.match_path(self.job, f"{self.jid}/없는이름_seed1_00001_.png"), (None, "execution_unmapped"))
+        self.assertEqual(G.match_path(self.job, f"{self.jid}/서서_손들기_seed1_00000_.png"),
+                         (None, "output_name_mismatch"))
+        self.assertEqual(G.match_path(self.job, f"{self.jid}/서서_손들기_seed{2**31}_00001_.png"),
+                         (None, "output_name_mismatch"))
+
     # NS-56-5: 누락 사유를 작업 ID·사유 코드로 구분하고 일반 작업에는 경고하지 않는다.
     def logs(self):
         """이 작업의 경고만 모은다(다른 검사 작업의 경고는 제외)."""

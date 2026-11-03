@@ -226,7 +226,25 @@ def parse_pose_sequence(raw) -> list[dict] | None:
             if key in item:
                 entry[key] = item[key]
         out.append(entry)
+    # 결과 저장 이름(NS-117) — 같은 작업 안에서 겹치면 둘째부터 _2, _3…을 붙여 원본 매칭을 지킨다.
+    used = set()
+    for k, entry in enumerate(out, start=1):
+        base = output_name_from(entry["pose_name"]) or \
+            f"{entry.get('source_kind') or entry.get('kind') or 'pose'}_{k}"
+        name, n = base, 1
+        while name in used:
+            n += 1
+            name = f"{base}_{n}"
+        used.add(name)
+        entry["output_name"] = name
     return out
+
+
+def output_name_from(text) -> str:
+    """게시물 이름을 파일 이름으로 정리한다 — 못 쓰는 문자·제어문자를 지우고 공백은 _로, 앞뒤 ._는 자르고 80자까지."""
+    text = re.sub(r'[/\\:*?"<>|\x00-\x1f\x7f]', "", str(text or ""))
+    text = re.sub(r"\s+", "_", text.strip())
+    return text[:80].strip("._")
 
 
 def parse_library_generation_context(raw, user):
@@ -288,7 +306,7 @@ def seed_batch_contract():
     return module
 
 
-def build_library_output_origins(context, workflow_bytes, options):
+def build_library_output_origins(context, workflow_bytes, options, pose_sequence=None):
     if not context:
         return None
     module = seed_batch_contract()
@@ -297,17 +315,30 @@ def build_library_output_origins(context, workflow_bytes, options):
     if not node or node.get("class_type") != "SaveImage":
         return {"save_node_id": None, "executions": {}}
     count = int(options["seed_count"])
-    return {"save_node_id": str(node_id), "executions": {
+    mapping = {"save_node_id": str(node_id), "executions": {
         str(i * count + n): dict(origin)
         for i, origin in enumerate(context) for n in range(1, count + 1)}}
+    # 순차 생성은 '게시물이름_seed시드'로 저장한다(NS-117) — 이름으로도 원본을 찾는다.
+    names = {entry["output_name"]: dict(origin) for entry, origin in zip(pose_sequence or [], context)
+             if entry.get("output_name")}
+    if names:
+        mapping["names"] = names
+    return mapping
 
 
 def library_origin_for_output(job, filename, subfolder="", node_id=None):
-    """예상 저장 노드의 실행 번호가 확인되는 PNG만 원본에 연결한다."""
+    """예상 저장 노드의 실행 번호나 저장 이름이 확인되는 PNG만 원본에 연결한다."""
     mapping = job.get("library_output_origins") or {}
     if not mapping.get("save_node_id") or (node_id is not None and str(node_id) != mapping["save_node_id"]):
         return None
     path = f"{subfolder}/{filename}" if subfolder else filename
+    # 새 이름을 먼저 본다 — 게시물 이름이 'seed_batch_3'이어도 실행 번호로 잘못 읽지 않는다.
+    named = re.fullmatch(re.escape(job["id"]) + r"/(.+)_seed([0-9]+)_([0-9]+)_\.png", path)
+    if named and named[1] in (mapping.get("names") or {}):
+        if int(named[2]) > 2**31 - 1 or int(named[3]) < 1:
+            return None
+        return mapping["names"][named[1]]
+    # 예전 이름(seed_batch_<실행 번호>) — 이전에 제출한 작업도 계속 연결한다.
     match = re.fullmatch(re.escape(job["id"]) + r"/seed_batch_([1-9][0-9]*)_seed([0-9]+)_([0-9]+)_\.png", path)
     if not match:
         return None
@@ -618,7 +649,7 @@ async def create_job(
         if name in raw_options:
             options[name] = raw_options[name]
 
-    library_output_origins = build_library_output_origins(library_context, workflow_bytes, options)
+    library_output_origins = build_library_output_origins(library_context, workflow_bytes, options, pose_sequence)
 
     job_id = str(uuid.uuid4())[:8]
 

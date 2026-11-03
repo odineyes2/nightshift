@@ -97,6 +97,9 @@ EmptyLatentImage 노드가 여러 개인 워크플로우:
     처럼 나온다 — nightshift 갤러리의 "작업별 보기"가 이 폴더 이름으로 묶어서
     보여준다(output_images.py 참고). JOB_ID가 없으면(스크립트를 nightshift
     밖에서 직접 실행한 경우 등) 하위 폴더 없이 기존처럼 출력 폴더 바로 밑에 저장한다.
+    순차 생성(POSE_SEQUENCE_PATH)은 순번 대신 서버가 항목마다 정한 output_name(포즈·
+    Position·Lighting 이름을 파일명으로 정리한 값)을 써서 "<JOB_ID>/<이름>_seed<시드값>"
+    으로 저장한다(예: ca6e661b/서서_손들기_seed482913_00001_.png, NS-117).
 """
 
 import copy
@@ -444,9 +447,14 @@ def report_progress(job_id, nightshift_url, total, done, label=None):
         print(f"[seed_batch] 경고: 진행 상황 보고 실패: {e}", file=sys.stderr)
 
 
-def output_filename_prefix(index, seed, job_id=""):
-    """서버의 생성원 매핑과 실행기가 공유하는 결과 이름 계약."""
-    prefix = f"seed_batch_{index}_seed{seed}"
+def output_filename_prefix(index, seed, job_id="", name=None):
+    """서버의 생성원 매핑과 실행기가 공유하는 결과 이름 계약.
+    순차 생성은 서버가 정한 게시물 이름(name)으로 '<name>_seed<시드>'(NS-117), 그 밖은 'seed_batch_<번호>_seed<시드>'."""
+    name = str(name or "")
+    # 서버가 이미 정리한 값이지만, 폴더를 벗어나는 이름은 쓰지 않고 예전 규칙으로 돌아간다.
+    if not name or "/" in name or "\\" in name or ".." in name:
+        name = f"seed_batch_{index}"
+    prefix = f"{name}_seed{seed}"
     return f"{job_id}/{prefix}" if job_id else prefix
 
 
@@ -455,7 +463,7 @@ def output_save_node(workflow, title="Save"):
                      class_types=("SaveImage", "SaveImageWebsocket"))
 
 
-def apply_filename_prefix(workflow, index, seed):
+def apply_filename_prefix(workflow, index, seed, name=None):
     node_id, node = output_save_node(workflow, env("SAVE_NODE_TITLE", "Save"))
     if node is None:
         return
@@ -464,7 +472,7 @@ def apply_filename_prefix(workflow, index, seed):
     # 있으면 ComfyUI SaveImage가 하위 폴더로 해석해 자동으로 만들어준다. nightshift
     # 갤러리는 이 하위 폴더 이름으로 "작업별 보기"를 구성한다(output_images.py 참고).
     job_id = env("JOB_ID")
-    prefix = output_filename_prefix(index, seed, job_id)
+    prefix = output_filename_prefix(index, seed, job_id, name)
     node.setdefault("inputs", {})["filename_prefix"] = prefix
 
 
@@ -609,9 +617,9 @@ def apply_pose_image(workflow, comfy_url, name):
 
 
 def run_once(base_workflow, comfy_url, seed, index, main_prompt, negative_prompt, width, height,
-             pose_image=None, face_prompt=None):
-    # pose_image/face_prompt는 순차 생성(POSE_SEQUENCE_PATH)에서만 준다 — 포즈마다 이미지가 바뀌고,
-    # Face Detailer에는 포즈 태그를 뺀 원래 프롬프트를 넘긴다.
+             pose_image=None, face_prompt=None, output_name=None):
+    # pose_image/face_prompt/output_name은 순차 생성(POSE_SEQUENCE_PATH)에서만 준다 — 포즈마다 이미지가 바뀌고,
+    # Face Detailer에는 포즈 태그를 뺀 원래 프롬프트를 넘기고, 결과는 게시물 이름으로 저장한다.
     workflow = copy.deepcopy(base_workflow)
     apply_seed(workflow, seed)
     apply_checkpoint(workflow)
@@ -625,7 +633,7 @@ def run_once(base_workflow, comfy_url, seed, index, main_prompt, negative_prompt
         apply_pose_image(workflow, comfy_url, env("POSE_IMAGE"))
     else:
         apply_pose_image(workflow, comfy_url, pose_image)
-    apply_filename_prefix(workflow, index, seed)
+    apply_filename_prefix(workflow, index, seed, output_name)
 
     prompt_id = queue_prompt(comfy_url, workflow)
     print(f"[seed_batch] [{index}] seed={seed} 큐 등록 (prompt_id={prompt_id})")
@@ -709,7 +717,8 @@ def main():
                 report_progress(job_id, nightshift_url, total_images, done_images, label)
                 run_once(base_workflow, comfy_url, seed, index, pose_prompt(base_prompt, pose.get("tags")),
                          negative_prompt, pose_width, pose_height,
-                         pose_image=str(pose.get("image") or ""), face_prompt=base_prompt)
+                         pose_image=str(pose.get("image") or ""), face_prompt=base_prompt,
+                         output_name=pose.get("output_name"))
                 done_images += default_batch_size
         report_progress(job_id, nightshift_url, total_images, done_images, f"{noun} {len(poses)}/{len(poses)}")
         print(f"[seed_batch] {noun} {len(poses)}개 완료 (이미지 {done_images}장)")
