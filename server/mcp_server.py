@@ -262,7 +262,7 @@ async def build_workflow(
         "scheduler": scheduler,
     }
     if hires is not None:
-        spec["hires"] = hires
+        spec["hires_fix"] = hires
     try:
         async with _client(HEAVY_TIMEOUT) as client:
             resp = await client.post("/api/build-workflow", json=spec)
