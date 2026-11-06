@@ -1251,6 +1251,7 @@ seed_count = int(os.environ.get("SEED_COUNT", "10"))
 | `sync_runpod_pods` | `POST /api/pods/sync-runpod` | RunPod에서 RUNNING인 ComfyUI pod를 찾아 파드 목록에 자동 등록/정리(멱등). **RunPod에서 pod를 켠 직후 이 도구를 부르면 로그인 없이 등록된다.** 화면에서 손으로 등록할 때처럼 이름은 (형용사+동물+직급)으로 지어지고(RunPod 이름은 카드에 따로 표시), 결과 이미지 가져오기는 켜진 채로 등록된다. 관리자 전용 |
 | `add_pod` | `POST /api/pods` | 파드를 수동으로 등록(RunPod가 아닌 주소도 가능) |
 | `set_pod_enabled` | `PUT /api/pods/{id}` | 이 파드로 새 작업을 보낼지 켜고 끈다 — RunPod 과금(전원)과는 무관 |
+| `runpod_power` | `POST /api/pods/{id}/runpod/{action}` | nightshift가 만든 RunPod 워커를 켜고 끈다. **켜기는 과금되므로 사용자의 명시적 허락이 있을 때만** 부른다. 이미 켜진 워커의 켜기, `NIGHTSHIFT_PUBLIC_URL`이 없을 때의 켜기는 거절한다 |
 | `pod_health` | `POST /api/pods/{id}/test` | 저장된 파드 주소가 실제로 응답하는지 확인 |
 
 **에러 형식**: 내부 API가 4xx/5xx를 반환하거나(`app.py`가 없어서) 연결 자체가 안 되면, 도구는 예외를 던지는 대신 `{"error": true, "status_code": N|null, "detail": "..."}`를 반환합니다 — 호출한 모델이 그대로 읽고 사용자에게 설명할 수 있게 하기 위함입니다.

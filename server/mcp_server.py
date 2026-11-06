@@ -42,7 +42,7 @@ import tempfile
 from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 from fastmcp import FastMCP
@@ -539,7 +539,7 @@ async def list_pods() -> dict:
     """nightshift에 등록된 파드(워커) 목록을 반환한다. 각 항목은 id/name/url/enabled/
     tags/effective_url 등을 담는다. **주의: "파드"는 nightshift가 아는 주소 레코드일
     뿐이고, RunPod pod의 전원 상태와는 별개다** — 파드가 있어도 그 RunPod pod가 꺼져
-    있으면 그냥 응답이 없는 것으로 보일 뿐이다(전원은 RunPod 커넥터로 따로 다룬다)."""
+    있으면 그냥 응답이 없는 것으로 보일 뿐이다(전원은 runpod_power로 다룬다)."""
     try:
         async with _client(STATUS_TIMEOUT) as client:
             resp = await client.get("/api/pods")
@@ -586,11 +586,55 @@ async def add_pod(url: str, name: str = "", pull_outputs: bool = True) -> dict:
 @mcp.tool()
 async def set_pod_enabled(pod_id: str, enabled: bool) -> dict:
     """이 파드로 새 작업을 보낼지(enabled)를 켜고 끈다 — nightshift 쪽 사용 여부일
-    뿐이고, **RunPod pod의 전원(과금)과는 무관하다**. RunPod pod를 끄고 싶으면 RunPod
-    커넥터를 따로 써야 한다."""
+    뿐이고, **RunPod pod의 전원(과금)과는 무관하다**. RunPod pod를 끄고 싶으면
+    runpod_power를 써라."""
     try:
         async with _client(STATUS_TIMEOUT) as client:
             resp = await client.put(f"/api/pods/{pod_id}", json={"enabled": enabled})
+    except httpx.HTTPError as e:
+        return _error_from_exception(e)
+    if resp.status_code != 200:
+        return _error_from_response(resp)
+    return resp.json()
+
+
+def _public_headers() -> dict[str, str] | None:
+    # app.py는 요청 주소로 파드가 받아 갈 다운로더 주소를 정하는데, MCP는 127.0.0.1로 부르므로
+    # 공개 주소를 알려 준다. 없으면 파드에 다운로더가 안 깔려 모델을 받지 못한다.
+    parts = urlsplit(os.environ.get("NIGHTSHIFT_PUBLIC_URL", "").strip())
+    if not parts.scheme or not parts.netloc:
+        return None
+    return {"X-Forwarded-Host": parts.netloc, "X-Forwarded-Proto": parts.scheme}
+
+
+@mcp.tool()
+async def runpod_power(pod_id: str, action: str) -> dict:
+    """nightshift가 만든 RunPod 워커를 켜거나(start) 끈다(stop). **start는 실제 RunPod 파드를
+    만들어 돈이 나간다 — 사용자가 이번 작업에서 켜도 된다고 명시적으로 말했을 때만 불러라.**
+    끄기는 파드를 지우고 워커 기록만 남긴다(다시 켜면 새 파드, 모델은 작업이 오면 자동 설치).
+    실행 중인 작업이 있으면 끄기는 거절된다. 이미 켜진 워커의 start도 거절한다 — 서버는 옛
+    파드를 지우고 새로 만들기 때문이다. 켠 뒤 부팅까지 몇 분 걸리며, 일을 마치면 stop으로 끈다."""
+    if action not in ("start", "stop"):
+        return {"error": True, "status_code": None, "detail": "action은 start 또는 stop이에요."}
+    headers = None
+    try:
+        async with _client(HEAVY_TIMEOUT) as client:
+            resp = await client.get("/api/pods")
+            if resp.status_code != 200:
+                return _error_from_response(resp)
+            pod = next((p for p in resp.json().get("pods", []) if p.get("id") == pod_id), None)
+            if pod is None:
+                return {"error": True, "status_code": 404, "detail": "없는 워커예요."}
+            if action == "start":
+                if not pod.get("runpod_tier"):
+                    return {"error": True, "status_code": None, "detail": "nightshift가 만든 RunPod 워커만 켤 수 있어요."}
+                if pod.get("url"):
+                    return {"error": True, "status_code": None, "detail": "이미 켜진 워커예요.", "pod": pod}
+                headers = _public_headers()
+                if headers is None:
+                    return {"error": True, "status_code": None,
+                            "detail": "NIGHTSHIFT_PUBLIC_URL이 없어 파드가 모델을 받을 수 없어요 — 켜지 않았어요."}
+            resp = await client.post(f"/api/pods/{pod_id}/runpod/{action}", headers=headers)
     except httpx.HTTPError as e:
         return _error_from_exception(e)
     if resp.status_code != 200:
