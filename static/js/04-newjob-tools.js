@@ -648,6 +648,26 @@ function prependLoraTrigger(text, trigger){
   return `${t}, ${v}`;
 }
 
+// 빠진 LoRA에서만 쓰던 트리거(removed)와 남은 LoRA의 트리거(kept).
+function removedLoraTriggers(before, after, triggerFor){
+  const triggers = loras => [...new Set(loras.map(l => (triggerFor(l.name) || '').trim()).filter(Boolean))];
+  const kept = triggers(after);
+  const names = after.map(l => l.name);
+  return { removed: triggers(before.filter(l => !names.includes(l.name))).filter(t => !kept.includes(t)), kept };
+}
+
+// prependLoraTrigger가 맨 앞에 붙인 트리거 묶음에서 removed만 뺀다. 본문 중간의 같은 말은 건드리지 않는다.
+function stripLoraTriggers(text, removed, kept = []){
+  const heads = [];
+  let rest = text || '';
+  const leads = t => rest.toLowerCase() === t.toLowerCase() || rest.toLowerCase().startsWith(`${t.toLowerCase()}, `);
+  for(let hit; (hit = [...removed, ...kept].find(leads));){
+    if(kept.includes(hit)) heads.push(rest.slice(0, hit.length));
+    rest = rest.slice(hit.length + 2);
+  }
+  return [...heads, rest].filter(Boolean).join(', ');
+}
+
 // CSV 파일의 모든 행에 트리거를 넣은 새 파일을 만든다 — trigger_prompt 칸이 있는 템플릿은 그 칸에,
 // 없으면 main_prompt(또는 prompt) 칸에. 원래 파일은 그대로 두고 제출하는 사본만 바꾼다.
 async function csvWithLoraTrigger(file, template, trigger){

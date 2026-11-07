@@ -163,3 +163,132 @@ function renderWorkflowLoadedSummary(lines){
   el.hidden = !lines.length;
   el.textContent = lines.join('\n');
 }
+
+// ---- 불러온 작업 수정: 제자리 패치 또는 옵션을 보존한 재조립 ----
+function wizardMarkLoaded(){
+  wizardAppliedSignature = JSON.stringify(wizard);
+  wizardLoadedState = JSON.parse(wizardAppliedSignature);
+}
+
+// 재조립이 필요한 값만 남긴 비교용 문자열. 꺼진 값과 없는 값은 같게 본다(후처리를 켰다 끄면 false 키가 남는다).
+function wizardStructureKey(state){
+  const { checkpoint, textEncoder, loras, post, ...rest } = state;
+  const { hiresScale, ...flags } = post || {};
+  return JSON.stringify(Object.entries({ ...rest, ...flags }).filter(([, value]) => value).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+function wizardLorasChanged(before, after){
+  const key = state => JSON.stringify((state.loras || []).map(l => [l.name, l.strength]));
+  return key(before) !== key(after);
+}
+
+function wizardHiresChanged(before, after){
+  return !!(after.post || {}).hires_fix && before.post.hiresScale !== after.post.hiresScale;
+}
+
+// 불러온 뒤 마법사가 어떻게 바뀌었나 — 'same'(그대로), 'patch'(제자리 패치), 'rebuild'(재조립).
+function wizardLoadedChange(before, after){
+  if(wizardStructureKey(before) !== wizardStructureKey(after)) return 'rebuild';
+  const patched = before.checkpoint !== after.checkpoint || (before.textEncoder || null) !== (after.textEncoder || null)
+    || wizardHiresChanged(before, after) || wizardLorasChanged(before, after);
+  return patched ? 'patch' : 'same';
+}
+
+// 패치 뒤 런타임 덮어쓰기 칸을 비우므로, 칸에 값이 있으면 바뀌지 않았어도 워크플로우에 구워 넣는다.
+function wizardPatchValues(before, after, { modelOnly, overrides }){
+  const values = {};
+  if(before.checkpoint !== after.checkpoint || overrides.checkpoint) values.checkpoint = after.checkpoint;
+  if(after.textEncoder && before.textEncoder !== after.textEncoder) values.clip = after.textEncoder;
+  if(wizardHiresChanged(before, after)) values.hires_scale = after.post.hiresScale;
+  if(wizardLorasChanged(before, after) || overrides.lora){
+    values.loras = after.loras.map(l => ({ name: l.name, strength: l.strength }));
+    values.model_only = modelOnly;
+  }
+  return values;
+}
+
+// 제거된 LoRA의 트리거를 메인 프롬프트 앞에서 빼고, 손대지 못한 CSV 행에 대한 안내를 돌려준다.
+function dropRemovedLoraTriggers(beforeLoras){
+  const { removed, kept } = removedLoraTriggers(beforeLoras, wizard.loras, loraTriggerFor);
+  if(!removed.length) return '';
+  const control = qualityMainControl();
+  if(control){
+    const input = control.get();
+    input.value = stripLoraTriggers(input.value, removed, kept);
+    control.sync();
+  }
+  return selectedFiles.csv ? `CSV 행의 트리거 문구(${removed.join(', ')})는 그대로 뒀어요 — 필요하면 직접 지워 주세요.` : '';
+}
+
+// 지금 워크플로우 파일을 기준으로 고치므로 Face Detailer·OpenPose 패널에서 고친 값이 남는다.
+async function wizardPatchLoaded(){
+  const errorEl = document.getElementById('wizard-error');
+  errorEl.textContent = '';
+  const file = selectedFiles.workflow;
+  const cell = name => optionsFields.querySelector(`[data-name="${name}"]`);
+  const filled = name => !!String((cell(name) || {}).value || '').trim();
+  const architecture = (wizardBaseMeta(wizard.base) || {}).architecture || '';
+  const values = wizardPatchValues(wizardLoadedState, wizard, {
+    modelOnly: architecture === 'krea2' || architecture.startsWith('minimax_h3_'),
+    overrides: { checkpoint: filled('checkpoint'), lora: filled('lora_name') || filled('lora_strength') },
+  });
+  let data;
+  try{
+    data = await fdPost('/api/workflow/apply-models', { workflow: JSON.parse(await file.text()), values });
+  }catch(e){
+    errorEl.textContent = e.message;
+    return false;
+  }
+  setWorkflowFile(new File([JSON.stringify(data.workflow)], file.name, { type: 'application/json' }));
+  for(const name of ['checkpoint', 'lora_name', 'lora_strength']) if(cell(name)) cell(name).value = '';
+  const csvNote = dropRemovedLoraTriggers(wizardLoadedState.loras);
+  setLoraTriggerField(wizard.loras.map(l => l.name));
+  lastWizardModels = { checkpoint: wizard.checkpoint, loras: wizard.loras.map(l => l.name) };
+  wizardMarkLoaded();
+  document.getElementById('load-notice').textContent =
+    ['고른 모델·LoRA를 워크플로우에 반영했어요 — 다른 설정은 그대로예요.', csvNote].filter(Boolean).join('\n');
+  return true;
+}
+
+// checkpoint·lora_*는 재조립한 상태로 wizardApply가 새로 채우고, main_prompt는 입력칸째 따로 복원한다.
+const WIZARD_REBUILT_OPTIONS = ['checkpoint', 'lora_name', 'lora_strength', 'main_prompt'];
+
+function wizardOptionDraft(){
+  const values = {};
+  for(const el of optionsFields.querySelectorAll('.option-input')) values[el.dataset.name] = el.value;
+  return {
+    values, prompt: qualityMainControl()?.snapshot(),
+    csv: selectedFiles.csv, videoWorkflow: selectedFiles.video_workflow,
+  };
+}
+
+function restoreWizardOptions(values){
+  for(const el of optionsFields.querySelectorAll('.option-input')){
+    const name = el.dataset.name;
+    if(!Object.prototype.hasOwnProperty.call(values, name) || WIZARD_REBUILT_OPTIONS.includes(name)) continue;
+    if(name === 'pose_image'){
+      setPoseImageValue(el, values[name]);
+    }else if(el.tagName !== 'SELECT'){
+      el.value = values[name];
+    }else if(selectHasOptionValue(el, values[name])){
+      el.value = values[name];
+      el.dispatchEvent(new Event('change'));   // char_no 뒤의 asset_folder 목록을 다시 채운다
+    }
+  }
+}
+
+async function wizardApplyKeepingOptions(){
+  const before = wizardLoadedState;
+  const draft = wizardOptionDraft();
+  if(!await wizardApply()) return false;
+  restoreWizardOptions(draft.values);
+  if(draft.prompt) qualityMainControl()?.restore(draft.prompt);
+  const template = templatesById[templateSelect.value] || {};
+  if(template.requires_csv && draft.csv) setCsvFile(draft.csv);
+  if(template.optional_video_workflow && draft.videoWorkflow) setVideoWorkflowFile(draft.videoWorkflow);
+  const csvNote = dropRemovedLoraTriggers(before.loras);
+  wizardMarkLoaded();
+  const notice = document.getElementById('load-notice');
+  notice.textContent = [notice.textContent, '샘플러·Face Detailer 수치는 베이스 모델 기본값으로 다시 만들어졌어요.', csvNote].filter(Boolean).join('\n');
+  return true;
+}

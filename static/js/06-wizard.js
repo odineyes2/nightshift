@@ -37,6 +37,7 @@ async function tryPopulateWizardFromWorkflow(workflow, { templateId, options } =
     if(state) baseModelFamilies = mergeBaseModelFamilies(baseModelFamilies, all, state.familyId);
   }
   if(!state){
+    wizardLoadedState = null;
     renderWorkflowLoadedSummary(workflowSummaryLines(workflow, options));
     return false;
   }
@@ -45,7 +46,8 @@ async function tryPopulateWizardFromWorkflow(workflow, { templateId, options } =
   // "다음"을 눌렀을 때(goToNewJobDetails) wizardStale()이 방금 올린 이 파일을 마법사가
   // 새로 만든 걸로 덮어써 버리지 않도록, 지금 상태를 먼저 "이미 반영됨"으로 찍어 둔다 —
   // 이후 마법사 스텝을 더 만지면(예: 4단계 실행 방식을 고르면) 그때부터는 다시 stale이 된다.
-  wizardAppliedSignature = JSON.stringify(wizard);
+  // 같은 스냅샷이 제자리 패치와 재조립의 갈림 기준이다(wizardLoadedChange 참고).
+  wizardMarkLoaded();
   renderWorkflowLoadedSummary([]);
   wizardUpdateStepButtons();
   return true;
@@ -843,8 +845,12 @@ let quickRunReturn = false;
 // 옛 폼을 보는 우회로가 안 생긴다.
 async function goToNewJobDetails(){
   if(!newJobReadyToAdvance()) return;
+  // 불러온 워크플로우의 모델·LoRA만 바꿨으면 wizardComplete()와 무관하게 제자리에서 고친다.
+  const loadedChange = wizardLoadedState && selectedFiles.workflow ? wizardLoadedChange(wizardLoadedState, wizard) : null;
+  if(loadedChange === 'patch' && !await wizardPatchLoaded()) return;
+  if(loadedChange === 'same') wizardAppliedSignature = JSON.stringify(wizard);
   if(wizardStale()){
-    const ok = await wizardApply();
+    const ok = await (wizardLoadedState ? wizardApplyKeepingOptions() : wizardApply());
     if(!ok) return;   // #wizard-error에 이미 안내가 떴다 — 탭을 넘기지 않는다
     wizardAppliedSignature = JSON.stringify(wizard);
   }else if(wizardQuality.key){

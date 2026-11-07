@@ -156,6 +156,171 @@ test('다른 워커의 family는 합치고, 목록에 없는 LoRA는 맨 앞에 
   assert.deepEqual(plain(wizardLoraListNames(['a', 'b'], [{ name: 'b' }, { name: 'gone' }])), ['gone', 'a', 'b']);
 });
 
+// ---- NS-122-3: 수정 시 패치·옵션 보존 재조립 ----
+const tools = source('04-newjob-tools.js');
+const element = (name, value, extra = {}) => ({ dataset: { name }, value, tagName: 'INPUT', ...extra });
+
+// 실제 goToNewJobDetails와 패치·재조립 함수를 모의 화면에서 돌린다.
+function editHarness({ state, file = '{"1":{"class_type":"FaceDetailer"}}', options = [], template = { requires_csv: true }, apply, fail, csv = null }){
+  const dom = { 'load-notice': { textContent: '' }, 'wizard-error': { textContent: '' }, 'new-job-tabs': { scrollIntoView(){} } };
+  const calls = { patch: [], apply: 0, files: [], csv: [], triggers: [], synced: 0 };
+  const promptInput = { value: 'old, body' };
+  const control = {
+    get: () => promptInput, sync: () => { calls.synced++; },
+    snapshot: () => ({ raw: promptInput.value }), restore: draft => { promptInput.value = draft.raw; },
+  };
+  const harness = vm.createContext({
+    JSON, Object, String, File: class { constructor(parts, name){ this.body = parts[0]; this.name = name; } text(){ return Promise.resolve(this.body); } },
+    Event: class { constructor(type){ this.type = type; } },
+    document: { getElementById: id => dom[id] },
+    optionsFields: { querySelectorAll: () => options, querySelector: selector => options.find(el => selector.includes(`"${el.dataset.name}"`)) || null },
+    templateSelect: { value: 'next' }, templatesById: { next: template },
+    selectedFiles: { workflow: { name: 'job.json', text: () => Promise.resolve(file) }, csv },
+    wizard: JSON.parse(JSON.stringify(state)), wizardLoadedState: null, wizardAppliedSignature: null, lastWizardModels: null,
+    wizardQuality: { key: '' }, quickRunReturn: false, newJobActiveTab: 'select',
+    newJobReadyToAdvance: () => true, renderNewJobTabs(){},
+    wizardStale: () => harness.wizardAppliedSignature !== JSON.stringify(harness.wizard) && !!harness.wizard.batchMode,
+    wizardBaseMeta: () => ({ architecture: 'krea2' }), qualityMainControl: () => control,
+    loraTriggerFor: name => ({ 'old.safetensors': 'old', 'twin.safetensors': 'same', 'twin2.safetensors': 'same' })[name] || '',
+    setWorkflowFile: f => { harness.selectedFiles.workflow = f; calls.files.push(f); },
+    setCsvFile: f => { calls.csv.push(f); }, setVideoWorkflowFile(){},
+    setLoraTriggerField: names => { calls.triggers.push(names); },
+    selectHasOptionValue: (el, value) => el.choices.includes(value), setPoseImageValue(el, value){ el.value = value; },
+    fdPost: async (url, body) => {
+      calls.patch.push(body);
+      if(fail) throw new Error(fail);
+      return { workflow: { ...body.workflow, patched: true } };
+    },
+    wizardApply: async () => {
+      calls.apply++;
+      dom['load-notice'].textContent = '마법사 설정을 적용했어요';
+      for(const el of options) el.value = el.dataset.name === 'checkpoint' ? 'rebuilt.safetensors' : '';
+      promptInput.value = '';
+      return apply !== false;
+    },
+  });
+  vm.runInContext(fnOf(tools, 'removedLoraTriggers') + fnOf(tools, 'stripLoraTriggers') + source('06b-wizard-loaded.js')
+    + `async ${fnOf(wizardSource, 'goToNewJobDetails')}`, harness);
+  harness.wizardMarkLoaded();
+  return { harness, dom, calls, promptInput };
+}
+const loadedState = {
+  familyId: 'krea.2', checkpoint: 'a.safetensors', textEncoder: 'te1', base: 'krea2_t2i', preset: null, batchMode: 'seed',
+  post: { hires_fix: true, hiresScale: 1.5, usdu: false }, loras: [{ name: 'old.safetensors', strength: 1 }], refinePrompt: true,
+};
+const edited = change => {
+  const after = JSON.parse(JSON.stringify(loadedState));
+  change(after);
+  return context.wizardLoadedChange(loadedState, after);
+};
+
+test('분기 판정: 모델·인코더·Hires 배율·LoRA만 바뀌면 패치, 구조가 바뀌면 재조립', () => {
+  assert.equal(edited(() => {}), 'same');
+  assert.equal(edited(s => { s.post.usdu = false; s.post.openpose = false; }), 'same');
+  assert.equal(edited(s => { s.post.hires_fix = false; s.post.hiresScale = 2; }), 'rebuild');
+  for(const change of [s => { s.checkpoint = 'b'; }, s => { s.textEncoder = 'te2'; }, s => { s.post.hiresScale = 2; },
+    s => { s.loras[0].strength = 0.5; }, s => { s.loras = []; }]){
+    assert.equal(edited(change), 'patch');
+  }
+  for(const change of [s => { s.base = 'txt2img'; }, s => { s.post.usdu = true; }, s => { s.batchMode = 'csv'; },
+    s => { s.familyId = 'anima'; }, s => { s.preset = 'depth_cn'; }, s => { s.refinePrompt = false; }]){
+    assert.equal(edited(change), 'rebuild');
+  }
+});
+
+test('패치 값은 바뀐 항목만 보내고, 비워질 덮어쓰기 칸의 값은 구워 넣는다', () => {
+  const after = JSON.parse(JSON.stringify(loadedState));
+  after.loras[0].strength = 0.5;
+  const none = { checkpoint: false, lora: false };
+  assert.deepEqual(plain(context.wizardPatchValues(loadedState, after, { modelOnly: true, overrides: none })),
+    { loras: [{ name: 'old.safetensors', strength: 0.5 }], model_only: true });
+  assert.deepEqual(plain(context.wizardPatchValues(loadedState, loadedState, { modelOnly: false, overrides: { checkpoint: true, lora: true } })),
+    { checkpoint: 'a.safetensors', loras: [{ name: 'old.safetensors', strength: 1 }], model_only: false });
+  after.post.hiresScale = 2; after.textEncoder = 'te2';
+  const values = context.wizardPatchValues(loadedState, after, { modelOnly: false, overrides: none });
+  assert.equal(values.hires_scale, 2);
+  assert.equal(values.clip, 'te2');
+});
+
+test('트리거 제거: 맨 앞 묶음에서 빠진 LoRA 것만 빼고 같은 트리거를 쓰는 LoRA가 남으면 유지한다', () => {
+  const trigger = name => ({ a: 'alpha', b: 'beta', c: 'alpha' })[name] || '';
+  vm.runInContext(fnOf(tools, 'removedLoraTriggers') + fnOf(tools, 'stripLoraTriggers'), context);
+  const { removedLoraTriggers, stripLoraTriggers } = context;
+  assert.deepEqual(plain(removedLoraTriggers([{ name: 'a' }, { name: 'b' }], [{ name: 'b' }], trigger)), { removed: ['alpha'], kept: ['beta'] });
+  assert.deepEqual(plain(removedLoraTriggers([{ name: 'a' }, { name: 'c' }], [{ name: 'c' }], trigger)).removed, []);
+  assert.equal(stripLoraTriggers('alpha, 1girl', ['alpha']), '1girl');
+  assert.equal(stripLoraTriggers('Alpha, beta, 1girl', ['beta'], ['alpha']), 'Alpha, 1girl');
+  assert.equal(stripLoraTriggers('alpha', ['alpha']), '');
+  assert.equal(stripLoraTriggers('1girl, alpha', ['alpha']), '1girl, alpha');
+  assert.equal(stripLoraTriggers('alphabet, 1girl', ['alpha']), 'alphabet, 1girl');
+});
+
+test('다음: 패치면 재조립 없이 파일명을 지키고 덮어쓰기 칸·트리거·스냅샷을 갱신한다', async () => {
+  const cells = [element('checkpoint', 'override.safetensors'), element('lora_name', 'x'), element('lora_strength', '0.3'), element('seed_count', '7')];
+  const { harness, dom, calls, promptInput } = editHarness({ state: { ...loadedState, batchMode: null }, options: cells, csv: { name: 'rows.csv' } });
+  harness.wizard.loras = [];
+  await harness.goToNewJobDetails();
+  assert.equal(calls.apply, 0);
+  assert.equal(calls.patch[0].values.checkpoint, 'a.safetensors');
+  assert.deepEqual(plain(calls.patch[0].values.loras), []);
+  assert.equal(calls.files[0].name, 'job.json');
+  assert.equal(JSON.parse(calls.files[0].body).patched, true);
+  assert.deepEqual(cells.map(el => el.value), ['', '', '', '7']);
+  assert.equal(promptInput.value, 'body');
+  assert.deepEqual(plain(calls.triggers), [[]]);
+  assert.equal(plain(harness.lastWizardModels).checkpoint, 'a.safetensors');
+  assert.equal(harness.wizardAppliedSignature, JSON.stringify(harness.wizard));
+  assert.deepEqual(plain(harness.wizardLoadedState.loras), []);
+  assert.equal(harness.newJobActiveTab, 'details');
+  assert.match(dom['load-notice'].textContent, /CSV 행의 트리거 문구\(old\)/);
+});
+
+test('다음: 패치가 거절되면 이유를 띄우고 탭을 넘기지 않는다', async () => {
+  const { harness, dom, calls } = editHarness({ state: loadedState, fail: 'LoRA 체인이 일자가 아니라 고칠 수 없어요' });
+  harness.wizard.checkpoint = 'b.safetensors';
+  await harness.goToNewJobDetails();
+  assert.equal(dom['wizard-error'].textContent, 'LoRA 체인이 일자가 아니라 고칠 수 없어요');
+  assert.equal(harness.newJobActiveTab, 'select');
+  assert.equal(calls.files.length, 0);
+  assert.equal(harness.wizardLoadedState.checkpoint, 'a.safetensors');
+});
+
+test('다음: 재조립은 이름이 같은 옵션·프롬프트·CSV를 복원하고 런타임 칸은 새 값을 둔다', async () => {
+  const csv = { name: 'rows.csv' };
+  const select = element('sampler', 'euler', { tagName: 'SELECT', choices: ['euler'], dispatchEvent(){} });
+  const gone = element('style', 'removed-choice', { tagName: 'SELECT', choices: ['kept'], dispatchEvent(){} });
+  const cells = [element('checkpoint', 'old.safetensors'), element('seed_count', '7'), element('pose_image', 'p.png'), select, gone];
+  const { harness, dom, calls, promptInput } = editHarness({ state: loadedState, options: cells, csv });
+  harness.wizard.base = 'txt2img';
+  await harness.goToNewJobDetails();
+  assert.equal(calls.apply, 1);
+  assert.equal(calls.patch.length, 0);
+  assert.deepEqual(cells.map(el => el.value), ['rebuilt.safetensors', '7', 'p.png', 'euler', '']);
+  assert.equal(promptInput.value, 'old, body');
+  assert.deepEqual(calls.csv, [csv]);
+  assert.match(dom['load-notice'].textContent, /적용했어요\n샘플러·Face Detailer 수치는 베이스 모델 기본값으로/);
+  assert.equal(harness.wizardLoadedState.base, 'txt2img');
+  assert.equal(harness.newJobActiveTab, 'details');
+});
+
+test('다음: 새 템플릿이 CSV를 안 쓰면 버리고, 재조립 실패면 넘어가지 않으며, 변경이 없으면 아무것도 안 부른다', async () => {
+  const noCsv = editHarness({ state: loadedState, template: {}, csv: { name: 'rows.csv' } });
+  noCsv.harness.wizard.batchMode = 'csv';
+  await noCsv.harness.goToNewJobDetails();
+  assert.equal(noCsv.calls.csv.length, 0);
+
+  const failed = editHarness({ state: loadedState, apply: false });
+  failed.harness.wizard.base = 'txt2img';
+  await failed.harness.goToNewJobDetails();
+  assert.equal(failed.harness.newJobActiveTab, 'select');
+
+  const same = editHarness({ state: loadedState });
+  same.harness.wizard.post.openpose = false;
+  await same.harness.goToNewJobDetails();
+  assert.equal(same.calls.apply + same.calls.patch.length, 0);
+  assert.equal(same.harness.newJobActiveTab, 'details');
+});
+
 test('loadJobSettings가 마법사를 비우고 역채움 뒤에 안내를 쓴다', () => {
   const body = fnOf(refs, 'loadJobSettings');
   const order = ['resetWizardAndWorkflow()', 'resetForm()', 'tryPopulateWizardFromWorkflow(loadedWorkflow', 'setLoraTriggerField(', 'loadNotice.textContent = msg'];
