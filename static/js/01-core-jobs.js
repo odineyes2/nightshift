@@ -698,21 +698,20 @@ function jobHasLoraWorkflow(job){
 
 function jobDetailLoraHtml(){
   const state = jobDetailLora;
-  if(state.status === 'loading') return '<div class="field"><label class="field-label">LoRA 적용 여부</label><div>확인 중…</div></div>';
-  if(state.status === 'error') return '<div class="field"><label class="field-label">LoRA 적용 여부</label><div>확인할 수 없어요</div></div>';
-  if(!state.entries.length) return '<div class="field"><label class="field-label">LoRA 적용 여부</label><div>적용 안 함</div></div>';
-  const names = state.entries.map(entry => escapeHtml(entry.name == null || entry.name === '' ? '확인할 수 없어요' : entry.name));
-  const strengths = state.entries.map(entry => {
-    const model = entry.model == null || entry.model === '' ? '확인할 수 없어요' : escapeHtml(entry.model);
-    return entry.clip == null || entry.clip === '' ? model : `${model} (CLIP ${escapeHtml(entry.clip)})`;
-  });
-  const rows = (state.rows || []).map(row => `<div class="field"><label class="field-label">${escapeHtml(row.line)}행 LoRA 변경</label><div class="job-detail-prompt">${row.entries.map((entry, i) => `${i + 1}. ${escapeHtml(entry.name)} · ${escapeHtml(entry.model)}${entry.clip == null ? '' : ` (CLIP ${escapeHtml(entry.clip)})`}`).join('<br>')}</div></div>`).join('');
-  return `<div class="field"><label class="field-label">LoRA 적용 여부</label><div>적용 (${state.entries.length}개)</div></div>
-    ${rows ? '<div class="field"><div class="text-dim">아래 목록은 공통 설정이며, 행별 변경은 따로 표시해요.</div></div>' : ''}
-    <div class="field"><label class="field-label">LoRA 이름</label><div class="job-detail-prompt">${names.map((name, i) => `${i + 1}. ${name}`).join('<br>')}</div></div>
-    <div class="field"><label class="field-label">LoRA 강도</label><div class="job-detail-prompt">${strengths.map((value, i) => `${i + 1}. ${value}`).join('<br>')}</div></div>
-    ${rows}
-    <div class="field"><div class="text-dim">저장된 워크플로우와 실행 옵션 기준이에요. 실제 GPU 실행 결과를 확인한 값은 아니에요.</div></div>`;
+  if(state.status === 'loading') return '<div class="field"><label class="field-label">LORA</label><div>확인 중…</div></div>';
+  if(state.status === 'error') return '<div class="field"><label class="field-label">LORA</label><div>확인할 수 없어요</div></div>';
+  const rows = state.rows || [];
+  const list = (title, entries) => {
+    const items = entries.map((entry, i) => {
+      const name = entry.name == null || entry.name === '' ? '확인할 수 없어요' : escapeHtml(entry.name);
+      const model = entry.model == null || entry.model === '' ? '확인할 수 없어요' : escapeHtml(entry.model);
+      const clip = entry.clip == null || entry.clip === '' ? '' : ` · CLIP ${escapeHtml(entry.clip)}`;
+      return `${i + 1}. ${name} · 강도 ${model}${clip}`;
+    }).join('<br>');
+    return `<div class="field"><label class="field-label">${title} (총 ${entries.length}개)</label><div class="job-detail-prompt">${items || '적용 안 함'}</div></div>`;
+  };
+  return list(rows.length ? 'LORA · 공통' : 'LORA', state.entries)
+    + rows.map(row => list(`${escapeHtml(row.line)}행 LORA`, row.entries)).join('');
 }
 
 async function loadJobDetailLora(job, request){
