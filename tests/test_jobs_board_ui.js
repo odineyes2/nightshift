@@ -61,7 +61,7 @@ const ctx = vm.createContext({
   jobElapsedHtml: () => '', updateClearDoneJobs: () => {},
   openJobDetailModal: id => calls.push(['detail', id]), showTab: (...args) => calls.push(['tab', ...args]),
   fetch: async (url, options) => { calls.push(['fetch', url, options.method]); return { ok: true, json: async () => ({started:[], no_url:[], failed:[]}) }; },
-  fetchJobs: () => {}, alert: () => {},
+  fetchJobs: () => {}, alert: () => {}, loadJobSettings: job => calls.push(['load', job]),
 });
 vm.runInContext(['jobModelInfo', 'updateJobModelFilters', 'jobMatchesSearch', 'jobFinishedLabel', 'buildJobCard', 'render'].map(pick).join('\n'), ctx);
 const jobs = [
@@ -140,4 +140,30 @@ test('"완료 작업도"는 기본 숨김, 체크 시 표시, 해제 시 다시 
   filter.value = 'done'; render(jobs);
   assert.equal(board.handlers['job-card'].length, 1);
   filter.value = 'all';
+});
+
+
+test('목록 불러오기의 대상·전파 차단·재렌더 연결을 확인한다', async () => {
+  showDone.checked = true; render(jobs);
+  assert.equal(board.handlers['load-btn'].length, jobs.length);
+  assert.match(board.innerHTML, /type="button" class="load-btn" data-load="1" title="설정 불러오기" aria-label="작업 1 설정 불러오기"/);
+  assert.match(board.innerHTML, /href="#i-folder-open"/);
+  for(const updated of [jobs, [...jobs].reverse().map(j => ({...j, template_label:j.template_label + ' 변경'}))]){
+    render(updated);
+    for(const button of board.handlers['load-btn']){
+      const before = calls.length;
+      let stopped = false;
+      button.handlers.click({stopPropagation(){ stopped = true; }});
+      assert.ok(stopped);
+      assert.equal(calls.length, before + 1);
+      assert.equal(calls.at(-1)[0], 'load');
+      assert.equal(calls.at(-1)[1], updated.find(j => j.id === button.dataset.load));
+    }
+  }
+  const before = calls.length;
+  await click('job-card', 0, {closest: selector => selector === 'button, a' ? {} : null});
+  assert.equal(calls.length, before);
+  const row = board.handlers['job-card'][0];
+  row.handlers.keydown({target:row, key:'Enter', preventDefault(){}});
+  assert.deepEqual(calls.at(-1), ['detail', row.dataset.id]);
 });
