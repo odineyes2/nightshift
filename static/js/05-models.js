@@ -646,6 +646,8 @@ let wizard = {
 // 만든다(goToNewJobDetails 참고) — 자동으로는 절대 다시 안 만든다(입력해 둔 프롬프트 등을
 // 조용히 지우지 않기 위해, wizardApply()의 resetForm() 참고).
 let wizardAppliedSignature = null;
+// 워크플로우에서 역채움했을 때의 wizard 스냅샷 — 있으면 "다음"이 제자리 패치/옵션 보존 재조립으로 간다(06b-wizard-loaded.js).
+let wizardLoadedState = null;
 // "새 작업" 패널의 두 하위 탭 중 지금 보이는 쪽 — renderNewJobTabs/goToNewJobDetails 참고.
 let newJobActiveTab = 'select';   // 'select' | 'details'
 
@@ -773,6 +775,7 @@ function resetWizardAndWorkflow(){
     useFirstFrame: true, useLastFrame: false, t2vWidth: 704, t2vHeight: 1280,
   };
   wizardAppliedSignature = null;
+  wizardLoadedState = null;
   document.getElementById('wizard-error').textContent = '';
   document.getElementById('load-notice').textContent = '';
   wizardUpdateStepButtons();

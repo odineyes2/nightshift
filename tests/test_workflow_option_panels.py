@@ -29,6 +29,7 @@ def fixture():
     tools = (ROOT / 'static/js/04-newjob-tools.js').read_text(encoding='utf-8')
     wizard = (ROOT / 'static/js/06-wizard.js').read_text(encoding='utf-8')
     form = (ROOT / 'static/js/02-job-move-newjob-form.js').read_text(encoding='utf-8')
+    loaded = (ROOT / 'static/js/06b-wizard-loaded.js').read_text(encoding='utf-8')
     # 화면과 관계없는 모델 목록·옵션 폼 준비만 대체한다. 생성/파일 교체/판정은 실제 함수를 쓴다.
     script = """
 const optionsFields = document.getElementById('options-fields');
@@ -39,7 +40,8 @@ const selectedFiles = {};
 const baseModelFamilies = {test: {kind: 'checkpoints', controlnets: {openpose: ['test-cn']}}};
 let wizard = {familyId:'test', checkpoint:'test.safetensors', base:'txt2img', batchMode:'seed',
   loras:[], post:{face_detailer:false, openpose:false, cnName:'test-cn'}};
-let workflowCheckToken = 0, wizardRefCounts, lastWizardModels, wizardAppliedSignature;
+let workflowCheckToken = 0, wizardRefCounts, lastWizardModels, wizardAppliedSignature, wizardLoadedState = null;
+const loraTriggerFor = () => '';
 let wizardPendingInputImage = null, wizardPendingPose = null, newJobActiveTab = 'select';
 let quickRunReturn = false;
 const wizardQuality = {key:null};
@@ -62,8 +64,10 @@ let fdArchitecture;
     op_start = tools.index('const OP_FIELDS')
     script += tools[op_start:tools.index('// checkWorkflowCompatibility', op_start)].replace(
         "const opEditGrid = document.getElementById('op-edit-grid');", '')
-    for name in ('fdFill', 'renderFaceDetailerPanel', 'renderOpenPosePanel'):
+    for name in ('fdFill', 'renderFaceDetailerPanel', 'renderOpenPosePanel', 'fdPost', 'qualityMainControl',
+                 'removedLoraTriggers', 'stripLoraTriggers'):
         script += function(tools, name)
+    script += loaded
     for name in ('setupSlot', 'resetForm'):
         script += function(form, name)
     for name in ('workflowHasFaceDetailer', 'setFaceDetailerFieldsVisible', 'workflowHasOpenPose',
@@ -84,11 +88,19 @@ def main(capture=False):
     from playwright.sync_api import sync_playwright
     html, script = fixture()
     builds = []
+    patches = []
 
     def respond(route):
         url = route.request.url
         if url == 'http://127.0.0.1/':
             route.fulfill(content_type='text/html', body=html)
+        elif '/api/workflow/apply-models' in url:
+            body = route.request.post_data_json
+            patches.append(body['values'])
+            if body['values']['loras'][0]['name'] == 'bad':
+                route.fulfill(status=400, json={'detail': 'LoRA 체인이 일자가 아니라 고칠 수 없어요'})
+            else:
+                route.fulfill(json={'workflow': body['workflow']})
         elif '/api/build-workflow' in url:
             spec = route.request.post_data_json
             builds.append(spec)
@@ -154,6 +166,26 @@ def main(capture=False):
                             panels(page, True, True)
                             page.evaluate('(text) => setWorkflowFile(text === null ? null : new File([text],"replacement.json"))', replacement)
                             panels(page, False, False)
+                        # 불러온 워크플로우의 LoRA만 바꾸면 재조립 없이 패치하고 패널·파일명이 남는다.
+                        built = len(builds)
+                        page.evaluate('''() => {
+                          setWorkflowFile(new File([JSON.stringify({1:{class_type:"FaceDetailer"},2:{class_type:"DWPreprocessor"}})],"loaded.json"));
+                          wizard.batchMode = null;
+                          wizardMarkLoaded();
+                          wizard.loras = [{name:"bad",strength:0.5}];
+                          newJobActiveTab = "select"; renderNewJobTabs();
+                        }''')
+                        page.locator('#new-job-next-btn').click()
+                        page.wait_for_function('document.getElementById("wizard-error").textContent.includes("일자")')
+                        assert page.evaluate('newJobActiveTab') == 'select'
+                        page.evaluate('() => { wizard.loras = [{name:"good",strength:0.5}]; }')
+                        page.locator('#new-job-next-btn').click()
+                        page.wait_for_function('newJobActiveTab === "details"')
+                        panels(page, True, True)
+                        assert patches[-1]['loras'] == [{'name': 'good', 'strength': 0.5}]
+                        assert len(builds) == built
+                        assert page.evaluate('selectedFiles.workflow.name') == 'loaded.json'
+                        assert page.evaluate('document.getElementById("wizard-error").textContent') == ''
                         context.close()
             finally:
                 browser.close()
