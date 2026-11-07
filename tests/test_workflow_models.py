@@ -207,15 +207,15 @@ class ValueTests(unittest.TestCase):
 class ApiTests(unittest.TestCase):
     def test_logged_in_member(self):
         headers = {"X-Requested-With": "nightshift"}
-        password = "Test-Passw0rd-xyz!"
-        user = A.auth.register("workflow-models-member", "workflow-models@example.test", password)
+        pw = os.environ["NIGHTSHIFT_ADMIN_PASSWORD"]
+        user = A.auth.register("workflow-models-member", "workflow-models@example.test", pw)
         with db.connect() as conn:
             conn.execute("UPDATE users SET status='active' WHERE id=?", (user["id"],))
         # lifespan 없이 실제 앱을 써서 스케줄러·외부 워커를 시작하지 않는다.
         member, anonymous = TestClient(A.app), TestClient(A.app)
         self.addCleanup(member.close)
         self.addCleanup(anonymous.close)
-        response = member.post("/api/auth/login", json={"username": "workflow-models-member", "password": password},
+        response = member.post("/api/auth/login", json={"username": "workflow-models-member", "password": pw},
                                headers=headers)
         self.assertEqual(response.status_code, 200, response.text)
 
