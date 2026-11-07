@@ -129,6 +129,8 @@
     color:var(--text); font:inherit; font-size:13px; padding:8px 12px;
   }
   .job-list-toolbar input{ flex:1 1 220px; min-width:0; }
+  .job-list-toolbar input[type="date"]{ flex:none; width:auto; }
+  .job-list-toolbar [hidden]{ display:none; }
   .job-list-toolbar .job-show-done{ display:inline-flex; align-items:center; gap:6px; min-height:40px; cursor:pointer; }
   .job-list-toolbar .job-show-done input{ flex:none; width:auto; min-height:0; padding:0; accent-color:var(--accent); }
   .job-list-toolbar select{ max-width:100%; min-width:0; }
@@ -138,7 +140,7 @@
   }
   .job-board{ display:block; width:100%; overflow-x:visible; border:1px solid var(--border); border-radius:8px; }
   .job-list-head, .job-card{
-    display:grid; grid-template-columns:minmax(170px,2fr) minmax(150px,1.7fr) minmax(105px,1.2fr) minmax(100px,1fr) minmax(120px,1.2fr) minmax(145px,1.4fr);
+    display:grid; grid-template-columns:minmax(220px,2fr) minmax(150px,1.7fr) minmax(105px,1.2fr) minmax(100px,1fr) minmax(120px,1.2fr) minmax(145px,1.4fr);
     align-items:center; gap:12px; width:100%; min-width:0;
   }
   .job-list-head{
@@ -154,6 +156,14 @@
   .job-card[data-status="pending"] > :not(.job-card-actions){ opacity:1; filter:none; }
   .job-card .preflight-badge{ position:static; }
   .job-cell{ min-width:0; overflow-wrap:anywhere; }
+  .job-main{ display:flex; align-items:center; gap:10px; }
+  .job-main-text{ min-width:0; flex:1; }
+  .job-thumb{ flex:none; width:48px; height:48px; }
+  .job-thumb img{ display:block; width:100%; height:100%; object-fit:cover; border-radius:var(--radius-sm); }
+  .job-thumb-tile{
+    display:flex; align-items:center; justify-content:center; width:100%; height:100%;
+    border-radius:var(--radius-sm); background:var(--bg); color:var(--text-dim);
+  }
   .job-card-title{ padding-right:0; font-size:13px; font-weight:500; }
   .job-card-title span:last-child{ min-width:0; }
   .job-card-id{ flex:none; font-size:12px; color:var(--text-dim); font-variant-numeric:tabular-nums; }
@@ -185,7 +195,7 @@
     .job-list-toolbar > label[for="job-search"],
     .job-list-toolbar input[type="search"],
     .job-list-toolbar .job-show-done{ grid-column:1 / -1; }
-    .job-list-toolbar select{ width:100%; }
+    .job-list-toolbar select, .job-list-toolbar input[type="date"]{ width:100%; }
     #job-add-btn{ margin-left:0; }
   }
   .job-detail-actions{ display:flex; flex-wrap:wrap; gap:8px; }

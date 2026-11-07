@@ -37,6 +37,7 @@ const ctx = vm.createContext({
   fetchJobWorkflowCheckpoint: () => {}, modelEntry: (kind, name) => entries[`${kind}:${name}`] || { base_models: [] },
   basesOf: entry => entry.base_models || [], escapeHtml: value => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;'),
   jobPodFilter: null, jobProjectFilter: null, projectMatches: (id, scope) => id === scope,
+  jobDateFilter: { value: '' }, jobDateAuto: false, jobProjectSelect: { value: '', innerHTML: '' }, jobProjectLabel: {}, nsfwMode: 'show',
   jobSearch: { value: '' }, jobStatusFilter: { value: 'all' }, jobShowDone: { checked: true },
   updateClearDoneJobs: () => {}, currentTab: 'jobs', openJobDetailId: null,
   document: { getElementById: () => board, activeElement: null }, window: { getSelection: () => ({ isCollapsed: true }) },
@@ -44,7 +45,7 @@ const ctx = vm.createContext({
   buildJobCard: j => `<article data-id="${j.id}"></article>`, jobMatchesSearch: () => true,
   lastJobsRowsSignature: null, lastJobs: [],
 });
-vm.runInContext(['jobModelInfo', 'updateJobModelFilters', 'render'].map(pick).join('\n'), ctx);
+vm.runInContext(['effectiveJobProject', 'jobMatchesDate', 'updateJobProjectOptions', 'jobModelInfo', 'updateJobModelFilters', 'render'].map(pick).join('\n'), ctx);
 const jobs = [
   { id: 'a', status: 'queued', pod_id: 'one', options: { checkpoint: 'flux-a.safetensors' } },
   { id: 'b', status: 'queued', pod_id: 'one', options: { checkpoint: 'shared.safetensors' } },

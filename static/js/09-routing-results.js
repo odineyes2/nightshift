@@ -346,6 +346,9 @@ async function openJobHashRoute(raw){
   jobFamilyFilter.value = '';
   jobModelFilter.value = '';
   jobShowDone.checked = true;
+  jobDateFilter.value = '';
+  jobDateAuto = false;
+  jobProjectSelect.value = '';
   lastJobsRowsSignature = null;
   render(lastJobs);
   const loading = setTimeout(() => {
