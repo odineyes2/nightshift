@@ -192,9 +192,12 @@ let lastJobsRowsSignature = null;
 
 let clearingDoneJobs = false;
 function visibleDoneJobs(){
+  const project = effectiveJobProject();
+  const dateKey = jobDateFilter.value;
   return lastJobs.filter(j => j.status === 'done' && !j.deleted
     && (!jobPodFilter || j.pod_id === jobPodFilter)
-    && (jobProjectFilter === null || projectMatches(j.project_id, jobProjectFilter)));
+    && (project === null || projectMatches(j.project_id, project))
+    && jobMatchesDate(j, dateKey));
 }
 function updateClearDoneJobs(){
   const btn = document.getElementById('clear-done-jobs');
@@ -205,16 +208,20 @@ function updateClearDoneJobs(){
 }
 document.getElementById('clear-done-jobs').addEventListener('click', async () => {
   if(clearingDoneJobs) return;
-  const count = visibleDoneJobs().length;
+  // 확인 당시 범위를 id까지 고정한다 — 요청 중 화면을 옮겨도 다른 범위를 지우지 않고,
+  // 날짜 경계를 서버로 옮기지 않아도 확인 창의 개수와 지우는 개수가 같다.
+  const jobIds = visibleDoneJobs().map(j => j.id);
+  const count = jobIds.length;
   if(!count) return;
-  // 확인 당시 범위를 고정한다 — 요청 중 화면을 옮겨도 다른 범위를 지우지 않는다.
   const params = new URLSearchParams({ done_only: 'true' });
   const scope = [];
   if(jobPodFilter){ params.set('pod_id', jobPodFilter); scope.push(`파드 ${podName(jobPodFilter) || jobPodFilter}`); }
-  if(jobProjectFilter !== null){
-    params.set('project_id', jobProjectFilter);
-    scope.push(jobProjectFilter === 'unassigned' ? '미분류' : `프로젝트 ${projectName(jobProjectFilter)}`);
+  const project = effectiveJobProject();
+  if(project !== null){
+    params.set('project_id', project);
+    scope.push(project === 'unassigned' ? '미분류' : `프로젝트 ${projectName(project) || project}`);
   }
+  if(jobDateFilter.value) scope.push(fmtDateLabel(jobDateFilter.value));
   const label = scope.join(' / ') || '전체';
   if(!confirm(`${label} 범위의 완료 잡 ${count}개를 청소할까요?\n실패·중단·대기·실행 중 잡은 유지해요. 오래된 작업 설정은 영구 정리될 수 있어요.`)) return;
   clearingDoneJobs = true;
@@ -222,7 +229,9 @@ document.getElementById('clear-done-jobs').addEventListener('click', async () =>
   const result = document.getElementById('clear-done-jobs-result');
   result.textContent = '';
   try{
-    const res = await fetch(`/api/jobs/clear-completed?${params}`, { method: 'POST' });
+    const res = await fetch(`/api/jobs/clear-completed?${params}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_ids: jobIds }),
+    });
     if(!res.ok) throw new Error('cleanup');
     const data = await res.json();
     result.textContent = `${label} 범위의 완료 잡 ${data.cleared}개를 청소했어요.`;
@@ -240,6 +249,18 @@ const jobSearch = document.getElementById('job-search');
 const jobStatusFilter = document.getElementById('job-status-filter');
 const jobFamilyFilter = document.getElementById('job-family-filter');
 const jobModelFilter = document.getElementById('job-model-filter');
+const jobDateFilter = document.getElementById('job-date-filter');
+const jobProjectSelect = document.getElementById('job-project-select');
+const jobProjectLabel = document.getElementById('job-project-label');
+// 사람이 날짜를 바꾸지 않았으면 자정을 넘긴 폴링에서 오늘로 따라간다(PWA를 켜 둔 경우).
+let jobDateAuto = true;
+function jobToday(){ return fmtDateKey(new Date()); }
+jobDateFilter.value = jobToday();
+jobDateFilter.addEventListener('change', () => {
+  jobDateAuto = jobDateFilter.value === jobToday();
+  render(lastJobs);
+});
+jobProjectSelect.addEventListener('change', () => render(lastJobs));
 document.getElementById('job-add-btn').addEventListener('click', openNewJobModal);
 jobSearch.addEventListener('input', () => render(lastJobs));
 jobStatusFilter.addEventListener('change', () => render(lastJobs));
@@ -256,6 +277,35 @@ function jobMatchesSearch(j, query){
   return [j.id, j.template_id, j.template_label, jobBatchModeLabel(j.template_id, j.template_label),
     jobBaseModelLabel(j), podName(j.pod_id), j.project_id != null && projectName(j.project_id)]
     .some(value => String(value || '').toLocaleLowerCase().includes(query));
+}
+
+// 프로젝트 화면의 범위가 있으면 그 값, 없으면 툴바에서 고른 값. null이면 모든 프로젝트.
+function effectiveJobProject(){
+  if(jobProjectFilter !== null) return jobProjectFilter;
+  const value = jobProjectSelect.value;
+  if(!value) return null;
+  return value === 'unassigned' ? value : Number(value);
+}
+
+// 날짜 경계는 화면의 "완료 일시"와 같다. 대기·실행 중인 잡은 언제 넣었든 오늘 잡으로 친다.
+function jobMatchesDate(j, dateKey){
+  if(!dateKey) return true;
+  if(['pending', 'queued', 'running'].includes(j.status)) return dateKey === jobToday();
+  return fmtDateKey(j.finished_at || j.started_at || j.queued_at) === dateKey;
+}
+
+function updateJobProjectOptions(jobs){
+  jobProjectSelect.hidden = jobProjectLabel.hidden = jobProjectFilter !== null;
+  const ids = new Set(jobs.filter(j => j.project_id != null).map(j => j.project_id));
+  const selected = jobProjectSelect.value;
+  const kept = selected && (selected === 'unassigned' || ids.has(Number(selected))) ? selected : '';
+  const label = id => projectName(id) || `프로젝트 ${id}`;
+  const options = `<option value="">모든 프로젝트</option><option value="unassigned">미분류</option>`
+    + [...ids].sort((a, b) => label(a).localeCompare(label(b))).map(id =>
+      `<option value="${escapeHtml(id)}">${escapeHtml(label(id))}</option>`).join('');
+  // 포커스 중 드롭다운이 닫히지 않게 내용이 달라질 때만 바꾼다.
+  if(jobProjectSelect.innerHTML !== options) jobProjectSelect.innerHTML = options;
+  jobProjectSelect.value = kept;
 }
 
 function jobModelInfo(j){
@@ -303,9 +353,12 @@ function render(jobs, pendingCount, running, perPod){
   // "📝 결과" 탭이 열려 있는 동안 새 작업이 끝나면 목록에 바로 반영되게, 작업
   // 폴링(2초)에 얹어 같이 새로고침한다 — 별도 폴링 루프를 안 둔다.
   if(currentTab === 'results') renderResultsList();
+  if(jobDateAuto && jobDateFilter.value !== jobToday()) jobDateFilter.value = jobToday();
   // 작업 목록은 언제나 지금 들어와 있는 파드 것만 보여준다(파드 스코프 바 참고).
   if(jobPodFilter) jobs = jobs.filter(j => j.pod_id === jobPodFilter);
-  if(jobProjectFilter !== null) jobs = jobs.filter(j => projectMatches(j.project_id, jobProjectFilter));
+  updateJobProjectOptions(jobs);
+  const project = effectiveJobProject();
+  if(project !== null) jobs = jobs.filter(j => projectMatches(j.project_id, project));
   const modelInfos = updateJobModelFilters(jobs);
   const family = jobFamilyFilter.value;
   const model = jobModelFilter.value;
@@ -319,16 +372,20 @@ function render(jobs, pendingCount, running, perPod){
   const status = jobStatusFilter.value;
   // 완료 작업은 기본 숨김 — 체크하거나 상태에서 "완료"를 직접 고르면 보인다.
   const showDone = jobShowDone.checked || status === 'done';
-  jobs = jobs.filter(j => (status === 'all' || j.status === status) && (showDone || j.status !== 'done') && jobMatchesSearch(j, query));
+  // 날짜는 베이스 모델 선택지 계산 뒤에 거른다 — 날짜를 바꿨다고 고른 모델이 풀리지 않게.
+  const dateKey = jobDateFilter.value;
+  jobs = jobs.filter(j => (status === 'all' || j.status === status) && (showDone || j.status !== 'done')
+    && jobMatchesDate(j, dateKey) && jobMatchesSearch(j, query));
   const board = document.getElementById('job-board');
 
-  // 상세 모달이 열려 있는 작업이 이번 목록에서 사라졌으면(삭제됐거나 필터로
-  // 빠졌으면) 모달을 닫는다. 남아있으면 카드 그리드의 시그니처 가드와 무관하게
+  // 상세 모달이 열려 있는 작업이 전체 목록에서 사라졌으면(삭제됐으면) 모달을 닫는다.
+  // 필터로만 빠진 작업은 닫지 않는다 — 폴링이 모든 탭에서 돌아서, 보드에서 연 어제 잡의
+  // 상세도 여기를 지난다. 남아있으면 카드 그리드의 시그니처 가드와 무관하게
   // 매 tick마다 다시 그린다 — 로그 <pre>만 loadLog()의 "텍스트가 실제로 바뀔 때만"
   // 가드로 보호되므로(그 <pre>는 이 재렌더 대상 밖에 고정 배치돼 있다), 드래그
   // 선택이 폴링으로 풀리는 문제가 재발하지 않는다.
   if(openJobDetailId){
-    const openJob = jobs.find(j => j.id === openJobDetailId);
+    const openJob = lastJobs.find(j => j.id === openJobDetailId);
     if(openJob){
       renderJobDetailModalBody();
       loadLog(openJobDetailId);
@@ -342,7 +399,7 @@ function render(jobs, pendingCount, running, perPod){
 
   // 화면에 실제로 영향을 주는 값만 서명에 넣는다 — template_label/options 같은
   // 것들은 작업이 생성될 때 정해지고 이후 안 바뀌므로 뺐다.
-  const rowsSignature = JSON.stringify([jobPodFilter, jobProjectFilter, family, model, query, status, showDone, jobs.map(j => [
+  const rowsSignature = JSON.stringify([jobPodFilter, project, dateKey, nsfwMode, family, model, query, status, showDone, jobs.map(j => [
     j.id, j.status, j.waiting_for_comfy, j.pod_id, j.started_at, j.finished_at,
     j.progress && j.progress.done, j.progress && j.progress.total,
     j.project_id, j.project_id != null ? projectName(j.project_id) : '',
@@ -350,6 +407,7 @@ function render(jobs, pendingCount, running, perPod){
     j.missing_models && j.missing_models.names.join('|'), !!j.fetching_models, j.fetch_error,
     (j.model_events || []).length, j.fetching_models && j.fetching_models.names.join('|'),
     j.progress && j.progress.label, podName(j.pod_id),
+    j.cover && j.cover.path, j.cover && j.cover.kind, j.cover && j.cover.nsfw,
   ])]);
   if(rowsSignature === lastJobsRowsSignature) return;
   // 진행률만 바뀐 폴링이 행 안의 키보드 초점이나 복사 중인 텍스트 선택을 끊지 않게 한다.
@@ -357,8 +415,9 @@ function render(jobs, pendingCount, running, perPod){
   if(board.contains(document.activeElement) || (selection && !selection.isCollapsed && board.contains(selection.anchorNode))) return;
   lastJobsRowsSignature = rowsSignature;
 
+  const emptyText = dateKey ? '이 날짜에 표시할 작업이 없어요. 날짜를 지우면 모든 날짜를 볼 수 있어요.' : '표시할 작업이 없어요.';
   board.innerHTML = `<div class="job-list-head" aria-hidden="true"><span>작업</span><span>상태 / 조치</span><span>워커 / 프로젝트</span><span>진행</span><span>완료 일시</span><span>작업</span></div>
-    ${jobs.length ? jobs.map(buildJobCard).join('') : '<div class="job-list-empty">표시할 작업이 없어요.</div>'}`;
+    ${jobs.length ? jobs.map(buildJobCard).join('') : `<div class="job-list-empty">${emptyText}</div>`}`;
 
   board.querySelectorAll('.job-card').forEach(card => {
     card.addEventListener('click', (e) => {
@@ -567,6 +626,16 @@ function jobFinishedLabel(j){
   return `${fmtDateKey(j.finished_at)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+// 완료 잡의 대표 결과물 — 보드 작업 카드와 같은 규칙이다(안 보기는 빈 칸, 블러는 가림막만).
+function jobThumbHtml(j){
+  const cover = j.cover;
+  if(!cover || (cover.nsfw && nsfwMode === 'hide')) return '';
+  if(cover.nsfw && nsfwMode === 'blur') return `<span class="job-thumb-tile">${ico('eye-off')}</span>`;
+  if(cover.kind === 'video') return `<span class="job-thumb-tile">${ico('clapperboard')}</span>`;
+  const url = window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(cover.path)}/thumbnail?size=120&fit=cover`);
+  return `<img src="${url}" width="48" height="48" alt="" loading="lazy">`;
+}
+
 function buildJobCard(j){
   const mediaKind = jobMediaKind(j.template_id);
   const kindIcon = mediaKind === 'video' ? '<svg class="ico"><use href="#i-clapperboard"/></svg>'
@@ -594,8 +663,11 @@ function buildJobCard(j){
   return `
     <div class="job-card" data-id="${j.id}" data-status="${j.status}"${blocked ? ' data-blocked="1"' : ''} role="button" tabindex="0" aria-label="작업 ${escapeHtml(j.id)} 상세 보기">
       <div class="job-cell job-main" data-label="작업">
-        <div class="job-card-title">${kindIcon}<span class="job-card-id">#${escapeHtml(j.id)}</span><span>${escapeHtml(batchLabel)}</span></div>
-        ${baseModel ? `<div class="job-card-base">${escapeHtml(baseModel)}</div>` : ''}
+        <div class="job-thumb">${jobThumbHtml(j)}</div>
+        <div class="job-main-text">
+          <div class="job-card-title">${kindIcon}<span class="job-card-id">#${escapeHtml(j.id)}</span><span>${escapeHtml(batchLabel)}</span></div>
+          ${baseModel ? `<div class="job-card-base">${escapeHtml(baseModel)}</div>` : ''}
+        </div>
       </div>
       <div class="job-cell job-state" data-label="상태 / 조치">
         <span class="badge ${waitingForPod ? 'waiting' : escapeHtml(j.status)}"><span class="bdot"></span>${escapeHtml(state)}</span>

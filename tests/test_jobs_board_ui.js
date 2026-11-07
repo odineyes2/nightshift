@@ -50,6 +50,7 @@ const ctx = vm.createContext({
   lastJobs: [], lastJobsRowsSignature: null, currentTab: 'jobs', openJobDetailId: null,
   jobPodFilter: null, jobProjectFilter: null, jobSearch: search, jobStatusFilter: filter, jobShowDone: showDone,
   jobFamilyFilter: familyFilter, jobModelFilter: modelFilter,
+  jobDateFilter: { value: '' }, jobDateAuto: false, jobProjectSelect: { value: '', innerHTML: '' }, jobProjectLabel: {}, nsfwMode: 'show',
   modelEntry: () => ({ base_models: [] }), basesOf: entry => entry.base_models,
   projectMatches: (id, scope) => String(id) === String(scope),
   projectName: id => `프로젝트 ${id}`, podName: id => id ? `워커 ${id}` : '',
@@ -63,7 +64,7 @@ const ctx = vm.createContext({
   fetch: async (url, options) => { calls.push(['fetch', url, options.method]); return { ok: true, json: async () => ({started:[], no_url:[], failed:[]}) }; },
   fetchJobs: () => {}, alert: () => {}, loadJobSettings: job => calls.push(['load', job]),
 });
-vm.runInContext(['jobModelInfo', 'updateJobModelFilters', 'jobMatchesSearch', 'jobFinishedLabel', 'buildJobCard', 'render'].map(pick).join('\n'), ctx);
+vm.runInContext(['effectiveJobProject', 'jobMatchesDate', 'updateJobProjectOptions', 'jobModelInfo', 'updateJobModelFilters', 'jobMatchesSearch', 'jobFinishedLabel', 'jobThumbHtml', 'buildJobCard', 'render'].map(pick).join('\n'), ctx);
 const jobs = [
   { id:'1', status:'done', template_label:'인물 사진', base:'Flux', project_id:2, pod_id:'gpu', finished_at:'2026-10-13T10:20:00Z' },
   { id:'2', status:'failed', template_label:'풍경', finished_at:'2026-10-13T10:20:00Z' },
