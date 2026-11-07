@@ -43,13 +43,13 @@ class ClearCompletedTests(unittest.TestCase):
         A.jobs[jid] = dict(id=jid, status=status, owner_id=owner_id, pod_id=pod,
                           project_id=project, deleted=deleted, queued_at=A.now_iso())
 
-    def call(self, query=""):
+    def call(self, query="", body=None):
         # 인증 미들웨어는 유지하고 임시 관리자 세션을 사용한다.
         async def run():
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=A.app), base_url="http://test", headers={"x-requested-with": "nightshift"}) as client:
                 login = await client.post("/api/auth/login", json={"username": self.user["username"], "password": os.environ["NIGHTSHIFT_ADMIN_PASSWORD"]})
                 self.assertEqual(login.status_code, 200, login.text)
-                return await client.post("/api/jobs/clear-completed" + query)
+                return await client.post("/api/jobs/clear-completed" + query, json=body)
         return asyncio.run(run())
 
     def deleted(self):
@@ -81,6 +81,31 @@ class ClearCompletedTests(unittest.TestCase):
         self.assertEqual(self.call("?done_only=true").json(), {"cleared": 4})
         self.assertNotIn("other-owner", self.deleted())
         self.assertEqual(self.call("?done_only=true&pod_id=missing").json(), {"cleared": 0})
+
+    def test_job_ids_clear_only_those(self):
+        response = self.call("?done_only=true", {"job_ids": ["done", "unassigned"]})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"cleared": 2})
+        self.assertEqual(self.deleted(), {"done", "unassigned", "already-deleted"})
+
+    def test_empty_job_ids_clear_nothing(self):
+        self.assertEqual(self.call("?done_only=true", {"job_ids": []}).json(), {"cleared": 0})
+        self.assertEqual(self.deleted(), {"already-deleted"})
+
+    def test_job_ids_keep_other_conditions(self):
+        wanted = ["other-owner", "failed", "running", "pending", "queued", "missing"]
+        self.assertEqual(self.call("?done_only=true", {"job_ids": wanted}).json(), {"cleared": 0})
+        self.assertEqual(self.call("?done_only=true&pod_id=p1", {"job_ids": ["other-pod"]}).json(), {"cleared": 0})
+        self.assertEqual(self.call("?done_only=true&project_id=1", {"job_ids": ["other-project"]}).json(), {"cleared": 0})
+        self.assertEqual(self.deleted(), {"already-deleted"})
+
+    def test_job_ids_without_done_only_keep_running_jobs(self):
+        self.assertEqual(self.call("", {"job_ids": ["failed", "running"]}).json(), {"cleared": 1})
+        self.assertEqual(self.deleted(), {"failed", "already-deleted"})
+
+    def test_invalid_job_ids_preserve_jobs(self):
+        self.assertEqual(self.call("?done_only=true", {"job_ids": "done"}).status_code, 422)
+        self.assertEqual(self.deleted(), {"already-deleted"})
 
     def test_invalid_parameter_preserves_jobs(self):
         for query in ("?done_only=invalid", "?done_only=true&project_id=invalid"):

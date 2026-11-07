@@ -100,7 +100,7 @@ def stop_pod_queue(pod_id: str, request: Request):
 
 @app.post("/api/jobs/clear-completed")
 def clear_completed_jobs(request: Request, pod_id: str | None = None, project_id: str | None = None,
-                         done_only: bool = False):
+                         done_only: bool = False, job_ids: list[str] | None = Body(None, embed=True)):
     # 다 끝난 작업(성공/실패/중단)을 목록에서 한꺼번에 치우고 싶을 때 쓴다 —
     # delete_job()과 같은 소프트 삭제다. 보관 한도를 넘는 오래된 설정은 영구 정리된다.
     # done_only는 완료 칸만 청소한다. 생략한 기존 호출은 실패/중단도 정리한다.
@@ -111,15 +111,20 @@ def clear_completed_jobs(request: Request, pod_id: str | None = None, project_id
     # 보여주므로("#pod/{id}/jobs"), 거기 있는 "완료 삭제"가 화면에 보이지도 않는
     # 다른 파드의 작업까지 지워버리면 안 된다. 프로젝트 화면의 "완료 삭제"도 같은 이유로
     # project_id를 주면 그 프로젝트 것만("unassigned"면 미분류) 치운다.
+    #
+    # 본문 job_ids를 주면 위 조건에 더해 그 id만 치운다. 화면이 날짜처럼 서버가 모르는
+    # 범위로 고른 잡을 넘기는 길이다. 빈 목록은 "전체"가 아니라 0건이다.
     scope = job_scope(me(request))
     wanted_project = None
     if project_id is not None:
         wanted_project = "unassigned" if project_id == "unassigned" else parse_project_id(project_id)
+    wanted_ids = None if job_ids is None else set(job_ids)
     with lock:
         completed = [j for j in jobs.values()
                      if j["status"] in (("done",) if done_only else ("done", "failed", "interrupted")) and not j.get("deleted")
                      and owned(j, scope)
                      and (pod_id is None or j.get("pod_id") == pod_id)
+                     and (wanted_ids is None or j["id"] in wanted_ids)
                      and (wanted_project is None
                           or j.get("project_id") == (None if wanted_project == "unassigned" else wanted_project))]
         now = now_iso()
@@ -129,6 +134,14 @@ def clear_completed_jobs(request: Request, pod_id: str | None = None, project_id
         prune_deleted_jobs()
     save_state()
     return {"cleared": len(completed)}
+
+
+def job_covers(job_list) -> dict:
+    """완료 잡의 대표 결과물 — {job_id: {path, kind, nsfw}}. 최근 이미지, 없으면 최근 영상.
+    결과물이 없는 잡은 None이다. DB를 읽으므로 lock 밖에서 부른다."""
+    results = board_store.job_results([j["id"] for j in job_list if j["status"] == "done"], per_job=4)
+    return {jid: next((r for r in items if r["kind"] == "image"), items[0] if items else None)
+            for jid, items in results.items()}
 
 
 @app.get("/api/jobs")
@@ -148,8 +161,11 @@ def list_jobs(request: Request, project_id: str | None = None):
             key=lambda j: j["queued_at"],
             reverse=True,
         )
+        # 복사본으로 넘긴다 — 아래 cover가 살아 있는 jobs에 들어가면 save_state가 저장해 버린다.
         if scope is None:   # 관리자에게는 누구 작업인지 알려 준다
             ordered = [{**j, "owner_name": names.get(j.get("owner_id"))} for j in ordered]
+        else:
+            ordered = [dict(j) for j in ordered]
         # 화면의 "▶ 시작/⏸ 정지" 버튼 하나는 "하나라도 돌고 있으면 켜진 것"으로 본다.
         my_runtimes = {pid: rt for pid, rt in pod_runtimes.items() if pid in visible_pod_ids}
         waiting_count = sum(1 for j in jobs.values() if j["status"] == "queued" and not j.get("pod_id")
@@ -161,8 +177,9 @@ def list_jobs(request: Request, project_id: str | None = None):
                   "running_jobs": list(rt.running)}
             for pid, rt in my_runtimes.items()
         }
-    return {"jobs": ordered, "pending_count": pending_count, "running": running,
-            "pods": per_pod}
+    covers = job_covers(ordered)
+    return {"jobs": [{**j, "cover": covers.get(j["id"])} for j in ordered],
+            "pending_count": pending_count, "running": running, "pods": per_pod}
 
 
 @app.get("/api/jobs/deleted")
