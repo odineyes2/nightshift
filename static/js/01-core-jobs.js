@@ -376,6 +376,14 @@ function render(jobs, pendingCount, running, perPod){
     });
   });
 
+  board.querySelectorAll('.load-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const job = jobs.find(j => String(j.id) === btn.dataset.load);
+      if(job) loadJobSettings(job);
+    });
+  });
+
   board.querySelectorAll('.del-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -454,7 +462,7 @@ function render(jobs, pendingCount, running, perPod){
 
 // 작업 하나를 카드로 만든다 — 최소 정보만(상태·배지·템플릿·워크플로우 파일명·진행률
 // 또는 대기 사유 + 시작/정지/삭제). 옵션 요약/CSV 파일명/시간 4종/전체 preflight
-// 목록/로그/불러오기·수정·이동 버튼은 카드를 눌러 여는 상세 모달에만 있다
+// 로그·수정·이동 버튼은 상세 모달에, 설정 불러오기는 목록과 상세에 있다
 // (openJobDetailModal/renderJobDetailModalBody).
 // job 객체 자체엔 "이미지/영상 중 뭘 만드는지"·"시드 반복/CSV 배치 중 어떤 방식인지"·
 // "베이스 모델이 뭔지"를 나타내는 필드가 없다(서버 템플릿 매니페스트에도 없음, 20개
@@ -607,6 +615,7 @@ function buildJobCard(j){
       <div class="job-cell job-finished" data-label="완료 일시">${jobFinishedLabel(j)}</div>
       <div class="job-cell job-card-actions" data-label="작업">
         ${jobElapsedHtml(j)}
+        <button type="button" class="load-btn" data-load="${escapeHtml(j.id)}" title="설정 불러오기" aria-label="작업 ${escapeHtml(j.id)} 설정 불러오기"><svg class="ico"><use href="#i-folder-open"/></svg></button>
         ${deletable
           ? `<button class="del-btn" data-del="${j.id}" title="삭제" aria-label="작업 ${escapeHtml(j.id)} 삭제"><svg class="ico"><use href="#i-trash-2"/></svg></button>`
           : `<button class="del-btn" disabled title="진행 중인 작업은 먼저 정지해야 삭제할 수 있어요" aria-label="삭제 불가"><svg class="ico"><use href="#i-trash-2"/></svg></button>`}
