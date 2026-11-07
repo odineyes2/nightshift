@@ -58,9 +58,8 @@ class JobCoverTests(unittest.TestCase):
 
     def listed(self, user=ALICE):
         async def run():
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=A.app), base_url="http://test", headers={"x-requested-with": "nightshift"}) as client:
-                login = await client.post("/api/auth/login", json={"username": user["username"], "password": os.environ["NIGHTSHIFT_ADMIN_PASSWORD"]})
-                self.assertEqual(login.status_code, 200, login.text)
+            cookies = {A.auth.SESSION_COOKIE: A.auth.create_session(user["id"])}
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=A.app), base_url="http://test", headers={"x-requested-with": "nightshift"}, cookies=cookies) as client:
                 return await client.get("/api/jobs")
         response = asyncio.run(run())
         self.assertEqual(response.status_code, 200, response.text)
