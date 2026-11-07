@@ -640,10 +640,26 @@ let jobDetailLoraRequest = 0;
 function jobLoraValue(workflow, value){
   if(!Array.isArray(value) || value.length !== 2) return value;
   const source = workflow[String(value[0])];
-  if(!source || !source.inputs) return null;
+  if(!source || !source.inputs || value[1] !== 0) return null;
+  if(!['PrimitiveStringMultiline', 'PrimitiveString', 'PrimitiveInt', 'PrimitiveFloat', 'CLIPTextEncode'].includes(source.class_type)) return null;
   const field = ['PrimitiveStringMultiline', 'PrimitiveString', 'PrimitiveInt', 'PrimitiveFloat'].includes(source.class_type)
     ? 'value' : ('text' in source.inputs ? 'text' : 'value');
   return source.inputs[field] ?? null;
+}
+
+function jobLoraList(value){
+  if(!value || (Array.isArray(value) && !value.length)) return [];
+  const pairs = Array.isArray(value) ? value : String(value).split(';').map(item => {
+    const colon = item.lastIndexOf(':');
+    if(colon < 0) throw new Error('잘못된 LoRA 옵션');
+    return [item.slice(0, colon), item.slice(colon + 1)];
+  });
+  return pairs.map(pair => {
+    if(!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== 'string' || !pair[0].trim()
+      || pair[1] == null || String(pair[1]).trim() === '' || !Number.isFinite(Number(pair[1])))
+      throw new Error('잘못된 LoRA 옵션');
+    return { name: pair[0], model: Number(pair[1]) };
+  });
 }
 
 function jobLoraEntries(workflow, options){
@@ -660,17 +676,24 @@ function jobLoraEntries(workflow, options){
   }));
   const target = nodes.find(([, node]) => title && String(node._meta?.title ?? '').toLowerCase().includes(title))
     || nodes.find(([id]) => connected.has(id)) || nodes[0];
-  return nodes.map(([id, node]) => {
+  const multiple = jobLoraList(options?.loras);
+  if(multiple.length > nodes.length) throw new Error('LoRA 로더 부족');
+  return nodes.map(([id, node], index) => {
     const inputs = node.inputs || {};
     const overridden = id === target[0];
-    const name = overridden && nameOverride ? nameOverride : jobLoraValue(workflow, inputs.lora_name);
-    const model = overridden && strengthOverride && Number.isFinite(Number(strengthOverride))
-      ? Number(strengthOverride) : jobLoraValue(workflow, inputs.strength_model);
+    const name = multiple[index]?.name ?? (overridden && nameOverride ? nameOverride : jobLoraValue(workflow, inputs.lora_name));
+    const model = multiple[index]?.model ?? (overridden && strengthOverride && Number.isFinite(Number(strengthOverride))
+      ? Number(strengthOverride) : jobLoraValue(workflow, inputs.strength_model));
     const clip = 'strength_clip' in inputs ? jobLoraValue(workflow, inputs.strength_clip) : null;
-    if(name == null || name === '' || model == null || model === '' || ('strength_clip' in inputs && clip == null))
+    if(typeof name !== 'string' || name === '' || model == null || model === '' || !Number.isFinite(Number(model))
+      || ('strength_clip' in inputs && (clip == null || clip === '' || !Number.isFinite(Number(clip)))))
       throw new Error('LoRA 값을 해석할 수 없음');
     return { name, model, clip };
   });
+}
+
+function jobHasLoraWorkflow(job){
+  return !!job.workflow_filename && !['shell_command', 'claude_write'].includes(job.template_id);
 }
 
 function jobDetailLoraHtml(){
@@ -683,10 +706,13 @@ function jobDetailLoraHtml(){
     const model = entry.model == null || entry.model === '' ? '확인할 수 없어요' : escapeHtml(entry.model);
     return entry.clip == null || entry.clip === '' ? model : `${model} (CLIP ${escapeHtml(entry.clip)})`;
   });
+  const rows = (state.rows || []).map(row => `<div class="field"><label class="field-label">${escapeHtml(row.line)}행 LoRA 변경</label><div class="job-detail-prompt">${row.entries.map((entry, i) => `${i + 1}. ${escapeHtml(entry.name)} · ${escapeHtml(entry.model)}${entry.clip == null ? '' : ` (CLIP ${escapeHtml(entry.clip)})`}`).join('<br>')}</div></div>`).join('');
   return `<div class="field"><label class="field-label">LoRA 적용 여부</label><div>적용 (${state.entries.length}개)</div></div>
+    ${rows ? '<div class="field"><div class="text-dim">아래 목록은 공통 설정이며, 행별 변경은 따로 표시해요.</div></div>' : ''}
     <div class="field"><label class="field-label">LoRA 이름</label><div class="job-detail-prompt">${names.map((name, i) => `${i + 1}. ${name}`).join('<br>')}</div></div>
     <div class="field"><label class="field-label">LoRA 강도</label><div class="job-detail-prompt">${strengths.map((value, i) => `${i + 1}. ${value}`).join('<br>')}</div></div>
-    <div class="field"><div class="text-dim">저장된 워크플로우와 실행 옵션 기준이에요.</div></div>`;
+    ${rows}
+    <div class="field"><div class="text-dim">저장된 워크플로우와 실행 옵션 기준이에요. 실제 GPU 실행 결과를 확인한 값은 아니에요.</div></div>`;
 }
 
 async function loadJobDetailLora(job, request){
@@ -695,9 +721,14 @@ async function loadJobDetailLora(job, request){
     const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/workflow`);
     if(!response.ok) throw new Error('조회 실패');
     const workflow = await response.json();
-    const entries = jobLoraEntries(workflow, (job.template_id || '').includes('csv_batch') ? job.options : {});
+    const entries = jobLoraEntries(workflow, job.options);
+    const rows = (job.prompt_overrides || []).flatMap((row, index) => {
+      if(!row.loras || (Array.isArray(row.loras) && !row.loras.length)) return [];
+      const changed = jobLoraEntries(workflow, { ...job.options, loras: row.loras });
+      return JSON.stringify(changed) === JSON.stringify(entries) ? [] : [{ line: row.line ?? index + 1, entries: changed }];
+    });
     if(request !== jobDetailLoraRequest || openJobDetailId !== job.id) return;
-    jobDetailLora = { status: 'ready', entries };
+    jobDetailLora = { status: 'ready', entries, rows };
   }catch(e){
     if(request !== jobDetailLoraRequest || openJobDetailId !== job.id) return;
     jobDetailLora = { status: 'error', entries: [] };
@@ -722,7 +753,7 @@ function openJobDetailModal(jobId){
   loadLog(jobId);
   loadJobDetailOutputs(jobId);
   const job = lastJobs.find(j => j.id === jobId);
-  if(job) loadJobDetailLora(job, request);
+  if(job && jobHasLoraWorkflow(job)) loadJobDetailLora(job, request);
 }
 
 function closeJobDetailModal(){
@@ -809,7 +840,7 @@ function renderJobDetailModalBody(){
     <details class="field job-detail-options-details" id="job-detail-options" ${jobDetailOptionsOpen ? 'open' : ''}><summary class="field-label">옵션</summary><div class="job-detail-options">${optionContents}</div></details>
     <div class="field"><label class="field-label">워크플로우</label><div>${escapeHtml(job.workflow_original_name || '-')}</div></div>
     <div class="field"><label class="field-label">CSV</label><div>${escapeHtml(job.csv_original_name || '-')}</div></div>
-    ${(job.template_id || '').includes('csv_batch') ? jobDetailLoraHtml() : ''}
+    ${jobHasLoraWorkflow(job) ? jobDetailLoraHtml() : ''}
     ${job.owner_name ? `<div class="field"><label class="field-label">만든 사람</label><div>${escapeHtml(job.owner_name)}</div></div>` : ''}
     ${job.pod_id ? `<div class="field"><label class="field-label">워커</label><div>${escapeHtml(podName(job.pod_id) || job.pod_id)}</div></div>` : ''}
     ${job.project_id != null && projectsById[job.project_id] ? `<div class="field"><label class="field-label">프로젝트</label><div>${escapeHtml(projectName(job.project_id))}</div></div>` : ''}

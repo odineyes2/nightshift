@@ -80,14 +80,19 @@ Object.assign(ctx, {
 });
 vm.runInContext(source.slice(source.indexOf('function pad2(n){'), source.indexOf('// 갤러리 "날짜별 보기"')), ctx);
 vm.runInContext(body, ctx);
-ctx.lastJobs = [{ id: 'a', template_id: 'csv_batch', status: 'pending', options: {} }];
+ctx.lastJobs = [{ id: 'a', template_id: 'csv_batch', status: 'pending', workflow_filename: 'a.json', options: {} }];
 run("openJobDetailId = 'a'; jobDetailLora = { status: 'ready', entries: [{ name: 'visible', model: 0, clip: null }] }; renderJobDetailModalBody()");
 assert.match(elements.get('job-detail-fields').innerHTML, /LoRA 이름/);
 assert.match(elements.get('job-detail-fields').innerHTML, /visible/);
 assert.match(elements.get('job-detail-fields').innerHTML, /LoRA 강도/);
 ctx.lastJobs[0].template_id = 'seed_batch';
+for(const status of ['pending', 'queued', 'done']){
+  ctx.lastJobs[0].status = status;
+  run('renderJobDetailModalBody()');
+  assert.match(elements.get('job-detail-fields').innerHTML, /LoRA 이름/);
+}
 run('renderJobDetailModalBody()');
-assert.doesNotMatch(elements.get('job-detail-fields').innerHTML, /LoRA 적용 여부/);
+assert.match(elements.get('job-detail-fields').innerHTML, /LoRA 적용 여부/);
 
 ctx.lastJobs[0].options = {
   main_prompt: 'separate prompt',
@@ -137,6 +142,21 @@ assert.match(elements.get('job-detail-fields').innerHTML, /id="job-detail-option
 run('jobDetailOptionsJobId = null; renderJobDetailModalBody()');
 assert.doesNotMatch(elements.get('job-detail-fields').innerHTML, /id="job-detail-options" open/);
 
+result = entries(multi, { lora_name: 'single', lora_strength: '0.9', loras: 'folder:one:0;two:0.4' });
+assert.equal(result[0].name, 'folder:one');
+assert.equal(result[0].model, 0);
+assert.equal(result[1].name, 'two');
+assert.equal(result[1].clip, 0.3);
+result = entries(multi, { loras: [['array', 0]] });
+assert.equal(result[0].name, 'array');
+assert.equal(result[0].model, 0);
+assert.equal(result[1].name, 'second');
+assert.throws(() => entries(multi, { loras: 'bad' }));
+assert.throws(() => entries(multi, { loras: 'a:1;b:1;c:1' }));
+assert.throws(() => entries({ 1: loader(['2', 0], 1, 1), 2: { class_type: 'Unsupported', inputs: { value: 'unknown' } } }));
+assert.throws(() => entries({ 1: loader('good', 1, 1), 2: loader(['missing', 0], 1, 1) }));
+assert.equal(entries({ 1: { class_type: 'LoraLoaderModelOnly', inputs: { lora_name: 'model', strength_model: 0 } } })[0].clip, null);
+
 async function main(){
   const copied = [];
   ctx.navigator = { clipboard: { writeText: async text => copied.push(text) } };
@@ -174,6 +194,43 @@ async function main(){
   pending[3].resolve({ ok: false });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(run('jobDetailLora.status'), 'error');
+  ctx.lastJobs[0].template_id = 'seed_batch';
+  ctx.lastJobs[0].options = { lora_name: 'single', lora_strength: '0', loras: 'common:0.2' };
+  ctx.lastJobs[0].prompt_overrides = [{ line: 2, loras: [['<row>', 0]] }, { line: 5, loras: 'last:0.8' }, {}];
+  run("openJobDetailModal('a')");
+  pending[4].resolve({ ok: true, json: async () => ({ 1: loader('saved', 1, 0.6) }) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(run('jobDetailLora.entries[0].name'), 'common');
+  assert.equal(run('jobDetailLora.rows.length'), 2);
+  html = run('jobDetailLoraHtml()');
+  assert.match(html, /2행 LoRA 변경/);
+  assert.match(html, /5행 LoRA 변경/);
+  assert.match(html, /&lt;row&gt; · 0/);
+  assert.match(html, /공통 설정/);
+  assert.match(html, /실제 GPU/);
+  ctx.lastJobs[0].options = { lora_name: 'seed override', lora_strength: '0' };
+  ctx.lastJobs[0].prompt_overrides = [];
+  run("openJobDetailModal('a')");
+  pending[5].resolve({ ok: true, json: async () => ({ 1: loader('saved', 1, 0.6) }) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(run('jobDetailLora.entries[0].name'), 'seed override');
+  assert.equal(run('jobDetailLora.entries[0].model'), 0);
+  for(const workflow of [{}, null]){
+    run("openJobDetailModal('a')");
+    pending.at(-1).resolve({ ok: true, json: async () => workflow });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(run('jobDetailLoraHtml()'), workflow ? /적용 안 함/ : /확인할 수 없어요/);
+  }
+  const count = pending.length;
+  for(const template of ['shell_command', 'claude_write']){
+    ctx.lastJobs[0].template_id = template;
+    run("openJobDetailModal('a')");
+  }
+  delete ctx.lastJobs[0].workflow_filename;
+  ctx.lastJobs[0].template_id = 'seed_batch';
+  run("openJobDetailModal('a')");
+  assert.equal(pending.length, count);
+  assert.doesNotMatch(elements.get('job-detail-fields').innerHTML, /LoRA 적용 여부/);
   console.log('ok');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
