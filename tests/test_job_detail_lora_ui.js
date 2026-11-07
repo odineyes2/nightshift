@@ -55,16 +55,33 @@ assert.throws(() => entries({ 1: loader(['missing', 0], 1, 1) }));
 
 run("jobDetailLora = { status: 'ready', entries: [{ name: '<img src=x>', model: 0, clip: '<b>' }] }");
 let html = run('jobDetailLoraHtml()');
-assert.match(html, /LoRA 적용 여부/);
-assert.match(html, /LoRA 이름/);
-assert.match(html, /LoRA 강도/);
+assert.match(html, /LORA \(총 1개\)/);
+assert.equal((html.match(/class="field"/g) || []).length, 1);
+assert.doesNotMatch(html, /LoRA 적용 여부|LoRA 이름|LoRA 강도|저장된 워크플로우|실제 GPU/);
 assert.match(html, /&lt;img src=x&gt;/);
-assert.match(html, /0 \(CLIP &lt;b&gt;\)/);
+assert.match(html, /강도 0 · CLIP &lt;b&gt;/);
 assert.doesNotMatch(html, /<img/);
 run("jobDetailLora = { status: 'ready', entries: [] }");
 assert.match(run('jobDetailLoraHtml()'), /적용 안 함/);
 run("jobDetailLora = { status: 'error', entries: [] }");
 assert.match(run('jobDetailLoraHtml()'), /확인할 수 없어요/);
+
+// 목록별 개수와 이름·강도 대응, CLIP 생략, 행 번호 이스케이프.
+run("jobDetailLora = { status: 'loading', entries: [] }");
+assert.match(run('jobDetailLoraHtml()'), /field-label">LORA<.*확인 중…/);
+run("jobDetailLora = { status: 'ready', entries: [] }");
+assert.match(run('jobDetailLoraHtml()'), /LORA \(총 0개\).*적용 안 함/);
+ctx.listEntries = [
+  { name: 'long_name_'.repeat(30) + '.safetensors', model: 0, clip: null },
+  { name: 'second&file', model: '0.8<b>', clip: 0.7 },
+];
+run("jobDetailLora = { status: 'ready', entries: listEntries, rows: [{ line: '<2>', entries: [] }] }");
+html = run('jobDetailLoraHtml()');
+assert.match(html, /LORA · 공통 \(총 2개\)/);
+assert.match(html, /1\. long_name_.*\.safetensors · 강도 0<br>2\. second&amp;file · 강도 0\.8&lt;b&gt; · CLIP 0\.7/);
+assert.equal((html.match(/ · CLIP /g) || []).length, 1);
+assert.match(html, /&lt;2&gt;행 LORA \(총 0개\).*적용 안 함/);
+assert.doesNotMatch(html, /<2>|<b>|저장된 워크플로우|실제 GPU/);
 
 // 실제 상세 필드 렌더에 LoRA 항목이 들어가고, 일반 작업에는 표시되지 않는다.
 const body = source.slice(source.indexOf('function renderJobDetailModalBody(){'),
@@ -82,17 +99,17 @@ vm.runInContext(source.slice(source.indexOf('function pad2(n){'), source.indexOf
 vm.runInContext(body, ctx);
 ctx.lastJobs = [{ id: 'a', template_id: 'csv_batch', status: 'pending', workflow_filename: 'a.json', options: {} }];
 run("openJobDetailId = 'a'; jobDetailLora = { status: 'ready', entries: [{ name: 'visible', model: 0, clip: null }] }; renderJobDetailModalBody()");
-assert.match(elements.get('job-detail-fields').innerHTML, /LoRA 이름/);
+assert.match(elements.get('job-detail-fields').innerHTML, /LORA \(총 1개\)/);
 assert.match(elements.get('job-detail-fields').innerHTML, /visible/);
-assert.match(elements.get('job-detail-fields').innerHTML, /LoRA 강도/);
+assert.match(elements.get('job-detail-fields').innerHTML, /강도 0/);
 ctx.lastJobs[0].template_id = 'seed_batch';
 for(const status of ['pending', 'queued', 'done']){
   ctx.lastJobs[0].status = status;
   run('renderJobDetailModalBody()');
-  assert.match(elements.get('job-detail-fields').innerHTML, /LoRA 이름/);
+  assert.match(elements.get('job-detail-fields').innerHTML, /LORA \(총 1개\)/);
 }
 run('renderJobDetailModalBody()');
-assert.match(elements.get('job-detail-fields').innerHTML, /LoRA 적용 여부/);
+assert.match(elements.get('job-detail-fields').innerHTML, /LORA/);
 
 ctx.lastJobs[0].options = {
   main_prompt: 'separate prompt',
@@ -203,11 +220,13 @@ async function main(){
   assert.equal(run('jobDetailLora.entries[0].name'), 'common');
   assert.equal(run('jobDetailLora.rows.length'), 2);
   html = run('jobDetailLoraHtml()');
-  assert.match(html, /2행 LoRA 변경/);
-  assert.match(html, /5행 LoRA 변경/);
-  assert.match(html, /&lt;row&gt; · 0/);
-  assert.match(html, /공통 설정/);
-  assert.match(html, /실제 GPU/);
+  assert.match(html, /2행 LORA \(총 1개\)/);
+  assert.match(html, /5행 LORA \(총 1개\)/);
+  assert.match(html, /1\. &lt;row&gt; · 강도 0 · CLIP 0\.6/);
+  assert.match(html, /LORA · 공통 \(총 1개\)/);
+  assert.match(html, /1\. common · 강도 0\.2 · CLIP 0\.6/);
+  assert.match(html, /1\. last · 강도 0\.8 · CLIP 0\.6/);
+  assert.doesNotMatch(html, /공통 설정|저장된 워크플로우|실제 GPU/);
   ctx.lastJobs[0].options = { lora_name: 'seed override', lora_strength: '0' };
   ctx.lastJobs[0].prompt_overrides = [];
   run("openJobDetailModal('a')");
@@ -230,7 +249,7 @@ async function main(){
   ctx.lastJobs[0].template_id = 'seed_batch';
   run("openJobDetailModal('a')");
   assert.equal(pending.length, count);
-  assert.doesNotMatch(elements.get('job-detail-fields').innerHTML, /LoRA 적용 여부/);
+  assert.doesNotMatch(elements.get('job-detail-fields').innerHTML, /LORA/);
   console.log('ok');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
