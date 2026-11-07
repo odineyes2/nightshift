@@ -481,6 +481,7 @@ function wizardLoraChoices(){
 
 function renderWizardLoraModal(){
   const body = document.getElementById('wizard-lora-modal-body');
+  const scrollTop = body.querySelector('.wizard-pick-list')?.scrollTop || 0;
   const isPreset = wizardIsPreset();
   const all = wizardLoraChoices();
   if(all.length === 0){
@@ -504,10 +505,11 @@ function renderWizardLoraModal(){
     const picked = wizard.loras.find(l => l.name === name);
     return `
       <div class="wizard-pick-row${picked ? ' selected' : ''}" data-lora-name="${escapeHtml(name)}">
-        <div class="wizard-pick-row-label">${escapeHtml(name)}${loraPodsBadge(name)}</div>
+        <div class="wizard-pick-row-label"><span class="wizard-lora-name"><span class="wizard-lora-check" aria-hidden="true">${picked ? ico('check') : ''}</span><span>${escapeHtml(name)}</span></span>${loraPodsBadge(name)}</div>
         ${picked ? `<input type="number" class="option-input wizard-pick-row-strength wizard-lora-strength-input" data-lora-name="${escapeHtml(name)}" value="${picked.strength}" step="0.05">` : ''}
       </div>`;
   }).join('')}</div>`;
+  body.querySelector('.wizard-pick-list').scrollTop = scrollTop;
 }
 
 document.getElementById('wizard-lora-modal-body').addEventListener('click', (e) => {

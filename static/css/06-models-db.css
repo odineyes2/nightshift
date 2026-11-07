@@ -284,6 +284,12 @@
     flex-shrink:0;
   }
   .wizard-pick-row-strength{ width:70px; flex-shrink:0; }
+  #wizard-lora-modal .wizard-pick-row{ flex-wrap:nowrap; font-size:13px; }
+  #wizard-lora-modal .wizard-pick-row-label{ flex:1; min-width:0; }
+  #wizard-lora-modal .wizard-lora-name{ display:flex; align-items:flex-start; gap:8px; }
+  #wizard-lora-modal .wizard-lora-name > span:last-child{ min-width:0; overflow-wrap:anywhere; }
+  #wizard-lora-modal .wizard-lora-check{ flex:0 0 1.2em; width:1.2em; color:var(--accent); }
+  #wizard-lora-modal .model-pods-badge{ margin-left:calc(1.2em + 8px); overflow-wrap:anywhere; }
   /* MiniMax-H3처럼 부가 입력이 여러 개(참조 개수, 첫/마지막 프레임, 너비/높이 등)일 때
      쓴다 — flex-basis:100%로 같은 줄에 있는 라벨을 밀어내고 항상 다음 줄로 내려간다
      (row 자체가 flex-wrap이라 가능). 그 안의 각 입력칸도 자체적으로 줄바꿈되므로
