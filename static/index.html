@@ -440,8 +440,9 @@
         </div>
 
         <!-- 워크플로우는 마법사 바로 아래 — 처음부터 "직접 올릴지, 마법사로 만들지"를 마주하게 한다.
-             직접 올리면 tryPopulateWizardFromWorkflow()가 알아볼 수 있는 만큼(체크포인트/LoRA/후처리)
-             마법사 스텝에 반영해서, 그걸 보고 세부값을 다시 조정할 수 있게 한다.
+             직접 올리거나 작업을 불러오면 tryPopulateWizardFromWorkflow()가 알아볼 수 있는 만큼(모델/LoRA/후처리)
+             마법사 스텝에 반영해서, 그걸 보고 세부값을 다시 조정할 수 있게 한다. 못 읽는 구조는
+             #workflow-loaded-summary에 모델·LoRA를 읽기 전용으로 보여 준다.
              #workflow-field-label-row/#workflow-field-hint는 기본은 숨겨 두고, img2video 복합
              템플릿이나 WAN2.2처럼 내장 기본값이 자동으로 채워지는 특수한 경우에만
              onTemplateChange()가 켠다(그때는 이 안내가 슬롯의 기본 안내문보다 더 중요한 정보라서). -->
@@ -456,6 +457,7 @@
           <div class="slot" id="workflow-slot">…또는 워크플로우(.json) 직접 업로드</div>
           <input type="file" class="slot-input" id="workflow-input" accept=".json">
           <div class="workflow-check" id="workflow-check" hidden></div>
+          <div class="workflow-check unknown" id="workflow-loaded-summary" hidden></div>
         </div>
 
         <!-- 마법사가 다루지 않는 작업(영상 생성, 셸 명령 등)으로 가는 탈출구라 "새 작업" 탭

@@ -170,7 +170,7 @@ def browser_checks(refs):
               const template = {id:'pose',options:[{name:'pose_image',type:'select',choices:[]}]};
               window.templatesById = {pose:template}; window.templateSelect = {};
               window.resetForm = () => {}; window.onTemplateChange = async () => {};
-              window.openNewJobModal = () => {};
+              window.resetWizardAndWorkflow = () => {}; window.openNewJobModal = () => {};
               for(const id of ['load-error','load-notice']){ const e = document.createElement('div'); e.id=id; document.body.append(e); }
               await loadJobSettings({template_id:'pose',options:{pose_image:'saved.png'}}, {});
             }""")
