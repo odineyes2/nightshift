@@ -322,6 +322,22 @@ async def apply_face_detailer_api(request: Request):
     return {"workflow": workflow}
 
 
+@app.post("/api/workflow/apply-models")
+async def apply_workflow_models_api(request: Request):
+    # 불러온 작업의 모델·Hires 배율·LoRA만 고친다 — 재조립하면 사라질 샘플러·Face Detailer 수치를 남긴다(NS-122).
+    try:
+        body = await request.json()
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "유효한 JSON이 아니에요.")
+    workflow = body.get("workflow") if isinstance(body, dict) else None
+    if not isinstance(workflow, dict):
+        raise HTTPException(400, "워크플로우 JSON(노드 id → 노드) 형식이 아니에요.")
+    try:
+        return {"workflow": workflow_models.apply_model_values(workflow, body.get("values"))}
+    except WorkflowBuildError as e:
+        raise HTTPException(400, str(e))
+
+
 # OpenPose ControlNet 수치 — Face Detailer와 같은 틀(수정 탭은 작업별, 셋팅 탭은 베이스 모델별 기본값).
 # 값은 평평한 dict로 다루고, 노드에 넣을 때 ControlNetApplyAdvanced·DWPreprocessor·ControlNetLoader로 나눈다.
 CONTROLNET_APPLY_FIELDS = {"strength": (float, 0.0, 2.0), "start_percent": (float, 0.0, 1.0),
