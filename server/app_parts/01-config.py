@@ -96,6 +96,7 @@ from workflow_builder import WorkflowBuildError, build_workflow
 import workflow_builder_krea2
 import workflow_builder_unet
 import workflow_builder_minimax_h3
+import workflow_models
 from output_images import (
     IMAGE_EXTENSIONS,
     OUTPUT_DIR,
