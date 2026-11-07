@@ -1,11 +1,11 @@
 // 새 작업 마법사: 계열·유형·LoRA·배치 모달, 워크플로우 검사, 올린 워크플로우로 거꾸로 채우기
 // ---- 워크플로우를 직접 올리면 마법사를 거꾸로 채운다 ----
-// 워크플로우 슬롯에 사람이 직접(드래그/클릭) 파일을 올렸을 때만 불린다(마법사가 만든 파일을
-// 채우거나 "최근"/작업 불러오기가 채우는 프로그램적 호출에서는 안 불림 — setupSlot의 fromUser
-// 참고). "이런 그래프를 올렸구나"를 최대한 읽어서 마법사 스텝에 반영해, 사용자가 그걸 보고
-// LoRA 종류/강도 같은 세부값을 다시 조정할 수 있게 한다. 알아볼 수 없는 구조(체크포인트가
-// CheckpointLoaderSimple이 아니거나, 등록부가 모르는 체크포인트)면 아무것도 건드리지 않는다 —
-// 마법사가 모르는 워크플로우를 억지로 끼워 맞추면 오히려 헷갈린다.
+// 워크플로우 슬롯에 사람이 직접(드래그/클릭) 파일을 올렸을 때 불린다(마법사가 만든 파일을
+// 채우거나 "최근"이 채우는 프로그램적 호출에서는 안 불림 — setupSlot의 fromUser 참고). 작업
+// 불러오기는 loadJobSettings가 tryPopulateWizardFromWorkflow를 직접 부른다. "이런 그래프를
+// 올렸구나"를 최대한 읽어서 마법사 스텝에 반영해, 사용자가 그걸 보고 LoRA 종류/강도 같은
+// 세부값을 다시 조정할 수 있게 한다. 알아볼 수 없는 구조면 마법사는 건드리지 않고 슬롯 아래에
+// 읽기 전용 요약만 보여 준다(wizardStateFromWorkflow 참고).
 async function populateWizardFromUploadedWorkflow(file){
   if(!file) return;
   let workflow;
@@ -14,71 +14,41 @@ async function populateWizardFromUploadedWorkflow(file){
   }catch(e){
     return; // JSON이 아니면(또는 못 읽으면) 손대지 않는다 — checkWorkflowCompatibility가 따로 안내함
   }
-  await tryPopulateWizardFromWorkflow(workflow);
+  if(await tryPopulateWizardFromWorkflow(workflow) && typeof flashNotice === 'function'){
+    flashNotice('올린 워크플로우를 마법사 스텝에 반영했어요 — 확인하고 필요하면 조정하세요.');
+  }
 }
 
-async function tryPopulateWizardFromWorkflow(workflow){
-  if(!workflow || typeof workflow !== 'object') return;
-  const nodes = Object.values(workflow).filter(n => n && typeof n === 'object' && n.class_type);
-
-  const ckptNode = nodes.find(n => n.class_type === 'CheckpointLoaderSimple');
-  const ckptName = ckptNode && ckptNode.inputs && ckptNode.inputs.ckpt_name;
-  if(!ckptName) return; // CheckpointLoaderSimple 기반(SDXL식) 그래프가 아니면 마법사가 다루는 구조가 아니다
-
+// 마법사를 채웠으면 true. templateId·options는 작업 불러오기가 준다 — 직접 올리면 없으므로
+// 실행 방식(시드 반복/CSV 순회)은 건드리지 않고 4단계에서 직접 고르게 둔다.
+async function tryPopulateWizardFromWorkflow(workflow, { templateId, options } = {}){
+  if(!workflow || typeof workflow !== 'object') return false;
   if(!baseModelFamilies || Object.keys(baseModelFamilies).length === 0){
     await fetchBaseModelFamilies();
   }
-  await fetchWorkflowTypes(); // 2단계 표시 라벨(Text to Image 등)에 필요 — 없으면 "txt2img" 그대로 보임(캐시돼 있으면 바로 반환)
-  let matchFamilyId = null;
-  for(const [fid, fam] of Object.entries(baseModelFamilies || {})){
-    if((fam.checkpoints || []).includes(ckptName)){ matchFamilyId = fid; break; }
+  // 2단계 표시 라벨(Text to Image 등)에도 필요 — 없으면 "txt2img" 그대로 보임(캐시돼 있으면 바로 반환)
+  const catalog = await fetchWorkflowTypes();
+  const context = { catalog, templateId, options };
+  let state = wizardStateFromWorkflow(workflow, { ...context, families: baseModelFamilies });
+  if(!state && workflowModelInfo(workflow, options).models.length === 1){
+    // 고른 파드에 설치된 family만 있는 목록이라, 다른 워커에 있는 모델은 전체 등록 목록에서 찾는다.
+    const all = await fetchAllBaseModelFamilies();
+    state = wizardStateFromWorkflow(workflow, { ...context, families: all });
+    if(state) baseModelFamilies = mergeBaseModelFamilies(baseModelFamilies, all, state.familyId);
   }
-  if(!matchFamilyId) return; // 등록부가 모르는 체크포인트 — 억지로 끼워 맞추지 않는다
-
-  const hasEmptyLatent = nodes.some(n => n.class_type === 'EmptyLatentImage');
-  const hasInputImage = nodes.some(n => n.class_type === 'LoadImage' && n._meta && n._meta.title === 'input_image');
-  // KSampler 없이 입력 이미지가 FaceDetailer로만 가면 Face Detailer 유형(base="face_detailer")이다.
-  const hasKSampler = nodes.some(n => n.class_type === 'KSampler');
-  const base = hasEmptyLatent ? 'txt2img'
-    : !hasInputImage ? null
-    : (hasKSampler || !workflowHasFaceDetailer(workflow)) ? 'img2img' : 'face_detailer';
-  if(!base) return; // 베이스 패스를 못 알아보면(워크플로우 빌더가 만드는 모양이 아니면) 멈춘다
-
-  const loras = nodes
-    .filter(n => n.class_type === 'LoraLoader')
-    .map(n => ({
-      name: (n.inputs || {}).lora_name,
-      strength: typeof (n.inputs || {}).strength_model === 'number' ? n.inputs.strength_model : 1,
-    }))
-    .filter(l => l.name);
-  const hiresNode = nodes.find(n => n.class_type === 'KSampler' && n._meta && n._meta.title === 'KSampler (hires-fix)');
-  const upscaleNode = nodes.find(n => n.class_type === 'LatentUpscaleBy');
-  const hasUsdu = nodes.some(n => n.class_type === 'UltimateSDUpscaleNoUpscale');
-  const hasFaceDetailer = workflowHasFaceDetailer(workflow);
-
-  wizard.familyId = matchFamilyId;
-  wizard.checkpoint = ckptName;
-  wizard.base = base;
-  wizard.preset = null;
-  wizard.post = freshWizardPost();
-  if(hiresNode){
-    wizard.post.hires_fix = true;
-    if(upscaleNode && typeof (upscaleNode.inputs || {}).scale_by === 'number') wizard.post.hiresScale = upscaleNode.inputs.scale_by;
+  if(!state){
+    renderWorkflowLoadedSummary(workflowSummaryLines(workflow, options));
+    return false;
   }
-  wizard.post.usdu = hasUsdu;
-  // base가 face_detailer면 FaceDetailer는 베이스 자체라 후처리로 켜지 않는다.
-  wizard.post.face_detailer = hasFaceDetailer && base !== 'face_detailer';
-  wizard.loras = loras;
-  // 실행 방식(시드 반복/CSV 순회)은 워크플로우만 봐서는 알 수 없다 — 건드리지 않고 4단계에서 직접 고르게 둔다.
+  Object.assign(wizard, state, { batchMode: state.batchMode || wizard.batchMode });
 
   // "다음"을 눌렀을 때(goToNewJobDetails) wizardStale()이 방금 올린 이 파일을 마법사가
   // 새로 만든 걸로 덮어써 버리지 않도록, 지금 상태를 먼저 "이미 반영됨"으로 찍어 둔다 —
   // 이후 마법사 스텝을 더 만지면(예: 4단계 실행 방식을 고르면) 그때부터는 다시 stale이 된다.
   wizardAppliedSignature = JSON.stringify(wizard);
+  renderWorkflowLoadedSummary([]);
   wizardUpdateStepButtons();
-  if(typeof flashNotice === 'function'){
-    flashNotice('올린 워크플로우를 마법사 스텝에 반영했어요 — 확인하고 필요하면 조정하세요.');
-  }
+  return true;
 }
 
 // ---- 1단계: 베이스 모델 ----
@@ -86,7 +56,10 @@ async function openWizardFamilyModal(){
   const body = document.getElementById('wizard-family-modal-body');
   body.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
   openWizardModal('wizard-family-modal');
+  // 다른 워커 모델을 불러와 합쳐 둔 family는 다시 받아도 남겨야 지금 선택의 라벨이 깨지지 않는다.
+  const keptFamily = baseModelFamilies[wizard.familyId];
   await fetchBaseModelFamilies();
+  if(keptFamily && !baseModelFamilies[wizard.familyId]) baseModelFamilies[wizard.familyId] = keptFamily;
   renderWizardFamilyModal();
   if(wizardPendingPose) renderLibrarySelection(body, '', wizardPendingPose.tagsOn !== false);
 }
@@ -484,7 +457,7 @@ function renderWizardLoraModal(){
   const scrollTop = body.querySelector('.wizard-pick-list')?.scrollTop || 0;
   const isPreset = wizardIsPreset();
   const all = wizardLoraChoices();
-  if(all.length === 0){
+  if(all.length === 0 && wizard.loras.length === 0){
     body.innerHTML = '<div class="comfy-model-empty">고를 수 있는 LoRA가 없어요 — 워커의 파드를 켜거나 "모델" 탭에 LoRA를 등록하세요.</div>';
     return;
   }
@@ -497,11 +470,12 @@ function renderWizardLoraModal(){
   const hint = isPreset
     ? '<div class="email-hint">이 워크플로우 유형은 프리셋에 이미 배선된 LoRA 로더 하나에만 덮어쓸 수 있어서, 여기서는 하나만 고를 수 있어요.</div>'
     : '<div class="email-hint">여러 개를 고를 수 있어요. 강도는 고른 줄에 나타나는 입력칸에서 바꾸세요(기본 1).</div>';
-  if(compatible.length === 0){
+  const names = wizardLoraListNames(compatible, wizard.loras);
+  if(names.length === 0){
     body.innerHTML = hint + '<div class="comfy-model-empty">이 베이스 모델과 호환되는 LoRA가 없어요("모델" 탭에서 LoRA의 베이스 모델을 맞추거나 비워두면 보여요).</div>';
     return;
   }
-  body.innerHTML = hint + `<div class="wizard-pick-list">${compatible.map(name => {
+  body.innerHTML = hint + `<div class="wizard-pick-list">${names.map(name => {
     const picked = wizard.loras.find(l => l.name === name);
     return `
       <div class="wizard-pick-row${picked ? ' selected' : ''}" data-lora-name="${escapeHtml(name)}">
@@ -1109,6 +1083,9 @@ async function checkWorkflowCompatibility(file){
   renderFaceDetailerPanel(null);
   setOpenPoseFieldsVisible(false);
   renderOpenPosePanel(null);
+  // 파일이 바뀌면 이전 요약은 틀린 정보다 — 필요하면 역채움이 다시 그린다.
+  const loadedSummary = document.getElementById('workflow-loaded-summary');
+  if(loadedSummary) loadedSummary.hidden = true;
   if(!file){
     el.hidden = true;
     el.textContent = '';

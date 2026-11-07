@@ -880,6 +880,8 @@ async function loadJobSettings(job, prepared){
 
   const warnings = [];
 
+  // 앞서 고른 마법사 값이 불러온 작업과 섞여 보이지 않게 먼저 비운다.
+  resetWizardAndWorkflow();
   resetForm();
   templateSelect.value = job.template_id;
   await onTemplateChange();
@@ -936,8 +938,12 @@ async function loadJobSettings(job, prepared){
   }
 
   const wfRes = prepared ? null : await fetch(`/api/jobs/${job.id}/workflow`).catch(() => null);
+  let loadedWorkflow = null;
   if(prepared){
-    if(prepared.workflow) setWorkflowFile(new File([JSON.stringify(prepared.workflow)], 'board_gen_workflow.json', { type: 'application/json' }));
+    if(prepared.workflow){
+      setWorkflowFile(new File([JSON.stringify(prepared.workflow)], 'board_gen_workflow.json', { type: 'application/json' }));
+      loadedWorkflow = prepared.workflow;
+    }
     if(template.optional_video_workflow && prepared.video_workflow){
       setVideoWorkflowFile(new File([JSON.stringify(prepared.video_workflow)], 'board_gen_video_workflow.json', { type: 'application/json' }));
     }
@@ -945,6 +951,7 @@ async function loadJobSettings(job, prepared){
     const text = await wfRes.text();
     const filename = job.workflow_original_name || 'workflow.json';
     setWorkflowFile(new File([text], filename, { type: 'application/json' }));
+    try{ loadedWorkflow = JSON.parse(text); }catch(e){ /* JSON이 아니면 checkWorkflowCompatibility가 따로 안내함 */ }
   } else {
     warnings.push('워크플로우 파일을 찾을 수 없어 직접 첨부해야 해요.');
   }
@@ -972,6 +979,11 @@ async function loadJobSettings(job, prepared){
     } else {
       warnings.push('CSV 파일을 찾을 수 없어 직접 첨부해야 해요.');
     }
+  }
+
+  // wizardQuality는 비운 채 둔다 — 저장된 프롬프트에 품질 문구가 이미 들어 있다.
+  if(loadedWorkflow && await tryPopulateWizardFromWorkflow(loadedWorkflow, { templateId: job.template_id, options: savedOptions })){
+    setLoraTriggerField(wizard.loras.map(l => l.name));
   }
 
   openNewJobModal();
