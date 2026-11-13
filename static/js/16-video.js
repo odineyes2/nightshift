@@ -310,7 +310,7 @@ function videoGalleryItemHtml(vid, index){
   const selected = selectedGalleryVideoNames.has(vid.name);
   const blur = !!vid.nsfw && nsfwMode === 'blur';
   // 격자에서는 영상 파일 대신 서버가 뽑아 둔 첫 장면 JPEG만 받는다(칸당 수 MB → 수십 KB), 보이는 칸만.
-  const thumb = blur ? '' : `<img src="${videoPosterUrl(vid, videoGalleryDisplayMode === 'details' ? 80 : 400, 'cover')}" alt="" loading="lazy">`;
+  const thumb = blur ? '' : `<img class="thumb-fade" src="${videoPosterUrl(vid, videoGalleryDisplayMode === 'details' ? 80 : 400, 'cover')}" alt="" loading="lazy">`;
   const blurOverlay = `<div class="vgallery-item-blur-overlay" title="NSFW 블러 — 열어서 보기">${ico('eye-off')}</div>`;
   if(videoGalleryDisplayMode === 'details'){
     const meta = vid.duration != null || vid.width ? vid : null;
@@ -453,6 +453,7 @@ function renderVideoGalleryGrid(){
     videoGalleryGroupNames = new Map();
   }
   grid.innerHTML = isDetails ? videoGalleryDetailsHeaderHtml() : '';
+  delete grid.dataset.skeleton;
   videoGalleryRendered = 0;
   appendVideoGalleryItems();
 }
@@ -490,6 +491,7 @@ function appendVideoGalleryItems(){
   wireVideoGalleryItems();
   refreshAllVideoGroupCheckboxStates();
   updateLoadMore('video-gallery-more-btn', displayedGalleryVideos.length - videoGalleryRendered, '개');
+  markLoadedThumbs(grid);
 }
 setupLoadMore('video-gallery-more-btn', () => { videoGalleryLimit += LIST_PAGE; appendVideoGalleryItems(); });
 
@@ -510,7 +512,22 @@ document.querySelectorAll('#video-gallery-view-toggle .enhance-mode-btn').forEac
   });
 });
 
+// 처음 들어오거나 범위가 바뀌면 받는 동안 스켈레톤을 깐다(fetchGalleryImages와 같은 규칙).
+let videoGalleryShownScope = null;
 async function fetchGalleryVideos(){
+  const grid = document.getElementById('video-gallery-grid');
+  const scope = JSON.stringify([videoGalleryPodFilter, videoGalleryProjectFilter, galleryFilterQs(videoGalleryFilters), videoGalleryDisplayMode]);
+  const cancelSkeleton = scope === videoGalleryShownScope ? () => {}
+    : showSkeletonLater(grid, gallerySkeletonHtml('vgallery-item', videoGalleryDisplayMode === 'details'));
+  try{
+    if(await loadGalleryVideos()) videoGalleryShownScope = scope;
+  }finally{
+    cancelSkeleton();
+    clearSkeleton(grid);
+  }
+}
+
+async function loadGalleryVideos(){
   const grid = document.getElementById('video-gallery-grid');
   const emptyMsg = document.getElementById('video-gallery-empty');
   const countEl = document.getElementById('video-gallery-count');
@@ -519,9 +536,9 @@ async function fetchGalleryVideos(){
       fetch('/api/output-videos' + galleryFilterQs(videoGalleryFilters)),
       fetchGalleryJobLabels(),
     ]);
-    if(!vidRes.ok) return;   // 실패하면 마지막 목록을 그대로 둔다(fetchGalleryImages와 같다)
+    if(!vidRes.ok) return false;   // 실패하면 마지막 목록을 그대로 둔다(fetchGalleryImages와 같다)
     const data = await vidRes.json();
-    if(!Array.isArray(data.videos)) return;
+    if(!Array.isArray(data.videos)) return false;
     galleryVideos = data.videos;
     // 파드 갤러리면 그 파드가 배정된 작업의 영상만 남긴다(fetchGalleryImages와 동일한 규칙).
     if(videoGalleryPodFilter){
@@ -532,7 +549,7 @@ async function fetchGalleryVideos(){
     }
     galleryJobLabels = labels; // 이미지 갤러리와 공유하는 전역(작업 라벨은 미디어 종류와 무관)
   }catch(e){
-    return;
+    return false;
   }
 
   const stillPresent = new Set(galleryVideos.map(vid => vid.name));
@@ -547,20 +564,22 @@ async function fetchGalleryVideos(){
   if(galleryVideos.length === 0){
     lastVideoGallerySig = '';
     grid.innerHTML = '';
+    delete grid.dataset.skeleton;
     displayedGalleryVideos = [];
     updateLoadMore('video-gallery-more-btn', 0, '개');
     emptyMsg.textContent = galleryFiltersActive(videoGalleryFilters) ? '조건에 맞는 영상이 없어요'
       : videoGalleryPodFilter ? '이 워커가 만든 영상이 아직 없어요'
       : (videoGalleryProjectFilter !== null ? '이 프로젝트의 영상이 아직 없어요' : '서버에 저장된 영상이 없어요');
     emptyMsg.style.display = 'block';
-    return;
+    return true;
   }
   emptyMsg.style.display = 'none';
 
   const sig = gallerySignature(galleryVideos, [videoGalleryViewMode, videoGalleryDisplayMode, videoGalleryPodFilter, videoGalleryProjectFilter]);
-  if(sig === lastVideoGallerySig && grid.childElementCount > 0) return;   // 바뀐 게 없다
+  if(sig === lastVideoGallerySig && grid.childElementCount > 0 && !grid.dataset.skeleton) return true;   // 바뀐 게 없다
   lastVideoGallerySig = sig;
   renderVideoGalleryGrid();
+  return true;
 }
 
 document.getElementById('video-gallery-refresh-btn').addEventListener('click', fetchGalleryVideos);

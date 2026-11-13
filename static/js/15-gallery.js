@@ -268,7 +268,7 @@ function galleryItemHtml(img, index){
       <button class="gallery-item-fav${img.favorite ? ' on' : ''}" type="button" aria-label="즐겨찾기" aria-pressed="${img.favorite ? 'true' : 'false'}" title="즐겨찾기">${ico('star')}</button>
       ${img.nsfw ? `<span class="gallery-item-nsfw" title="NSFW로 표시됨">${ico('flame')}</span>` : ''}
       ${blur ? blurOverlay : ''}
-      <img ${thumbSrc} alt="${escapeHtml(img.name)}" loading="lazy">
+      <img class="thumb-fade" ${thumbSrc} alt="${escapeHtml(img.name)}" loading="lazy">
       <div class="gallery-item-name">${escapeHtml(img.name)}</div>
     </div>
   `;
@@ -576,6 +576,7 @@ function renderGalleryGrid(){
   // 자세히 보기일 때만 맨 위에 열 제목 행을 한 번 붙인다 — 그룹들보다 위, #gallery-grid 바로 아래 한 곳에만
   // 둔다(그룹마다 반복 안 함). .gallery-item 클래스가 없어서 선택/삭제 로직은 이 행을 그냥 지나친다.
   grid.innerHTML = isDetails ? galleryDetailsHeaderHtml() : '';
+  delete grid.dataset.skeleton;
   galleryRendered = 0;
   appendGalleryItems();
 }
@@ -615,6 +616,7 @@ function appendGalleryItems(){
   wireGalleryItems();
   refreshAllGroupCheckboxStates();
   updateLoadMore('gallery-more-btn', displayedGalleryImages.length - galleryRendered, '장');
+  markLoadedThumbs(grid);
 }
 setupLoadMore('gallery-more-btn', () => { galleryLimit += LIST_PAGE; appendGalleryItems(); });
 
@@ -730,7 +732,24 @@ function gallerySignature(items, extra){
 let lastImageGallerySig = '';
 let lastVideoGallerySig = '';
 
+// 처음 들어오거나 보여 줄 범위(파드·프로젝트·필터·보기 방식)가 바뀌면 받는 동안 스켈레톤을 깐다(01b-skeleton.js).
+// 4초 폴링처럼 같은 범위를 다시 받을 때는 깔지 않는다.
+let galleryShownScope = null;
 async function fetchGalleryImages(){
+  const grid = document.getElementById('gallery-grid');
+  const scope = JSON.stringify([galleryPodFilter, galleryProjectFilter, galleryFilterQs(galleryFilters), galleryDisplayMode]);
+  const cancelSkeleton = scope === galleryShownScope ? () => {}
+    : showSkeletonLater(grid, gallerySkeletonHtml('gallery-item', galleryDisplayMode === 'details'));
+  try{
+    if(await loadGalleryImages()) galleryShownScope = scope;
+  }finally{
+    cancelSkeleton();
+    clearSkeleton(grid);   // 받기에 실패해 자리표시만 남았으면 걷는다(그렸으면 이미 지워져 있다)
+  }
+}
+
+// 목록을 받아 그린다. 그렸거나 "없음"을 보여 줬으면 true, 받기에 실패해 그대로 뒀으면 false.
+async function loadGalleryImages(){
   const grid = document.getElementById('gallery-grid');
   const emptyMsg = document.getElementById('gallery-empty');
   const countEl = document.getElementById('gallery-count');
@@ -741,9 +760,9 @@ async function fetchGalleryImages(){
     ]);
     // 서버가 잠깐 실패했거나(500) 길이 끊겼으면 마지막으로 그린 목록을 그대로 둔다 — 비우면 격자가
     // "이미지 없음"으로 깜빡였다가 다음 차례에 전부 다시 그려진다.
-    if(!imgRes.ok) return;
+    if(!imgRes.ok) return false;
     const data = await imgRes.json();
-    if(!Array.isArray(data.images)) return;
+    if(!Array.isArray(data.images)) return false;
     galleryImages = data.images;
     // 파드 갤러리면 그 파드가 배정된 작업의 이미지만 남긴다.
     if(galleryPodFilter){
@@ -754,7 +773,7 @@ async function fetchGalleryImages(){
     }
     galleryJobLabels = labels;
   }catch(e){
-    return;   // 위와 같은 이유로 마지막 목록을 그대로 둔다
+    return false;   // 위와 같은 이유로 마지막 목록을 그대로 둔다
   }
 
   // 그 사이 지워진 이미지의 선택은 버린다.
@@ -770,20 +789,22 @@ async function fetchGalleryImages(){
   if(galleryImages.length === 0){
     lastImageGallerySig = '';
     grid.innerHTML = '';
+    delete grid.dataset.skeleton;
     displayedGalleryImages = [];
     updateLoadMore('gallery-more-btn', 0, '장');
     emptyMsg.textContent = galleryFiltersActive(galleryFilters) ? '조건에 맞는 이미지가 없어요'
       : galleryPodFilter ? '이 워커가 만든 이미지가 아직 없어요'
       : (galleryProjectFilter !== null ? '이 프로젝트의 이미지가 아직 없어요' : '서버에 저장된 이미지가 없어요');
     emptyMsg.style.display = 'block';
-    return;
+    return true;
   }
   emptyMsg.style.display = 'none';
 
   const sig = gallerySignature(galleryImages, [galleryViewMode, galleryDisplayMode, galleryPodFilter, galleryProjectFilter]);
-  if(sig === lastImageGallerySig && grid.childElementCount > 0) return;   // 바뀐 게 없다
+  if(sig === lastImageGallerySig && grid.childElementCount > 0 && !grid.dataset.skeleton) return true;   // 바뀐 게 없다
   lastImageGallerySig = sig;
   renderGalleryGrid();
+  return true;
 }
 
 document.getElementById('gallery-refresh-btn').addEventListener('click', fetchGalleryImages);

@@ -35,6 +35,9 @@ function resolveProjectId(id){
   return (Number.isInteger(n) && projectsById[n]) ? n : null;
 }
 
+// 첫 목록을 받기 전에는 홈을 그리지 않는다 — 그 사이 다른 곳(NSFW 토글 등)이 renderHome을 불러도 스켈레톤(18-init.js가 깐다)을
+// 지우고 "아직 프로젝트가 없어요"를 잠깐 띄우지 않게. 받기에 실패해도 표시는 한다(영영 스켈레톤으로 남지 않게).
+let projectsLoadedOnce = false;
 async function fetchProjects(){
   try{
     const res = await fetch('/api/projects?include_archived=true');
@@ -46,6 +49,7 @@ async function fetchProjects(){
   }catch(e){
     // 못 받아오면 이전 값을 그대로 둔다.
   }
+  projectsLoadedOnce = true;
   projectsById = Object.fromEntries(projectsCache.map(p => [p.id, p]));
   renderHome();
   renderProjectBar();
@@ -66,7 +70,7 @@ function projectCardHtml(p){
   const cover = coverHidden
     ? `<div class="project-cover-empty" title="NSFW 콘텐츠가 '보기'가 아니라서 대표 이미지를 가렸어요">${ico('eye-off')}</div>`
     : d.cover_path
-    ? `<img class="project-cover-img" loading="lazy" alt="" src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(d.cover_path)}/thumbnail?size=400`)}">`
+    ? `<img class="project-cover-img thumb-fade" loading="lazy" alt="" src="${window.__nightshiftMediaUrl(`/api/output-images/${encodeURIComponent(d.cover_path)}/thumbnail?size=400`)}">`
     : `<div class="project-cover-empty">${ico(inbox ? 'inbox' : 'folder')}</div>`;
   const mature = d.is_mature ? `<span class="badge mature" title="성인 콘텐츠 포함으로 표시된 프로젝트">${ico('flame')} 18+</span>` : '';
   const active = d.active_jobs > 0
@@ -110,6 +114,7 @@ function renderHome(){
     <div class="dash-total"><span class="dash-total-label">${label}</span><span class="dash-total-value">${escapeHtml(String(value))}</span></div>`).join('')
     + `<button class="load-btn home-strip-pods" type="button" data-go-pods title="워커 탭으로">${ico('server')} 워커 보기</button>`;
 
+  if(!projectsLoadedOnce) return;
   const showArchived = document.getElementById('home-show-archived').checked;
   const list = projectsCache.filter(p => showArchived || !p.archived);
   const hasUnassigned = (unassignedSummary.job_count + unassignedSummary.asset_count) > 0;
@@ -117,9 +122,11 @@ function renderHome(){
   if(hasUnassigned) cards.push(projectCardHtml(null));
   // 카드 이미지를 매번 다시 만들면 깜빡이므로 내용이 같으면 손대지 않는다.
   const html = cards.join('');
-  if(canvas.dataset.html !== html){
+  if(canvas.dataset.html !== html || canvas.dataset.skeleton){
     canvas.innerHTML = html;
     canvas.dataset.html = html;
+    delete canvas.dataset.skeleton;
+    markLoadedThumbs(canvas);
   }
   document.getElementById('project-empty').style.display = (list.length === 0 && !hasUnassigned) ? '' : 'none';
 }

@@ -1,0 +1,56 @@
+  /* 스켈레톤 로딩(docs/DESIGN.md 8절) — 목록을 받는 동안 실제 칸과 같은 모양의 회색 칸을 깔아 두고, 썸네일이 오기 전 칸도
+     같은 배경으로 둔다. 움직임은 밝기(투명도)가 천천히 오르내리는 것뿐이고, "동작 줄이기"면 멈춘 회색으로 둔다.
+     칸 모양 자체는 각 목록의 클래스(.gallery-item, .vgallery-item, .project-card)를 그대로 써서 크기가 똑같다.
+     JS는 js/01b-skeleton.js. */
+  @keyframes skel-pulse{ 0%, 100%{ opacity:1; } 50%{ opacity:0.45; } }
+  .skel-block{
+    background:var(--border);
+    border-radius:var(--radius-sm);
+    animation:skel-pulse 1.4s ease-in-out infinite;
+  }
+  /* 목록 자리표시 칸 — 누를 수 없고 테두리 대신 회색 면만 보인다 */
+  .skel-item{ pointer-events:none; cursor:default; }
+  .gallery-item.skel-item, .vgallery-item.skel-item{ border-color:transparent; }
+  /* 이 파일이 번들 앞쪽(01b)이라, 뒤에 오는 각 칸의 background:var(--bg)가 덮어쓰지 않게 칸 클래스와 함께 적는다 */
+  .gallery-item.skel-block, .vgallery-item.skel-block, .project-cover.skel-block{ background:var(--border); }
+  .gallery-item.skel-item.skel-block, .vgallery-item.skel-item.skel-block{ border-radius:8px; }
+  /* 자세히 보기 줄 — 썸네일 자리와 글자 자리 막대 */
+  .skel-row{ display:flex; align-items:center; gap:10px; padding:6px 8px; pointer-events:none; }
+  .skel-row .skel-thumb{ width:44px; height:44px; flex-shrink:0; }
+  .skel-row .skel-line{ height:10px; flex:1; max-width:360px; }
+  .skel-row .skel-line.short{ flex:0 0 80px; }
+  /* 프로젝트 카드 — 커버 자리와 제목·설명 막대 */
+  .project-card.skel-item .project-cover{ border-bottom-color:transparent; }
+  .project-card.skel-item .project-cover.skel-block{ border-radius:0; }
+  .project-card.skel-item .skel-line{ height:12px; margin:4px 0; }
+  .project-card.skel-item .skel-line.title{ width:55%; height:14px; }
+  .project-card.skel-item .skel-line.desc{ width:80%; }
+  .project-card.skel-item .skel-line.stats{ width:40%; }
+  .project-card.skel-item .project-card-body{ padding:12px 14px; }
+
+  /* 썸네일이 오기 전 칸 — 칸 맨 뒤(z-index:-1, isolation으로 칸 안에 가둔다)에 같은 회색 면을 깔아, 썸네일과 그 위의
+     이름·즐겨찾기·선택 표시는 그대로 위에 그려진다. 이미지가 오면 면을 멈추고 이미지가 살짝 나타난다(01b-skeleton.js가 is-loaded). */
+  .gallery-item:not(.details):not(.skel-item), .vgallery-item-media, .project-cover{ isolation:isolate; }
+  .vgallery-item-media{ position:relative; }
+  .gallery-item:not(.details):not(.skel-item)::before,
+  .vgallery-item:not(.details):not(.skel-item) .vgallery-item-media::before,
+  .project-cover:has(> .project-cover-img)::before{
+    content:""; position:absolute; inset:0; z-index:-1;
+    background:var(--border);
+    animation:skel-pulse 1.4s ease-in-out infinite;
+  }
+  /* 다 왔거나, NSFW 블러라 이미지를 아예 안 받는 칸(src 없음) */
+  .gallery-item:has(> img.is-loaded)::before, .gallery-item:has(> img:not([src]))::before,
+  .vgallery-item-media:has(> img.is-loaded)::before, .vgallery-item-media:not(:has(> img))::before,
+  .project-cover:has(> .project-cover-img.is-loaded)::before{ animation:none; opacity:0; }
+  /* .gallery-item img의 확대(transform) 전환을 덮어쓰지 않게 둘 다 적는다 */
+  img.thumb-fade, .gallery-item img.thumb-fade{ opacity:0; transition:opacity .15s ease, transform .15s ease; }
+  img.thumb-fade.is-loaded{ opacity:1; }
+  /* 자세히 보기 줄 자리표시는 격자 한 줄을 다 차지한다 */
+  .skel-row{ grid-column:1 / -1; }
+
+  @media (prefers-reduced-motion:reduce){
+    .skel-block,
+    .gallery-item::before, .vgallery-item-media::before, .project-cover::before{ animation:none; }
+    img.thumb-fade, .gallery-item img.thumb-fade{ transition:none; }
+  }

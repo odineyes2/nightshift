@@ -201,6 +201,9 @@ async function initDanbooru(){
 window.__nightshiftAuthReady.then(user => {
   if(!user) return;   // 로그인 화면이 떠 있다 — 로그인하면 화면을 새로 불러온다
   loadBoardDisplay();
+  // 홈의 프로젝트 카드는 파드 목록 → 프로젝트 목록 순서로 왕복 두 번 뒤에야 나온다 — 그동안 카드 모양 스켈레톤을 깐다
+  // (그 전에 이미 받았으면 깔지 않는다).
+  showSkeletonLater(document.getElementById('project-canvas'), projectSkeletonHtml(), undefined, () => !projectsLoadedOnce);
   fetchPods().then(fetchProjects).then(applyHashRoute).then(fetchTemplates);
 });
 fetchJobs();
