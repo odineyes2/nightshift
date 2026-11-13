@@ -518,6 +518,7 @@ async def lifespan(app: FastAPI):
     poke_scheduler()
     if RUNPOD_AUTO_OFF_CHECK_SEC > 0 and runpod_api.RUNPOD_API_KEY:
         threading.Thread(target=_auto_power_off_loop, daemon=True, name="runpod-auto-off").start()   # NS-8
+        threading.Thread(target=_auto_power_on_loop, daemon=True, name="runpod-auto-on").start()   # 대기열 자동 켜기(07c)
         if RUNPOD_BOOT_TIMEOUT_MIN > 0:
             threading.Thread(target=_boot_watch_loop, daemon=True, name="runpod-boot-watch").start()   # NS-18
     if RUNPOD_SYNC_INTERVAL_SEC > 0:

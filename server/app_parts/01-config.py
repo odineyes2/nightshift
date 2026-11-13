@@ -40,7 +40,7 @@ import urllib.request
 import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from contextlib import asynccontextmanager
@@ -54,6 +54,7 @@ from PIL import Image, ImageOps
 
 import auth
 import service_tokens
+import auto_power_settings
 import generate_presets
 import generate_models
 import comfy_outputs

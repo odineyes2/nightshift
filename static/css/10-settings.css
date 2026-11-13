@@ -64,3 +64,12 @@
 .settings-member-file{ flex:1 1 160px; min-width:0; overflow-wrap:anywhere; }
 .settings-member-add{ margin-top:12px; }
 .settings-member-add select{ flex:0 1 180px; }
+
+/* 설정 > 자동 켜기 */
+.auto-power-switch{ display:flex; align-items:center; gap:10px; margin:16px 0; font-weight:600; }
+.auto-power-fields{ display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:16px; max-width:900px; }
+.auto-power-field{ display:flex; flex-direction:column; gap:6px; min-width:0; }
+.auto-power-input{ display:flex; align-items:center; gap:6px; }
+.auto-power-input input{ width:96px; }
+.auto-power-field select{ width:100%; min-width:0; }
+.auto-power-status{ margin:16px 0 0; padding:12px; border:1px solid var(--border); border-radius:8px; line-height:1.7; overflow-wrap:anywhere; }
