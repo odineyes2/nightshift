@@ -163,7 +163,9 @@ def schedule_once() -> None:
         return
     templates = load_templates_map()
     owners = {j.get("owner_id") for j in waiting}
-    pods_of = {o: [p for p in pod_registry.list_pods(o) if p.get("enabled")] for o in owners}
+    # 서비스 연동 계정(<서비스>-bot)의 작업은 관리자 파드에서도 돈다 — service_tokens.pod_owner_ids_for_job.
+    pods_of = {o: [p for owner in service_tokens.pod_owner_ids_for_job(o)
+                   for p in pod_registry.list_pods(owner) if p.get("enabled")] for o in owners}
 
     # 파드마다 연결 확인은 한 번만 — 파드가 꺼져 있으면 확인이 몇 초 걸릴 수 있어 나란히 돌린다.
     all_pods = {p["id"]: p for plist in pods_of.values() for p in plist}
@@ -463,7 +465,10 @@ def _sync_key_mapper(item: dict, pod_id: str | None) -> str | None:
     with lock:
         job = jobs.get(subfolder) if subfolder else None
     if job is not None:
-        return item["key"] if job.get("owner_id") == owner else None   # 남의 작업 폴더에는 쓰지 않는다
+        # 남의 작업 폴더에는 쓰지 않는다. 단 서비스 연동 계정의 작업은 관리자 파드에서 돌므로 받는다.
+        allowed = job.get("owner_id") == owner or (
+            owner is not None and owner in service_tokens.pod_owner_ids_for_job(job.get("owner_id")))
+        return item["key"] if allowed else None
     return f"u{owner}/{item['key']}" if owner is not None else item["key"]
 
 

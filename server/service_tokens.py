@@ -77,6 +77,27 @@ def connect(service) -> dict:
     return {**issue(user_id, token_name), "username": username}
 
 
+def is_service_user(user_id) -> bool:
+    """connect()가 만든 서비스 연동 전용 계정(<서비스>-bot, 로그인 불가 메일 주소)인가."""
+    if user_id is None:
+        return False
+    with db.connect() as conn:
+        row = conn.execute("SELECT username, email, role FROM users WHERE id=?", (user_id,)).fetchone()
+    return bool(row and row["role"] == auth.ROLE_USER and row["username"].endswith("-bot")
+                and (row["email"] or "") == f"{row['username']}@service.invalid")
+
+
+def pod_owner_ids_for_job(owner_id) -> list:
+    """이 회원의 작업을 맡을 수 있는 파드 주인들. 서비스 연동 계정은 파드가 없으므로 관리자 파드에서 돈다
+    (charchat 삽화처럼 외부 앱이 보낸 작업). 일반 회원은 지금처럼 자기 파드만."""
+    if not is_service_user(owner_id):
+        return [owner_id]
+    with db.connect() as conn:
+        admins = [row["id"] for row in conn.execute(
+            "SELECT id FROM users WHERE role=? AND status=? ORDER BY id", (auth.ROLE_ADMIN, auth.STATUS_ACTIVE))]
+    return [owner_id, *admins]
+
+
 def disconnect(service) -> dict:
     """그 서비스 전용 계정의 토큰을 모두 폐기한다. 계정은 남긴다(작업·결과물의 소유자라서)."""
     username, _ = _service_names(service)
