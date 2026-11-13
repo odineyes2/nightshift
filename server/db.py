@@ -20,13 +20,15 @@ SQLite 저장소 — 프로젝트/작업(job)/결과물(asset)/태그.
 ## 동시성
 
 쓰는 프로세스는 app.py 하나다(MCP 서버는 REST를 거친다). WAL + busy_timeout을 걸고,
-호출마다 짧게 연결을 열었다 닫는다(스레드에서 불러도 안전).
+호출마다 짧게 연결을 열었다 닫는다(스레드에서 불러도 안전). connect()는 쓰기 자리를 먼저 잡고(BEGIN IMMEDIATE),
+쓰지 않는 조회는 read()로 연다.
 
 환경변수:
     NIGHTSHIFT_DB_PATH  DB 파일 (기본 <data>/nightshift.db)
 """
 
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -39,6 +41,7 @@ from data_paths import data_path
 DB_PATH = Path(os.environ.get("NIGHTSHIFT_DB_PATH") or data_path("nightshift.db"))
 
 _init_lock = threading.Lock()
+_tx_depth = threading.local()   # 이 스레드가 지금 열고 있는 connect() 수(connect() 설명 참고)
 _initialized = False
 
 SCHEMA_V1 = """
@@ -706,11 +709,23 @@ def _split_statements(sql: str) -> list[str]:
 
 @contextmanager
 def connect():
-    """짧게 쓰고 닫는 연결. `with connect() as conn:` 안의 변경은 하나의 트랜잭션이다."""
+    """짧게 쓰고 닫는 연결. `with connect() as conn:` 안의 변경은 하나의 트랜잭션이다.
+
+    BEGIN IMMEDIATE로 처음부터 쓰기 자리를 잡는다. 그냥 BEGIN이면 읽다가 쓰기로 올라가는 순간 그 사이 다른
+    연결이 쓴 경우 busy_timeout을 기다리지 않고 바로 "database is locked"로 실패한다(WAL의 스냅샷 규칙) —
+    운영 로그에 수백 번 찍혀 요청이 500으로 떨어지던 원인이다. 쓰기는 어차피 한 번에 하나뿐이라 줄을 설 뿐이다.
+    쓰지 않는 조회는 read()를 쓴다(쓰기 자리를 기다리지 않는다)."""
     init()
+    nested = getattr(_tx_depth, "n", 0) > 0
+    if nested:
+        # 같은 스레드가 이미 쓰기 자리를 잡고 있다 — 안쪽까지 IMMEDIATE면 자기 자신을 30초 기다리다 실패한다.
+        # 안쪽은 예전처럼 BEGIN으로 열고(읽기는 그대로 된다), 고칠 곳을 찾을 수 있게 남긴다.
+        logging.getLogger(__name__).warning("db.connect() 안에서 db.connect()를 또 열었어요 — 읽기만 하면 db.read()로 바꿔 주세요",
+                                            stack_info=True)
     conn = _open()
+    _tx_depth.n = getattr(_tx_depth, "n", 0) + 1
     try:
-        conn.execute("BEGIN")
+        conn.execute("BEGIN" if nested else "BEGIN IMMEDIATE")
         try:
             yield conn
         except Exception:
@@ -718,6 +733,23 @@ def connect():
             raise
         else:
             conn.execute("COMMIT")
+    finally:
+        _tx_depth.n -= 1
+        conn.close()
+
+
+@contextmanager
+def read():
+    """쓰지 않는 조회용 연결. 한 스냅샷에서 읽고(BEGIN), 쓰기 자리를 잡지 않으므로 다른 쓰기가 길어져도 기다리지
+    않는다(WAL은 읽기와 쓰기가 서로 막지 않는다). 요청마다 도는 로그인 확인·갤러리 목록·파일 주인 확인이 쓴다."""
+    init()
+    conn = _open()
+    try:
+        conn.execute("BEGIN")
+        try:
+            yield conn
+        finally:
+            conn.execute("ROLLBACK")   # 읽기만 했으니 되돌릴 것도 없다 — 스냅샷만 놓는다
     finally:
         conn.close()
 

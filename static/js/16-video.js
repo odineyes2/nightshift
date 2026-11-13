@@ -519,8 +519,10 @@ async function fetchGalleryVideos(){
       fetch('/api/output-videos' + galleryFilterQs(videoGalleryFilters)),
       fetchGalleryJobLabels(),
     ]);
+    if(!vidRes.ok) return;   // 실패하면 마지막 목록을 그대로 둔다(fetchGalleryImages와 같다)
     const data = await vidRes.json();
-    galleryVideos = data.videos || [];
+    if(!Array.isArray(data.videos)) return;
+    galleryVideos = data.videos;
     // 파드 갤러리면 그 파드가 배정된 작업의 영상만 남긴다(fetchGalleryImages와 동일한 규칙).
     if(videoGalleryPodFilter){
       galleryVideos = galleryVideos.filter(vid => podIdForVideo(vid) === videoGalleryPodFilter);
@@ -530,7 +532,7 @@ async function fetchGalleryVideos(){
     }
     galleryJobLabels = labels; // 이미지 갤러리와 공유하는 전역(작업 라벨은 미디어 종류와 무관)
   }catch(e){
-    galleryVideos = [];
+    return;
   }
 
   const stillPresent = new Set(galleryVideos.map(vid => vid.name));

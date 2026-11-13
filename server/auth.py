@@ -28,6 +28,7 @@ import logging
 import os
 import re
 import secrets
+import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -119,19 +120,19 @@ def can_access(user: dict | None, owner_id) -> bool:
 
 def admin_id() -> int | None:
     """첫 번째 admin 계정의 id — 주인을 정할 수 없는 결과물의 마지막 보루."""
-    with db.connect() as conn:
+    with db.read() as conn:   # 결과물 색인의 쓰기 트랜잭션 안(_owner_for)에서도 불린다
         row = conn.execute("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
     return row["id"] if row else None
 
 
 def get_user(user_id: int) -> dict | None:
-    with db.connect() as conn:
+    with db.read() as conn:
         row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
     return _public(row) if row else None
 
 
 def usernames() -> dict[int, str]:
-    with db.connect() as conn:
+    with db.read() as conn:
         return {r["id"]: r["username"] for r in conn.execute("SELECT id, username FROM users")}
 
 
@@ -270,17 +271,23 @@ def user_for_token(token: str | None) -> dict | None:
         return None
     token_hash = _hash_token(token)
     now = datetime.now(timezone.utc)
-    with db.connect() as conn:
+    # 모든 요청(썸네일 하나하나까지)이 여기를 지나므로 조회는 쓰기 자리를 기다리지 않는 read()로 한다.
+    with db.read() as conn:
         row = conn.execute(
             "SELECT u.*, s.expires_at AS s_expires FROM sessions s JOIN users u ON u.id = s.user_id "
             "WHERE s.token_hash=?", (token_hash,)).fetchone()
-        if row is None:
-            return None
-        if row["s_expires"] < now.isoformat() or row["status"] != STATUS_ACTIVE:
-            return None
-        if time.time() - _touch_cache.get(token_hash, 0) > 60:   # 조회마다 쓰지 않는다
-            conn.execute("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", (now.isoformat(), token_hash))
-            _touch_cache[token_hash] = time.time()
+    if row is None:
+        return None
+    if row["s_expires"] < now.isoformat() or row["status"] != STATUS_ACTIVE:
+        return None
+    if time.time() - _touch_cache.get(token_hash, 0) > 60:   # 조회마다 쓰지 않는다
+        _touch_cache[token_hash] = time.time()
+        try:
+            with db.connect() as conn:
+                conn.execute("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", (now.isoformat(), token_hash))
+        except sqlite3.OperationalError:
+            # "마지막 접속" 표시일 뿐이다 — 쓰기가 밀려 있어도 이 요청을 실패시키지 않는다(다음 분에 다시 쓴다).
+            logging.getLogger(__name__).warning("세션 마지막 접속 시각을 못 적었어요(DB 사용 중)")
     return _public(row)
 
 

@@ -57,7 +57,7 @@ def _tags_for(conn, asset_ids: list[int]) -> dict[int, list[str]]:
 
 def owned_paths(owner_id: int) -> set[str]:
     """그 회원의 결과물 경로 집합 — 일반 회원이 볼 수 있는 파일의 범위."""
-    with db.connect() as conn:
+    with db.read() as conn:
         return {r["path"] for r in conn.execute(
             "SELECT path FROM assets WHERE owner_id=? AND deleted_at IS NULL", (owner_id,))}
 
@@ -65,7 +65,7 @@ def owned_paths(owner_id: int) -> set[str]:
 def meta_by_path(owner_id: int | None = None) -> dict[str, dict]:
     """{경로: {asset_id, favorite, rating, nsfw, tags, owner_id}} — 갤러리 목록이 항목마다 붙일 때 쓴다.
     owner_id를 주면 그 회원 것만."""
-    with db.connect() as conn:
+    with db.read() as conn:
         rows = conn.execute(
             "SELECT id, path, favorite, rating, nsfw, project_id, owner_id FROM assets WHERE deleted_at IS NULL"
             + (" AND owner_id = ?" if owner_id is not None else ""),
@@ -86,7 +86,7 @@ def meta_by_path(owner_id: int | None = None) -> dict[str, dict]:
 def dims_by_path(owner_id: int | None = None) -> dict[str, tuple]:
     """{경로: (size_bytes, mtime_ns, width, height)} — 갤러리 목록이 파일을 열지 않고 해상도를 쓰도록.
     owner_id 범위는 meta_by_path와 같다."""
-    with db.connect() as conn:
+    with db.read() as conn:
         rows = conn.execute(
             "SELECT path, size_bytes, mtime_ns, width, height FROM assets WHERE deleted_at IS NULL"
             + (" AND owner_id = ?" if owner_id is not None else ""),
@@ -142,7 +142,7 @@ def search_paths(q: str | None = None, tags: list[str] | None = None, favorite: 
         return None
     where, params = _build_where(q, tags, favorite, min_rating, kind, owner_id=owner_id, model=model,
                                  hide_nsfw=hide_nsfw)
-    with db.connect() as conn:
+    with db.read() as conn:
         rows = conn.execute("SELECT a.path FROM assets a WHERE " + " AND ".join(where), params).fetchall()
     return {r["path"] for r in rows}
 
@@ -151,7 +151,7 @@ def list_assets(q=None, tags=None, favorite=None, min_rating=None, kind=None, pr
                 job_id=None, limit: int = 200, offset: int = 0, owner_id=None) -> list[dict]:
     """결과물 색인 조회(태그 포함). project: 프로젝트 id 또는 "unassigned"."""
     where, params = _build_where(q, tags, favorite, min_rating, kind, project, job_id, owner_id)
-    with db.connect() as conn:
+    with db.read() as conn:
         rows = conn.execute(
             "SELECT a.* FROM assets a WHERE " + " AND ".join(where)
             + " ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?", (*params, limit, offset)).fetchall()

@@ -16,7 +16,7 @@ _selected_board = ContextVar("selected_board", default=None)
 
 
 def select_board(project_id: int, board_id: int | None = None) -> dict:
-    with db.connect() as conn:
+    with db.read() as conn:   # 쓰기 트랜잭션 안의 _board_id()에서도 불린다 — 쓰기 자리를 기다리지 않게
         if board_id is None:
             row = conn.execute("SELECT * FROM boards WHERE project_id=? ORDER BY position,id LIMIT 1",
                                (project_id,)).fetchone()

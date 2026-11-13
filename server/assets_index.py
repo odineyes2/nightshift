@@ -289,11 +289,11 @@ def register_upload(path: str, owner_id: int, project_id: int | None) -> None:
 def owner_of(path: str):
     """결과물(출력 폴더 기준 상대 경로)의 주인 id. 색인에 없으면 한 번 색인을 맞춰 본 뒤에도 없을 때 None."""
     query = "SELECT owner_id FROM assets WHERE path=? AND deleted_at IS NULL"
-    with db.connect() as conn:
+    with db.read() as conn:   # 회원의 썸네일 요청마다 돈다 — 쓰기 자리를 기다리지 않는다
         row = conn.execute(query, (path,)).fetchone()
     if row is None:
         sync()   # 방금 생긴 파일일 수 있다(짧은 간격 안이면 건너뛴다)
-        with db.connect() as conn:
+        with db.read() as conn:
             row = conn.execute(query, (path,)).fetchone()
     return row["owner_id"] if row else None
 

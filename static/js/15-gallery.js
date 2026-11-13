@@ -739,8 +739,12 @@ async function fetchGalleryImages(){
       fetch('/api/output-images' + galleryFilterQs(galleryFilters)),
       fetchGalleryJobLabels(),
     ]);
+    // 서버가 잠깐 실패했거나(500) 길이 끊겼으면 마지막으로 그린 목록을 그대로 둔다 — 비우면 격자가
+    // "이미지 없음"으로 깜빡였다가 다음 차례에 전부 다시 그려진다.
+    if(!imgRes.ok) return;
     const data = await imgRes.json();
-    galleryImages = data.images || [];
+    if(!Array.isArray(data.images)) return;
+    galleryImages = data.images;
     // 파드 갤러리면 그 파드가 배정된 작업의 이미지만 남긴다.
     if(galleryPodFilter){
       galleryImages = galleryImages.filter(img => podIdForImage(img) === galleryPodFilter);
@@ -750,8 +754,7 @@ async function fetchGalleryImages(){
     }
     galleryJobLabels = labels;
   }catch(e){
-    galleryImages = [];
-    galleryJobLabels = {};
+    return;   // 위와 같은 이유로 마지막 목록을 그대로 둔다
   }
 
   // 그 사이 지워진 이미지의 선택은 버린다.
