@@ -1,0 +1,42 @@
+# Tailscale 기기 전용 HTTPS 입구(pm2 "caddy") — 이 PC의 Tailscale 주소 443에서 nightshift.lomebrote.com과 *.ts.net을 받아
+# nightshift(127.0.0.1:8000)로 넘긴다. Tailscale 기기는 server/tailnet_dns.py가 이 도메인을 Tailscale 주소로 답해 여기로 오고,
+# 그 밖의 사람은 지금처럼 Cloudflare 터널로 간다.
+#
+# 인증서:
+# - nightshift.lomebrote.com: Let's Encrypt HTTP-01. 확인 요청은 공개 경로(Cloudflare 터널 → nightshift)로 들어오고,
+#   nightshift가 /.well-known/acme-challenge/를 아래 127.0.0.1:8081로 넘긴다(server/app_parts/15g-acme-relay.py).
+#   그래서 Cloudflare API 토큰이 필요 없다. TLS-ALPN 확인은 공개 443이 여기로 오지 않아 끈다.
+# - *.ts.net: Caddy가 이 PC의 Tailscale에서 받아 온다.
+# 환경변수 TAILNET_IP·TAILNET_HOST·ACME_DIR은 ecosystem.config.js가 넣는다.
+{
+	admin off
+	http_port 8081
+	https_port 443
+	auto_https disable_redirects
+}
+
+# ACME HTTP-01 확인 응답 전용(밖에서는 못 닿는다 — nightshift가 넘겨 줄 때만 쓴다)
+http://127.0.0.1:8081 {
+	bind 127.0.0.1
+	respond 404
+}
+
+https://nightshift.lomebrote.com {
+	bind {$TAILNET_IP}
+	tls {
+		issuer acme {
+			dir {$ACME_DIR}
+			disable_tlsalpn_challenge
+		}
+	}
+	reverse_proxy 127.0.0.1:8000
+}
+
+https://{$TAILNET_HOST} {
+	bind {$TAILNET_IP}
+	# 이름이 환경변수라 Caddy가 *.ts.net인 줄 모르고 Let's Encrypt로 가려 한다 — Tailscale에서 받으라고 적어 준다.
+	tls {
+		get_certificate tailscale
+	}
+	reverse_proxy 127.0.0.1:8000
+}

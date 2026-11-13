@@ -80,6 +80,22 @@ const SERVER_DIR = path.join(__dirname, "server");
 const dotEnv = loadDotEnv();
 const nightshiftPort = (dotEnv.NIGHTSHIFT_PORT || "8000").trim() || "8000";
 
+// Tailscale 기기 전용 입구(tailnet.Caddyfile, server/tailnet_dns.py)가 묶일 이 PC의 Tailscale 주소와 *.ts.net 이름.
+// Tailscale이 없거나 로그아웃이면 빈 값 — 그때 두 앱은 시작에 실패하고 pm2가 다시 띄운다(다른 앱에는 영향 없음).
+function tailnetSelf() {
+  const exe = process.env.TAILSCALE_EXE || "C:\\Program Files\\Tailscale\\tailscale.exe";
+  try {
+    const self = JSON.parse(execSync(`"${exe}" status --json`, { encoding: "utf8", timeout: 10000 })).Self || {};
+    return { ip: (self.TailscaleIPs || []).find(a => a.includes(".")) || "", host: (self.DNSName || "").replace(/\.$/, "") };
+  } catch (e) {
+    return { ip: "", host: "" };
+  }
+}
+const tailnet = tailnetSelf();
+// winget이 설치한 caddy.exe(사용자 폴더). 다른 곳에 두면 .env의 CADDY_EXE로 바꾼다.
+const caddyExe = dotEnv.CADDY_EXE || path.join(process.env.LOCALAPPDATA || "",
+  "Microsoft", "WinGet", "Packages", "CaddyServer.Caddy_Microsoft.Winget.Source_8wekyb3d8bbwe", "caddy.exe");
+
 module.exports = {
   apps: [
     {
@@ -192,6 +208,39 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       restart_delay: 2000,
+      watch: false,
+    },
+    {
+      // Tailscale 기기 전용 DNS(server/tailnet_dns.py) — Tailscale 관리 화면의 split DNS가 nightshift.lomebrote.com 질의를
+      // 여기로 보내면 이 PC의 Tailscale 주소로 답한다. 그 기기는 Cloudflare(미국 서부 경유)를 거치지 않고 아래 caddy로 온다.
+      name: "tailnet-dns",
+      script: resolvePython3(),
+      args: "tailnet_dns.py",
+      interpreter: "none",
+      cwd: SERVER_DIR,
+      env: { PYTHONUNBUFFERED: "1", TAILNET_IP: tailnet.ip },
+      autorestart: true,
+      max_restarts: 50,       // 부팅 직후 Tailscale이 늦게 뜨면 몇 번 실패한다
+      restart_delay: 5000,
+      watch: false,
+    },
+    {
+      // Tailscale 주소 443의 HTTPS 입구(tailnet.Caddyfile) — nightshift.lomebrote.com(Let's Encrypt)과 *.ts.net을 받아
+      // 127.0.0.1:8000으로 넘긴다. 인증서는 %APPDATA%\Caddy에 저장되고 Caddy가 알아서 갱신한다.
+      name: "caddy",
+      script: caddyExe,
+      args: `run --config "${path.join(__dirname, "tailnet.Caddyfile")}" --adapter caddyfile`,
+      interpreter: "none",
+      cwd: __dirname,
+      env: {
+        TAILNET_IP: tailnet.ip,
+        TAILNET_HOST: tailnet.host,
+        // 시험할 때는 .env에 스테이징 주소(https://acme-staging-v02.api.letsencrypt.org/directory)를 넣는다(발급 횟수 제한 회피).
+        ACME_DIR: process.env.ACME_DIR || dotEnv.ACME_DIR || "https://acme-v02.api.letsencrypt.org/directory",
+      },
+      autorestart: true,
+      max_restarts: 50,
+      restart_delay: 5000,
       watch: false,
     },
   ],
