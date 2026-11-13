@@ -559,8 +559,7 @@ def list_output_videos_meta(user: dict) -> list[dict]:
     scope = auth.owner_scope(user)
     names = auth.usernames() if scope is None else {}
     # 영상 갤러리 탭을 채우는 용도. 이미지와 같은 출력 폴더를 보되 동영상 확장자만
-    # 걸러낸다 — width/height는 ffprobe 없이는 못 읽으므로(의도적으로 새 시스템
-    # 의존성을 추가하지 않기로 함) 내지 않는다. 자세히 보기가 없는 이유도 같다.
+    # 걸러낸다. 길이·해상도는 포스터를 만들 때 이미 있는 ffmpeg(imageio-ffmpeg)로 읽어 둔 값을 싣는다.
     try:
         files = list_output_videos(OUTPUT_DIR, only_paths=_own_paths(user))
     except OutputFolderError:
@@ -574,6 +573,8 @@ def list_output_videos_meta(user: dict) -> list[dict]:
         rel = f.relative_to(base)
         name = rel.as_posix()
         job_id = rel.parts[0] if len(rel.parts) > 1 else None
+        # 길이·해상도는 포스터를 처음 만들 때 같이 읽어 둔 값(cached_video_meta, 15-videos-share.py) — 아직이면 null.
+        vmeta = cached_video_meta(f) or {}
         items.append({
             "name": name,
             "job_id": job_id,
@@ -581,6 +582,9 @@ def list_output_videos_meta(user: dict) -> list[dict]:
             **meta_of(name, job_id),
             "size": stat.st_size,
             "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            "duration": vmeta.get("duration"),
+            "width": vmeta.get("width"),
+            "height": vmeta.get("height"),
         })
     if scope is None:   # 관리자에게는 누구 것인지 알려 준다
         for it in items:

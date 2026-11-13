@@ -710,7 +710,7 @@ function updateVideoGalleryScopeUI(){
 // 통째로 다시 만들지 않는다 — 다시 만들면 <img>/<video> 썸네일이 전부 새로 만들어져 깜빡이고 네트워크도 매번 다시 쓴다.
 function gallerySignature(items, extra){
   return JSON.stringify([
-    items.map(i => [i.name, i.mtime, i.size, i.favorite, i.rating, i.nsfw, i.tags, i.project_id, i.owner_name, i.synced_pod_id]),
+    items.map(i => [i.name, i.mtime, i.size, i.favorite, i.rating, i.nsfw, i.tags, i.project_id, i.owner_name, i.synced_pod_id, i.duration]),
     galleryJobLabels, extra,
     // 블러 모드에서는 썸네일 자체(<img src>가 있는지)가 nsfw 값과 렌더링 방식에 따라 달라지니,
     // 지금 모드도 서명에 넣는다 — 안 그러면 목록 내용은 그대로인데 토글만 바꿨을 때(예: 보기 -> 블러)

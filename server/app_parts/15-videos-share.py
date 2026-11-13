@@ -28,6 +28,101 @@ def resolve_output_video(filename: str) -> Path:
     return path
 
 
+# ---- 영상 포스터(첫 장면 JPEG) ----------------------------------------------------------------
+# 갤러리 격자가 칸마다 <video>로 영상 파일을 받으면 칸당 수 MB가 오간다 — 서버가 첫 장면을 한 번 뽑아
+# 이미지 축소본과 같은 캐시(THUMB_CACHE_DIR)에 두고, 길이·해상도도 그때 같이 읽어 옆에 JSON으로 남긴다
+# (목록 API가 그 값을 싣는다). ffmpeg를 칸 수만큼 한꺼번에 띄우지 않게 동시에 몇 개만 돌린다.
+_poster_slots = threading.Semaphore(3)
+POSTER_FRAME_MAX = 1280
+
+
+def _video_cache_key(path: Path) -> tuple[str, str]:
+    stat = path.stat()
+    return _thumb_cache_prefix(path), f"{stat.st_mtime_ns:x}-{stat.st_size:x}"
+
+
+def cached_video_meta(path: Path) -> dict | None:
+    """포스터를 만들 때 남긴 {duration, width, height}. 아직 없거나 파일이 바뀌었으면 None."""
+    try:
+        prefix, key = _video_cache_key(path)
+        return json.loads((THUMB_CACHE_DIR / f"{prefix}-{key}-meta.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _video_poster_frame(path: Path) -> Path:
+    """첫 장면(긴 변 최대 POSTER_FRAME_MAX)을 캐시에 만들어 두고 그 경로를 준다. 길이·해상도도 같이 남긴다."""
+    prefix, key = _video_cache_key(path)
+    frame = THUMB_CACHE_DIR / f"{prefix}-{key}-frame.jpg"
+    if frame.is_file():
+        return frame
+    ff = video_edit.find_ffmpeg()
+    if ff is None:
+        raise HTTPException(503, "ffmpeg를 찾을 수 없어 영상 썸네일을 만들 수 없어요.")
+    with _poster_slots:
+        if frame.is_file():
+            return frame   # 기다리는 사이 다른 요청이 만들었다
+        # 0.1초 지점 — 맨 첫 프레임이 검은 화면인 영상이 있다. 그보다 짧으면 첫 프레임을 쓴다.
+        cmd = [ff, "-hide_banner", "-ss", "0.1", "-i", str(path), "-frames:v", "1",
+               "-vf", f"scale='min({POSTER_FRAME_MAX},iw)':'min({POSTER_FRAME_MAX},ih)':force_original_aspect_ratio=decrease",
+               "-f", "image2", "-c:v", "png", "pipe:1"]
+        res = subprocess.run(cmd, capture_output=True, timeout=60)
+        if not res.stdout:
+            res = subprocess.run([a for a in cmd if a not in ("-ss", "0.1")], capture_output=True, timeout=60)
+        if not res.stdout:
+            raise HTTPException(500, "영상의 첫 장면을 읽지 못했어요.")
+        try:
+            with Image.open(io.BytesIO(res.stdout)) as img:
+                buf = io.BytesIO()
+                img.convert("RGB").save(buf, format="JPEG", quality=85)
+        except Exception as e:
+            raise HTTPException(500, f"영상 썸네일을 만들지 못했어요: {e}")
+        stderr = res.stderr.decode("utf-8", "replace")
+        d = video_edit._DUR_RE.search(stderr)
+        v = video_edit._VIDEO_RE.search(stderr)
+        meta = {"duration": (int(d.group(1)) * 3600 + int(d.group(2)) * 60 + float(d.group(3))) if d else None,
+                "width": int(v.group(2)) if v else None, "height": int(v.group(3)) if v else None}
+        for old in THUMB_CACHE_DIR.glob(f"{prefix}-*"):   # 파일이 바뀌기 전의 옛 캐시
+            if not old.name.startswith(f"{prefix}-{key}-"):
+                old.unlink(missing_ok=True)
+        (THUMB_CACHE_DIR / f"{prefix}-{key}-meta.json").write_text(json.dumps(meta), "utf-8")
+        tmp = frame.with_suffix(f".{uuid.uuid4().hex}.tmp")
+        tmp.write_bytes(buf.getvalue())
+        os.replace(tmp, frame)
+    return frame
+
+
+@app.get("/api/output-videos/{filename:path}/poster")
+def get_output_video_poster(filename: str, request: Request, size: int = 400, fit: str = "inside", v: str = ""):
+    # 영상 갤러리 격자·자세히 보기의 썸네일. 크기 단계·캐시·ETag 규칙은 이미지 축소본(thumbnail)과 같다.
+    if fit not in ("inside", "cover"):
+        raise HTTPException(400, "fit은 inside 또는 cover여야 해요.")
+    path = resolve_output_video(filename)
+    size = thumb_size_step(size)
+    prefix, key = _video_cache_key(path)
+    etag = f'"p-{key}-{size}-{fit}"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=31536000, immutable" if v else "private, max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    cached = THUMB_CACHE_DIR / f"{prefix}-{key}-p{size}-{fit}.jpg"
+    if cached.is_file():
+        os.utime(cached)
+        return FileResponse(cached, media_type="image/jpeg", headers=headers)
+    frame = _video_poster_frame(path)
+    with Image.open(frame) as img:
+        if fit == "cover":
+            img = ImageOps.fit(img, (size, size), method=Image.LANCZOS, centering=(0.5, 0.5))
+        else:
+            img = img.copy()
+            img.thumbnail((size, size))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=82)
+    tmp = cached.with_suffix(f".{uuid.uuid4().hex}.tmp")
+    tmp.write_bytes(buf.getvalue())
+    os.replace(tmp, cached)
+    return Response(content=buf.getvalue(), media_type="image/jpeg", headers=headers)
+
+
 @app.get("/api/output-videos/{filename:path}")
 def get_output_video(filename: str):
     # 영상 갤러리 라이트박스의 <video> 태그가 재생하는 용도. FileResponse는
@@ -37,7 +132,9 @@ def get_output_video(filename: str):
 
 @app.delete("/api/output-videos/{filename:path}")
 def delete_output_video(filename: str):
-    resolve_output_video(filename).unlink()
+    path = resolve_output_video(filename)
+    path.unlink()
+    drop_thumb_cache(path)   # 포스터·길이 캐시
     return {"ok": True}
 
 

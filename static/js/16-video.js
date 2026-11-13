@@ -284,21 +284,16 @@ async function downloadGalleryVideos(names){
 // 아이콘만 장식으로 얹음).
 let videoGalleryDisplayMode = 'grid'; // 'grid' | 'details'
 
-// 길이·해상도는 서버가 ffprobe로 읽지 않고, 썸네일용 <video>가 메타데이터를 받는 순간 브라우저가 알려 준다.
-// 4초마다 다시 그려도 깜빡이지 않게 이미 읽은 값은 기억해 둔다.
-const videoMetaCache = new Map();   // "이름|수정시각" -> {duration, width, height}
-function videoMetaKey(vid){ return `${vid.name}|${vid.mtime}`; }
+// 길이·해상도는 서버가 포스터(첫 장면 썸네일)를 처음 만들 때 같이 읽어 목록에 실어 준다 — 아직 안 만들어졌으면
+// null이고, 포스터가 화면에 뜬 뒤 다음 목록 갱신 때 채워진다.
+function videoPosterUrl(vid, size, fit){
+  return window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(vid.name)}/poster?size=${size}${fit ? `&fit=${fit}` : ''}&v=${encodeURIComponent(vid.mtime)}`);
+}
 function fmtDuration(sec){
   if(!Number.isFinite(sec) || sec < 0) return '-';
   const total = Math.round(sec);
   const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), r = total % 60;
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`;
-}
-function paintVideoMetaCells(row, meta){
-  const dur = row.querySelector('.vgallery-details-col.dur');
-  const dim = row.querySelector('.vgallery-details-col.dim');
-  if(dur) dur.textContent = fmtDuration(meta.duration);
-  if(dim) dim.textContent = meta.width && meta.height ? `${meta.width}×${meta.height}` : '-';
 }
 
 function videoGalleryDetailsHeaderHtml(){
@@ -314,17 +309,18 @@ function videoGalleryDetailsHeaderHtml(){
 function videoGalleryItemHtml(vid, index){
   const selected = selectedGalleryVideoNames.has(vid.name);
   const blur = !!vid.nsfw && nsfwMode === 'blur';
-  const src = blur ? '' : window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(vid.name)}`) + '#t=0.1';
+  // 격자에서는 영상 파일 대신 서버가 뽑아 둔 첫 장면 JPEG만 받는다(칸당 수 MB → 수십 KB), 보이는 칸만.
+  const thumb = blur ? '' : `<img src="${videoPosterUrl(vid, videoGalleryDisplayMode === 'details' ? 80 : 400, 'cover')}" alt="" loading="lazy">`;
   const blurOverlay = `<div class="vgallery-item-blur-overlay" title="NSFW 블러 — 열어서 보기">${ico('eye-off')}</div>`;
   if(videoGalleryDisplayMode === 'details'){
-    const meta = videoMetaCache.get(videoMetaKey(vid));
+    const meta = vid.duration != null || vid.width ? vid : null;
     const jobLabel = galleryDetailsJobLabel(vid);
     return `
       <div class="vgallery-item details vgallery-details-columns${selected ? ' selected' : ''}" data-index="${index}">
         <label class="vgallery-item-select" title="선택">
           <input type="checkbox" ${selected ? 'checked' : ''}>
         </label>
-        <div class="vgallery-item-thumb">${blur ? blurOverlay : ''}<video ${src ? `src="${src}"` : ''} preload="metadata" muted playsinline></video></div>
+        <div class="vgallery-item-thumb">${blur ? blurOverlay : ''}${thumb}</div>
         <div class="vgallery-details-col name" title="${escapeHtml(vid.name)}">${vid.favorite ? '<svg class="ico fav"><use href="#i-star"/></svg> ' : ''}${vid.nsfw ? '<svg class="ico nsfw"><use href="#i-flame"/></svg> ' : ''}${escapeHtml(vid.name)}</div>
         <div class="vgallery-details-col job" title="${escapeHtml(jobLabel)}">${escapeHtml(jobLabel)}</div>
         <div class="vgallery-details-col dur">${meta ? fmtDuration(meta.duration) : '…'}</div>
@@ -342,7 +338,7 @@ function videoGalleryItemHtml(vid, index){
       <button class="vgallery-item-fav${vid.favorite ? ' on' : ''}" type="button" aria-label="즐겨찾기" aria-pressed="${vid.favorite ? 'true' : 'false'}" title="즐겨찾기">${ico('star')}</button>
       ${vid.nsfw ? `<span class="vgallery-item-nsfw" title="NSFW로 표시됨">${ico('flame')}</span>` : ''}
       ${blur ? blurOverlay : ''}
-      <video ${src ? `src="${src}"` : ''} preload="metadata" muted playsinline></video>
+      <div class="vgallery-item-media">${thumb}</div>
       <div class="vgallery-item-play"><svg class="ico"><use href="#i-play"/></svg></div>
       <div class="vgallery-item-name">${escapeHtml(vid.name)}</div>
     </div>
@@ -356,20 +352,8 @@ function wireVideoGalleryItems(){
     const name = displayedGalleryVideos[index].name;
 
     // 격자는 썸네일만 눌러야 열리고, 자세히 보기는 줄 어디를 눌러도 열린다(이미지 갤러리와 같다).
-    const openTarget = el.classList.contains('details') ? el : el.querySelector('video');
+    const openTarget = el.classList.contains('details') ? el : el.querySelector('.vgallery-item-media');
     openTarget.addEventListener('click', () => openVideoLightbox(index));
-
-    if(el.classList.contains('details')){
-      const vid = displayedGalleryVideos[index];
-      const videoEl = el.querySelector('video');
-      const readMeta = () => {
-        const meta = { duration: videoEl.duration, width: videoEl.videoWidth, height: videoEl.videoHeight };
-        videoMetaCache.set(videoMetaKey(vid), meta);
-        paintVideoMetaCells(el, meta);
-      };
-      if(videoEl.readyState >= 1) readMeta();
-      else if(!videoMetaCache.has(videoMetaKey(vid))) videoEl.addEventListener('loadedmetadata', readMeta, { once: true });
-    }
 
     const checkbox = el.querySelector('.vgallery-item-select input');
     checkbox.addEventListener('click', (e) => e.stopPropagation());
