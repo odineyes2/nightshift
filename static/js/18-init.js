@@ -214,23 +214,38 @@ fetchBaseModelFamilies();
 // 안 바뀌었으면 다음 폴링에도 카드가 안 새로 그려진다).
 fetchModelRegistry().then(() => { lastJobsRowsSignature = null; fetchJobs(); });
 initDanbooru();
-setInterval(fetchJobs, 2000);
-setInterval(fetchPods, 15000);
-setInterval(() => { if(currentProjectId !== null) fetchProjects(); }, 15000);
-setInterval(fetchComfyStatus, 5000);
+// 주기 폴링 — 탭이 숨겨져 있으면 쉬고(돌아오면 바로 한 번), 앞 요청이 아직 안 끝났으면 이번 차례는 건너뛴다.
+// 접속 길이 느릴 때 요청이 겹겹이 쌓여 이미지·영상을 받을 대역폭을 빼앗지 않게 하려는 것이다.
+const visiblePolls = [];
+function pollWhileVisible(fn, ms){
+  let busy = false;
+  const tick = async () => {
+    if(document.hidden || busy) return;
+    busy = true;
+    try{ await fn(); }catch(e){ /* 다음 차례에 다시 시도한다 */ }
+    finally{ busy = false; }
+  };
+  visiblePolls.push(tick);
+  setInterval(tick, ms);
+}
+document.addEventListener('visibilitychange', () => { if(!document.hidden) visiblePolls.forEach(tick => tick()); });
+pollWhileVisible(fetchJobs, 2000);
+pollWhileVisible(fetchPods, 15000);
+pollWhileVisible(() => currentProjectId !== null ? fetchProjects() : null, 15000);
+pollWhileVisible(fetchComfyStatus, 5000);
 // 갤러리 탭이 보이는 동안에는 새 이미지가 생겨도 자동으로 반영되게 주기적으로 새로 받아온다.
 // 라이트박스가 열려 있을 때는 건드리지 않는다 — 보고 있던 이미지가 목록 순서 변화로
 // 갑자기 바뀌거나 닫혀버리면 안 되니까.
-setInterval(() => {
-  if(document.hidden || TAB_MAINS.gallery.style.display === 'none') return;
+pollWhileVisible(() => {
+  if(TAB_MAINS.gallery.style.display === 'none') return;
   if(galleryLightbox.style.display !== 'none') return;
-  fetchGalleryImages();
+  return fetchGalleryImages();
 }, 4000);
 // 영상 갤러리도 같은 이유로 주기적으로 새로 받아온다 — 지금은 영상을 만드는 파드가
 // 없어 늘 빈 목록이겠지만, 생기면 바로 자동 반영되게 미리 켜둔다.
-setInterval(() => {
-  if(document.hidden || TAB_MAINS['video-gallery'].style.display === 'none') return;
+pollWhileVisible(() => {
+  if(TAB_MAINS['video-gallery'].style.display === 'none') return;
   if(videoGalleryLightbox.style.display !== 'none') return;
-  fetchGalleryVideos();
+  return fetchGalleryVideos();
 }, 4000);
 

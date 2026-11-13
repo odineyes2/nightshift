@@ -184,6 +184,7 @@ async function fetchJobs(){
 // 마지막으로 그린 작업 목록. render()의 지역 변수 jobs는 그 함수 밖에서는 못 보는데,
 // 모달처럼 나중에 열리는 화면도 작업 정보를 봐야 해서 여기 남겨둔다.
 let lastJobs = [];
+let jobsPolledOnce = false;   // lastJobs를 한 번이라도 받았는지(작업이 0개인 것과 아직 안 받은 것을 가른다)
 // 작업 목록은 2초마다 폴링되는데, 매번 tbody.innerHTML을 통째로 다시 그리면 로그를
 // 펼쳐서 에러 메시지를 드래그로 선택/복사하려는 순간 DOM이 갈아끼워져서 선택이
 // 풀려버린다(내용이 하나도 안 바뀌었어도). 그래서 "보이는 내용이 실제로 바뀌었을
@@ -350,6 +351,7 @@ function updateJobModelFilters(jobs){
 
 function render(jobs, pendingCount, running, perPod){
   lastJobs = jobs;
+  jobsPolledOnce = true;
   // "📝 결과" 탭이 열려 있는 동안 새 작업이 끝나면 목록에 바로 반영되게, 작업
   // 폴링(2초)에 얹어 같이 새로고침한다 — 별도 폴링 루프를 안 둔다.
   if(currentTab === 'results') renderResultsList();

@@ -198,10 +198,19 @@ async function fetchAllJobsIncludingDeleted(){
   }
 }
 
-// 작업별 보기의 그룹 소제목에 쓸 job_id -> 라벨 맵.
+// 작업별 보기의 그룹 소제목에 쓸 job_id -> 라벨 맵. 갤러리가 4초마다 부르므로, 살아 있는 작업은 2초 폴링
+// (fetchJobs)이 이미 받아 둔 lastJobs를 쓰고 지운 작업만 따로 받는다(첫 폴링 전이면 둘 다 받는다).
 async function fetchGalleryJobLabels(){
   const labels = {};
-  for(const j of await fetchAllJobsIncludingDeleted()){
+  let all;
+  if(jobsPolledOnce){
+    const res = await fetch('/api/jobs/deleted').catch(() => null);
+    const deleted = res && res.ok ? ((await res.json().catch(() => ({}))).jobs || []) : [];
+    all = [...lastJobs, ...deleted];
+  }else{
+    all = await fetchAllJobsIncludingDeleted();
+  }
+  for(const j of all){
     const templateText = j.template_label || j.template_id;
     labels[j.id] = `${templateText} · ${fmtOptions(j.options)}`;
   }
