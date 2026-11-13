@@ -217,10 +217,20 @@ def client_ip(request: Request) -> str:
             or (request.client.host if request.client else ""))
 
 
+def _cookie_domain(request: Request) -> str | None:
+    # 다른 주소(Tailscale의 *.ts.net, 내부망 IP)로 들어오면 브라우저가 Domain=lomebrote.com 쿠키를 거부해
+    # 로그인이 안 된다 — 요청 호스트가 그 도메인 아래일 때만 Domain을 붙이고, 아니면 그 호스트 전용으로 둔다.
+    if not COOKIE_DOMAIN:
+        return None
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    domain = COOKIE_DOMAIN.lstrip(".").lower()
+    return COOKIE_DOMAIN if host == domain or host.endswith("." + domain) else None
+
+
 def _set_session_cookie(request: Request, response: Response, token: str) -> None:
     secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "") == "https"
     response.set_cookie(auth.SESSION_COOKIE, token, max_age=auth.SESSION_DAYS * 86400, httponly=True,
-                        samesite="lax", secure=secure, path="/", domain=COOKIE_DOMAIN)
+                        samesite="lax", secure=secure, path="/", domain=_cookie_domain(request))
 
 
 def _auth_error(e: "auth.AuthError") -> HTTPException:
@@ -262,7 +272,7 @@ async def auth_login(request: Request):
 async def auth_logout(request: Request):
     await asyncio.to_thread(auth.delete_session, request.cookies.get(auth.SESSION_COOKIE))
     response = JSONResponse({"ok": True})
-    response.delete_cookie(auth.SESSION_COOKIE, path="/", domain=COOKIE_DOMAIN)
+    response.delete_cookie(auth.SESSION_COOKIE, path="/", domain=_cookie_domain(request))
     return response
 
 
