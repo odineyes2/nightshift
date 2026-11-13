@@ -446,6 +446,7 @@ async def create_job(
     user: dict | None = None,
     start_paused: bool = False,
     parse_inline_options: bool = True,
+    runpod_tier: str | None = None,
 ) -> dict:
     # POST /api/upload(사람이 브라우저에서 파일 첨부)와 POST /api/jobs(LLM 등
     # 프로그램이 JSON으로 호출)가 공유하는 실제 잡 생성 로직 — 두 경로 모두
@@ -746,6 +747,8 @@ async def create_job(
             "pod_kind": pod.get("kind") if pod is not None else None,
             "pod_gpu": pod_gpu,
             "pod_cost_per_hr": pod_cost_per_hr,
+            # "video"면 영상 등급 워커에서만 돈다(04 schedule_once·07c 자동 켜기). 서비스 연동 영상 생성이 붙인다.
+            "runpod_tier": runpod_tier,
         }
         # start_paused(브라우저의 "New job" 모달이 항상 켠다)면 pod_id/auto_run과
         # 무관하게 "pending"(일시정지) 그대로 둔다 — 대기 칸에 카드만 쌓아두고,

@@ -92,7 +92,7 @@ class JobOutputsHTTPTests(unittest.TestCase):
         self.assertEqual(self.sessions["outputs-admin"].get(url).status_code, 200)
         self.assertEqual(self.sessions["outputs-admin"].get(image["url"]).status_code, 200)
         self.assertEqual(self.sessions["outputs-owner"].get("/api/jobs/empty-job/outputs").json(),
-                         {"status": "queued", "images": []})
+                         {"status": "queued", "images": [], "videos": []})
         other = self.sessions["outputs-owner"].get("/api/jobs/other-job/outputs")
         self.assertEqual(other.status_code, 403)
 

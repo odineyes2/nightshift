@@ -758,72 +758,88 @@ document.addEventListener('keydown', (e) => {
   if(e.key === 'Escape' && baseModelModal.style.display !== 'none'){ e.stopImmediatePropagation(); closeBaseModelModal(); }
 });
 
-// ---- 자동 켜기 서브탭(관리자) — 대기 작업이 모이면 이미지용 RunPod 워커를 켠다. 끄기는 워커의 자동 끄기(NS-8). ----
-let autoPower = null;
+// ---- 자동 켜기 서브탭(관리자) — 대기 작업이 모이면 이미지·영상 RunPod 워커를 켠다. 끄기는 워커의 자동 끄기(NS-8). ----
+// 영상 칸에는 "영상 파드 사용"(서비스 연동 영상 생성을 받을지, 기본 꺼짐)이 더 있다. 등급마다 따로 저장한다.
+const AUTO_POWER_TIERS = {
+  image: { url: '/api/settings/auto-power', label: '이미지',
+           intro: '기다리는 이미지 작업(charchat 삽화 포함)이 정한 개수만큼 모이면 이미지용 RunPod 워커를 자동으로 켜요. 일이 끝나면 그 워커의 자동 끄기로 꺼져요(켤 때 자동 끄기를 켜 둬요).' },
+  video: { url: '/api/settings/auto-power/video', label: '영상',
+           intro: 'charchat 루프 영상 같은 서비스 연동 영상 작업은 영상용 RunPod 워커에서만 돌아요. 영상 파드 사용을 켜야 영상 작업을 받고, 자동 켜기를 켜면 영상 작업이 모일 때 영상 워커를 켜요.' },
+};
+const autoPower = { image: null, video: null };
 let autoPowerSaving = false;
 
 async function loadAutoPowerSettings(){
   const el = document.getElementById('settings-auto-power');
   el.innerHTML = '<div class="dl-meta">자동 켜기 설정을 불러오는 중…</div>';
   try{
-    const res = await fetch('/api/settings/auto-power');
-    const data = await res.json().catch(() => ({}));
-    if(!res.ok) throw new Error(data.detail || `설정을 불러오지 못했어요 (${res.status})`);
-    autoPower = data;
-    renderAutoPowerSettings();
+    for(const tier of Object.keys(AUTO_POWER_TIERS)){
+      const res = await fetch(AUTO_POWER_TIERS[tier].url);
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(data.detail || `설정을 불러오지 못했어요 (${res.status})`);
+      autoPower[tier] = data;
+    }
+    el.innerHTML = Object.keys(AUTO_POWER_TIERS).map(tier => `<section class="auto-power-tier" data-tier="${tier}"></section>`).join('');
+    for(const tier of Object.keys(AUTO_POWER_TIERS)) renderAutoPowerSettings(tier);
   }catch(err){ el.innerHTML = ''; setSettingsError(err.message); }
 }
 
-function renderAutoPowerSettings(){
-  const el = document.getElementById('settings-auto-power');
-  const s = autoPower.settings, st = autoPower.status, lim = autoPower.limits;
+function renderAutoPowerSettings(tier){
+  const el = document.querySelector(`#settings-auto-power [data-tier="${tier}"]`);
+  const info = AUTO_POWER_TIERS[tier], data = autoPower[tier];
+  const s = data.settings, st = data.status, lim = data.limits;
   const num = (key, label, unit, help) => `<label class="auto-power-field"><span class="field-label">${label}</span>
     <span class="auto-power-input"><input type="number" inputmode="numeric" data-auto-power="${key}" min="${lim[key][0]}" max="${lim[key][1]}" value="${s[key]}"> ${unit}</span>
     <span class="dl-meta">${help}</span></label>`;
-  const options = autoPower.candidates.map(p => `<option value="${escapeHtml(p.id)}"${s.pod_id === p.id ? ' selected' : ''}>${escapeHtml(p.name)}${p.on ? ' · 켜짐' : ''}</option>`).join('');
-  el.innerHTML = `<div class="dl-meta">기다리는 이미지 작업(charchat 삽화 포함)이 정한 개수만큼 모이면 이미지용 RunPod 워커를 자동으로 켜요. 일이 끝나면 그 워커의 자동 끄기로 꺼져요(켤 때 자동 끄기를 켜 둬요).</div>
-    <div class="auto-power-switch"><button type="button" class="pod-switch" role="switch" id="auto-power-enabled" aria-checked="${s.enabled}" aria-label="자동 켜기 사용"></button><span>자동 켜기 ${s.enabled ? '사용 중' : '꺼짐'}</span></div>
+  const toggle = (key, label, on) => `<div class="auto-power-switch"><button type="button" class="pod-switch" role="switch" data-auto-power-switch="${key}" aria-checked="${on}" aria-label="${label}"></button><span data-label="${label}">${label} ${on ? '사용 중' : '꺼짐'}</span></div>`;
+  const options = data.candidates.map(p => `<option value="${escapeHtml(p.id)}"${s.pod_id === p.id ? ' selected' : ''}>${escapeHtml(p.name)}${p.on ? ' · 켜짐' : ''}</option>`).join('');
+  el.innerHTML = `<h3 class="auto-power-title">${info.label} 워커</h3>
+    <div class="dl-meta">${info.intro}</div>
+    ${tier === 'video' ? toggle('video_jobs', '영상 파드 사용', s.video_jobs) : ''}
+    ${toggle('enabled', `${info.label} 자동 켜기`, s.enabled)}
     <div class="auto-power-fields">
       ${num('min_jobs', '자동으로 켜는 대기 작업 수', '개', '이만큼 모이면 켜요.')}
       ${num('max_wait_hours', '최대 대기 시간', '시간', '가장 오래된 작업이 이만큼 기다리면 개수가 모자라도 켜요. 0이면 개수만 봐요.')}
       ${num('daily_limit', '하루 자동 켜기 상한', '번', '상한에 닿으면 그날은 더 켜지 않아요.')}
       <label class="auto-power-field"><span class="field-label">켤 워커</span>
-        <select id="auto-power-pod"><option value="">자동으로 고르기(최근에 쓴 이미지 워커)</option>${options}</select>
-        <span class="dl-meta">nightshift가 만든 이미지용 RunPod 워커만 고를 수 있어요.</span></label>
+        <select data-auto-power-pod><option value="">자동으로 고르기(최근에 쓴 ${info.label} 워커)</option>${options}</select>
+        <span class="dl-meta">nightshift가 만든 ${info.label}용 RunPod 워커만 고를 수 있어요.</span></label>
     </div>
-    <div class="auto-power-status" role="status"><b>지금</b> 기다리는 이미지 작업 ${st.waiting}개${st.waiting ? ` · 가장 오래된 작업 ${Math.floor(st.oldest_hours)}시간 대기` : ''} · 오늘 자동으로 켠 횟수 ${st.starts_today}/${s.daily_limit}<br>${escapeHtml(st.reason)}
-      ${autoPower.last.last_reason ? `<br><span class="dl-meta">마지막 자동 켜기: ${escapeHtml(autoPower.last.last_reason)}</span>` : ''}</div>
-    <div class="settings-gpu-actions"><button type="button" class="submit-btn" id="auto-power-save"${autoPowerSaving ? ' disabled' : ''}>${autoPowerSaving ? '저장 중…' : '자동 켜기 설정 저장'}</button><span class="dl-meta" id="auto-power-state"></span></div>`;
+    <div class="auto-power-status" role="status"><b>지금</b> 기다리는 ${info.label} 작업 ${st.waiting}개${st.waiting ? ` · 가장 오래된 작업 ${Math.floor(st.oldest_hours)}시간 대기` : ''} · 오늘 자동으로 켠 횟수 ${st.starts_today}/${s.daily_limit}<br>${escapeHtml(st.reason)}
+      ${data.last.last_reason ? `<br><span class="dl-meta">마지막 자동 켜기: ${escapeHtml(data.last.last_reason)}</span>` : ''}</div>
+    <div class="settings-gpu-actions"><button type="button" class="submit-btn" data-auto-power-save${autoPowerSaving ? ' disabled' : ''}>${info.label} 설정 저장</button><span class="dl-meta" data-auto-power-state></span></div>`;
 }
 
 document.getElementById('settings-auto-power').addEventListener('click', async (e) => {
   const btn = e.target.closest('button');
-  if(!btn || !autoPower || autoPowerSaving) return;
-  if(btn.id === 'auto-power-enabled'){
+  const section = btn && btn.closest('[data-tier]');
+  if(!btn || !section || autoPowerSaving) return;
+  const tier = section.dataset.tier, info = AUTO_POWER_TIERS[tier];
+  if(btn.dataset.autoPowerSwitch){
     const on = btn.getAttribute('aria-checked') !== 'true';
     btn.setAttribute('aria-checked', String(on));
-    btn.nextElementSibling.textContent = `자동 켜기 ${on ? '사용 중' : '꺼짐'} · 저장해야 적용돼요`;
+    const label = btn.nextElementSibling;
+    label.textContent = `${label.dataset.label} ${on ? '사용 중' : '꺼짐'} · 저장해야 적용돼요`;
     return;
   }
-  if(btn.id !== 'auto-power-save') return;
-  const el = document.getElementById('settings-auto-power');
-  const body = { enabled: el.querySelector('#auto-power-enabled').getAttribute('aria-checked') === 'true',
-                 pod_id: el.querySelector('#auto-power-pod').value || null };
-  for(const input of el.querySelectorAll('[data-auto-power]')){
+  if(!btn.hasAttribute('data-auto-power-save')) return;
+  const body = { pod_id: section.querySelector('[data-auto-power-pod]').value || null };
+  for(const sw of section.querySelectorAll('[data-auto-power-switch]')) body[sw.dataset.autoPowerSwitch] = sw.getAttribute('aria-checked') === 'true';
+  for(const input of section.querySelectorAll('[data-auto-power]')){
     const value = Number(input.value);
     if(!Number.isInteger(value)){ setSettingsError('숫자를 확인해 주세요.'); input.focus(); return; }
     body[input.dataset.autoPower] = value;
   }
   autoPowerSaving = true; btn.disabled = true; btn.textContent = '저장 중…';
   try{
-    const res = await fetch('/api/settings/auto-power', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch(info.url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
     if(!res.ok) throw new Error(data.detail || `저장하지 못했어요 (${res.status})`);
-    autoPower = data; autoPowerSaving = false;
+    autoPower[tier] = data; autoPowerSaving = false;
     setSettingsError('');
-    renderAutoPowerSettings();
-    document.getElementById('auto-power-state').textContent = '저장했어요.';
-    flashNotice('자동 켜기 설정을 저장했어요.');
-  }catch(err){ setSettingsError(err.message); btn.disabled = false; btn.textContent = '자동 켜기 설정 저장'; }
+    renderAutoPowerSettings(tier);
+    section.querySelector('[data-auto-power-state]').textContent = '저장했어요.';
+    flashNotice(`${info.label} 자동 켜기 설정을 저장했어요.`);
+  }catch(err){ setSettingsError(err.message); btn.disabled = false; btn.textContent = `${info.label} 설정 저장`; }
   finally{ autoPowerSaving = false; }
 });

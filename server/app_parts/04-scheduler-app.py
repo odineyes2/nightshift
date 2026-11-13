@@ -189,8 +189,11 @@ def schedule_once() -> None:
         template = templates.get(job.get("template_id")) or {}
         allowed = template.get("pod_kinds") or [pod_registry.DEFAULT_KIND]
         pinned = job.get("pinned_pod_id")
+        # 영상 작업(서비스 연동 영상 생성)은 영상 등급 워커에서만 — 이미지 워커가 큰 영상 모델을 받으러 가지 않게.
+        video_only = job.get("runpod_tier") == "video"
         candidates = [p for p in pods_of.get(job.get("owner_id"), [])
-                      if p.get("kind") in allowed and (not pinned or p["id"] == pinned)]
+                      if p.get("kind") in allowed and (not pinned or p["id"] == pinned)
+                      and (not video_only or p.get("runpod_tier") == "video")]
         reasons: list[str] = []
         chosen = None
         # 연결돼 있고 자리도 있는데 모델만 없는 파드 중 가장 적게 모자란 곳 — 카드의 "조치 필요"와
@@ -199,6 +202,8 @@ def schedule_once() -> None:
         if not candidates:
             if pinned:
                 reasons.append("지정한 워커를 쓸 수 없어요(없어졌거나 사용 안 함)")
+            elif video_only:
+                reasons.append("켜진 영상용 워커가 없어요 — 영상용 RunPod 워커를 켜 주세요")
             else:
                 reasons.append("사용할 수 있는 워커가 없어요 — 워커를 추가하거나 켜 주세요")
         for pod in sorted(candidates, key=lambda p: -free.get(p["id"], 0)):

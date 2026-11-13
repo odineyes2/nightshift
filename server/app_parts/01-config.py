@@ -17,6 +17,7 @@ RunPod Job Queue — 등록된 스크립트 템플릿을 큐에 쌓아두면 워
 """
 
 import asyncio
+import base64
 import csv
 import hashlib
 import hmac

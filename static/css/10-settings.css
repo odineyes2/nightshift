@@ -65,7 +65,9 @@
 .settings-member-add{ margin-top:12px; }
 .settings-member-add select{ flex:0 1 180px; }
 
-/* 설정 > 자동 켜기 */
+/* 설정 > 자동 켜기 — 이미지·영상 칸 */
+.auto-power-tier + .auto-power-tier{ margin-top:28px; padding-top:20px; border-top:1px solid var(--border); }
+.auto-power-title{ margin:0 0 8px; font-size:1rem; }
 .auto-power-switch{ display:flex; align-items:center; gap:10px; margin:16px 0; font-weight:600; }
 .auto-power-fields{ display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:16px; max-width:900px; }
 .auto-power-field{ display:flex; flex-direction:column; gap:6px; min-width:0; }

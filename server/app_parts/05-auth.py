@@ -27,12 +27,14 @@ MCP_KEY_BLOCKED_RE = re.compile(r"^/api/(auth|admin)/")
 MCP_KEY_PROXY_HEADERS = ("cf-connecting-ip", "x-forwarded-for")
 LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
 
-# 서비스 토큰은 생성·자기 작업 조회·결과 이미지 GET에만 쓴다.
+# 서비스 토큰은 생성(이미지·영상)·자기 작업 조회와 대기 중 취소·결과 이미지·영상 GET에만 쓴다.
 SERVICE_TOKEN_ROUTES = (
-    ("POST", re.compile(r"^/api/generate$")),
-    ("GET", re.compile(r"^/api/generate/(?:capacity|presets|models|auto-power)$")),
+    ("POST", re.compile(r"^/api/generate(?:/video)?$")),
+    ("GET", re.compile(r"^/api/generate/(?:capacity|presets|models|auto-power|video/status)$")),
     ("GET", re.compile(r"^/api/jobs/[^/]+(?:/outputs)?$")),
+    ("DELETE", re.compile(r"^/api/jobs/[^/]+$")),
     ("GET", re.compile(r"^/api/output-images/[^/]+(?:/[^/]+)*(?:/thumbnail)?$")),
+    ("GET", re.compile(r"^/api/output-videos/[^/]+(?:/[^/]+)*$")),
 )
 
 # 로그인 쿠키에 Domain을 찍으면(예: lomebrote.com) 다른 서브도메인(opencut.lomebrote.com의
@@ -110,16 +112,18 @@ async def authenticate_request(request: Request, call_next):
         if not any(method == request.method and pattern.fullmatch(path)
                    for method, pattern in SERVICE_TOKEN_ROUTES):
             return JSONResponse({"detail": "서비스 토큰으로는 이 API를 쓸 수 없어요."}, status_code=403)
-        if path.startswith("/api/output-images/"):
-            image_path = path.removeprefix("/api/output-images/")
-            if image_path.endswith("/thumbnail"):
+        if path.startswith(("/api/output-images/", "/api/output-videos/")):
+            kind = "image" if path.startswith("/api/output-images/") else "video"
+            image_path = urllib.parse.unquote(path.removeprefix(f"/api/output-{kind}s/"))
+            if kind == "image" and image_path.endswith("/thumbnail"):
                 image_path = image_path.removesuffix("/thumbnail")
             # 결과 API가 소유 범위를 검사하기 전에도 토큰으로 남의 파일을 읽을 수 없게 한다.
             with db.connect() as conn:
-                asset = conn.execute("SELECT owner_id FROM assets WHERE path=? AND kind='image' "
-                                     "AND deleted_at IS NULL", (image_path,)).fetchone()
+                asset = conn.execute("SELECT owner_id FROM assets WHERE path=? AND kind=? "
+                                     "AND deleted_at IS NULL", (image_path, kind)).fetchone()
             if asset is None or asset["owner_id"] != user["id"]:
-                return JSONResponse({"detail": "이 이미지를 볼 수 없어요."}, status_code=403)
+                return JSONResponse({"detail": "이 이미지를 볼 수 없어요." if kind == "image" else "이 영상을 볼 수 없어요."},
+                                    status_code=403)
     elif request.headers.get(MCP_KEY_HEADER):
         user = await asyncio.to_thread(_mcp_key_user, request)
         if user is None:
