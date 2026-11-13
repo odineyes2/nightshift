@@ -149,6 +149,9 @@ module.exports = {
       env: {
         PYTHONUNBUFFERED: "1",
         JUPYTER_TOKEN: dotEnv.JUPYTER_INTERNAL_TOKEN || "",
+        // 기본 실행 정보 폴더(%APPDATA%\jupyter\runtime)의 권한이 잠겨 이 계정이 못 쓰게 돼 시작하자마자 죽었다
+        // (2026-11-13, PermissionError). pm2로 띄우는 노트북은 이 계정 폴더 아래 전용 폴더를 쓴다.
+        JUPYTER_RUNTIME_DIR: path.join(process.env.LOCALAPPDATA || "", "nightshift-jupyter-runtime"),
       },
       autorestart: true,
       max_restarts: 10,
