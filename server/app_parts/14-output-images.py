@@ -260,7 +260,9 @@ def drop_thumb_cache(path: Path) -> None:
 def prune_thumb_cache(max_bytes: int | None = None) -> None:
     """캐시 폴더가 상한을 넘으면 오래 안 쓴(mtime이 오래된) 것부터 지운다 — 서버 시작 때 1회."""
     limit = THUMB_CACHE_MAX_BYTES if max_bytes is None else max_bytes
-    files = sorted((f.stat().st_mtime, f.stat().st_size, f) for f in THUMB_CACHE_DIR.glob("*.jpg"))
+    # *.mp4는 영상 라이트박스용 화면 사본(15-videos-share.py)
+    files = sorted((f.stat().st_mtime, f.stat().st_size, f)
+                   for pattern in ("*.jpg", "*.mp4") for f in THUMB_CACHE_DIR.glob(pattern))
     total = sum(s for _, s, _ in files)
     for _, s, f in files:
         if total <= limit:

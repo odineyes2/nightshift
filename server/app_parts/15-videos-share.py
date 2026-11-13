@@ -123,6 +123,95 @@ def get_output_video_poster(filename: str, request: Request, size: int = 400, fi
     return Response(content=buf.getvalue(), media_type="image/jpeg", headers=headers)
 
 
+# ---- 영상 화면 사본(라이트박스용 720p) ------------------------------------------------------------
+# 라이트박스가 원본(수~십수 MB)을 그대로 받으면 느린 접속에서 한참 걸린다 — 이미지의 1280/2048 사본처럼 짧은 변 720px,
+# 약 1.5Mbps H.264 사본을 한 번 만들어 축소본 캐시에 두고 그걸 재생한다("원본 보기"를 누르면 원본).
+# 사본은 처음 요청될 때 뒤에서 하나씩, 낮은 우선순위로 만든다. 다 될 때까지는 원본을 준다(기다리게 하지 않는다).
+# 원본이 이미 사본만큼 가벼우면 만들지 않는다.
+PREVIEW_SHORT_SIDE = 720
+PREVIEW_MIN_BITRATE = 1_800_000   # 이 이하이고 짧은 변이 720 이하면 원본이 곧 사본이다(bps)
+_preview_queue: "queue.Queue[Path]" = queue.Queue()
+_preview_pending: set[str] = set()
+_preview_lock = threading.Lock()
+
+
+def _video_preview_path(path: Path) -> Path:
+    prefix, key = _video_cache_key(path)
+    return THUMB_CACHE_DIR / f"{prefix}-{key}-preview.mp4"
+
+
+def _preview_worthwhile(path: Path) -> bool:
+    meta = cached_video_meta(path)
+    if meta is None:
+        try:
+            _video_poster_frame(path)   # 길이·해상도는 포스터를 만들며 같이 읽는다
+        except HTTPException:
+            return False
+        meta = cached_video_meta(path) or {}
+    width, height, duration = meta.get("width"), meta.get("height"), meta.get("duration")
+    if not width or not height:
+        return False
+    if min(width, height) > PREVIEW_SHORT_SIDE:
+        return True
+    return bool(duration) and path.stat().st_size * 8 / duration > PREVIEW_MIN_BITRATE
+
+
+def _preview_worker():
+    while True:
+        path = _preview_queue.get()
+        out = _video_preview_path(path) if path.is_file() else None
+        try:
+            if out is not None and not out.is_file():
+                _make_video_preview(path, out)
+        except Exception:
+            logging.getLogger("uvicorn.error").exception("영상 화면 사본을 못 만들었어요: %s", path.name)
+        finally:
+            with _preview_lock:
+                _preview_pending.discard(str(path))
+
+
+def _make_video_preview(path: Path, out: Path) -> None:
+    ff = video_edit.find_ffmpeg()
+    if ff is None:
+        return
+    tmp = out.with_suffix(f".{uuid.uuid4().hex}.tmp.mp4")
+    s = PREVIEW_SHORT_SIDE
+    cmd = [ff, "-hide_banner", "-loglevel", "error", "-y", "-i", str(path),
+           "-vf", f"scale='if(gt(iw,ih),-2,min({s},iw))':'if(gt(iw,ih),min({s},ih),-2)'",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-maxrate", "1500k", "-bufsize", "3000k",
+           "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "96k", str(tmp)]
+    # 홈서버에서 다른 요청을 느리게 하지 않게 낮은 우선순위로 돌린다(Windows만 해당하는 플래그).
+    flags = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+    try:
+        res = subprocess.run(cmd, capture_output=True, timeout=1800, creationflags=flags)
+        if res.returncode != 0 or not tmp.is_file() or tmp.stat().st_size == 0:
+            raise RuntimeError(res.stderr.decode("utf-8", "replace")[-400:])
+        os.replace(tmp, out)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+threading.Thread(target=_preview_worker, daemon=True, name="video-preview").start()
+
+
+@app.get("/api/output-videos/{filename:path}/preview")
+def get_output_video_preview(filename: str, v: str = ""):
+    # 라이트박스가 재생하는 화면 사본. 아직 없으면 만들기를 걸어 두고 이번에는 원본을 준다.
+    path = resolve_output_video(filename)
+    preview = _video_preview_path(path)
+    if preview.is_file():
+        os.utime(preview)
+        headers = {"Cache-Control": "private, max-age=31536000, immutable"} if v else None
+        return FileResponse(preview, media_type="video/mp4", headers=headers)
+    if _preview_worthwhile(path):
+        with _preview_lock:
+            if str(path) not in _preview_pending:
+                _preview_pending.add(str(path))
+                _preview_queue.put(path)
+    # 원본을 준다 — 사본이 생기면 주소는 같아도 내용이 바뀌므로 브라우저가 이 응답을 오래 붙들지 않게 한다.
+    return FileResponse(path, headers={"Cache-Control": "private, no-cache"})
+
+
 @app.get("/api/output-videos/{filename:path}")
 def get_output_video(filename: str):
     # 영상 갤러리 라이트박스의 <video> 태그가 재생하는 용도. FileResponse는

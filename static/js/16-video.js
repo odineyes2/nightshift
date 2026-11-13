@@ -644,7 +644,14 @@ function renderVideoLightbox(){
   const videoEl = document.getElementById('video-gallery-lightbox-video');
   showVideoLightboxLoading();
   videoEl.loop = videoRepeatMode === 'one';
-  videoEl.src = window.__nightshiftMediaUrl(`/api/output-videos/${encodeURIComponent(vid.name)}`);
+  // 처음엔 720p 화면 사본을 재생한다(서버가 아직 못 만들었으면 원본이 온다). "원본 보기"를 누른 영상만 원본.
+  const showOriginal = videoLightboxOriginalName === vid.name;
+  videoEl.src = window.__nightshiftMediaUrl(showOriginal
+    ? `/api/output-videos/${encodeURIComponent(vid.name)}`
+    : `/api/output-videos/${encodeURIComponent(vid.name)}/preview?v=${encodeURIComponent(vid.mtime)}`);
+  const origBtn = document.getElementById('video-gallery-lightbox-original-btn');
+  origBtn.disabled = showOriginal;
+  origBtn.title = showOriginal ? `원본을 보고 있어요 (${fmtBytes(vid.size)})` : `원본 보기 (${fmtBytes(vid.size)})`;
   if(videoAutoplayOnRender){
     videoAutoplayOnRender = false;
     videoEl.play().catch(() => { /* 자동 재생이 막히면 재생 버튼을 눌러 시작한다 */ });
@@ -656,6 +663,7 @@ function renderVideoLightbox(){
   document.getElementById('video-gallery-next').disabled = vLightboxIndex >= displayedGalleryVideos.length - 1;
 }
 
+let videoLightboxOriginalName = null;   // "원본 보기"를 누른 영상 — 다른 영상으로 넘기면 저절로 화면 사본으로 돌아간다
 function openVideoLightbox(index){
   vLightboxIndex = index;
   renderVideoLightbox();
@@ -752,6 +760,19 @@ document.getElementById('video-gallery-lightbox-close').addEventListener('click'
 document.getElementById('video-gallery-lightbox-fs-btn').addEventListener('click', () => toggleLightboxFullscreen(videoGalleryLightbox));
 document.getElementById('video-gallery-prev').addEventListener('click', showPrevVideo);
 document.getElementById('video-gallery-next').addEventListener('click', showNextVideo);
+document.getElementById('video-gallery-lightbox-original-btn').addEventListener('click', () => {
+  const vid = displayedGalleryVideos[vLightboxIndex];
+  if(!vid) return;
+  const videoEl = document.getElementById('video-gallery-lightbox-video');
+  const at = videoEl.currentTime, playing = !videoEl.paused;
+  videoLightboxOriginalName = vid.name;
+  renderVideoLightbox();
+  // 보던 지점부터 이어서 본다
+  videoEl.addEventListener('loadedmetadata', () => {
+    videoEl.currentTime = at;
+    if(playing) videoEl.play().catch(() => {});
+  }, { once: true });
+});
 document.getElementById('video-gallery-lightbox-download-btn').addEventListener('click', () => {
   const vid = displayedGalleryVideos[vLightboxIndex];
   if(vid) triggerAnchorDownload(`/api/output-videos/${encodeURIComponent(vid.name)}`, vid.name);
