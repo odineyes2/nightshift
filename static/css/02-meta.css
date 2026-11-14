@@ -132,3 +132,11 @@
   }
   .load-more-btn:hover{ color:var(--text); border-color:rgba(var(--queued-rgb),0.6); }
   .load-more-btn[hidden]{ display:none; }
+
+/* 관리자 갤러리: 격자는 썸네일 아래쪽, 자세히 보기는 이름 칸에 내력을 표시한다. */
+.gallery-filter-row .gf-admin[hidden]{ display:none; }
+.gallery-filter-row .gf-admin{ max-width:100%; font-size:13px; }
+.gallery-provenance{ display:inline-flex; flex-wrap:wrap; gap:4px; margin-left:4px; max-width:100%; vertical-align:middle; }
+.gallery-owner-badge, .gallery-paid-badge{ display:inline-block; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 4px; border:1px solid var(--border); border-radius:6px; background:var(--panel); color:var(--text); font-size:12px; line-height:1.4; }
+.gallery-paid-badge{ color:var(--accent); border-color:var(--accent); }
+.gallery-item:not(.details) > .gallery-provenance, .vgallery-item:not(.details) > .gallery-provenance{ position:absolute; left:4px; right:4px; bottom:24px; z-index:2; margin:0; pointer-events:none; }

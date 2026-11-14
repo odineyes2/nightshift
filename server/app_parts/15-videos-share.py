@@ -3,12 +3,15 @@
 @app.get("/api/output-videos")
 def list_output_videos_api(request: Request, q: str | None = None, tag: str | None = None,
                            favorite: bool | None = None, min_rating: int | None = None,
-                           model: str | None = None, hide_nsfw: bool = False):
+                           model: str | None = None, hide_nsfw: bool = False,
+                           owner: str | None = None, source: str | None = None):
     _sync_assets_quietly()
     user = me(request)
+    owner_id, source = _gallery_admin_filters(user, owner, source)
     items = list_output_videos_meta(user)
     allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="video",
-                                      owner_id=auth.owner_scope(user), model=model or None, hide_nsfw=hide_nsfw)
+                                      owner_id=owner_id, model=model or None, hide_nsfw=hide_nsfw,
+                                      source=source, admin_id=user["id"])
     if allowed is not None:
         items = [i for i in items if i["name"] in allowed]
     return {"videos": items}

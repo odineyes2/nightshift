@@ -69,7 +69,7 @@ def meta_by_path(owner_id: int | None = None) -> dict[str, dict]:
     owner_id를 주면 그 회원 것만."""
     with db.read() as conn:
         rows = conn.execute(
-            "SELECT id, path, favorite, rating, nsfw, project_id, owner_id FROM assets WHERE deleted_at IS NULL"
+            "SELECT id, path, favorite, rating, nsfw, project_id, owner_id, compute_owner_id, billing, via_service_id FROM assets WHERE deleted_at IS NULL"
             + (" AND owner_id = ?" if owner_id is not None else ""),
             (owner_id,) if owner_id is not None else ()).fetchall()
         tags = {}
@@ -80,7 +80,8 @@ def meta_by_path(owner_id: int | None = None) -> dict[str, dict]:
     return {
         r["path"]: {"asset_id": r["id"], "favorite": bool(r["favorite"]), "rating": r["rating"],
                     "nsfw": bool(r["nsfw"]), "project_id": r["project_id"], "owner_id": r["owner_id"],
-                    "tags": tags.get(r["id"], [])}
+                    "tags": tags.get(r["id"], []),
+                    **({field: r[field] for field in PROVENANCE_FIELDS} if owner_id is None else {})}
         for r in rows
     }
 
@@ -97,8 +98,15 @@ def dims_by_path(owner_id: int | None = None) -> dict[str, tuple]:
 
 
 def _build_where(q=None, tags=None, favorite=None, min_rating=None, kind=None,
-                 project=None, job_id=None, owner_id=None, model=None, hide_nsfw=False) -> tuple[list[str], list]:
+                 project=None, job_id=None, owner_id=None, model=None, hide_nsfw=False, source=None, admin_id=None) -> tuple[list[str], list]:
     where, params = ["a.deleted_at IS NULL"], []
+    if source == "paid":
+        where.append("a.billing = 'admin'")
+    elif source == "member_gpu":
+        where.append("a.compute_owner_id IS NOT NULL AND a.compute_owner_id != ?")
+        params.append(admin_id)
+    elif source == "via":
+        where.append("a.via_service_id IS NOT NULL")
     if hide_nsfw:
         where.append("a.nsfw = 0")
     if model:
@@ -137,13 +145,13 @@ def _build_where(q=None, tags=None, favorite=None, min_rating=None, kind=None,
 
 def search_paths(q: str | None = None, tags: list[str] | None = None, favorite: bool | None = None,
                  min_rating: int | None = None, kind: str | None = None, owner_id: int | None = None,
-                 model: str | None = None, hide_nsfw: bool = False) -> set[str] | None:
+                 model: str | None = None, hide_nsfw: bool = False, source=None, admin_id=None) -> set[str] | None:
     """조건에 맞는 경로 집합. 조건이 하나도 없으면 None(거르지 않음) — 갤러리 목록이 쓴다."""
     if (not (q or "").split() and not normalize_tags(tags) and favorite is None and not min_rating
-            and kind is None and not model and not hide_nsfw):
+            and kind is None and not model and not hide_nsfw and owner_id is None and not source):
         return None
     where, params = _build_where(q, tags, favorite, min_rating, kind, owner_id=owner_id, model=model,
-                                 hide_nsfw=hide_nsfw)
+                                 hide_nsfw=hide_nsfw, source=source, admin_id=admin_id)
     with db.read() as conn:
         rows = conn.execute("SELECT a.path FROM assets a WHERE " + " AND ".join(where), params).fetchall()
     return {r["path"] for r in rows}
