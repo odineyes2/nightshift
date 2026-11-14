@@ -126,7 +126,7 @@ def _snapshot_pod_into_job(job: dict, pod: dict) -> None:
     """파드는 일시적이라 그 작업이 어디서 돌았나/얼마 들었나를 job에 찍어 둔다(lock 밖에서 부른다)."""
     gpu = cost = None
     try:
-        info = runpod_api.get_runpod_info(pod.get("url") or "")
+        info = runpod_api.get_runpod_info(pod.get("url") or "", runpod_api.key_for_owner(pod.get("owner_id")))
         if info:
             gpu = info.get("gpu_type")
             c = info.get("cost_per_hr")
@@ -521,14 +521,15 @@ async def lifespan(app: FastAPI):
     sync_runtimes()
     threading.Thread(target=scheduler_loop, daemon=True, name="scheduler").start()
     poke_scheduler()
-    if RUNPOD_AUTO_OFF_CHECK_SEC > 0 and runpod_api.RUNPOD_API_KEY:
+    # 키는 회원마다라(runpod_api.key_for_owner) 루프는 늘 띄운다 — 키가 없는 주인의 워커는 루프 안에서 그냥 건너뛴다.
+    if RUNPOD_AUTO_OFF_CHECK_SEC > 0:
         threading.Thread(target=_auto_power_off_loop, daemon=True, name="runpod-auto-off").start()   # NS-8
         threading.Thread(target=_auto_power_on_loop, daemon=True, name="runpod-auto-on").start()   # 대기열 자동 켜기(07c)
         if RUNPOD_BOOT_TIMEOUT_MIN > 0:
             threading.Thread(target=_boot_watch_loop, daemon=True, name="runpod-boot-watch").start()   # NS-18
     if RUNPOD_SYNC_INTERVAL_SEC > 0:
         threading.Thread(target=_runpod_sync_loop, daemon=True, name="runpod-sync").start()
-    elif RUNPOD_SESSION_LOG_SEC > 0 and runpod_api.RUNPOD_API_KEY:
+    elif RUNPOD_SESSION_LOG_SEC > 0 and runpod_api.admin_key():
         threading.Thread(target=_log_runpod_sessions_quietly, daemon=True).start()   # 켤 때 한 번 — 놓친 기록을 바로 채운다
         threading.Thread(target=_runpod_session_log_loop, daemon=True, name="runpod-session-log").start()
     # 결과물 색인(assets)을 디스크와 맞춘다 — 파일이 많으면 시간이 걸릴 수 있으니

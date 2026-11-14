@@ -46,9 +46,12 @@ class Resp(io.BytesIO):
         return False
 
 
+expected_key = [KEY]
+
+
 def fake_urlopen(req, timeout=None):
     calls.append((req.get_method(), req.full_url))
-    assert req.get_header("Authorization") == f"Bearer {KEY}"
+    assert req.get_header("Authorization") == f"Bearer {expected_key[0]}"
     for frag, val in replies.items():
         if frag in req.full_url:
             if isinstance(val, BaseException):
@@ -65,8 +68,15 @@ def set_replies(pods=PODS, vols=VOLS, bal=BAL):
     replies.update({"/v2/pods": pods, "/v2/network-volumes": vols, "graphql": bal})
 
 
+ADMIN_ID = A.auth.admin_id()
+MEMBER = A.auth.register("member1", "m1@example.com", "Member-Passw0rd!")
+A.auth.set_status(MEMBER["id"], "active", ADMIN_ID)
+MEMBER_KEY = "member-own-key"
+
+
 def req(role):
-    return SimpleNamespace(state=SimpleNamespace(user={"id": "u", "role": role} if role else None))
+    uid = ADMIN_ID if role == "admin" else MEMBER["id"]
+    return SimpleNamespace(state=SimpleNamespace(user={"id": uid, "role": role} if role else None))
 
 
 def dash(role="admin"):
@@ -132,9 +142,21 @@ assert code == 200 and not d["api_key"] and calls == []
 assert all("RUNPOD_API_KEY" in d[k]["error"] for k in ("pods", "volumes", "balance")) and d["fetched_at"] is None
 R.RUNPOD_API_KEY = KEY
 
-# 관리자 외 접근 차단 — 외부 호출도 하지 않는다
+# 일반 회원 — 자기 키가 없으면 관리자(.env) 키로 대신 조회하지 않는다(외부 호출 없음)
 calls.clear()
-assert dash("user")[0] == 403 and dash(None)[0] == 401 and calls == []
+code, d = dash("user")
+assert code == 200 and not d["api_key"] and calls == [], d
+assert dash(None)[0] == 401 and calls == []
+
+# 일반 회원이 계정 설정에 자기 키를 넣으면 그 키로 자기 계정을 조회한다
+A.auth.set_secrets(MEMBER["id"], {"runpod_api_key": MEMBER_KEY})
+set_replies()
+expected_key[0] = MEMBER_KEY
+code, d = dash("user")
+assert code == 200 and d["api_key"] and d["balance"]["usd"] == 12.5, d
+assert MEMBER_KEY not in json.dumps(d)
+expected_key[0] = KEY
+calls.clear()
 
 # 실제 미들웨어를 거친 비로그인 요청도 막힌다
 from fastapi.testclient import TestClient  # noqa: E402

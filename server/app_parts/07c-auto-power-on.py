@@ -4,13 +4,30 @@
 # 안전장치: 이미 켜진(또는 켜는 중인) 같은 등급 워커가 있으면 켜지 않음, 하루 상한, 실패하면 10→30→60분 뒤 재시도.
 # 설정·기록 저장은 auto_power_settings.py, 확인 주기는 RUNPOD_AUTO_OFF_CHECK_SEC(자동 끄기와 같은 60초).
 TIER_LABEL = {"image": "이미지", "video": "영상"}
+# 회원마다 자기 RunPod 계정을 쓰므로(runpod_api.key_for_owner) 이 자동 켜기는 관리자 설정이자 관리자 계정 일이다:
+# 관리자 워커만 켜고, 관리자 파드에서 돌 수 있는 작업(관리자·서비스 연동 계정의 작업)만 센다 — 일반 회원이 작업을
+# 쌓아 관리자 파드가 켜지면 그 작업은 거기서 돌지도 못한 채 요금만 나간다.
+
+
+def _admin_owner_ids() -> set:
+    with db.read() as conn:
+        ids = {row["id"] for row in conn.execute("SELECT id FROM users WHERE role='admin' AND status='active'")}
+    return ids | {None}   # 주인 없음 = 관리자 것
+
+
+def _runs_on_admin_pods(job: dict, admins: set) -> bool:
+    owner = job.get("owner_id")
+    return owner in admins or any(o in admins for o in service_tokens.pod_owner_ids_for_job(owner))
+
 
 def _auto_power_waiting(now: datetime, tier: str = "image") -> tuple[int, float]:
-    """그 등급 워커(comfyui)를 기다리는 대기 작업 수와 가장 오래 기다린 시간(시간 단위)."""
+    """관리자 그 등급 워커(comfyui)를 기다리는 대기 작업 수와 가장 오래 기다린 시간(시간 단위)."""
     templates = load_templates_map()
     count, oldest = 0, 0.0
     with lock:
         waiting = [j for j in jobs.values() if j["status"] == "queued" and not j.get("pod_id") and not j.get("deleted")]
+    admins = _admin_owner_ids()
+    waiting = [j for j in waiting if _runs_on_admin_pods(j, admins)]
     for job in waiting:
         allowed = (templates.get(job.get("template_id")) or {}).get("pod_kinds") or [pod_registry.DEFAULT_KIND]
         if pod_registry.DEFAULT_KIND not in allowed or (job.get("runpod_tier") == "video") != (tier == "video"):
@@ -26,9 +43,10 @@ def _auto_power_waiting(now: datetime, tier: str = "image") -> tuple[int, float]
 
 
 def _auto_power_candidates(tier: str = "image") -> list[dict]:
-    """자동으로 켤 수 있는 워커: nightshift가 만든 그 등급의 RunPod 워커."""
+    """자동으로 켤 수 있는 워커: nightshift가 만든 그 등급의 관리자 RunPod 워커."""
+    admins = _admin_owner_ids()
     return [p for p in pod_registry.list_pods(pod_registry.ALL)
-            if p.get("kind") == pod_registry.DEFAULT_KIND and p.get("runpod_tier") == tier]
+            if p.get("kind") == pod_registry.DEFAULT_KIND and p.get("runpod_tier") == tier and p.get("owner_id") in admins]
 
 
 def _auto_power_image_on(tier: str = "image") -> dict | None:
@@ -36,8 +54,9 @@ def _auto_power_image_on(tier: str = "image") -> dict | None:
     영상은 영상 등급 워커만 본다(영상 작업은 영상 워커에서만 돈다 — 04 schedule_once)."""
     def same(p):
         return (p.get("runpod_tier") == "video") == (tier == "video")
+    admins = _admin_owner_ids()
     return next((p for p in pod_registry.list_pods(pod_registry.ALL)
-                 if p.get("kind") == pod_registry.DEFAULT_KIND and same(p)
+                 if p.get("kind") == pod_registry.DEFAULT_KIND and same(p) and p.get("owner_id") in admins
                  and (p.get("enabled") or p.get("note") == "runpod:creating")), None)
 
 
@@ -72,7 +91,7 @@ def _auto_power_start(pod: dict, tier: str = "image") -> str | None:
             return "워커가 없거나 이미 켜져 있어요."
         old = runpod_api.extract_pod_id(pod.get("url") or "")
         if old:   # 예전 방식으로 꺼 둔 파드가 남아 있으면 먼저 지운다(_managed_runpod_power와 같다)
-            err = runpod_api.terminate_pod(old)
+            err = runpod_api.terminate_pod(old, runpod_api.key_for_owner(pod.get("owner_id")))
             if err and "HTTP 404" not in err:
                 return f"남아 있던 RunPod 파드를 지우지 못했어요 — {err}"
         # 일이 끝나면 꺼지도록 이 워커의 자동 끄기를 켠다.
@@ -99,8 +118,8 @@ def _auto_power_decide(settings: dict, state: dict, now: datetime, tier: str = "
         return {**info, "action": "off", "reason": "영상 파드 사용이 꺼져 있어요."}
     if not settings["enabled"]:
         return {**info, "action": "off", "reason": "자동 켜기가 꺼져 있어요."}
-    if not runpod_api.RUNPOD_API_KEY:
-        return {**info, "action": "off", "reason": "RunPod API 키가 없어 자동으로 켤 수 없어요."}
+    if not runpod_api.admin_key():
+        return {**info, "action": "off", "reason": "관리자 RunPod API 키가 없어 자동으로 켤 수 없어요."}
     on = _auto_power_image_on(tier)
     if on:
         return {**info, "action": "wait", "reason": f"'{on.get('name') or on['id']}' 워커가 켜져 있어 그 워커가 처리해요."}
@@ -162,7 +181,7 @@ def _auto_power_payload(tier: str = "image") -> dict:
     candidates = [{"id": p["id"], "name": p.get("name") or p["id"], "on": bool(p.get("enabled"))} for p in _auto_power_candidates(tier)]
     return {"settings": settings, "status": decision, "candidates": candidates, "limits": auto_power_settings.LIMITS,
             "last": {key: state[key] for key in ("last_reason", "last_error", "retry_after", "last_pod_id")},
-            "api_key": bool(runpod_api.RUNPOD_API_KEY)}
+            "api_key": bool(runpod_api.admin_key())}
 
 
 @app.get("/api/generate/auto-power")
@@ -172,7 +191,7 @@ def generate_auto_power_status(request: Request):
     me(request)
     settings, state = auto_power_settings.load(), auto_power_settings.load_state()
     decision = _auto_power_decide(settings, state, datetime.now(timezone.utc))
-    return {"enabled": settings["enabled"] and bool(runpod_api.RUNPOD_API_KEY), "waiting": decision["waiting"],
+    return {"enabled": settings["enabled"] and bool(runpod_api.admin_key()), "waiting": decision["waiting"],
             "min_jobs": settings["min_jobs"], "max_wait_hours": settings["max_wait_hours"],
             "worker_on": _auto_power_image_on() is not None,
             "limit_reached": decision["starts_today"] >= settings["daily_limit"]}
@@ -185,7 +204,7 @@ def generate_video_status(request: Request):
     settings, state = auto_power_settings.load("video"), auto_power_settings.load_state("video")
     decision = _auto_power_decide(settings, state, datetime.now(timezone.utc), "video")
     return {"video_jobs": settings["video_jobs"],
-            "enabled": settings["video_jobs"] and settings["enabled"] and bool(runpod_api.RUNPOD_API_KEY),
+            "enabled": settings["video_jobs"] and settings["enabled"] and bool(runpod_api.admin_key()),
             "waiting": decision["waiting"], "min_jobs": settings["min_jobs"], "max_wait_hours": settings["max_wait_hours"],
             "worker_on": _auto_power_image_on("video") is not None,
             "limit_reached": decision["starts_today"] >= settings["daily_limit"]}

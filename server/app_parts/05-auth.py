@@ -295,7 +295,7 @@ async def auth_change_password(request: Request):
 @app.get("/api/auth/secrets")
 def auth_get_secrets(request: Request):
     # 회원 각자의 API 키(civitai_token/runpod_api_key) — 계정 관리 모달에서 본인만 보고 고친다.
-    # 아직 이 값을 실제로 쓰는 코드는 없다(저장만 해 둔다).
+    # runpod_api_key는 그 회원 워커의 RunPod 호출에 쓴다(runpod_api.key_for_owner). civitai_token은 아직 저장만.
     user = me(request)
     return auth.get_secrets(user["id"])
 

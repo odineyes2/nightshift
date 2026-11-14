@@ -53,7 +53,7 @@ queue[:] = [
     {"pods": [{"id": "b", "status": "EXITED", "cost": 0.0}], "pagination": {"nextCursor": None, "hasNextPage": False}},
 ]
 calls.clear()
-pods, err = R.list_runpod_pods_verbose()
+pods, err = R.list_runpod_pods_verbose("k")
 assert err is None and [p["id"] for p in pods] == ["a", "b"], (pods, err)
 assert urllib.parse.parse_qs(urllib.parse.urlparse(calls[1][1]).query)["cursor"] == ["c2"], calls
 a, b = pods
@@ -72,24 +72,24 @@ assert card == {"pod_name": "A", "status": "RUNNING", "gpu_type": "G", "cost_per
 
 # 오류는 RFC 9457 detail을 보여 준다
 queue[:] = [http_err(500, "boom")]
-pods, err = R.list_runpod_pods_verbose()
+pods, err = R.list_runpod_pods_verbose("k")
 assert pods is None and "HTTP 500" in err and "boom" in err, err
 
 # 볼륨: network-volumes, dataCenter
 queue[:] = [{"networkVolumes": [{"id": "v1", "name": "n", "size": 100, "dataCenter": "AP-JP-1", "type": "STANDARD"}]}]
 calls.clear()
-vols, err = R.list_network_volumes()
+vols, err = R.list_network_volumes("k")
 assert err is None and vols[0]["data_center"] == "AP-JP-1" and vols[0]["monthly_usd"] == 7.0, vols
 assert calls[0][1] == "https://api.runpod.io/v2/network-volumes"
 queue[:] = [None]
-assert R.delete_network_volume("v1") is None and calls[-1][:2] == ("DELETE", "https://api.runpod.io/v2/network-volumes/v1")
+assert R.delete_network_volume("v1", "k") is None and calls[-1][:2] == ("DELETE", "https://api.runpod.io/v2/network-volumes/v1")
 
 # 켜기·끄기: /action에 {"action": ...}, 목표 상태를 돌려준다
 queue[:] = [{"id": "a", "status": "STARTING", "env": {"PW": "leak"}}]
-assert R.pod_action("a", "start") == ("RUNNING", None)
+assert R.pod_action("a", "start", "k") == ("RUNNING", None)
 assert calls[-1] == ("POST", "https://api.runpod.io/v2/pods/a/action", {"action": "start"}), calls[-1]
 queue[:] = [http_err(409, "already")]
-st, err = R.pod_action("a", "stop")
+st, err = R.pod_action("a", "stop", "k")
 assert st is None and "409" in err and "already" in err
 
 # 만들기: 400이면 다음 GPU, 성공하면 그 GPU로
@@ -98,7 +98,7 @@ assert "NVIDIA GeForce RTX 5080" not in gpus and "NVIDIA GeForce RTX 5080" in R.
 assert R.usable_gpus("image") == gpus
 queue[:] = [http_err(400, "no capacity"), {"id": "new", "name": "t", "cost": 0.25, "gpu": {"id": gpus[1]}, "dataCenterId": "AP-JP-1"}]
 calls.clear()
-pod, err = R.create_pod("t", "image", env={"PW": "s"})
+pod, err = R.create_pod("t", "image", env={"PW": "s"}, key="k")
 assert err is None and pod == {"id": "new", "name": "t", "cloud": "SECURE", "cost_per_hr": 0.25, "gpu": gpus[1],
                                "data_center": "AP-JP-1"}, (pod, err)
 assert [c[2]["gpu"]["id"] for c in calls] == gpus[:2] and calls[0][2]["dataCenterIds"] == ["AP-JP-1"]
@@ -107,25 +107,25 @@ assert calls[0][1] == "https://api.runpod.io/v2/pods" and calls[0][2]["cloud"] =
 # 402(잔액 부족)면 바로 멈춘다
 queue[:] = [http_err(402, "no money")]
 calls.clear()
-pod, err = R.create_pod("t", "image")
+pod, err = R.create_pod("t", "image", key="k")
 assert pod is None and "402" in err and len(calls) == 1, (err, calls)
 
 # 모두 400이면 4단계 × GPU 수만큼 시도하고 실패
 queue[:] = [http_err(400, "x") for _ in range(4 * len(gpus))]
 calls.clear()
-pod, err = R.create_pod("t", "image")
+pod, err = R.create_pod("t", "image", key="k")
 assert pod is None and len(calls) == 4 * len(gpus) and not queue
 
 # 기록된 GPU는 요청에 안 실리고, 전부 제외되면 요청 없이 오류(NS-74)
 R.mark_bad_gpu(gpus[0])
 queue[:] = [http_err(400, "x") for _ in range(4 * len(gpus))]
 calls.clear()
-R.create_pod("t", "image")
+R.create_pod("t", "image", key="k")
 assert gpus[0] not in [c[2]["gpu"]["id"] for c in calls] and len(calls) == 4 * (len(gpus) - 1)
 for g in gpus[1:]:
     R.mark_bad_gpu(g)
 calls.clear()
-pod, err = R.create_pod("t", "image")
+pod, err = R.create_pod("t", "image", key="k")
 assert pod is None and "제외" in err and not calls
 os.remove(R._bad_gpus_path())
 queue.clear()
@@ -143,32 +143,34 @@ os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "server"
 import app as A  # noqa: E402
 
 S = A.runpod_sessions
+A.auth.ensure_admin()   # 키는 회원마다(runpod_api.key_for_owner) — 관리자 1번이 있어야 관리자 키(.env)가 잡힌다
+assert A.auth.admin_id() == 1
 assert S._parse_runpod_dt("2026-03-13T20:00:00Z") == "2026-03-13T20:00:00+00:00"
 assert S._parse_runpod_dt("2026-09-23 03:38:26.551 +0000 UTC") == "2026-09-23T03:38:26.551000+00:00"
 assert S._parse_runpod_dt("garbage") is None
 
 starting = {"id": "st1", "name": "nightshift-x", "status": "STARTING", "ports": ["8188/http"], "cost_per_hr": 0.3,
             "last_started_at": None, "last_status_change": None, "network_volume_id": None, "image": "img"}
-R.list_runpod_pods_verbose = lambda: ([dict(starting)], None)
-R.get_gpu_type_cached = lambda pid: "NVIDIA GeForce RTX 4090"
+R.list_runpod_pods_verbose = lambda key: ([dict(starting)], None)
+R.get_gpu_type_cached = lambda pid, key: "NVIDIA GeForce RTX 4090"
 res = A.runpod_sync.sync_runpod_pods(1, False, lambda p: None, lambda pid: False)
 assert [a["runpod_pod_id"] for a in res["added"]] == ["st1"], res   # 자동 등록
 rows = S.list_sessions()
 assert len(rows) == 1 and rows[0]["ended_at"] is None, rows       # 세션 열기
 opened = rows[0]["started_at"]
-A.runpod_sync._log_sessions([dict(starting)])                     # startedAt이 아직 없어도 같은 세션 유지
+A.runpod_sync._log_sessions([dict(starting)], "k")                     # startedAt이 아직 없어도 같은 세션 유지
 assert [r["started_at"] for r in S.list_sessions()] == [opened]
 
 # 대시보드 "구동 중"에 STARTING 포함, EXITED 제외
-R.list_network_volumes = lambda: ([], None)
-R.get_client_balance = lambda: (1.0, None)
-R.list_runpod_pods_verbose = lambda: ([dict(starting), dict(starting, id="ex1", status="EXITED")], None)
+R.list_network_volumes = lambda key: ([], None)
+R.get_client_balance = lambda key: (1.0, None)
+R.list_runpod_pods_verbose = lambda key: ([dict(starting), dict(starting, id="ex1", status="EXITED")], None)
 d = asyncio.run(A.runpod_dashboard_api(SimpleNamespace(state=SimpleNamespace(user={"id": 1, "role": "admin"}))))
 assert [p["id"] for p in d["pods"]["items"]] == ["st1"], d
 
 # 꺼지면(EXITED, v2에는 종료 시각 없음) 세션을 이번 동기화 시각으로 닫는다
 before = datetime.now(timezone.utc)
-A.runpod_sync._log_sessions([dict(starting, status="EXITED", cost_per_hr=None)])
+A.runpod_sync._log_sessions([dict(starting, status="EXITED", cost_per_hr=None)], "k")
 row = S.list_sessions()[0]
 assert row["ended_at"] and datetime.fromisoformat(row["ended_at"]) >= before - timedelta(seconds=2), row
 
@@ -176,9 +178,9 @@ assert row["ended_at"] and datetime.fromisoformat(row["ended_at"]) >= before - t
 w = A.pod_registry.create_pod({"kind": "comfyui", "url": "https://stk-8188.proxy.runpod.net", "name": "stk",
                                "enabled": True, "note": "runpod:stk", "runpod_tier": "image"})
 terminated = []
-A.runpod_api.get_runpod_info = lambda url: {"status": "STARTING", "last_started_at": None}
-A.runpod_api.create_pod = lambda name, tier, env, entrypoint: ({"id": "stk2"}, None)
-A.runpod_api.terminate_pod = lambda rp: terminated.append(rp)
+A.runpod_api.get_runpod_info = lambda url, key: {"status": "STARTING", "last_started_at": None}
+A.runpod_api.create_pod = lambda name, tier, env, entrypoint, key: ({"id": "stk2"}, None)
+A.runpod_api.terminate_pod = lambda rp, key: terminated.append(rp)
 A.driver_for = lambda pod: type("D", (), {"health": staticmethod(lambda p, t=None: {"ok": False})})
 A._log_runpod_sessions_quietly = lambda: None
 A.ensure_runtime = lambda pod: None

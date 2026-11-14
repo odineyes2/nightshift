@@ -22,7 +22,7 @@ import urllib.parse
 import urllib.request
 
 from comfy_outputs import OutputSyncError, sync_outputs
-from runpod_api import extract_pod_id, get_runpod_info, proxy_links
+from runpod_api import extract_pod_id, get_runpod_info, key_for_owner, proxy_links
 
 from .base import PodDriver
 
@@ -201,7 +201,7 @@ class ComfyUIDriver(PodDriver):
                 pass
 
         pod_url = pod.get("url") or health.get("url") or ""
-        runpod_info = get_runpod_info(pod_url)
+        runpod_info = get_runpod_info(pod_url, key_for_owner(pod.get("owner_id")))   # 워커 주인의 RunPod 계정
         if runpod_info:
             card["runpod"] = {k: v for k, v in runpod_info.items() if k != "ports"}
         card["links"] = _web_links(pod_url, runpod_info)

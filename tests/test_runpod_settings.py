@@ -56,7 +56,11 @@ class RunPodSettingsTests(unittest.TestCase):
         self.assertEqual(self.member.get(path).status_code, 403)
         self.assertEqual(self.member.put(path, json={}, headers=self.headers).status_code, 403)
         self.assertEqual(self.member.get(path + "/catalog").status_code, 403)
-        self.assertEqual(self.member.get("/api/runpod/tiers").status_code, 403)
+        # 등급 카드는 회원 누구나 본다(자기 RunPod 계정에 파드를 만든다) — 자기 키가 없으면 api_key=False(관리자 키를 빌려 주지 않는다)
+        member_tiers = self.member.get("/api/runpod/tiers")
+        self.assertEqual(member_tiers.status_code, 200, member_tiers.text)
+        self.assertFalse(member_tiers.json()["api_key"])
+        self.assertEqual(self.member.post("/api/pods/runpod-create", json={"tier": "image"}, headers=self.headers).status_code, 400)
         baseline = self.admin.get(path).json()["families"]
         self.assertFalse(baseline["image"]["configured"])
         self.assertEqual(baseline["image"]["gpus"], R.RUNPOD_TIERS["image"]["gpus"])
@@ -118,11 +122,11 @@ class RunPodSettingsTests(unittest.TestCase):
         self.assertIsNone(missing.json()["gpus"][0]["communityPrice"])
         seen = []
         error = "HTTP 400: There are no longer any instances available with the requested specifications."
-        def fake_rest(method, path, timeout=0, body=None):
+        def fake_rest(method, path, timeout=0, body=None, *, key):
             seen.append(body)
             return None, error
         with patch.object(R, "_rest", fake_rest):
-            pod, reason = R.create_pod("test", "image")
+            pod, reason = R.create_pod("test", "image", key="k")
         self.assertIsNone(pod)
         self.assertIn("재고 없음", reason)
         self.assertEqual([item["gpu"]["id"] for item in seen], ["Custom A", "Custom B"] * 2)
@@ -138,11 +142,11 @@ class RunPodSettingsTests(unittest.TestCase):
         self.assertEqual(response.json()["families"]["image"]["clouds"], saved["image"]["clouds"])
         self.assertEqual(self.admin.get(path).json()["families"]["image"]["clouds"], saved["image"]["clouds"])
         seen = []
-        def fake_rest(method, path, timeout=0, body=None):
+        def fake_rest(method, path, timeout=0, body=None, *, key):
             seen.append(body["cloud"])
             return None, "HTTP 400: There are no longer any instances available with the requested specifications."
         with patch.object(R, "_rest", fake_rest):
-            pod, _reason = R.create_pod("test", "image")
+            pod, _reason = R.create_pod("test", "image", key="k")
         self.assertIsNone(pod)
         self.assertEqual(seen, ["COMMUNITY", "COMMUNITY", "SECURE", "SECURE"])
 

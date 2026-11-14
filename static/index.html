@@ -310,7 +310,7 @@
   <div class="card-canvas" id="dash-canvas"></div>
   <div class="empty" id="dash-empty" style="display:none;">등록된 워커가 없어요</div>
 
-  <!-- 내 RunPod 대시보드 — 구동 중인 파드·네트워크 볼륨·남은 충전 금액·최근 불러온 일시(관리자만, 08-pods.js).
+  <!-- 내 RunPod 대시보드 — 구동 중인 파드·네트워크 볼륨·남은 충전 금액·최근 불러온 일시(회원마다 계정 설정의 RunPod 키, 08-pods.js).
        볼륨은 파드를 지워도 남아 매달 요금이 나가서, 보고 안 쓰는 것을 여기서 지운다. -->
   <section class="panel rp-dash" id="rp-dash" style="display:none;">
     <div class="panel-header">
@@ -1805,7 +1805,7 @@
         <label class="field-label" for="account-new-password2">새 비밀번호 확인</label>
         <input type="password" class="option-input" id="account-new-password2" autocomplete="new-password" style="max-width:100%;">
       </div>
-      <div class="email-hint" style="margin-top:16px;">개인 API 키 — 지금은 저장만 해 두고, 실제로 쓰는 기능은 나중에 붙어요.</div>
+      <div class="email-hint" style="margin-top:16px;">개인 API 키 — RUNPOD_API_KEY를 넣으면 워커 탭에서 내 RunPod 계정으로 파드를 만들고 켜고 끌 수 있어요(요금은 그 계정으로 나가요). 키는 본인만 봐요.</div>
       <div class="field">
         <label class="field-label" for="account-civitai-token">CIVITAI_TOKEN</label>
         <div class="account-secret-input">

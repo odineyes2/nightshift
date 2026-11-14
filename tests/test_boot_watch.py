@@ -23,17 +23,17 @@ created, terminated = [], []
 n = [0]
 
 
-def fake_create(name, tier, env, entrypoint):
+def fake_create(name, tier, env, entrypoint, key=""):
     n[0] += 1
     created.append(name)
     return {"id": f"new{n[0]}"}, None
 
 
 A.runpod_api.RUNPOD_API_KEY = "x"
-A.runpod_api.get_runpod_info = lambda url: {"status": "RUNNING", "last_started_at": "2026-10-01 00:00:00.000 +0000 UTC",
+A.runpod_api.get_runpod_info = lambda url, key: {"status": "RUNNING", "last_started_at": "2026-10-01 00:00:00.000 +0000 UTC",
                                              "pod_name": "someone-else", "gpu_type": "NVIDIA RTX A4000"}
 A.runpod_api.create_pod = fake_create
-A.runpod_api.terminate_pod = lambda rp: terminated.append(rp)
+A.runpod_api.terminate_pod = lambda rp, key: terminated.append(rp)
 A.driver_for = lambda pod: type("D", (), {"health": staticmethod(
     lambda p, t=None: {"ok": A.runpod_api.extract_pod_id(p["url"]) in healthy})})
 A._log_runpod_sessions_quietly = lambda: None

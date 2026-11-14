@@ -86,8 +86,8 @@ function fmtDiskSize(n){
   return gb >= 1 ? `${gb.toFixed(1)}GB` : `${(n / (1024 ** 2)).toFixed(0)}MB`;
 }
 
-// RunPod API가 붙어 있는 파드(url이 RunPod 프록시 주소이고 서버에 RUNPOD_API_KEY가
-// 설정된 경우)라면 card.runpod에 이름/GPU/비용/일시가 실려 온다. 하나도 없으면(키
+// RunPod API가 붙어 있는 파드(url이 RunPod 프록시 주소이고 워커 주인이 계정 설정에 RUNPOD_API_KEY를
+// 넣은 경우 — 관리자는 서버 .env 키로도)라면 card.runpod에 이름/GPU/비용/일시가 실려 온다. 하나도 없으면(키
 // 미설정 등) 조용히 빈 줄을 돌려준다 — 카드에 그 부분만 안 보이면 될 뿐.
 function renderRunpodLine(info){
   if(!info) return '';
@@ -104,7 +104,7 @@ function renderRunpodLine(info){
 // 워커를 켜고 끄는 것은 세 가지이고 서로 다른 차원이라, 헷갈리지 않게 설정 창 한곳(renderPodControls)에서만 바꾼다.
 //   워커 사용   — nightshift가 이 워커로 새 작업을 보낼지(pod.enabled). 설정·기록은 남는다.
 //   작업 처리   — 이 워커가 대기 작업을 차례로 처리할지(auto_run). 멈추면 실행 중인 작업도 중단된다.
-//   RunPod 전원 — RunPod 파드 자체를 켜고 끈다(과금). 관리자에게만, RunPod 상태를 아는 워커에만.
+//   RunPod 전원 — RunPod 파드 자체를 켜고 끈다(워커 주인의 RunPod 계정으로 과금). 워커 주인(과 끄기는 관리자)에게만, RunPod 상태를 아는 워커에만.
 // 카드에는 버튼 없이 상태만 보여 주고, 누르면 설정 창이 열린다.
 // RunPod 전원은 누른 뒤 상태가 실제로 바뀔 때까지(요청 몇 초 + 정보 갱신) "켜는 중…/끄는 중…"으로 붙잡아 둔다 —
 // 4초마다 다시 그리면서 스위치가 원래대로 돌아가 "눌렸나?"가 되지 않게.
@@ -116,13 +116,17 @@ const runpodPowerPending = {};
 const RUNPOD_TIER_LABEL = { image: '이미지용', video: '영상용' };
 function managedRunpodTier(podId){ const w = podsById[podId] || {}; return RUNPOD_TIER_LABEL[w.runpod_tier] ? w.runpod_tier : null; }
 
+// 워커 주인의 RunPod 계정으로 켜고 끈다 — 주인이면 켜기·끄기, 관리자는 남의 워커를 볼 수 있어 상태를 보이고(켜기는 서버가 막는다).
+function ownsPod(p){ return !!currentUser && (p.owner_id === currentUser.id || (podsById[p.id] || {}).owner_id === currentUser.id); }
+function canRunpodPower(p){ return isAdminUser() || ownsPod(p); }
+
 function runpodPowerState(p){
   const rp = p.card && p.card.runpod;
   const tier = managedRunpodTier(p.id);
   const noPod = tier && !((podsById[p.id] || {}).url);
   const pending = runpodPowerPending[p.id];
   if(pending && ((rp && rp.status === pending.target) || (pending.target === 'TERMINATED' && noPod) || Date.now() > pending.until)) delete runpodPowerPending[p.id];
-  if(!isAdminUser()) return null;
+  if(!canRunpodPower(p)) return null;
   if(runpodPowerPending[p.id]){
     const starting = runpodPowerPending[p.id].action === 'start';
     return { on: starting, busy: true, label: starting ? (tier ? '새 파드를 만드는 중… (재고를 찾느라 1분, ComfyUI까지 1~3분)' : '켜는 중… (1~3분 뒤 ComfyUI가 떠요)')
@@ -332,7 +336,7 @@ function renderBootLine(p){
   if(!boot) return '';
   if(boot.failed){
     return `<span class="dash-boot failed">부팅 실패 — ComfyUI가 끝내 뜨지 않아 파드를 지웠어요</span>
-      ${isAdminUser() ? `<button type="button" class="load-btn" data-pod-reboot="${escapeHtml(p.id)}">다시 만들기</button>` : ''}`;
+      ${ownsPod(p) ? `<button type="button" class="load-btn" data-pod-reboot="${escapeHtml(p.id)}">다시 만들기</button>` : ''}`;
   }
   const min = Math.max(0, Math.floor((Date.now() - new Date(boot.since).getTime()) / 60000));
   return `<span class="dash-boot">켠 지 ${min}분 — ComfyUI가 아직 응답하지 않아요${boot.retry ? ' (다시 만든 파드)' : ''}</span>`;
@@ -501,7 +505,7 @@ function cancelPodLongPress(){
 async function deletePodWithConfirm(podId){
   const pod = podsById[podId] || {};
   const name = pod.name || podId;
-  const isRunpod = /^https:\/\/[a-z0-9]+-\d+\.proxy\.runpod\.net/i.test(pod.url || '') && isAdminUser();
+  const isRunpod = /^https:\/\/[a-z0-9]+-\d+\.proxy\.runpod\.net/i.test(pod.url || '');
   let terminate = false;
   if(isRunpod){
     terminate = confirm(`'${name}' 워커와 RunPod 파드를 함께 지울까요?\n파드 안의 모델·파일이 모두 지워지고 요금도 멈춰요(되돌릴 수 없어요).\n\n취소하면 "워커만 지우기"를 물어봐요.`);
@@ -681,7 +685,7 @@ function openPodEditModal(podId){
 
 // ---- 워커 추가 = RunPod 파드 만들기(#12) ----
 // 등급(이미지용·영상용) 카드를 누르면 서버가 RunPod에 파드를 만들고 워커에 바로 연결한다(POST /api/pods/runpod-create).
-// 관리자가 아니거나 RunPod 키가 없으면 만들 수 없으니 곧장 주소 입력(고급)을 펼친다.
+// 파드는 그 회원의 RunPod 계정에 만든다 — 계정 설정에 RUNPOD_API_KEY가 없으면 만들 수 없으니 곧장 주소 입력(고급)을 펼친다.
 async function renderPodCreateTiers(){
   const box = document.getElementById('pod-create-tiers');
   const statusEl = document.getElementById('pod-create-status');
@@ -689,11 +693,9 @@ async function renderPodCreateTiers(){
   statusEl.classList.remove('error');
   box.innerHTML = '<div class="comfy-model-empty">불러오는 중…</div>';
   let data = null;
-  if(isAdminUser()){
-    try{ const res = await fetch('/api/runpod/tiers'); if(res.ok) data = await res.json(); }catch(e){ /* 아래에서 */ }
-  }
+  try{ const res = await fetch('/api/runpod/tiers'); if(res.ok) data = await res.json(); }catch(e){ /* 아래에서 */ }
   if(!data || !data.api_key){
-    box.innerHTML = `<div class="comfy-model-empty">${isAdminUser() ? 'RUNPOD_API_KEY가 없어 파드를 만들 수 없어요.' : 'RunPod 파드 만들기는 관리자만 할 수 있어요.'} 아래 주소로 연결해 주세요.</div>`;
+    box.innerHTML = `<div class="comfy-model-empty">RunPod 파드를 만들려면 오른쪽 위 계정 설정에 내 RunPod 계정의 RUNPOD_API_KEY를 넣어 주세요(요금은 그 계정으로 나가요). 지금은 아래 주소로 연결할 수 있어요.</div>`;
     document.getElementById('pod-edit-modal').classList.add('manual-open');
     return;
   }
@@ -870,7 +872,7 @@ document.getElementById('pod-edit-delete').addEventListener('click', async () =>
   deletePodWithConfirm(id);   // 카드 길게 누르기와 같은 확인(RunPod 파드도 지울지 포함)
 });
 
-// ---- 내 RunPod 대시보드(워커 탭 아래, 관리자만, NS-31) ----
+// ---- 내 RunPod 대시보드(워커 탭 아래, 회원마다 자기 RunPod 계정, NS-31) ----
 // /api/runpod/dashboard가 파드·볼륨·잔액을 따로 돌려준다. 실패한 항목은 "조회하지 못했어요"만 띄우고 직전에 받은 값은
 // 그대로 둔다(빈 목록·0달러로 바꾸지 않는다). "최근 불러온 일시"는 셋 다 성공했을 때만 바뀐다. 값은 이 페이지에만 둔다.
 // 볼륨은 쓰는 파드가 없는 것만 지울 수 있다 — 되돌릴 수 없으니 볼륨 이름을 그대로 입력해야 지운다(서버도 다시 본다).
@@ -917,8 +919,8 @@ function renderRunpodDashboard(data){
 
 async function fetchRunpodDashboard(){
   const box = document.getElementById('rp-dash');
-  box.style.display = isAdminUser() ? '' : 'none';
-  if(!isAdminUser() || rpDash.busy) return;   // 조회 중에 또 누르면 무시한다
+  box.style.display = currentUser ? '' : 'none';   // 회원마다 자기 RunPod 계정(계정 설정의 키)
+  if(!currentUser || rpDash.busy) return;   // 조회 중에 또 누르면 무시한다
   rpDash.busy = true;
   const btn = document.getElementById('rp-dash-refresh');
   const errorEl = document.getElementById('rp-dash-error');

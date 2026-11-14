@@ -662,7 +662,8 @@ async def create_job(
         if pod is None:
             raise RuntimeError("워커 없음")
         info = await asyncio.wait_for(
-            asyncio.to_thread(runpod_api.get_runpod_info, pod.get("url") or ""), timeout=3)
+            asyncio.to_thread(runpod_api.get_runpod_info, pod.get("url") or "", runpod_api.key_for_owner(pod.get("owner_id"))),
+            timeout=3)
         if info:
             pod_gpu = info.get("gpu_type")
             cost = info.get("cost_per_hr")

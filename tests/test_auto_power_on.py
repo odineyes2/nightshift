@@ -21,7 +21,7 @@ import auto_power_settings as S  # noqa: E402
 created, fail = [], {"err": None}
 
 
-def fake_create(name, tier, env, entrypoint):
+def fake_create(name, tier, env, entrypoint, key=""):
     if fail["err"]:
         return None, fail["err"]
     created.append((name, tier))
@@ -30,8 +30,8 @@ def fake_create(name, tier, env, entrypoint):
 
 A.runpod_api.RUNPOD_API_KEY = "x"
 A.runpod_api.create_pod = fake_create
-A.runpod_api.terminate_pod = lambda rp: None
-A.runpod_api.get_runpod_info = lambda url: {}
+A.runpod_api.terminate_pod = lambda rp, key: None
+A.runpod_api.get_runpod_info = lambda url, key: {}
 A._log_runpod_sessions_quietly = lambda: None
 A.ensure_runtime = lambda pod: None
 A.poke_scheduler = lambda: None

@@ -28,6 +28,18 @@ def _require_public_pod_url(url: str, kind: str | None) -> None:
         raise HTTPException(400, str(e))
 
 
+def _pod_key(pod: dict) -> str:
+    """그 워커 주인의 RunPod 키 — RunPod 호출은 언제나 워커 주인의 계정으로 한다(runpod_api.key_for_owner)."""
+    return runpod_api.key_for_owner(pod.get("owner_id"))
+
+
+def _require_runpod_key(user: dict) -> str:
+    key = runpod_api.key_for_owner(user["id"])
+    if not key:
+        raise HTTPException(400, "RunPod API 키가 없어요 — 오른쪽 위 계정 설정에 RUNPOD_API_KEY를 넣어 주세요.")
+    return key
+
+
 def _user_kinds(user: dict) -> list[dict]:
     """이 회원이 만들 수 있는 파드 종류 — 셸(서버에서 명령 실행)과 Claude 글쓰기(관리자 키 사용)는 관리자만."""
     kinds = driver_kinds()
@@ -96,14 +108,14 @@ async def update_pod_api(pod_id: str, request: Request):
 
 @app.get("/api/runpod/tiers")
 def runpod_tiers_api(request: Request):
-    """워커 추가 창의 등급 카드(이미지용·영상용) — 이름·VRAM·예상 가격·GPU 후보."""
-    admin_only(request)
+    """워커 추가 창의 등급 카드(이미지용·영상용) — 이름·VRAM·예상 가격·GPU 후보. api_key는 그 회원의 RunPod 키가 있는지."""
+    user = me(request)
     from runpod_settings import effective
 
     return {"tiers": [{"id": k, **{f: v[f] for f in ("label", "vram", "price_hint")},
                        "gpus": runpod_api.usable_gpus(k), "clouds": effective(k)["clouds"],
                        "configured": effective(k)["configured"]} for k, v in runpod_api.RUNPOD_TIERS.items()],
-            "api_key": bool(runpod_api.RUNPOD_API_KEY)}
+            "api_key": bool(runpod_api.key_for_owner(user["id"]))}
 
 
 @app.get("/api/settings/runpod-gpus")
@@ -134,7 +146,7 @@ async def put_runpod_gpu_settings(request: Request):
 def get_runpod_gpu_catalog(request: Request):
     """GPU 종류를 조회하고 조회 실패 시 로컬 후보를 제공한다."""
     admin_only(request)
-    gpus, error = runpod_api.gpu_catalog()
+    gpus, error = runpod_api.gpu_catalog(runpod_api.admin_key())
     return {"gpus": gpus, "error": error, "excluded_gpus": sorted(runpod_api.excluded_gpus())}
 
 
@@ -164,8 +176,10 @@ def bootstrap_script_api(pod_id: str, token: str):
 @app.post("/api/pods/runpod-create")
 async def runpod_create_worker_api(request: Request):
     """워커 추가 = RunPod 파드 만들기(#12). 워커 기록을 먼저(꺼진 채, 주소 없이) 만들고, 그 이름으로 RunPod에 파드를
-    만든 뒤 주소를 이어 켠다. 모델 자동 설치·결과 가져오기는 켠 채로. RunPod가 거절하면 워커 기록도 지운다."""
-    user = admin_only(request)
+    만든 뒤 주소를 이어 켠다. 모델 자동 설치·결과 가져오기는 켠 채로. RunPod가 거절하면 워커 기록도 지운다.
+    파드는 요청한 회원의 RunPod 계정(계정 설정의 키)에 만든다 — 그 회원이 과금된다."""
+    user = me(request)
+    _require_runpod_key(user)
     body = await read_json_object(request, allow_empty=False)
     tier = str(body.get("tier") or "")
     if tier not in runpod_api.RUNPOD_TIERS:
@@ -189,7 +203,7 @@ def _attach_new_runpod(base: str | None, worker: dict, tier: str):
     if base:
         env = {"NIGHTSHIFT_BOOTSTRAP": f"{base}/api/bootstrap/{worker['id']}/{model_download.bootstrap_token(worker['id'])}"}
         entrypoint = model_download.BOOTSTRAP_ENTRYPOINT
-    created, err = runpod_api.create_pod(f"nightshift-{worker['id']}", tier, env, entrypoint)
+    created, err = runpod_api.create_pod(f"nightshift-{worker['id']}", tier, env, entrypoint, key=_pod_key(worker))
     if err:
         return None, None, err
     pod = pod_registry.update_pod(worker["id"], {"url": f"https://{created['id']}-8188.proxy.runpod.net",
@@ -217,7 +231,7 @@ def _managed_runpod_tier(pod: dict) -> str | None:
     tier = pod.get("runpod_tier")
     if tier in runpod_api.RUNPOD_TIERS:
         return tier
-    info = runpod_api.get_runpod_info(pod.get("url") or "") or {}
+    info = runpod_api.get_runpod_info(pod.get("url") or "", _pod_key(pod)) or {}
     if info.get("pod_name") != f"nightshift-{pod['id']}":
         return None
     tier = _tier_from_gpu(info.get("gpu_type") or "")
@@ -250,9 +264,8 @@ def delete_pod_api(pod_id: str, request: Request, terminate_runpod: bool = False
     if terminate_runpod:
         rpid = runpod_api.extract_pod_id(target.get("url") or "")
         if rpid:
-            if not auth.is_admin(user):
-                raise HTTPException(403, "RunPod 파드는 관리자만 지울 수 있어요.")
-            err = runpod_api.terminate_pod(rpid)
+            # 지우기는 요금을 멈추는 쪽이라 워커 주인과 관리자 모두 할 수 있다. 키는 언제나 워커 주인의 것.
+            err = runpod_api.terminate_pod(rpid, _pod_key(target))
             if err and "HTTP 404" not in err:   # 이미 없는 파드면 워커만 지운다
                 raise HTTPException(UPSTREAM_ERROR, f"RunPod 파드를 지우지 못해 워커도 그대로 뒀어요 — {err}")
             threading.Thread(target=_log_runpod_sessions_quietly, daemon=True).start()   # 지운 파드의 세션을 닫는다(NS-2)
@@ -442,12 +455,17 @@ def _try_power_lock(pod_id: str) -> threading.Lock | None:
 async def runpod_power(pod_id: str, action: str, request: Request):
     """파드 카드의 "RunPod 켜기/끄기" — 그 파드 주소에 박힌 RunPod pod를 RunPod API로 켜고 끈 뒤,
     파드 목록을 RunPod와 맞춘다(runpod_sync — 자동 등록 파드의 사용 여부·사용 내역 기록).
-    돈이 드는 동작이라 관리자만. 끌 때는 그 파드에서 도는 작업이 있으면 막는다(작업이 중간에 죽으므로).
+    워커 주인의 RunPod 계정(계정 설정의 키)으로 한다. 켜기는 돈이 드니 워커 주인만, 끄기는 요금을 멈추는 쪽이라 관리자도.
+    끌 때는 그 파드에서 도는 작업이 있으면 막는다(작업이 중간에 죽으므로).
     워커마다 한 번에 하나만 — 이미 켜거나 끄는 중이면 409(NS-21)."""
-    user = admin_only(request)
+    user = me(request)
     if action not in runpod_api.POD_ACTIONS:
         raise HTTPException(404, "알 수 없는 동작이에요.")
-    pod_or_404(user, pod_id)
+    target = pod_or_404(user, pod_id)
+    if action == "start" and target.get("owner_id") != user["id"]:
+        raise HTTPException(403, "다른 회원의 워커는 켤 수 없어요(그 회원의 RunPod 계정으로 과금돼요).")
+    if not _pod_key(target):
+        raise HTTPException(400, "이 워커 주인의 RunPod API 키가 없어요 — 계정 설정에 RUNPOD_API_KEY를 넣어 주세요.")
     lock = _try_power_lock(pod_id)
     if lock is None:
         raise HTTPException(409, "이 워커는 이미 켜거나 끄는 중이에요. 잠시 뒤 다시 확인해 주세요.")
@@ -468,14 +486,15 @@ async def _runpod_power_locked(user: dict, pod_id: str, action: str, request: Re
         return await _managed_runpod_power(request, pod, rp_id, action, tier)
     if not rp_id:
         raise HTTPException(400, "RunPod 파드 주소가 아니에요(https://{POD_ID}-{PORT}.proxy.runpod.net).")
-    status, error = await asyncio.to_thread(runpod_api.pod_action, rp_id, action)
+    status, error = await asyncio.to_thread(runpod_api.pod_action, rp_id, action, _pod_key(pod))
     if error:
         raise HTTPException(UPSTREAM_ERROR, error)
     if action == "start" and not pod.get("enabled"):
         # 사람이 일부러 켠 파드는 nightshift에서도 쓰는 게 당연하다(자동 등록 파드는 아래 동기화가 켠다).
         pod_registry.update_pod(pod_id, {"enabled": True})
     try:
-        await asyncio.to_thread(runpod_sync.sync_runpod_pods, user["id"], False, ensure_runtime, _pod_has_running_job)
+        if pod.get("owner_id") is not None:   # 워커 주인의 계정·워커로 맞춘다
+            await asyncio.to_thread(runpod_sync.sync_runpod_pods, pod["owner_id"], False, ensure_runtime, _pod_has_running_job)
     except Exception:
         logging.getLogger("uvicorn.error").exception("RunPod 켜기/끄기 뒤 동기화 실패")
     with _pod_card_lock:
@@ -491,7 +510,7 @@ async def _managed_runpod_power(request: Request, pod: dict, rp_id: str | None, 
     켜기=같은 등급으로 새 파드를 만들어 붙이기. 모델은 작업이 오면 자동 설치로 다시 받는다."""
     pod_id = pod["id"]
     if rp_id:   # 켤 때 옛 파드가 남아 있으면(예전 방식으로 꺼 둔 것) 먼저 지운다
-        err = await asyncio.to_thread(runpod_api.terminate_pod, rp_id)
+        err = await asyncio.to_thread(runpod_api.terminate_pod, rp_id, _pod_key(pod))
         if err and "HTTP 404" not in err:
             raise HTTPException(UPSTREAM_ERROR, f"RunPod 파드를 지우지 못했어요 — {err}")
     if action == "stop":
@@ -515,10 +534,10 @@ async def _managed_runpod_power(request: Request, pod: dict, rp_id: str | None, 
 
 @app.get("/api/runpod/network-volumes")
 async def runpod_network_volumes_api(request: Request):
-    """워커 탭의 "RunPod 네트워크 볼륨" — 계정의 볼륨과, 그 볼륨을 붙여 쓰는 RunPod 파드 이름(관리자만)."""
-    admin_only(request)
-    (vols, err), (pods, _) = await asyncio.gather(asyncio.to_thread(runpod_api.list_network_volumes),
-                                                    asyncio.to_thread(runpod_api.list_runpod_pods_verbose))
+    """워커 탭의 "RunPod 네트워크 볼륨" — 그 회원 RunPod 계정의 볼륨과, 그 볼륨을 붙여 쓰는 RunPod 파드 이름."""
+    key = runpod_api.key_for_owner(me(request)["id"])
+    (vols, err), (pods, _) = await asyncio.gather(asyncio.to_thread(runpod_api.list_network_volumes, key),
+                                                    asyncio.to_thread(runpod_api.list_runpod_pods_verbose, key))
     if err:
         raise HTTPException(UPSTREAM_ERROR, err)
     for v in vols:
@@ -528,14 +547,14 @@ async def runpod_network_volumes_api(request: Request):
 
 @app.get("/api/runpod/dashboard")
 async def runpod_dashboard_api(request: Request):
-    """워커 탭 "내 Runpod 대시보드"(NS-31, 관리자만) — 구동 중인 파드·네트워크 볼륨·남은 충전 금액을 따로따로 조회한다.
+    """워커 탭 "내 Runpod 대시보드"(NS-31, 그 회원의 RunPod 계정) — 구동 중인 파드·네트워크 볼륨·남은 충전 금액을 따로따로 조회한다.
     하나가 실패해도 나머지는 보여 주고, 실패한 항목은 error만 채운다(빈 목록·0달러로 바꾸지 않는다).
     fetched_at은 셋 다 성공했을 때만 채운다. 조회만 한다 — 워커 자동 등록·세션 기록·파드 켜기는 하지 않는다.
     "구동 중"은 runpod_api.is_on(status) — PROVISIONING·STARTING·RUNNING(과금 중)."""
-    admin_only(request)
+    key = runpod_api.key_for_owner(me(request)["id"])
     (pods, pods_err), (vols, vols_err), (bal, bal_err) = await asyncio.gather(
-        asyncio.to_thread(runpod_api.list_runpod_pods_verbose), asyncio.to_thread(runpod_api.list_network_volumes),
-        asyncio.to_thread(runpod_api.get_client_balance))
+        asyncio.to_thread(runpod_api.list_runpod_pods_verbose, key), asyncio.to_thread(runpod_api.list_network_volumes, key),
+        asyncio.to_thread(runpod_api.get_client_balance, key))
     now = datetime.now(timezone.utc).isoformat()
     if vols is not None:
         for v in vols:   # 파드 목록을 못 받았으면 None — "붙인 파드 없음"과 구별한다
@@ -544,7 +563,7 @@ async def runpod_dashboard_api(request: Request):
         {k: p.get(k) for k in ("id", "name", "status", "image", "cost_per_hr", "last_started_at", "network_volume_id")}
         for p in pods if runpod_api.is_on(p.get("status"))]
     part = lambda err, **kw: {**kw, "error": err, "fetched_at": None if err else now}
-    return {"api_key": bool(runpod_api.RUNPOD_API_KEY),
+    return {"api_key": bool(key),
             "pods": part(pods_err, items=running),
             "volumes": part(vols_err, items=vols, usd_per_gb_month=runpod_api.NETWORK_VOLUME_USD_PER_GB_MONTH),
             "balance": part(bal_err, usd=bal),
@@ -554,9 +573,9 @@ async def runpod_dashboard_api(request: Request):
 @app.delete("/api/runpod/network-volumes/{volume_id}")
 async def delete_runpod_network_volume_api(volume_id: str, request: Request):
     """볼륨 지우기 — 되돌릴 수 없어서 본문의 confirm_name이 볼륨 이름과 똑같아야 하고, 붙여 쓰는 파드가 있으면 거절한다."""
-    admin_only(request)
+    key = _require_runpod_key(me(request))
     body = await read_json_object(request, allow_empty=False)
-    vols, err = await asyncio.to_thread(runpod_api.list_network_volumes)
+    vols, err = await asyncio.to_thread(runpod_api.list_network_volumes, key)
     if err:
         raise HTTPException(UPSTREAM_ERROR, err)
     vol = next((v for v in vols if v["id"] == volume_id), None)
@@ -564,13 +583,13 @@ async def delete_runpod_network_volume_api(volume_id: str, request: Request):
         raise HTTPException(404, "없는 볼륨이에요(이미 지워졌을 수 있어요).")
     if str(body.get("confirm_name") or "") != vol["name"]:
         raise HTTPException(400, "확인용 이름이 볼륨 이름과 달라요.")
-    pods, pods_err = await asyncio.to_thread(runpod_api.list_runpod_pods_verbose)
+    pods, pods_err = await asyncio.to_thread(runpod_api.list_runpod_pods_verbose, key)
     if pods_err:
         raise HTTPException(UPSTREAM_ERROR, f"이 볼륨을 쓰는 파드가 있는지 확인하지 못해 지우지 않았어요 — {pods_err}")
     users = [p["name"] or p["id"] for p in pods if p.get("network_volume_id") == volume_id]
     if users:
         raise HTTPException(409, f"이 볼륨을 쓰는 파드가 있어요({', '.join(users)}) — 파드를 먼저 지워 주세요.")
-    err = await asyncio.to_thread(runpod_api.delete_network_volume, volume_id)
+    err = await asyncio.to_thread(runpod_api.delete_network_volume, volume_id, key)
     if err:
         raise HTTPException(UPSTREAM_ERROR, err)
     return {"ok": True, "id": volume_id}
@@ -580,10 +599,9 @@ async def delete_runpod_network_volume_api(volume_id: str, request: Request):
 async def test_pod_runpod_api(pod_id: str, request: Request):
     """카드에 뜨는 RunPod 메타데이터(card()의 get_runpod_info())는 실패를 전부 조용히
     삼키므로, "왜 안 뜨는지"를 직접 확인하고 싶을 때 이 엔드포인트로 캐시 없이 다시
-    조회해 실패 이유(HTTP 코드/응답 본문/키 미설정 등)를 그대로 돌려준다. 관리자의 RunPod 키로 조회하므로 관리자만."""
-    admin_only(request)
+    조회해 실패 이유(HTTP 코드/응답 본문/키 미설정 등)를 그대로 돌려준다. 워커 주인의 RunPod 키로 조회한다."""
     pod = pod_or_404(me(request), pod_id)
-    return await asyncio.to_thread(runpod_api.debug_probe, pod.get("url") or "")
+    return await asyncio.to_thread(runpod_api.debug_probe, pod.get("url") or "", _pod_key(pod))
 
 
 def _pod_has_running_job(pod_id: str) -> bool:
@@ -596,9 +614,9 @@ def _pod_has_running_job(pod_id: str) -> bool:
 @app.post("/api/pods/sync-runpod")
 async def sync_runpod_pods_api(request: Request):
     """RunPod에서 RUNNING인 ComfyUI pod를 찾아 파드 목록에 자동으로 등록/정리한다
-    (runpod_sync.py). "사람 대신 도는 자동화"라 소유자를 호출한 관리자로 고정하고,
-    셸 파드처럼 관리자만 쓸 수 있다."""
-    user = admin_only(request)
+    (runpod_sync.py). 부른 회원의 RunPod 계정을 보고, 등록하는 워커의 주인도 그 회원이다."""
+    user = me(request)
+    _require_runpod_key(user)
     body = await read_json_object(request, allow_empty=True)
     result = await asyncio.to_thread(
         runpod_sync.sync_runpod_pods, user["id"], bool(body.get("dry_run")),
@@ -674,12 +692,12 @@ def _power_off_runpod_worker(pod: dict) -> str | None:
     if not rp_id:
         return "RunPod 파드 주소가 아니에요."
     if _managed_runpod_tier(pod):
-        err = runpod_api.terminate_pod(rp_id)
+        err = runpod_api.terminate_pod(rp_id, _pod_key(pod))
         if err and "HTTP 404" not in err:
             return err
         pod_registry.update_pod(pod["id"], {"url": "", "enabled": False, "note": "runpod:off"})
     else:
-        _status, err = runpod_api.pod_action(rp_id, "stop")
+        _status, err = runpod_api.pod_action(rp_id, "stop", _pod_key(pod))
         if err:
             return err
     with _pod_card_lock:
@@ -700,13 +718,16 @@ def _auto_power_off_check(now: datetime | None = None) -> list[str]:
     for pod in pod_registry.list_pods(pod_registry.ALL):
         if not pod.get("auto_power_off") or not runpod_api.extract_pod_id(pod.get("url") or ""):
             continue
-        info = runpod_api.get_runpod_info(pod["url"]) or {}
+        info = runpod_api.get_runpod_info(pod["url"], _pod_key(pod)) or {}
         if not runpod_api.is_on(info.get("status")):
             continue
         with lock:
             mine = [j for j in jobs.values() if not j.get("deleted") and j.get("pod_id") == pod["id"]]
-            busy = any(j["status"] in ("running", "queued") for j in mine) or any(
-                j["status"] == "queued" and not j.get("pod_id") and not j.get("deleted") for j in jobs.values())
+            unassigned = [j for j in jobs.values() if j["status"] == "queued" and not j.get("pod_id") and not j.get("deleted")]
+        # 아직 워커가 안 정해진 작업은 이 워커에서 돌 수 있는 것만 센다(다른 회원 작업 때문에 내 파드가 안 꺼지면 안 된다).
+        busy = any(j["status"] in ("running", "queued") for j in mine) or any(
+            pod.get("owner_id") in service_tokens.pod_owner_ids_for_job(j.get("owner_id")) for j in unassigned)
+        with lock:
             finished = [j.get("finished_at") for j in mine if j["status"] in ("done", "failed", "interrupted") and j.get("finished_at")]
         if busy or not finished:
             continue
@@ -750,7 +771,7 @@ def _boot_watch_check(now: datetime | None = None) -> dict[str, str]:
         tier = _managed_runpod_tier(pod) if rp_id else None
         if not tier:
             continue
-        info = runpod_api.get_runpod_info(pod["url"]) or {}
+        info = runpod_api.get_runpod_info(pod["url"], _pod_key(pod)) or {}
         if not runpod_api.is_on(info.get("status")):
             continue
         started = runpod_sessions._parse_runpod_dt(info.get("last_started_at")) or pod.get("updated_at")   # 모르면 파드를 붙인 시각
@@ -768,7 +789,7 @@ def _boot_watch_check(now: datetime | None = None) -> dict[str, str]:
         if used or driver_for(pod).health(pod, COMFY_CHECK_TIMEOUT_INTERACTIVE)["ok"]:
             continue
         runpod_api.mark_bad_gpu(info.get("gpu_type"))   # 재생성이 같은 GPU에 또 배정되지 않게(NS-74)
-        err = runpod_api.terminate_pod(rp_id)
+        err = runpod_api.terminate_pod(rp_id, _pod_key(pod))
         if err and "HTTP 404" not in err:
             log.warning("부팅 감시 — 워커 %s의 파드 %s를 지우지 못했어요: %s", pod["id"], rp_id, err)
             continue

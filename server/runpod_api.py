@@ -5,10 +5,13 @@ RunPod API로 파드 메타데이터를 보충한다 — 이름(nightshift가 �
 카드에 얹기 위한 것뿐이라, 실패해도 카드 자체엔 영향이 없어야 한다 — 그래서 이
 모듈의 모든 함수는 조회에 실패하면 예외를 삼키고 None/빈 dict를 돌려준다.
 
-## 켜는 법
+## 키는 회원마다
 
-RUNPOD_API_KEY 환경변수가 없으면 이 기능은 통째로 꺼진다(조용히 None). RunPod
-콘솔(Settings → API Keys)에서 발급받아 .env에 넣으면 된다.
+RunPod 호출은 그 파드(워커) 주인의 RunPod 계정으로 한다 — 회원이 계정 설정에 넣은
+runpod_api_key(`key_for_owner`). 관리자는 그 칸이 비어 있으면 .env의 RUNPOD_API_KEY를 쓴다.
+일반 회원에게는 .env 키로 대신 내주지 않는다(남의 계정으로 과금되면 안 되므로). 키가 없으면 그
+회원의 RunPod 기능은 꺼진다(조용히 None). 모든 호출 함수는 `key`를 인자로 받는다 — 전역 키로
+몰래 떨어지는 길을 두지 않으려고.
 
 ## pod id를 어디서 얻는가
 
@@ -45,7 +48,7 @@ import urllib.request
 import re
 import runpod_settings
 
-RUNPOD_API_KEY = (os.environ.get("RUNPOD_API_KEY") or "").strip()
+RUNPOD_API_KEY = (os.environ.get("RUNPOD_API_KEY") or "").strip()   # 관리자용 기본 키(key_for_owner만 쓴다)
 RUNPOD_API_BASE = "https://api.runpod.io/v2"
 RUNPOD_GRAPHQL_URL = "https://api.runpod.io/graphql"
 
@@ -73,6 +76,30 @@ CACHE_TTL_SEC = 120
 _cache: dict[str, dict] = {}
 
 _PROXY_HOST_RE = re.compile(r"^([a-z0-9]+)-\d+\.proxy\.runpod\.net$")
+
+
+def key_for_owner(owner_id) -> str:
+    """그 회원의 RunPod API 키 — 계정 설정의 runpod_api_key. 관리자(또는 주인 없음 = 관리자 것)는 비어 있으면
+    .env의 RUNPOD_API_KEY. 일반 회원은 자기 키가 없으면 ""(RunPod 기능 꺼짐). 활성 회원이 아니면 ""."""
+    import db
+    if owner_id is None:
+        return RUNPOD_API_KEY
+    with db.read() as conn:
+        row = conn.execute("SELECT role, status, runpod_api_key FROM users WHERE id=?", (owner_id,)).fetchone()
+    if row is None or row["status"] != "active":
+        return ""
+    own = (row["runpod_api_key"] or "").strip()
+    if own:
+        return own
+    return RUNPOD_API_KEY if row["role"] == "admin" else ""
+
+
+def admin_key() -> str:
+    """관리자 계정의 RunPod 키(사용 내역 기록·GPU 목록처럼 관리자 화면에 묶인 일)."""
+    import db
+    with db.read() as conn:
+        row = conn.execute("SELECT id FROM users WHERE role='admin' AND status='active' ORDER BY id LIMIT 1").fetchone()
+    return key_for_owner(row["id"]) if row else RUNPOD_API_KEY
 
 
 def extract_pod_id(url: str) -> str | None:
@@ -129,8 +156,8 @@ def _pod_from_v2(p: dict) -> dict:
     }
 
 
-def _fetch_pod_raw(pod_id: str) -> dict | None:
-    raw, err = _rest("GET", f"/pods/{urllib.parse.quote(pod_id, safe='')}")
+def _fetch_pod_raw(pod_id: str, key: str) -> dict | None:
+    raw, err = _rest("GET", f"/pods/{urllib.parse.quote(pod_id, safe='')}", key=key)
     return raw if not err and isinstance(raw, dict) else None
 
 
@@ -138,7 +165,7 @@ LIST_PAGE_LIMIT = 1000
 LIST_MAX_PAGES = 20   # 커서가 끝나지 않는 이상 응답에 묶이지 않게
 
 
-def list_runpod_pods_verbose() -> tuple[list[dict] | None, str | None]:
+def list_runpod_pods_verbose(key: str) -> tuple[list[dict] | None, str | None]:
     """계정의 모든 pod를 훑어 (정규화된 목록, None) 또는 (None, 에러 문구)를 돌려준다 —
     runpod_sync.py(자동 등록)가 "실패 이유를 사람이 알 수 있어야" 해서 get_runpod_info와
     달리 에러를 삼키지 않는다. v2 응답은 `{"pods": [...], "pagination": {"nextCursor", "hasNextPage"}}`라
@@ -146,7 +173,7 @@ def list_runpod_pods_verbose() -> tuple[list[dict] | None, str | None]:
     pods, cursor = [], None
     for _ in range(LIST_MAX_PAGES):
         query = {"limit": LIST_PAGE_LIMIT, **({"cursor": cursor} if cursor else {})}
-        raw, err = _rest("GET", "/pods?" + urllib.parse.urlencode(query))
+        raw, err = _rest("GET", "/pods?" + urllib.parse.urlencode(query), key=key)
         if err:
             return None, err
         if not isinstance(raw, dict) or not isinstance(raw.get("pods"), list):
@@ -166,11 +193,14 @@ def list_runpod_pods_verbose() -> tuple[list[dict] | None, str | None]:
 NETWORK_VOLUME_USD_PER_GB_MONTH = 0.07
 
 
-def _rest(method: str, path: str, timeout: float = REQUEST_TIMEOUT_SEC, body: dict | None = None):
+NO_KEY_ERROR = "RunPod API 키가 없어요 — 계정 설정에 RUNPOD_API_KEY를 넣어 주세요."
+
+
+def _rest(method: str, path: str, timeout: float = REQUEST_TIMEOUT_SEC, body: dict | None = None, *, key: str):
     """(응답 JSON 또는 None, None) 또는 (None, 에러 문구). 에러 문구에 원 응답은 넣지 않는다(비밀값이 섞일 수 있어서)."""
-    if not RUNPOD_API_KEY:
-        return None, "RUNPOD_API_KEY가 설정되지 않았어요."
-    headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}", "User-Agent": RUNPOD_USER_AGENT, "Accept": "application/json"}
+    if not key:
+        return None, NO_KEY_ERROR
+    headers = {"Authorization": f"Bearer {key}", "User-Agent": RUNPOD_USER_AGENT, "Accept": "application/json"}
     data = None
     if body is not None:
         data = json.dumps(body).encode("utf-8")
@@ -196,8 +226,8 @@ def _rest(method: str, path: str, timeout: float = REQUEST_TIMEOUT_SEC, body: di
         return None, f"RunPod에 요청하지 못했어요: {type(e).__name__}."
 
 
-def list_network_volumes() -> tuple[list[dict] | None, str | None]:
-    raw, err = _rest("GET", "/network-volumes")
+def list_network_volumes(key: str) -> tuple[list[dict] | None, str | None]:
+    raw, err = _rest("GET", "/network-volumes", key=key)
     if err:
         return None, err
     if not isinstance(raw, dict) or not isinstance(raw.get("networkVolumes"), list):
@@ -218,13 +248,13 @@ def list_network_volumes() -> tuple[list[dict] | None, str | None]:
 _BALANCE_QUERY = "query { myself { clientBalance } }"
 
 
-def get_client_balance() -> tuple[float | None, str | None]:
+def get_client_balance(key: str) -> tuple[float | None, str | None]:
     """(남은 충전 금액 USD, None) 또는 (None, 에러 문구). 0달러는 성공이다 — 실패를 0으로 바꾸지 않는다."""
-    if not RUNPOD_API_KEY:
-        return None, "RUNPOD_API_KEY가 설정되지 않았어요."
+    if not key:
+        return None, NO_KEY_ERROR
     req = urllib.request.Request(
         RUNPOD_GRAPHQL_URL, data=json.dumps({"query": _BALANCE_QUERY}).encode("utf-8"), method="POST",
-        headers={"Authorization": f"Bearer {RUNPOD_API_KEY}", "Content-Type": "application/json",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                  "User-Agent": RUNPOD_USER_AGENT, "Accept": "application/json"},
     )
     try:
@@ -243,9 +273,9 @@ def get_client_balance() -> tuple[float | None, str | None]:
     return float(bal), None
 
 
-def delete_network_volume(volume_id: str) -> str | None:
+def delete_network_volume(volume_id: str, key: str) -> str | None:
     """지우고 None, 실패하면 에러 문구. 되돌릴 수 없다 — 확인은 부르는 쪽(API)이 한다."""
-    _body, err = _rest("DELETE", f"/network-volumes/{urllib.parse.quote(volume_id, safe='')}", timeout=30)
+    _body, err = _rest("DELETE", f"/network-volumes/{urllib.parse.quote(volume_id, safe='')}", timeout=30, key=key)
     return err
 
 
@@ -299,16 +329,16 @@ def usable_gpus(tier: str) -> list[str]:
     return [g for g in spec.get("gpus", []) if g not in bad]
 
 
-def gpu_catalog() -> tuple[list[dict], str | None]:
+def gpu_catalog(key: str) -> tuple[list[dict], str | None]:
     """RunPod의 GPU 종류를 조회한다. 실패하면 기본·저장 후보를 표시한다."""
     query = "query GpuTypes { gpuTypes { id displayName memoryInGb secureCloud communityCloud securePrice communityPrice } }"
     items, error = [], None
-    if not RUNPOD_API_KEY:
+    if not key:
         error = "RunPod API 키가 없어 기본·저장 후보를 표시해요."
     else:
         request = urllib.request.Request(
             RUNPOD_GRAPHQL_URL, data=json.dumps({"query": query}).encode("utf-8"),
-            headers={"Authorization": f"Bearer {RUNPOD_API_KEY}", "Content-Type": "application/json",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                      "User-Agent": RUNPOD_USER_AGENT, "Accept": "application/json"}, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SEC) as response:
@@ -351,12 +381,15 @@ def mark_bad_gpu(name: str | None) -> None:
     os.replace(tmp, path)
 
 
-def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[str] | None = None) -> tuple[dict | None, str | None]:
+def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[str] | None = None, *,
+               key: str) -> tuple[dict | None, str | None]:
     """등급(tier)대로 RunPod 파드를 만든다. ({id, name, gpu, cost_per_hr, data_center, cloud}, None) 또는 (None, 이유).
     응답의 env(비밀값)는 버린다."""
     spec = RUNPOD_TIERS.get(tier)
     if spec is None:
         return None, "알 수 없는 등급이에요."
+    if not key:
+        return None, NO_KEY_ERROR
     # v2는 gpu.id 하나만 받고 다른 GPU로 대체하지 않으므로 단계마다 후보를 하나씩 요청한다(실패 요청은 과금되지 않는다).
     # 400(자리 없음)·403(그 풀 권한 없음)·5xx는 다음 후보로, 401(키)·402(잔액)·422(요청 형식)·429(요청 제한)는
     # 어디서 해도 똑같이 실패하니 바로 멈춘다.
@@ -379,7 +412,7 @@ def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[s
                 # 이미지의 ENTRYPOINT를 바꾼다(CMD가 아니라 — runpod/comfyui는 CMD가 없다). v2는 최상위 entrypoint 배열이고,
                 # args는 문자열(CMD)이다 — {"args": {"entrypoint": …}}로 보내면 422로 만들기가 전부 막혔다(2026-10-07).
                 body["entrypoint"] = entrypoint
-            raw, err = _rest("POST", "/pods", timeout=60, body=body)
+            raw, err = _rest("POST", "/pods", timeout=60, body=body, key=key)
             if err:
                 errors.append(f"{cloud}{'·' + dcs[0] if dcs else ''}·{gpu_id}: {err}")
                 if "HTTP 400" in err and "no longer any instances" in err.lower():
@@ -399,20 +432,20 @@ def create_pod(name: str, tier: str, env: dict | None = None, entrypoint: list[s
     return None, "파드를 만들지 못했어요 — " + " / ".join(errors)
 
 
-def terminate_pod(pod_id: str) -> str | None:
+def terminate_pod(pod_id: str, key: str) -> str | None:
     """RunPod 파드를 지운다(terminate — 디스크까지). 되돌릴 수 없다. 실패하면 이유, 성공하면 None."""
     _cache.pop(pod_id, None)
-    _body, err = _rest("DELETE", f"/pods/{urllib.parse.quote(pod_id, safe='')}", timeout=30)
+    _body, err = _rest("DELETE", f"/pods/{urllib.parse.quote(pod_id, safe='')}", timeout=30, key=key)
     return err
 
 
-def list_runpod_pods() -> list[dict] | None:
+def list_runpod_pods(key: str) -> list[dict] | None:
     """list_runpod_pods_verbose()의 목록만(에러 문구 없이) 돌려준다 — 실패하면 None."""
-    pods, _error = list_runpod_pods_verbose()
+    pods, _error = list_runpod_pods_verbose(key)
     return pods
 
 
-def _fetch_gpu_display_name(pod_id: str) -> str | None:
+def _fetch_gpu_display_name(pod_id: str, key: str) -> str | None:
     """REST의 machine이 비어 있을 때 레거시 GraphQL API로 GPU 모델명만 보충한다.
     이 호출 하나가 실패해도(네트워크/스키마 변경 등) 조용히 None — 호출부가 REST
     쪽 데이터는 그대로 쓸 수 있어야 하므로.
@@ -420,6 +453,8 @@ def _fetch_gpu_display_name(pod_id: str) -> str | None:
     키는 쿼리스트링이 아니라 Authorization 헤더로 보낸다 — URL에 실으면 프록시/
     접속 로그에 평문으로 남을 수 있다(RunPod GraphQL 공식 문서가 권장하는 방식이
     Authorization: Bearer 헤더다. 쿼리스트링 api_key는 예전 예제에서만 보이는 방식)."""
+    if not key:
+        return None
     body = json.dumps({
         "query": _GPU_DISPLAY_NAME_QUERY,
         "variables": {"podId": pod_id},
@@ -428,7 +463,7 @@ def _fetch_gpu_display_name(pod_id: str) -> str | None:
         RUNPOD_GRAPHQL_URL,
         data=body,
         headers={
-            "Authorization": f"Bearer {RUNPOD_API_KEY}",
+            "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
             "User-Agent": RUNPOD_USER_AGENT,
             "Accept": "application/json",
@@ -450,9 +485,9 @@ def _fetch_gpu_display_name(pod_id: str) -> str | None:
 _gpu_type_cache: dict[str, str] = {}
 
 
-def get_gpu_type_cached(pod_id: str) -> str | None:
+def get_gpu_type_cached(pod_id: str, key: str) -> str | None:
     if pod_id not in _gpu_type_cache:
-        _gpu_type_cache[pod_id] = _fetch_gpu_display_name(pod_id) or ""
+        _gpu_type_cache[pod_id] = _fetch_gpu_display_name(pod_id, key) or ""
     return _gpu_type_cache[pod_id] or None
 
 
@@ -474,7 +509,7 @@ PROXY_LINK_PORTS = [("8188", "comfyui", "ComfyUI"), ("8888", "jupyter", "Jupyter
 POD_ACTIONS = ("start", "stop")
 
 
-def pod_action(pod_id: str, action: str) -> tuple[str | None, str | None]:
+def pod_action(pod_id: str, action: str, key: str) -> tuple[str | None, str | None]:
     """RunPod 파드를 켜거나(start) 끈다(stop) — v2 `POST /pods/{id}/action` {"action": ...}.
     (목표 상태 "RUNNING"/"EXITED", None) 또는 (None, 에러 문구). v2 응답 status는 STARTING일 수 있지만 화면은
     v1처럼 목표 상태를 기대하므로 그것을 돌려주고, env(비밀값)가 든 응답 본문은 버린다. 실패 문구는 RunPod가 준
@@ -482,7 +517,8 @@ def pod_action(pod_id: str, action: str) -> tuple[str | None, str | None]:
     if action not in POD_ACTIONS:
         return None, "알 수 없는 동작이에요."
     _cache.pop(pod_id, None)   # 켜고 끈 직후 카드가 옛 상태를 보여주지 않게
-    _body, err = _rest("POST", f"/pods/{urllib.parse.quote(pod_id, safe='')}/action", timeout=30, body={"action": action})
+    _body, err = _rest("POST", f"/pods/{urllib.parse.quote(pod_id, safe='')}/action", timeout=30, body={"action": action},
+                       key=key)
     if err:
         return None, err
     return ("RUNNING" if action == "start" else "EXITED"), None
@@ -495,7 +531,7 @@ def proxy_links(pod_id: str, ports: list[str]) -> list[dict]:
             for port, kind, label in PROXY_LINK_PORTS if port in open_http]
 
 
-def debug_probe(url: str) -> dict:
+def debug_probe(url: str, key: str) -> dict:
     """진단 전용 — 캐시를 타지 않고 매번 새로 조회하며, get_runpod_info()와 달리
     실패 이유를 삼키지 않고 그대로 드러낸다(HTTP 상태 코드, 응답 본문, 키 미설정,
     주소 형식 불일치 등). "카드에 정보가 안 뜨는데 왜 안 뜨는지 직접 확인하고
@@ -503,11 +539,11 @@ def debug_probe(url: str) -> dict:
     pod_id = extract_pod_id(url)
     result: dict = {
         "url": url,
-        "api_key_set": bool(RUNPOD_API_KEY),
+        "api_key_set": bool(key),
         "extracted_pod_id": pod_id,
     }
-    if not RUNPOD_API_KEY:
-        result["error"] = "RUNPOD_API_KEY가 설정되지 않았어요."
+    if not key:
+        result["error"] = NO_KEY_ERROR
         return result
     if not pod_id:
         result["error"] = (
@@ -519,7 +555,7 @@ def debug_probe(url: str) -> dict:
     req = urllib.request.Request(
         f"{RUNPOD_API_BASE}/pods/{pod_id}",
         headers={
-            "Authorization": f"Bearer {RUNPOD_API_KEY}",
+            "Authorization": f"Bearer {key}",
             "User-Agent": RUNPOD_USER_AGENT,
             "Accept": "application/json",
         },
@@ -542,7 +578,7 @@ def debug_probe(url: str) -> dict:
             result["raw_response"] = raw
             normalized = _normalize(raw)
             if not normalized.get("gpu_type"):
-                gpu = _fetch_gpu_display_name(pod_id)
+                gpu = _fetch_gpu_display_name(pod_id, key)
                 result["graphql_gpu_type"] = gpu   # REST에 없어서 시도한 결과 — None이면 그것도 실패
                 if gpu:
                     normalized["gpu_type"] = gpu
@@ -561,11 +597,11 @@ def debug_probe(url: str) -> dict:
     return result
 
 
-def get_runpod_info(url: str) -> dict | None:
-    """url이 RunPod 프록시 주소이고 RUNPOD_API_KEY가 설정돼 있으면 그 파드의 RunPod
+def get_runpod_info(url: str, key: str) -> dict | None:
+    """url이 RunPod 프록시 주소이고 키(그 워커 주인의 것)가 있으면 그 파드의 RunPod
     메타데이터를, 아니면 None을 돌려준다. 실패(키 없음/네트워크/파싱)는 전부 조용히
     None으로 처리한다 — 이 조회 하나가 실패했다고 카드 전체가 안 뜨면 안 되므로."""
-    if not RUNPOD_API_KEY:
+    if not key:
         return None
     pod_id = extract_pod_id(url)
     if not pod_id:
@@ -576,15 +612,15 @@ def get_runpod_info(url: str) -> dict | None:
     if cached and now - cached["at"] < CACHE_TTL_SEC:
         return cached["data"] or None
 
-    raw = _fetch_pod_raw(pod_id)
+    raw = _fetch_pod_raw(pod_id, key)
     data = _normalize(raw) if raw else None
     if data is not None and not data.get("gpu_type"):
-        gpu = _fetch_gpu_display_name(pod_id)
+        gpu = _fetch_gpu_display_name(pod_id, key)
         if gpu:
             data["gpu_type"] = gpu
     _cache[pod_id] = {"data": data, "at": now}
     return data
 
 
-__all__ = ["get_runpod_info", "debug_probe", "extract_pod_id", "proxy_links", "pod_action", "RUNPOD_API_KEY",
+__all__ = ["get_runpod_info", "debug_probe", "extract_pod_id", "proxy_links", "pod_action", "key_for_owner", "admin_key",
            "list_runpod_pods", "list_runpod_pods_verbose", "get_gpu_type_cached", "is_on"]

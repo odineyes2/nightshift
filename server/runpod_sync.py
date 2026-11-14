@@ -19,6 +19,12 @@ nightshift 파드의 url이 RunPod 프록시 주소(https://{POD_ID}-{PORT}.prox
 않는다**(enabled만 내린다). url이 빈 파드(기본 파드 등)는 extract_pod_id가 None을
 돌려주므로 매칭 대상에서 자연히 빠진다.
 
+## 회원마다
+
+동기화는 그 회원(owner_id)의 RunPod 키(runpod_api.key_for_owner)로 그 회원 계정의 pod만 보고,
+짝짓기·끄기도 그 회원의 워커 안에서만 한다 — 다른 회원의 워커를 건드리지 않게. 사용 내역(DB 탭)은
+관리자 계정의 것만 기록한다(runpod_sessions 표에 주인 칸이 없고, close_missing이 계정 하나를 전제로 한다).
+
 ## 동시성
 
 pod_registry._lock(재진입 가능한 RLock)을 "매칭 확인 → 생성/수정" 전체에 걸쳐 잡고
@@ -51,7 +57,8 @@ def sync_runpod_pods(owner_id: int, dry_run: bool, ensure_runtime_fn, job_has_ru
     result: dict = {"dry_run": dry_run, "runpod_ok": True, "error": None,
                      "added": [], "reenabled": [], "disabled": [], "unchanged": [], "skipped": []}
 
-    pods, error = runpod_api.list_runpod_pods_verbose()
+    key = runpod_api.key_for_owner(owner_id)
+    pods, error = runpod_api.list_runpod_pods_verbose(key)
     if error:
         result["runpod_ok"] = False
         result["error"] = error
@@ -63,7 +70,7 @@ def sync_runpod_pods(owner_id: int, dry_run: bool, ensure_runtime_fn, job_has_ru
     }
 
     with pod_registry._lock:
-        existing = pod_registry.list_pods(pod_registry.ALL)
+        existing = pod_registry.list_pods(owner_id)
         existing_by_runpod_id = {}
         for p in existing:
             if p.get("kind") != pod_registry.DEFAULT_KIND:
@@ -114,8 +121,8 @@ def sync_runpod_pods(owner_id: int, dry_run: bool, ensure_runtime_fn, job_has_ru
         # 무관하게 RunPod 계정에 있는 pod 전부를 대상으로 한다 — "얼마나 썼나" 기록이
         # 목적이라 ComfyUI 포트 유무와 상관없이 완전하게 남겨야 한다. dry_run이면(아무것도
         # 안 바꾸는 게 정의) 이것도 건너뛴다.
-        if not dry_run:
-            _log_sessions(pods)
+        if not dry_run and key == runpod_api.admin_key():
+            _log_sessions(pods, key)
 
     log.info("runpod 동기화%s: added=%d reenabled=%d disabled=%d unchanged=%d skipped=%d",
               " (dry_run)" if dry_run else "", len(result["added"]), len(result["reenabled"]),
@@ -133,10 +140,10 @@ def worker_names_by_runpod_id() -> dict[str, str]:
     return out
 
 
-def _log_sessions(pods: list[dict]) -> None:
+def _log_sessions(pods: list[dict], key: str) -> None:
     names = worker_names_by_runpod_id()
     for p in pods:
-        gpu_type = runpod_api.get_gpu_type_cached(p["id"]) or ""
+        gpu_type = runpod_api.get_gpu_type_cached(p["id"], key) or ""
         runpod_sessions.sync_pod_session(
             p["id"], p["name"], gpu_type, p.get("cost_per_hr"), runpod_api.is_on(p["status"]),
             p.get("last_started_at"), p.get("last_status_change"), worker_name=names.get(p["id"]))
@@ -144,12 +151,15 @@ def _log_sessions(pods: list[dict]) -> None:
 
 
 def log_runpod_sessions() -> str | None:
-    """사용 내역(DB 탭)만 맞춘다 — 워커 등록·켜기/끄기는 건드리지 않는다(NS-2). RunPod 목록 GET 한 번.
+    """관리자 RunPod 계정의 사용 내역(DB 탭)만 맞춘다 — 워커 등록·켜기/끄기는 건드리지 않는다(NS-2). RunPod 목록 GET 한 번.
     주기 루프(RUNPOD_SESSION_LOG_SEC)와 파드 만들기·지우기 직후에 부른다. 실패하면 에러 문구."""
-    pods, error = runpod_api.list_runpod_pods_verbose()
+    key = runpod_api.admin_key()
+    if not key:
+        return None   # 관리자 키가 없으면 기록할 계정도 없다
+    pods, error = runpod_api.list_runpod_pods_verbose(key)
     if error:
         return error
-    _log_sessions(pods)
+    _log_sessions(pods, key)
     return None
 
 

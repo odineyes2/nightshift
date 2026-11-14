@@ -21,7 +21,7 @@ from fastapi import HTTPException  # noqa: E402
 created, terminated, notes = [], [], []
 
 
-def fake_create(name, tier, env, entrypoint):
+def fake_create(name, tier, env, entrypoint, key=""):
     notes.append(A.pod_registry.get_pod(name.split("-", 1)[1])["note"])
     time.sleep(1)
     created.append(name)
@@ -30,16 +30,18 @@ def fake_create(name, tier, env, entrypoint):
 
 A.runpod_api.RUNPOD_API_KEY = "x"
 A.runpod_api.create_pod = fake_create
-A.runpod_api.terminate_pod = lambda rp: terminated.append(rp)
+A.runpod_api.terminate_pod = lambda rp, key: terminated.append(rp)
 A._log_runpod_sessions_quietly = lambda: None
 A.ensure_runtime = lambda pod: None
 A.poke_scheduler = lambda: None
-A.admin_only = lambda request: {"id": "admin", "role": "admin"}
+ADMIN = {"id": A.auth.admin_id(), "role": "admin"}
+A.admin_only = lambda request: ADMIN
+A.me = lambda request: ADMIN
 A.pod_or_404 = lambda user, pod_id: A.pod_registry.get_pod(pod_id)
 A._public_base_url = lambda request: None
 
 w = A.pod_registry.create_pod({"kind": "comfyui", "url": "", "name": "w", "enabled": False,
-                               "note": "runpod:off", "runpod_tier": "image"})
+                               "note": "runpod:off", "runpod_tier": "image", "owner_id": ADMIN["id"]})
 
 
 async def call(action):
