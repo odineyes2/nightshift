@@ -321,7 +321,7 @@ function videoGalleryItemHtml(vid, index){
           <input type="checkbox" ${selected ? 'checked' : ''}>
         </label>
         <div class="vgallery-item-thumb">${blur ? blurOverlay : ''}${thumb}</div>
-        <div class="vgallery-details-col name" title="${escapeHtml(vid.name)}">${vid.favorite ? '<svg class="ico fav"><use href="#i-star"/></svg> ' : ''}${vid.nsfw ? '<svg class="ico nsfw"><use href="#i-flame"/></svg> ' : ''}${escapeHtml(vid.name)}</div>
+        <div class="vgallery-details-col name" title="${escapeHtml(vid.name)}">${vid.favorite ? '<svg class="ico fav"><use href="#i-star"/></svg> ' : ''}${vid.nsfw ? '<svg class="ico nsfw"><use href="#i-flame"/></svg> ' : ''}${escapeHtml(vid.name)}${galleryProvenanceHtml(vid)}</div>
         <div class="vgallery-details-col job" title="${escapeHtml(jobLabel)}">${escapeHtml(jobLabel)}</div>
         <div class="vgallery-details-col dur">${meta ? fmtDuration(meta.duration) : '…'}</div>
         <div class="vgallery-details-col dim">${meta ? (meta.width && meta.height ? `${meta.width}×${meta.height}` : '-') : '…'}</div>
@@ -340,6 +340,7 @@ function videoGalleryItemHtml(vid, index){
       ${blur ? blurOverlay : ''}
       <div class="vgallery-item-media">${thumb}</div>
       <div class="vgallery-item-play"><svg class="ico"><use href="#i-play"/></svg></div>
+      ${galleryProvenanceHtml(vid)}
       <div class="vgallery-item-name">${escapeHtml(vid.name)}</div>
     </div>
   `;
@@ -515,6 +516,7 @@ document.querySelectorAll('#video-gallery-view-toggle .enhance-mode-btn').forEac
 // 처음 들어오거나 범위가 바뀌면 받는 동안 스켈레톤을 깐다(fetchGalleryImages와 같은 규칙).
 let videoGalleryShownScope = null;
 async function fetchGalleryVideos(){
+  void syncGalleryAdminFilters();
   const grid = document.getElementById('video-gallery-grid');
   const scope = JSON.stringify([videoGalleryPodFilter, videoGalleryProjectFilter, galleryFilterQs(videoGalleryFilters), videoGalleryDisplayMode]);
   const cancelSkeleton = scope === videoGalleryShownScope ? () => {}

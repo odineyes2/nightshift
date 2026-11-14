@@ -121,19 +121,39 @@ def list_output_images_meta(user: dict) -> list[dict]:
     return items
 
 
+def _gallery_admin_filters(user, owner, source):
+    """회원의 관리자용 조건은 무시하고, 관리자 조건만 검증한다."""
+    if not auth.is_admin(user):
+        return auth.owner_scope(user), None
+    if source not in (None, "", "paid", "member_gpu", "via"):
+        raise HTTPException(400, "올바르지 않은 만든 곳이에요.")
+    if owner in (None, ""):
+        owner_id = None
+    elif owner == "me":
+        owner_id = user["id"]
+    elif owner.isascii() and owner.isdecimal() and len(owner) <= 19 and 0 < int(owner) <= 9223372036854775807:
+        owner_id = int(owner)
+    else:
+        raise HTTPException(400, "올바르지 않은 주인이에요.")
+    return owner_id, source or None
+
+
 @app.get("/api/output-images")
 def list_output_images_api(request: Request, q: str | None = None, tag: str | None = None,
                            favorite: bool | None = None, min_rating: int | None = None,
-                           model: str | None = None, hide_nsfw: bool = False):
+                           model: str | None = None, hide_nsfw: bool = False,
+                           owner: str | None = None, source: str | None = None):
     # 갤러리가 4초마다 부르는 곳 — 색인(assets)이 디스크와 어긋나지 않게 짧은 간격
     # 안에서는 건너뛰는 sync를 같이 돌린다(회전/삭제/직접 넣은 파일이 여기서 따라잡힌다).
     # q(프롬프트·메모·태그·파일명·체크포인트·시드)/tag(쉼표로 여러 개, 모두 붙은 것)/favorite/
     # min_rating을 주면 그 조건에 맞는 것만 남긴다. hide_nsfw는 헤더의 NSFW 토글이 "숨김"일 때 붙는다.
     _sync_assets_quietly()
     user = me(request)
+    owner_id, source = _gallery_admin_filters(user, owner, source)
     items = list_output_images_meta(user)
     allowed = asset_meta.search_paths(q, _split_tags(tag), favorite, min_rating, kind="image",
-                                      owner_id=auth.owner_scope(user), model=model or None, hide_nsfw=hide_nsfw)
+                                      owner_id=owner_id, model=model or None, hide_nsfw=hide_nsfw,
+                                      source=source, admin_id=user["id"])
     if allowed is not None:
         items = [i for i in items if i["name"] in allowed]
     return {"images": items}

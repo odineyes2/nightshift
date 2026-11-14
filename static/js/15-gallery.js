@@ -251,7 +251,7 @@ function galleryItemHtml(img, index){
           ${blur ? blurOverlay : ''}
           <img ${thumbSrc} alt="${escapeHtml(img.name)}" loading="lazy">
         </div>
-        <div class="gallery-details-col name" title="${escapeHtml(img.name)}">${img.favorite ? '<svg class="ico fav"><use href="#i-star"/></svg> ' : ''}${img.nsfw ? '<svg class="ico nsfw"><use href="#i-flame"/></svg> ' : ''}${escapeHtml(img.name)}</div>
+        <div class="gallery-details-col name" title="${escapeHtml(img.name)}">${img.favorite ? '<svg class="ico fav"><use href="#i-star"/></svg> ' : ''}${img.nsfw ? '<svg class="ico nsfw"><use href="#i-flame"/></svg> ' : ''}${escapeHtml(img.name)}${galleryProvenanceHtml(img)}</div>
         <div class="gallery-details-col job" title="${escapeHtml(jobLabel)}">${escapeHtml(jobLabel)}</div>
         <div class="gallery-details-col dim">${dims}</div>
         <div class="gallery-details-col size">${fmtBytes(img.size)}</div>
@@ -269,6 +269,7 @@ function galleryItemHtml(img, index){
       ${img.nsfw ? `<span class="gallery-item-nsfw" title="NSFW로 표시됨">${ico('flame')}</span>` : ''}
       ${blur ? blurOverlay : ''}
       <img class="thumb-fade" ${thumbSrc} alt="${escapeHtml(img.name)}" loading="lazy">
+      ${galleryProvenanceHtml(img)}
       <div class="gallery-item-name">${escapeHtml(img.name)}</div>
     </div>
   `;
@@ -721,12 +722,12 @@ function updateVideoGalleryScopeUI(){
 // 통째로 다시 만들지 않는다 — 다시 만들면 <img>/<video> 썸네일이 전부 새로 만들어져 깜빡이고 네트워크도 매번 다시 쓴다.
 function gallerySignature(items, extra){
   return JSON.stringify([
-    items.map(i => [i.name, i.mtime, i.size, i.favorite, i.rating, i.nsfw, i.tags, i.project_id, i.owner_name, i.synced_pod_id, i.duration]),
+    items.map(i => [i.name, i.mtime, i.size, i.favorite, i.rating, i.nsfw, i.tags, i.project_id, i.owner_name, i.owner_id, i.billing, i.synced_pod_id, i.duration]),
     galleryJobLabels, extra,
     // 블러 모드에서는 썸네일 자체(<img src>가 있는지)가 nsfw 값과 렌더링 방식에 따라 달라지니,
     // 지금 모드도 서명에 넣는다 — 안 그러면 목록 내용은 그대로인데 토글만 바꿨을 때(예: 보기 -> 블러)
     // "바뀐 게 없다"고 오판해서 블러 처리를 건너뛴다.
-    nsfwMode,
+    nsfwMode, currentUser?.id, isAdminUser(),
   ]);
 }
 let lastImageGallerySig = '';
@@ -736,6 +737,7 @@ let lastVideoGallerySig = '';
 // 4초 폴링처럼 같은 범위를 다시 받을 때는 깔지 않는다.
 let galleryShownScope = null;
 async function fetchGalleryImages(){
+  void syncGalleryAdminFilters();
   const grid = document.getElementById('gallery-grid');
   const scope = JSON.stringify([galleryPodFilter, galleryProjectFilter, galleryFilterQs(galleryFilters), galleryDisplayMode]);
   const cancelSkeleton = scope === galleryShownScope ? () => {}

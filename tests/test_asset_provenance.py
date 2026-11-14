@@ -35,6 +35,75 @@ class ProvenanceTests(unittest.TestCase):
                 conn.execute("UPDATE users SET status='active', role=? WHERE id=?",
                              ('admin' if name == 'prov-admin' else 'user', user['id']))
 
+    def test_admin_gallery_filters(self):
+        admin, member, bot = (self.users[n] for n in ('prov-admin', 'prov-member', 'prov-bot'))
+        fixtures = {
+            'self': (admin, admin, 'member', None),
+            'paid': (member, admin, 'admin', bot),
+            'member': (member, member, 'member', None),
+            'via': (member, member, 'member', bot),
+            'unknown': (bot, None, None, None),
+        }
+        paths = []
+        for label, values in fixtures.items():
+            for ext in ('png', 'mp4'):
+                rel = f'filter-{label}/result.{ext}'
+                path = Path(A.OUTPUT_DIR) / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if ext == 'png':
+                    Image.new('RGB', (8, 8)).save(path)
+                else:
+                    path.write_bytes(b'fake video')
+                A.assets_index.register_upload(rel, values[0], None)
+                paths.append(rel)
+                with db.connect() as conn:
+                    conn.execute('UPDATE assets SET compute_owner_id=?, billing=?, via_service_id=? WHERE path=?',
+                                 (*values[1:], rel))
+        try:
+            for username in ('prov-admin', 'prov-member'):
+                client = TestClient(A.app)
+                self.addCleanup(client.close)
+                login = client.post('/api/auth/login', json=dict(zip(('username', 'password'), (username, login_secret))),
+                                    headers={'X-Requested-With': 'nightshift'})
+                self.assertEqual(login.status_code, 200, login.text)
+                for kind, ext in (('images', 'png'), ('videos', 'mp4')):
+                    def names(params):
+                        response = client.get('/api/output-' + kind, params=params)
+                        self.assertEqual(response.status_code, 200, response.text)
+                        items = response.json()[kind]
+                        for item in items:
+                            if username == 'prov-admin':
+                                self.assertTrue(set(FIELDS).issubset(item))
+                            else:
+                                self.assertTrue(set(FIELDS).isdisjoint(item))
+                                self.assertEqual(item['owner_id'], member)
+                        return {i['name'] for i in items}
+                    def expected(*labels):
+                        return {f'filter-{label}/result.{ext}' for label in labels}
+                    if username == 'prov-admin':
+                        self.assertEqual(names({}), expected(*fixtures))
+                        self.assertEqual(names({'owner': 'me'}), expected('self'))
+                        self.assertEqual(names({'owner': str(member)}), expected('paid', 'member', 'via'))
+                        self.assertEqual(names({'source': 'paid'}), expected('paid'))
+                        self.assertEqual(names({'source': 'member_gpu'}), expected('member', 'via'))
+                        self.assertEqual(names({'source': 'via'}), expected('paid', 'via'))
+                        self.assertEqual(names({'owner': 'me', 'source': 'paid'}), set())
+                        self.assertEqual(names({'owner': str(member), 'source': 'via'}), expected('paid', 'via'))
+                        self.assertEqual(names({'owner': '999999'}), set())
+                        for params in ({'source': 'invalid'}, {'owner': 'bad'}, {'owner': '0'},
+                                       {'owner': '-1'}, {'owner': '1.5'}, {'owner': '9' * 40}):
+                            response = client.get('/api/output-' + kind, params=params)
+                            self.assertEqual(response.status_code, 400, response.text)
+                    else:
+                        own = expected('paid', 'member', 'via')
+                        self.assertEqual(names({'owner': str(admin), 'source': 'paid'}), own)
+                        self.assertEqual(names({'owner': 'invalid', 'source': 'invalid'}), own)
+        finally:
+            with db.connect() as conn:
+                conn.executemany('DELETE FROM assets WHERE path=?', [(p,) for p in paths])
+            for rel in paths:
+                (Path(A.OUTPUT_DIR) / rel).unlink(missing_ok=True)
+
     def test_provenance_lifecycle_and_responses(self):
         admin, member, bot = (self.users[n] for n in ('prov-admin', 'prov-member', 'prov-bot'))
         jobs = {

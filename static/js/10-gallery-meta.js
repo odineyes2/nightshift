@@ -2,8 +2,51 @@
 // ---- 결과물 메타: 즐겨찾기·평점·태그·메모, 그리고 그걸로 하는 필터/검색 ----
 // 서버(asset_meta.py)가 결과물 색인(assets)에 저장하고, 갤러리 목록 항목에도 favorite/rating/tags가
 // 같이 온다. 식별은 갤러리가 다루는 이름(출력 폴더 기준 상대경로)이다.
-const galleryFilters = { q: '', favorite: false, tag: '', minRating: 0, model: '' };
-const videoGalleryFilters = { q: '', favorite: false, tag: '', minRating: 0, model: '' };
+const galleryFilters = { q: '', favorite: false, tag: '', minRating: 0, model: '', owner: '', source: '' };
+const videoGalleryFilters = { q: '', favorite: false, tag: '', minRating: 0, model: '', owner: '', source: '' };
+for(const [suffix, filters] of [['', galleryFilters], ['-video', videoGalleryFilters]]){
+  try{
+    const owner = localStorage.getItem('nightshift-gallery-owner' + suffix) || '';
+    const source = localStorage.getItem('nightshift-gallery-source' + suffix) || '';
+    filters.owner = /^(me|[1-9][0-9]{0,17})$/.test(owner) ? owner : '';
+    filters.source = ['paid', 'member_gpu', 'via'].includes(source) ? source : '';
+  }catch(e){ /* 기본값 유지 */ }
+}
+
+function galleryProvenanceHtml(item){
+  if(!isAdminUser()) return '';
+  const owner = item.owner_id != null && item.owner_id !== currentUser.id
+    ? `<span class="gallery-owner-badge">${escapeHtml(item.owner_name || `회원 ${item.owner_id}`)}</span>` : '';
+  const paid = item.billing === 'admin' ? '<span class="gallery-paid-badge">유료</span>' : '';
+  return owner || paid ? `<span class="gallery-provenance">${owner}${paid}</span>` : '';
+}
+
+let galleryUsersRequest = null;
+async function syncGalleryAdminFilters(){
+  const admin = isAdminUser();
+  document.querySelectorAll('.gf-admin').forEach(el => { el.hidden = !admin; });
+  for(const sync of Object.values(galleryFilterSyncs)) sync();
+  if(!admin) return;
+  if(!galleryUsersRequest){
+    galleryUsersRequest = fetch('/api/admin/users').then(async res => {
+      if(!res.ok) throw new Error('users');
+      return (await res.json()).users || [];
+    }).catch(() => { galleryUsersRequest = null; return null; });
+  }
+  const users = await galleryUsersRequest;
+  if(!users || !isAdminUser()) return;
+  for(const [prefix, filters] of [['image', galleryFilters], ['video', videoGalleryFilters]]){
+    const select = document.getElementById(`gf-${prefix}-owner`);
+    const html = '<option value="">주인: 전체</option><option value="me">내 것</option>'
+      + users.filter(u => u.id !== currentUser.id).map(u => `<option value="${u.id}">${escapeHtml(u.username)}</option>`).join('');
+    if(select.dataset.usersHtml !== html){ select.innerHTML = html; select.dataset.usersHtml = html; }
+    if(filters.owner && !Array.from(select.options).some(o => o.value === filters.owner)){
+      select.add(new Option(`회원 ${filters.owner}`, filters.owner));
+    }
+    select.value = filters.owner;
+  }
+}
+
 const AM_OPEN_KEY = 'nightshift-meta-open';
 let assetMetaOpen = false;
 try{ assetMetaOpen = localStorage.getItem(AM_OPEN_KEY) === '1'; }catch(e){ /* 기본값 유지 */ }
@@ -11,6 +54,10 @@ let allTagsCache = [];
 
 function galleryFilterQs(f){
   const p = new URLSearchParams();
+  if(isAdminUser()){
+    if(f.owner) p.set('owner', f.owner);
+    if(f.source) p.set('source', f.source);
+  }
   if(f.q.trim()) p.set('q', f.q.trim());
   if(f.favorite) p.set('favorite', 'true');
   if(f.tag) p.set('tag', f.tag);
@@ -20,7 +67,7 @@ function galleryFilterQs(f){
   const s = p.toString();
   return s ? `?${s}` : '';
 }
-function galleryFiltersActive(f){ return !!(f.q.trim() || f.favorite || f.tag || f.minRating || f.model); }
+function galleryFiltersActive(f){ return !!(f.q.trim() || f.favorite || f.tag || f.minRating || f.model || (isAdminUser() && (f.owner || f.source))); }
 
 function assetJson(url, body){
   return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -146,6 +193,18 @@ function setupGalleryFilters(prefix, filters, refetch){
   const rating = document.getElementById(`gf-${prefix}-rating`);
   const clear = document.getElementById(`gf-${prefix}-clear`);
   const modelChip = document.getElementById(`gf-${prefix}-model`);
+  const owner = document.getElementById(`gf-${prefix}-owner`);
+  const source = document.getElementById(`gf-${prefix}-source`);
+  const save = () => {
+    try{
+      const suffix = prefix === 'video' ? '-video' : '';
+      localStorage.setItem('nightshift-gallery-owner' + suffix, filters.owner);
+      localStorage.setItem('nightshift-gallery-source' + suffix, filters.source);
+    }catch(e){ /* 저장 불가여도 현재 선택 유지 */ }
+  };
+  owner.value = filters.owner; source.value = filters.source;
+  owner.addEventListener('change', () => { filters.owner = owner.value; save(); sync(); refetch(); });
+  source.addEventListener('change', () => { filters.source = source.value; save(); sync(); refetch(); });
   const sync = () => {
     clear.style.display = galleryFiltersActive(filters) ? '' : 'none';
     modelChip.hidden = !filters.model;
@@ -167,7 +226,8 @@ function setupGalleryFilters(prefix, filters, refetch){
   tag.addEventListener('change', () => { filters.tag = tag.value; sync(); refetch(); });
   rating.addEventListener('change', () => { filters.minRating = Number(rating.value) || 0; sync(); refetch(); });
   clear.addEventListener('click', () => {
-    Object.assign(filters, { q: '', favorite: false, tag: '', minRating: 0, model: '' });
+    Object.assign(filters, { q: '', favorite: false, tag: '', minRating: 0, model: '', owner: '', source: '' });
+    owner.value = ''; source.value = ''; save();
     q.value = ''; tag.value = ''; rating.value = '0';
     fav.classList.remove('on'); fav.setAttribute('aria-pressed', 'false');
     sync(); refetch();
