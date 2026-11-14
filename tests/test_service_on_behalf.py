@@ -1,4 +1,4 @@
-"""서비스 연동 계정이 회원 대신 보내는 요청(X-On-Behalf-Of) 검사 — 작업·결과물이 그 회원 소유가 되고, 관리자 파드에서 돌며,
+"""서비스 연동 계정이 회원 대신 보내는 요청(X-On-Behalf-Of) 검사 — 작업·결과물이 그 회원 소유가 되고, 그 회원 파드에서만 돌며,
 "<서비스> 삽화" 프로젝트에 모인다. 가짜 데이터만 쓴다. 실행: python tests/test_service_on_behalf.py"""
 import asyncio
 import os
@@ -69,7 +69,7 @@ class OnBehalfTests(unittest.TestCase):
         me = member.get("/api/auth/me", headers={"X-On-Behalf-Of": str(self.admin_id)}).json()["user"]
         self.assertEqual(me["id"], self.member_id)
 
-    def test_job_owned_by_member_runs_on_admin_pods_and_lands_in_project(self):
+    def test_job_owned_by_member_runs_on_member_pods_and_lands_in_project(self):
         async def make():
             u = A.auth.current_user.set(ST.acting_user(self.bot, str(self.member_id)))
             v = A.auth.current_via_service.set(self.bot["id"])
@@ -82,7 +82,8 @@ class OnBehalfTests(unittest.TestCase):
                 A.auth.current_user.reset(u)
         job = asyncio.run(make())
         self.assertEqual((job["owner_id"], job["via_service"]), (self.member_id, self.bot["id"]))
-        self.assertIn(self.admin_id, ST.pod_owner_ids_for(job))
+        # 회원 대신 보낸 작업도 그 회원의 파드에서만 돈다(각자 자기 RunPod — 회원 워커 자동 켜기는 07d)
+        self.assertEqual(ST.pod_owner_ids_for(job), [self.member_id])
         project = A.project_store.get_project(job["project_id"])
         self.assertEqual((project["name"], project["owner_id"]), ("charchat 삽화", self.member_id))
         again = asyncio.run(make())

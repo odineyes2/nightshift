@@ -318,8 +318,12 @@ async def auth_put_secrets(request: Request):
     body = await read_json_object(request, allow_empty=False)
     fields = {k: body[k] for k in auth.SECRET_FIELDS if k in body}
     try:
-        return await asyncio.to_thread(auth.set_secrets, user["id"], fields)
+        saved = await asyncio.to_thread(auth.set_secrets, user["id"], fields)
     except auth.AuthError as e:
         raise _auth_error(e)
+    if saved.get("runpod_api_key"):
+        # 회원 워커 자동 켜기(07d)가 쓸 꺼진 이미지 워커 기록을 미리 만든다(파드는 작업이 올 때 — 돈이 들지 않는다).
+        await asyncio.to_thread(ensure_member_worker, user["id"], "image")
+    return saved
 
 

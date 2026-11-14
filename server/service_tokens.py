@@ -117,15 +117,15 @@ def service_name(user_id) -> str | None:
 
 
 def pod_owner_ids_for(job: dict) -> list:
-    """이 작업을 맡을 수 있는 파드 주인들 — 서비스 연동으로 들어온 작업(연동 계정 자신의 것이거나, 연동 계정이
-    회원 대신 보낸 것 = via_service)은 관리자 파드에서도 돈다. 그 밖에는 작업 주인의 파드만."""
-    return pod_owner_ids_for_job(job.get("owner_id"), via_service=job.get("via_service"))
+    """이 작업을 맡을 수 있는 파드 주인들. 연동 앱이 회원 대신 보낸 작업(via_service)도 그 회원의 파드에서만 돈다
+    (2026-11-15 사용자 결정: 각자 자기 RunPod 계정으로 — 회원 워커 자동 켜기는 07d). 연동 계정 자신의 작업만 관리자 파드."""
+    return pod_owner_ids_for_job(job.get("owner_id"))
 
 
 def pod_owner_ids_for_job(owner_id, via_service=None) -> list:
-    """이 회원의 작업을 맡을 수 있는 파드 주인들. 서비스 연동 계정은 파드가 없으므로 관리자 파드에서 돈다
-    (charchat 삽화처럼 외부 앱이 보낸 작업 — 회원 대신 보낸 것이면 via_service). 일반 회원은 지금처럼 자기 파드만."""
-    if not via_service and not is_service_user(owner_id):
+    """이 회원의 작업을 맡을 수 있는 파드 주인들. 연동 계정(*-bot)은 파드가 없으므로 그 작업은 관리자 파드에서 돈다.
+    회원은 자기 파드만(via_service는 예전 호출 호환용으로 받기만 하고 쓰지 않는다)."""
+    if not is_service_user(owner_id):
         return [owner_id]
     with db.connect() as conn:
         admins = [row["id"] for row in conn.execute(

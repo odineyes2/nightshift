@@ -172,6 +172,10 @@ def _auto_power_on_loop():
                 _auto_power_on_check(tier=tier)
             except Exception:
                 logging.getLogger("uvicorn.error").exception("자동 켜기 검사 실패(%s)", tier)
+        try:
+            _member_auto_power_check()   # 회원 워커 자동 켜기(07d) — 연동 앱이 회원 대신 보낸 작업
+        except Exception:
+            logging.getLogger("uvicorn.error").exception("회원 워커 자동 켜기 검사 실패")
 
 
 def _auto_power_payload(tier: str = "image") -> dict:
