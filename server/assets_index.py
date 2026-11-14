@@ -281,7 +281,8 @@ def register_upload(path: str, owner_id: int, project_id: int | None) -> None:
                ON CONFLICT(path) DO UPDATE SET kind=excluded.kind, project_id=excluded.project_id,
                  job_id=NULL, size_bytes=excluded.size_bytes, mtime_ns=excluded.mtime_ns, width=excluded.width,
                  height=excluded.height, created_at=excluded.created_at, owner_id=excluded.owner_id,
-                 nsfw=excluded.nsfw, deleted_at=NULL""",
+                 nsfw=excluded.nsfw, deleted_at=NULL,
+                 compute_owner_id=NULL, billing=NULL, via_service_id=NULL""",
             (path, kind, project_id, st.st_size, st.st_mtime_ns, width, height, _iso(st.st_mtime), owner_id, nsfw),
         )
 
@@ -326,6 +327,37 @@ def _pod_owner(pod_id):
         return pod.get("owner_id") if pod else None
     except Exception:
         return None
+
+
+def _provenance_for(job, origin_pod_id, user_ids: set[int], admin_id):
+    """Copy job/pod provenance, retaining only existing user ids."""
+    billing = ("admin" if job["billing"] == "admin" else "member") if job is not None else None
+    compute_owner = _pod_owner(job["pod_id"] if job is not None else origin_pod_id)
+    if compute_owner not in user_ids:
+        compute_owner = admin_id if billing == "admin" and admin_id in user_ids else None
+    via = job["via_service"] if job is not None else None
+    via = via if isinstance(via, int) and not isinstance(via, bool) and via in user_ids else None
+    return compute_owner, billing, via
+
+
+_PROVENANCE_JOB_SQL = ("SELECT id, project_id, owner_id, pod_id, "
+                       "json_extract(data_json, '$.billing') AS billing, "
+                       "json_extract(data_json, '$.via_service') AS via_service FROM jobs")
+_BACKFILL_PROVENANCE_KEY = "asset_provenance_v1"
+
+
+def _backfill_provenance(conn, job_rows, user_ids, admin_id) -> None:
+    """Backfill surviving jobs once without changing asset ownership."""
+    if db.get_meta(conn, _BACKFILL_PROVENANCE_KEY):
+        return
+    rows = conn.execute("SELECT id, job_id FROM assets WHERE job_id IS NOT NULL "
+                        "AND compute_owner_id IS NULL AND billing IS NULL AND via_service_id IS NULL").fetchall()
+    for row in rows:
+        job = job_rows.get(row["job_id"])
+        if job is not None:
+            conn.execute("UPDATE assets SET compute_owner_id=?, billing=?, via_service_id=? WHERE id=?",
+                         (*_provenance_for(job, None, user_ids, admin_id), row["id"]))
+    db.set_meta(conn, _BACKFILL_PROVENANCE_KEY, db.now_iso())
 
 
 def _origin_pods() -> dict:
@@ -429,14 +461,15 @@ def sync(force: bool = False) -> dict | None:
             rows = {r["path"]: r for r in conn.execute(
                 "SELECT id, path, size_bytes, mtime_ns, deleted_at FROM assets")}
             live_rows = sum(1 for r in rows.values() if r["deleted_at"] is None)
-            job_rows = {r["id"]: (r["project_id"], r["owner_id"])
-                        for r in conn.execute("SELECT id, project_id, owner_id FROM jobs")}
-            job_projects = {jid: v[0] for jid, v in job_rows.items()}
+            job_rows = {r["id"]: dict(r) for r in conn.execute(_PROVENANCE_JOB_SQL)}
+            job_projects = {jid: v["project_id"] for jid, v in job_rows.items()}
             project_mature = {r["id"]: r["is_mature"] for r in conn.execute("SELECT id, is_mature FROM projects")}
             user_ids = {r["id"] for r in conn.execute("SELECT id FROM users")}
+            admin_id = auth.admin_id()
+            _backfill_provenance(conn, job_rows, user_ids, admin_id)
             # 주인이 없는 채로 남은 결과물(예전 버전이 남긴 것)을 채운다.
             for r in conn.execute("SELECT id, path, job_id, origin_pod_id FROM assets WHERE owner_id IS NULL").fetchall():
-                owner = _owner_for(r["path"], job_rows.get(r["job_id"], (None, None))[1] if r["job_id"] else None,
+                owner = _owner_for(r["path"], job_rows.get(r["job_id"], {}).get("owner_id") if r["job_id"] else None,
                                    r["origin_pod_id"] or origins.get(r["path"]), user_ids)
                 if owner is not None:
                     conn.execute("UPDATE assets SET owner_id=? WHERE id=?", (owner, r["id"]))
@@ -464,18 +497,20 @@ def sync(force: bool = False) -> dict | None:
                     parts = path.split("/")
                     job_id = parts[0] if len(parts) > 1 and parts[0] in job_projects else None
                     # 주인: 그 작업을 만든 회원, 작업이 없으면(ComfyUI에서 직접 만든 것) 받아온 파드의 주인.
-                    owner_id = _owner_for(path, job_rows[job_id][1] if job_id else None, origins.get(path), user_ids)
+                    owner_id = _owner_for(path, job_rows[job_id]["owner_id"] if job_id else None, origins.get(path), user_ids)
                     project_id = job_projects.get(job_id) if job_id else None
                     nsfw = 1 if project_mature.get(project_id) else 0
                     conn.execute(
                         """INSERT INTO assets(path, kind, project_id, job_id, size_bytes, mtime_ns, width, height,
                                created_at, seed, prompt, negative_prompt, checkpoint, params_json,
-                               origin_pod_id, owner_id, nsfw, enhanced_prompt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                               origin_pod_id, owner_id, nsfw, enhanced_prompt, compute_owner_id, billing, via_service_id)
+                               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (path, kind, project_id, job_id,
                          st.st_size, st.st_mtime_ns, width, height, _iso(st.st_mtime),
                          meta.get("seed"), meta.get("prompt"), meta.get("negative_prompt"),
                          meta.get("checkpoint"), meta.get("params_json"), origins.get(path), owner_id, nsfw,
-                         enhanced_prompts.get(path)),
+                         enhanced_prompts.get(path),
+                         *_provenance_for(job_rows.get(job_id), origins.get(path), user_ids, admin_id)),
                     )
                     added += 1
                 elif need_probe or row["deleted_at"] is not None:
