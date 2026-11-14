@@ -726,7 +726,7 @@ def _auto_power_off_check(now: datetime | None = None) -> list[str]:
             unassigned = [j for j in jobs.values() if j["status"] == "queued" and not j.get("pod_id") and not j.get("deleted")]
         # 아직 워커가 안 정해진 작업은 이 워커에서 돌 수 있는 것만 센다(다른 회원 작업 때문에 내 파드가 안 꺼지면 안 된다).
         busy = any(j["status"] in ("running", "queued") for j in mine) or any(
-            pod.get("owner_id") in service_tokens.pod_owner_ids_for_job(j.get("owner_id")) for j in unassigned)
+            pod.get("owner_id") in service_tokens.pod_owner_ids_for(j) for j in unassigned)
         with lock:
             finished = [j.get("finished_at") for j in mine if j["status"] in ("done", "failed", "interrupted") and j.get("finished_at")]
         if busy or not finished:

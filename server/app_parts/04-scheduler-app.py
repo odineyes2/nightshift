@@ -162,10 +162,11 @@ def schedule_once() -> None:
     if not waiting:
         return
     templates = load_templates_map()
-    owners = {j.get("owner_id") for j in waiting}
-    # 서비스 연동 계정(<서비스>-bot)의 작업은 관리자 파드에서도 돈다 — service_tokens.pod_owner_ids_for_job.
-    pods_of = {o: [p for owner in service_tokens.pod_owner_ids_for_job(o)
-                   for p in pod_registry.list_pods(owner) if p.get("enabled")] for o in owners}
+    # 서비스 연동으로 들어온 작업(연동 계정 것, 또는 회원 대신 보낸 것)은 관리자 파드에서도 돈다 — service_tokens.pod_owner_ids_for.
+    def _group(j):
+        return (j.get("owner_id"), bool(j.get("via_service")))
+    pods_of = {g: [p for owner in service_tokens.pod_owner_ids_for_job(g[0], via_service=g[1])
+                   for p in pod_registry.list_pods(owner) if p.get("enabled")] for g in {_group(j) for j in waiting}}
 
     # 파드마다 연결 확인은 한 번만 — 파드가 꺼져 있으면 확인이 몇 초 걸릴 수 있어 나란히 돌린다.
     all_pods = {p["id"]: p for plist in pods_of.values() for p in plist}
@@ -191,7 +192,7 @@ def schedule_once() -> None:
         pinned = job.get("pinned_pod_id")
         # 영상 작업(서비스 연동 영상 생성)은 영상 등급 워커에서만 — 이미지 워커가 큰 영상 모델을 받으러 가지 않게.
         video_only = job.get("runpod_tier") == "video"
-        candidates = [p for p in pods_of.get(job.get("owner_id"), [])
+        candidates = [p for p in pods_of.get(_group(job), [])
                       if p.get("kind") in allowed and (not pinned or p["id"] == pinned)
                       and (not video_only or p.get("runpod_tier") == "video")]
         reasons: list[str] = []
@@ -472,7 +473,7 @@ def _sync_key_mapper(item: dict, pod_id: str | None) -> str | None:
     if job is not None:
         # 남의 작업 폴더에는 쓰지 않는다. 단 서비스 연동 계정의 작업은 관리자 파드에서 돌므로 받는다.
         allowed = job.get("owner_id") == owner or (
-            owner is not None and owner in service_tokens.pod_owner_ids_for_job(job.get("owner_id")))
+            owner is not None and owner in service_tokens.pod_owner_ids_for(job))
         return item["key"] if allowed else None
     return f"u{owner}/{item['key']}" if owner is not None else item["key"]
 

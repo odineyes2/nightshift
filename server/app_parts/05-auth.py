@@ -62,6 +62,8 @@ async def authenticate_request(request: Request, call_next):
     path = request.url.path
     request.state.user = None
     request.state.internal = False
+    request.state.via_service = None
+    via_service = None   # 서비스 연동 계정이 회원 대신 보낸 요청이면 그 연동 계정 id(X-On-Behalf-Of)
     authorization = request.headers.get("authorization", "")
     service_token = authorization[7:] if authorization.startswith("Bearer nst_") else None
     if not path.startswith("/api/"):
@@ -112,6 +114,13 @@ async def authenticate_request(request: Request, call_next):
         if not any(method == request.method and pattern.fullmatch(path)
                    for method, pattern in SERVICE_TOKEN_ROUTES):
             return JSONResponse({"detail": "서비스 토큰으로는 이 API를 쓸 수 없어요."}, status_code=403)
+        behalf = request.headers.get(service_tokens.ON_BEHALF_HEADER)
+        if behalf is not None:
+            # 회원 대신 보낸 요청 — 이 요청 동안 그 회원으로 본다(작업·결과물의 주인, 소유 검사 모두).
+            target = await asyncio.to_thread(service_tokens.acting_user, user, behalf)
+            if target is None:
+                return JSONResponse({"detail": "대신 보낼 회원이 올바르지 않아요."}, status_code=403)
+            via_service, user = user["id"], target
         if path.startswith(("/api/output-images/", "/api/output-videos/")):
             kind = "image" if path.startswith("/api/output-images/") else "video"
             image_path = urllib.parse.unquote(path.removeprefix(f"/api/output-{kind}s/"))
@@ -133,12 +142,15 @@ async def authenticate_request(request: Request, call_next):
     else:
         user = await asyncio.to_thread(auth.user_for_token, request.cookies.get(auth.SESSION_COOKIE))
     request.state.user = user
+    request.state.via_service = via_service
     if user is None and path not in PUBLIC_API_PATHS and not (request.method == "GET" and BOOTSTRAP_PATH_RE.match(path)):
         return JSONResponse({"detail": "로그인이 필요해요."}, status_code=401)
     ctx_token = auth.current_user.set(user)
+    via_token = auth.current_via_service.set(via_service)
     try:
         return await call_next(request)
     finally:
+        auth.current_via_service.reset(via_token)
         auth.current_user.reset(ctx_token)
 
 

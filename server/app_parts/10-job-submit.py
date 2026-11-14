@@ -432,6 +432,19 @@ def resolve_template(template_id) -> dict:
     return template
 
 
+_service_project_lock = threading.Lock()
+
+
+def _service_project_id(service_user_id: int, owner_id: int) -> int:
+    """그 회원의 "<서비스> 삽화" 프로젝트 id — 없으면 만든다(보관한 것은 쓰지 않고 새로)."""
+    name = f"{service_tokens.service_name(service_user_id) or '외부 앱'} 삽화"
+    with _service_project_lock:
+        for project in project_store.list_projects(owner_id=owner_id):
+            if project["name"] == name:
+                return project["id"]
+        return project_store.create_project(name, "외부 앱이 이 계정으로 만든 결과물이 모여요.", owner_id=owner_id)["id"]
+
+
 async def create_job(
     template: dict,
     workflow_bytes: bytes,
@@ -462,6 +475,12 @@ async def create_job(
         pod = pod_registry.get_pod(pod_id)
         if pod is None or pod.get("owner_id") != user["id"]:
             raise HTTPException(400, "없는 워커예요.")
+
+    # 서비스 연동 계정이 회원 대신 보낸 작업(charchat 삽화 등)은 그 회원의 "<서비스> 삽화" 프로젝트에 모은다 —
+    # 회원이 nightshift에서 직접 만든 것과 갤러리에서 섞이지 않게.
+    via_service = auth.current_via_service.get()
+    if via_service and project_id is None:
+        project_id = await asyncio.to_thread(_service_project_id, via_service, user["id"])
 
     # 프로젝트는 파드와 무관하게 작업을 묶는다. 없으면 "미분류"(project_id=None). 자기 프로젝트만 쓸 수 있다.
     if project_id is not None and not project_store.project_exists(project_id, owner_id=user["id"]):
@@ -741,6 +760,8 @@ async def create_job(
             "waiting_reason": None,
             "project_id": project_id,
             "owner_id": user["id"],
+            # 서비스 연동 계정이 회원 대신 보낸 작업이면 그 연동 계정 id — 관리자 파드에서도 돈다(service_tokens.pod_owner_ids_for).
+            "via_service": via_service,
             "preflight": preflight,
             # 파드는 일시적이라(지워지고 다시 안 쓴다) 나중에 "어디서 돌았나/얼마 들었나"를
             # 볼 수 있게 이 시점의 정보를 job에 찍어둔다. 파드를 안 정했으면 배정될 때 채운다.

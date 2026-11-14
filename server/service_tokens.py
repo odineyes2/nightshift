@@ -87,15 +87,50 @@ def is_service_user(user_id) -> bool:
                 and (row["email"] or "") == f"{row['username']}@service.invalid")
 
 
-def pod_owner_ids_for_job(owner_id) -> list:
+ON_BEHALF_HEADER = "x-on-behalf-of"
+
+
+def acting_user(service_user: dict, raw) -> dict | None:
+    """서비스 연동 계정이 X-On-Behalf-Of: <회원 id>로 그 회원 대신 보낸 요청이면 그 회원(아니면 None).
+    charchat처럼 nightshift 계정을 함께 쓰는 앱이 회원마다 결과물을 그 회원 소유로 남기려고 쓴다.
+    - 연동 전용 계정(connect가 만든 *-bot)의 토큰만, 대상은 활성 회원만(다른 연동 계정은 안 됨).
+    - 관리자 대상이어도 관리자 권한은 싣지 않는다(role=user) — 토큰 경로에서 남의 것을 볼 수 없게."""
+    if not isinstance(raw, str) or not raw.isdigit() or len(raw) > 12:
+        return None
+    if not is_service_user(service_user.get("id")):
+        return None
+    target_id = int(raw)
+    if target_id == service_user.get("id") or is_service_user(target_id):
+        return None
+    with db.connect() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id=?", (target_id,)).fetchone()
+    if row is None or row["status"] != auth.STATUS_ACTIVE:
+        return None
+    return {**auth._public(row), "role": auth.ROLE_USER}
+
+
+def service_name(user_id) -> str | None:
+    """연동 계정 id → 서비스 이름(charchat-bot → charchat)."""
+    with db.connect() as conn:
+        row = conn.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()
+    return row["username"].removesuffix("-bot") if row else None
+
+
+def pod_owner_ids_for(job: dict) -> list:
+    """이 작업을 맡을 수 있는 파드 주인들 — 서비스 연동으로 들어온 작업(연동 계정 자신의 것이거나, 연동 계정이
+    회원 대신 보낸 것 = via_service)은 관리자 파드에서도 돈다. 그 밖에는 작업 주인의 파드만."""
+    return pod_owner_ids_for_job(job.get("owner_id"), via_service=job.get("via_service"))
+
+
+def pod_owner_ids_for_job(owner_id, via_service=None) -> list:
     """이 회원의 작업을 맡을 수 있는 파드 주인들. 서비스 연동 계정은 파드가 없으므로 관리자 파드에서 돈다
-    (charchat 삽화처럼 외부 앱이 보낸 작업). 일반 회원은 지금처럼 자기 파드만."""
-    if not is_service_user(owner_id):
+    (charchat 삽화처럼 외부 앱이 보낸 작업 — 회원 대신 보낸 것이면 via_service). 일반 회원은 지금처럼 자기 파드만."""
+    if not via_service and not is_service_user(owner_id):
         return [owner_id]
     with db.connect() as conn:
         admins = [row["id"] for row in conn.execute(
             "SELECT id FROM users WHERE role=? AND status=? ORDER BY id", (auth.ROLE_ADMIN, auth.STATUS_ACTIVE))]
-    return [owner_id, *admins]
+    return [owner_id, *[a for a in admins if a != owner_id]]
 
 
 def disconnect(service) -> dict:

@@ -52,6 +52,8 @@ _SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2 ** 14, 8, 1
 
 # 요청 하나 동안 "지금 누구인가" — 미들웨어가 채우고, 서버 곳곳이 읽는다.
 current_user: contextvars.ContextVar[dict | None] = contextvars.ContextVar("current_user", default=None)
+# 서비스 연동 계정(charchat-bot 등)이 X-On-Behalf-Of로 회원 대신 보낸 요청이면 그 연동 계정 id(service_tokens.acting_user).
+current_via_service: contextvars.ContextVar[int | None] = contextvars.ContextVar("current_via_service", default=None)
 
 
 class AuthError(Exception):

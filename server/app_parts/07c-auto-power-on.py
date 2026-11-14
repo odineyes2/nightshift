@@ -17,7 +17,7 @@ def _admin_owner_ids() -> set:
 
 def _runs_on_admin_pods(job: dict, admins: set) -> bool:
     owner = job.get("owner_id")
-    return owner in admins or any(o in admins for o in service_tokens.pod_owner_ids_for_job(owner))
+    return owner in admins or any(o in admins for o in service_tokens.pod_owner_ids_for(job))
 
 
 def _auto_power_waiting(now: datetime, tier: str = "image") -> tuple[int, float]:
