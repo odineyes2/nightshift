@@ -16,6 +16,8 @@ import re
 import assets_index
 import db
 
+PROVENANCE_FIELDS = ("compute_owner_id", "billing", "via_service_id")
+
 MAX_TAG_LEN = 40
 MAX_NOTE_LEN = 4000
 
@@ -161,6 +163,9 @@ def list_assets(q=None, tags=None, favorite=None, min_rating=None, kind=None, pr
         d = dict(r)
         d["favorite"] = bool(d["favorite"])
         d["tags"] = tag_map.get(r["id"], [])
+        if owner_id is not None:
+            for field in PROVENANCE_FIELDS:
+                d.pop(field, None)
         out.append(d)
     return out
 
@@ -199,6 +204,9 @@ def get_detail(path: str, owner_id: int | None = None) -> dict:
     detail["nsfw"] = bool(detail["nsfw"])
     detail["job_label"] = job["template_label"] if job else None
     detail["pod_name"] = job["pod_name"] if job else None
+    if owner_id is not None:
+        for field in PROVENANCE_FIELDS:
+            detail.pop(field, None)
     return detail
 
 
