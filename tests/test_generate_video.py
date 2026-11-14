@@ -99,6 +99,8 @@ class GenerateVideoTests(unittest.TestCase):
             for value in node["inputs"].values():
                 if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
                     self.assertIn(value[0], ids)   # 지운 LoRA를 가리키는 선이 남지 않는다
+        unets = sorted(n["inputs"]["unet_name"] for n in workflow.values() if n["class_type"] == "UNETLoader")
+        self.assertEqual(unets, ["wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors", "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors"])
         length = next(n["inputs"]["length"] for n in workflow.values() if n["class_type"] == "WanFirstLastFrameToVideo")
         self.assertEqual(length, 49)
 

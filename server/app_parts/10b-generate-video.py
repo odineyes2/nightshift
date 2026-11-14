@@ -7,6 +7,8 @@ VIDEO_IMAGE_FORMATS = {"PNG": "png", "JPEG": "jpg", "WEBP": "webp"}
 WAN22_FPS = 16
 # 루프 영상에 남기는 LoRA — 4-step 가속(lightx2v)만. 고정 그래프에 함께 들어 있는 나머지(성인용 등)는 빼고 잇는다.
 WAN22_KEEP_LORA = "lightx2v"
+# 고정 그래프의 확산 모델(civitai 병합본, 등록부에 받을 주소 없음) 대신 공식 WAN2.2 I2V(Comfy-Org, 등록부에 주소 있음)를 쓴다.
+WAN22_UNETS = {"high": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors", "low": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors"}
 
 
 def _strip_wan_loras(workflow: dict) -> dict:
@@ -78,6 +80,10 @@ async def generate_video(request: Request):
     if model == "wan22":
         workflow = json.loads((VIDEO_WORKFLOWS_DIR / "wan22_flf2v.json").read_text(encoding="utf-8"))
         workflow = _strip_wan_loras(workflow)
+        for node in workflow.values():
+            if node.get("class_type") == "UNETLoader":
+                name = str(node["inputs"].get("unet_name", "")).lower()
+                node["inputs"]["unet_name"] = WAN22_UNETS["low" if "low" in name else "high"]
         for node in workflow.values():
             if node.get("class_type") == "WanFirstLastFrameToVideo":
                 node["inputs"]["length"] = 4 * round(seconds * WAN22_FPS / 4) + 1   # WAN 길이는 4n+1 프레임
