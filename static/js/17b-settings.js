@@ -797,6 +797,8 @@ function renderAutoPowerSettings(tier){
     <div class="dl-meta">${info.intro}</div>
     ${tier === 'video' ? toggle('video_jobs', '영상 파드 사용', s.video_jobs) : ''}
     ${toggle('enabled', `${info.label} 자동 켜기`, s.enabled)}
+    ${toggle('paid_immediate', '유료 회원 작업은 바로 켜기', s.paid_immediate !== false)}
+    <div class="dl-meta">유료 회원(회원 관리에서 기간을 정한 회원)의 charchat 작업은 관리자 ${info.label} 워커에서 돌아요. 켜 두면 그 작업이 하나만 와도 위 자동 켜기와 상관없이 바로 켜요(하루 상한은 같이 적용).</div>
     <div class="auto-power-fields">
       ${num('min_jobs', '자동으로 켜는 대기 작업 수', '개', '이만큼 모이면 켜요.')}
       ${num('max_wait_hours', '최대 대기 시간', '시간', '가장 오래된 작업이 이만큼 기다리면 개수가 모자라도 켜요. 0이면 개수만 봐요.')}

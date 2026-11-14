@@ -178,7 +178,7 @@ def list_jobs(request: Request, project_id: str | None = None):
             for pid, rt in my_runtimes.items()
         }
     covers = job_covers(ordered)
-    return {"jobs": [{**j, "cover": covers.get(j["id"])} for j in ordered],
+    return {"jobs": [{**member_job_view(user, j), "cover": covers.get(j["id"])} for j in ordered],
             "pending_count": pending_count, "running": running, "pods": per_pod}
 
 
@@ -187,14 +187,15 @@ def list_deleted_jobs(request: Request):
     # "작업 목록"에서 삭제한 작업들 — 상단의 "삭제된 작업 설정 불러오기" 드롭다운을
     # 채우는 용도. 소프트 삭제이므로 워크플로우/CSV는 prune_deleted_jobs()가 지우기
     # 전까지 GET /api/jobs/{id}/workflow·csv로 계속 읽을 수 있다.
-    scope = job_scope(me(request))
+    user = me(request)
+    scope = job_scope(user)
     with lock:
         ordered = sorted(
             (j for j in jobs.values() if j.get("deleted") and owned(j, scope)),
             key=lambda j: j.get("deleted_at") or "",
             reverse=True,
         )
-    return {"jobs": ordered, "retention": DELETED_JOBS_RETENTION}
+    return {"jobs": [member_job_view(user, j) for j in ordered], "retention": DELETED_JOBS_RETENTION}
 
 
 @app.get("/api/jobs/{job_id}/outputs")
@@ -227,12 +228,14 @@ def job_outputs(job_id: str, request: Request):
 
 @app.get("/api/jobs/{job_id}/log")
 def job_log(job_id: str, request: Request, tail: int = 200):
-    job_or_404(me(request), job_id)
+    user = me(request)
+    job = job_or_404(user, job_id)
     log_path = LOGS_DIR / f"{job_id}.log"
     if not log_path.exists():
         return {"log": ""}
     lines = log_path.read_text(errors="replace").splitlines()
-    return {"log": "\n".join(lines[-tail:])}
+    text = "\n".join(lines[-tail:])
+    return {"log": redact_admin_text(text) if hides_admin_pod(user, job) else text}
 
 
 @app.get("/api/jobs/{job_id}/text-result")
@@ -929,6 +932,8 @@ async def move_job(job_id: str, request: Request):
             raise HTTPException(404, "없는 작업이에요.")
         if job["status"] == "running":
             raise HTTPException(400, "실행 중인 작업은 옮길 수 없어요. 먼저 멈춰주세요.")
+        if hides_admin_pod(user, job):
+            raise HTTPException(400, "관리자 워커에서 도는 유료 작업은 옮길 수 없어요.")
         if job["status"] not in ("pending", "queued", "interrupted"):
             raise HTTPException(400, "대기 중이거나 중단된 작업만 옮길 수 있어요.")
         if job["status"] == "queued" and not job.get("pod_id"):
@@ -996,7 +1001,10 @@ def delete_job(job_id: str, request: Request):
         # 계속 고를 수 있다. prune_deleted_jobs()가 오래된 것부터 완전히 정리한다.
         job["deleted"] = True
         job["deleted_at"] = now_iso()
+        refund = job.get("billing") == "admin" and waiting_for_pod   # 관리자 파드에서 돌기 전에 지웠으면 한도를 돌려준다
         prune_deleted_jobs()
+    if refund:
+        paid_plan.release(job_id)
     save_state()
     return {"ok": True}
 

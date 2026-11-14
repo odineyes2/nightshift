@@ -315,6 +315,14 @@
   .status-pill.pending{ color:var(--running); border-color:rgba(var(--running-rgb),0.45); background:rgba(var(--running-rgb),0.1); }
   .status-pill.disabled{ color:var(--failed); border-color:rgba(var(--failed-rgb),0.4); background:rgba(var(--failed-rgb),0.07); }
   .owner-badge{ display:inline-flex; align-items:center; gap:4px; }
+  /* 유료 회원 칸(회원 줄 아래 전체 폭) — 기간·하루 한도·사용량 */
+  .admin-plan{ grid-column:1 / -1; display:flex; flex-direction:column; gap:var(--gap-sm); padding-top:var(--gap-sm); border-top:1px dashed var(--border); }
+  .admin-plan-head{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--gap-sm); }
+  .admin-plan-head .admin-user-meta{ flex-direction:row; flex-wrap:wrap; }
+  .admin-plan-form{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:var(--gap-sm); }
+  .admin-plan-field{ display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .admin-plan-field input{ min-width:0; }
+  .admin-plan-field input[type=number]{ width:7em; }
   @media (max-width:820px){
     .admin-user{ grid-template-columns:1fr auto; }
     .admin-user-meta, .admin-user-actions{ grid-column:1 / -1; }

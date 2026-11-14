@@ -363,8 +363,49 @@ function renderAdminUsers(){
           <span>프로젝트 ${u.project_count} · 작업 ${u.job_count} · 결과물 ${u.asset_count}개 (${fmtBytes(u.asset_bytes)})</span>
         </div>
         <div class="admin-user-actions">${actions}</div>
+        ${isAdminRow || u.status !== 'active' || !u.plan ? '' : adminPlanBlock(u)}
       </div>`;
   }).join('') || '<div class="empty">회원이 없어요</div>';
+}
+
+// 유료 회원(서버 paid_plan) — 기간 안이면 그 회원의 charchat 작업이 관리자 워커에서 돌아요(관리자 RunPod 키는 회원에게 보이지 않아요).
+// 결제는 아직 없고 관리자가 기간·하루 한도를 손으로 정해요. 한도 0은 무제한.
+function adminPlanBlock(u){
+  const p = u.plan, month = p.month || { image: 0, video: 0 };
+  const limit = (n) => n ? `${n}` : '무제한';
+  const state = p.paid ? `<span class="status-pill active">유료 · ${escapeHtml(p.paid_until)}까지</span>`
+    : (p.paid_until ? `<span class="status-pill disabled">유료 끝남 · ${escapeHtml(p.paid_until)}</span>` : '<span class="status-pill">일반</span>');
+  return `<div class="admin-plan" data-plan-id="${u.id}">
+    <div class="admin-plan-head">${state}
+      <span class="admin-user-meta">오늘 이미지 ${p.images_today}/${limit(p.daily_images)} · 영상 ${p.videos_today}/${limit(p.daily_videos)} · 이번 달 이미지 ${month.image}장 · 영상 ${month.video}개 · GPU ${Number(month.gpu_hours || 0).toFixed(2)}시간 · 약 $${Number(month.cost_usd || 0).toFixed(2)} (관리자 워커)</span></div>
+    <div class="admin-plan-form">
+      <label class="admin-plan-field"><span class="field-label">유료 기간(그날까지)</span><input type="date" data-plan="paid_until" value="${escapeHtml(p.paid_until || '')}"></label>
+      <label class="admin-plan-field"><span class="field-label">하루 이미지(장)</span><input type="number" min="0" max="10000" inputmode="numeric" data-plan="daily_images" value="${p.daily_images}"></label>
+      <label class="admin-plan-field"><span class="field-label">하루 영상(개)</span><input type="number" min="0" max="10000" inputmode="numeric" data-plan="daily_videos" value="${p.daily_videos}"></label>
+      <button class="submit-btn" type="button" data-plan-save="${u.id}">${ico('check')} 저장</button>
+      ${p.paid_until ? `<button class="load-btn" type="button" data-plan-clear="${u.id}">유료 해제</button>` : ''}
+    </div>
+  </div>`;
+}
+
+async function savePlan(id, clear){
+  const block = document.querySelector(`[data-plan-id="${id}"]`);
+  const errorEl = document.getElementById('admin-error');
+  errorEl.textContent = '';
+  const body = clear ? { paid_until: null } : {
+    paid_until: block.querySelector('[data-plan="paid_until"]').value || null,
+    daily_images: Number(block.querySelector('[data-plan="daily_images"]').value),
+    daily_videos: Number(block.querySelector('[data-plan="daily_videos"]').value),
+  };
+  if(!clear && (!Number.isInteger(body.daily_images) || !Number.isInteger(body.daily_videos) || body.daily_images < 0 || body.daily_videos < 0)){
+    errorEl.textContent = '하루 한도는 0 이상의 정수로 넣어 주세요(0은 무제한).'; return;
+  }
+  try{
+    const res = await fetch(`/api/admin/users/${id}/plan`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.detail || '유료 설정을 저장하지 못했어요.');
+  }catch(e){ errorEl.textContent = e.message; return; }
+  await fetchAdminUsers();
 }
 
 async function adminAction(action, id){
@@ -398,6 +439,14 @@ async function adminAction(action, id){
 }
 
 document.getElementById('admin-users').addEventListener('click', (e) => {
+  const planSave = e.target.closest('[data-plan-save]');
+  if(planSave){ savePlan(Number(planSave.dataset.planSave), false); return; }
+  const planClear = e.target.closest('[data-plan-clear]');
+  if(planClear){
+    const user = adminUsers.find(u => u.id === Number(planClear.dataset.planClear));
+    if(user && confirm(`'${user.username}'의 유료 자격을 해제할까요? 앞으로의 charchat 작업은 그 회원의 RunPod 키로 돌아요.`)) savePlan(user.id, true);
+    return;
+  }
   const btn = e.target.closest('[data-admin-action]');
   if(btn) adminAction(btn.dataset.adminAction, Number(btn.dataset.id));
 });

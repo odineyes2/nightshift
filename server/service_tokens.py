@@ -116,9 +116,18 @@ def service_name(user_id) -> str | None:
     return row["username"].removesuffix("-bot") if row else None
 
 
+def admin_ids() -> list:
+    with db.connect() as conn:
+        return [row["id"] for row in conn.execute(
+            "SELECT id FROM users WHERE role=? AND status=? ORDER BY id", (auth.ROLE_ADMIN, auth.STATUS_ACTIVE))]
+
+
 def pod_owner_ids_for(job: dict) -> list:
-    """이 작업을 맡을 수 있는 파드 주인들. 연동 앱이 회원 대신 보낸 작업(via_service)도 그 회원의 파드에서만 돈다
-    (2026-11-15 사용자 결정: 각자 자기 RunPod 계정으로 — 회원 워커 자동 켜기는 07d). 연동 계정 자신의 작업만 관리자 파드."""
+    """이 작업을 맡을 수 있는 파드 주인들. 유료 회원의 작업으로 정해진 것(billing="admin", paid_plan)은 관리자 파드에서만,
+    연동 앱이 회원 대신 보낸 그 밖의 작업은 그 회원의 파드에서만 돈다(각자 자기 RunPod — 회원 워커 자동 켜기는 07d).
+    연동 계정 자신의 작업만 관리자 파드."""
+    if job.get("billing") == "admin":
+        return admin_ids()
     return pod_owner_ids_for_job(job.get("owner_id"))
 
 

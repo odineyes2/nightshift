@@ -20,6 +20,13 @@ def _runs_on_admin_pods(job: dict, admins: set) -> bool:
     return owner in admins or any(o in admins for o in service_tokens.pod_owner_ids_for(job))
 
 
+def _paid_waiting(tier: str = "image") -> int:
+    """관리자 파드로 정해진 유료 회원 작업 중 그 등급 워커를 기다리는 것의 수."""
+    with lock:
+        return sum(1 for j in jobs.values() if j["status"] == "queued" and not j.get("pod_id") and not j.get("deleted")
+                   and j.get("billing") == "admin" and (j.get("runpod_tier") == "video") == (tier == "video"))
+
+
 def _auto_power_waiting(now: datetime, tier: str = "image") -> tuple[int, float]:
     """관리자 그 등급 워커(comfyui)를 기다리는 대기 작업 수와 가장 오래 기다린 시간(시간 단위)."""
     templates = load_templates_map()
@@ -116,7 +123,8 @@ def _auto_power_decide(settings: dict, state: dict, now: datetime, tier: str = "
     info = {"waiting": count, "oldest_hours": round(oldest, 2), "starts_today": _auto_power_starts_today(state, now)}
     if tier == "video" and not settings.get("video_jobs"):
         return {**info, "action": "off", "reason": "영상 파드 사용이 꺼져 있어요."}
-    if not settings["enabled"]:
+    paid = _paid_waiting(tier) if settings.get("paid_immediate", True) else 0
+    if not settings["enabled"] and not paid:
         return {**info, "action": "off", "reason": "자동 켜기가 꺼져 있어요."}
     if not runpod_api.admin_key():
         return {**info, "action": "off", "reason": "관리자 RunPod API 키가 없어 자동으로 켤 수 없어요."}
@@ -125,7 +133,8 @@ def _auto_power_decide(settings: dict, state: dict, now: datetime, tier: str = "
         return {**info, "action": "wait", "reason": f"'{on.get('name') or on['id']}' 워커가 켜져 있어 그 워커가 처리해요."}
     if count == 0:
         return {**info, "action": "wait", "reason": "기다리는 작업이 없어요."}
-    due = count >= settings["min_jobs"] or (settings["max_wait_hours"] and oldest >= settings["max_wait_hours"])
+    due = bool(paid) or (settings["enabled"] and (count >= settings["min_jobs"]
+                                                  or (settings["max_wait_hours"] and oldest >= settings["max_wait_hours"])))
     if not due:
         wait = f" 또는 가장 오래된 작업이 {settings['max_wait_hours']}시간을 넘기면" if settings["max_wait_hours"] else ""
         return {**info, "action": "wait", "reason": f"작업 {count}/{settings['min_jobs']}개 모임 — {settings['min_jobs']}개가 모이면{wait} 켜요."}
@@ -138,7 +147,8 @@ def _auto_power_decide(settings: dict, state: dict, now: datetime, tier: str = "
     if pod is None:
         target = "고른 워커가 없거나 켜져 있어요." if settings["pod_id"] else f"꺼져 있는 {TIER_LABEL[tier]}용 RunPod 워커가 없어요."
         return {**info, "action": "wait", "reason": f"켤 워커를 찾지 못했어요 — {target}"}
-    why = f"작업 {count}개가 모여" if count >= settings["min_jobs"] else f"가장 오래된 작업이 {int(oldest)}시간 넘게 기다려"
+    why = (f"유료 회원 작업 {paid}개가 기다려" if paid else
+           f"작업 {count}개가 모여" if count >= settings["min_jobs"] else f"가장 오래된 작업이 {int(oldest)}시간 넘게 기다려")
     return {**info, "action": "start", "reason": f"{why} '{pod.get('name') or pod['id']}' 워커를 켜요.", "pod": pod}
 
 
@@ -172,6 +182,10 @@ def _auto_power_on_loop():
                 _auto_power_on_check(tier=tier)
             except Exception:
                 logging.getLogger("uvicorn.error").exception("자동 켜기 검사 실패(%s)", tier)
+        try:
+            _paid_promote_waiting()      # 유료가 됐거나 날이 바뀐 회원의 대기 작업을 관리자 파드로(07d)
+        except Exception:
+            logging.getLogger("uvicorn.error").exception("유료 작업 다시 보기 실패")
         try:
             _member_auto_power_check()   # 회원 워커 자동 켜기(07d) — 연동 앱이 회원 대신 보낸 작업
         except Exception:

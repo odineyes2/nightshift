@@ -81,7 +81,7 @@ def _member_auto_power_check(now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     with lock:
         waiting = [j for j in jobs.values() if j["status"] == "queued" and not j.get("pod_id") and not j.get("deleted")
-                   and j.get("via_service") and j.get("owner_id") is not None]
+                   and j.get("via_service") and j.get("owner_id") is not None and j.get("billing") != "admin"]
     groups: dict[tuple[int, str], int] = {}
     for job in waiting:
         groups[(job["owner_id"], _member_tier_of(job))] = groups.get((job["owner_id"], _member_tier_of(job)), 0) + 1
@@ -155,4 +155,28 @@ def member_runpod_status(owner_id: int) -> dict:
 @app.get("/api/auth/runpod-status")
 def auth_runpod_status(request: Request):
     user = me(request)
-    return member_runpod_status(user["id"])
+    return member_runpod_status(user["id"]) | {"plan": paid_plan.plan(user["id"])}
+
+
+def _paid_promote_waiting() -> int:
+    """대기 중인 연동 작업 중 아직 관리자 파드로 정해지지 않은 것을 다시 본다 — 회원이 유료가 됐거나 날이 바뀌어
+    한도가 생겼으면 관리자 파드로 예약한다. 이미 회원 워커에 배정된 작업은 건드리지 않는다. 바꾼 개수."""
+    with lock:
+        candidates = [j for j in jobs.values() if j["status"] == "queued" and not j.get("pod_id") and not j.get("deleted")
+                      and j.get("via_service") and j.get("billing") != "admin" and j.get("owner_id") is not None]
+    moved = 0
+    for job in sorted(candidates, key=lambda j: j["queued_at"]):
+        kind, units = paid_plan.job_kind_units(job)
+        if not paid_plan.reserve(job["owner_id"], job["id"], kind, units):
+            continue
+        with lock:
+            if job["status"] == "queued" and not job.get("pod_id") and not job.get("deleted"):
+                job["billing"] = "admin"
+                job["waiting_reason"] = None
+                moved += 1
+            else:
+                paid_plan.release(job["id"])
+    if moved:
+        save_state()
+        poke_scheduler()
+    return moved

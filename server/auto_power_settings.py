@@ -13,7 +13,8 @@ FILE = DATA_DIR / "auto_power_on.json"
 STATE_FILE = DATA_DIR / "auto_power_on_state.json"
 VIDEO_FILE = DATA_DIR / "auto_power_on_video.json"
 VIDEO_STATE_FILE = DATA_DIR / "auto_power_on_video_state.json"
-DEFAULTS = {"enabled": False, "min_jobs": 10, "max_wait_hours": 24, "daily_limit": 3, "pod_id": None}
+# paid_immediate: 유료 회원 작업(관리자 파드로 정해진 것)이 하나라도 기다리면 enabled·min_jobs와 상관없이 바로 켠다(2026-11-15).
+DEFAULTS = {"enabled": False, "min_jobs": 10, "max_wait_hours": 24, "daily_limit": 3, "pod_id": None, "paid_immediate": True}
 VIDEO_DEFAULTS = {**DEFAULTS, "min_jobs": 3, "video_jobs": False}
 LIMITS = {"min_jobs": (1, 200), "max_wait_hours": (0, 168), "daily_limit": (1, 24)}   # max_wait_hours 0 = 개수만 본다
 BACKOFF_MINUTES = (10, 30, 60)   # 켜기 실패 뒤 다시 시도할 때까지(연속 실패마다 다음 값, 끝값 유지)
@@ -31,7 +32,7 @@ def validate(value: object, tier: str = "image") -> dict:
     if not isinstance(value, dict) or set(value) - set(defaults):
         raise ValueError("자동 켜기 설정을 확인해 주세요.")
     result = dict(defaults)
-    for key, label in (("enabled", "자동 켜기 사용 여부"), ("video_jobs", "영상 파드 사용 여부")):
+    for key, label in (("enabled", "자동 켜기 사용 여부"), ("video_jobs", "영상 파드 사용 여부"), ("paid_immediate", "유료 작업 바로 켜기")):
         if key in value and key in defaults:
             if not isinstance(value[key], bool):
                 raise ValueError(f"{label}를 확인해 주세요.")

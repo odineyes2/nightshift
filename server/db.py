@@ -631,12 +631,30 @@ CREATE TABLE generate_presets (
 )
 """
 
+# 유료 회원(2026-11-15 사용자 결정): 관리자가 기간·하루 한도를 정하면, 연동 앱(charchat)이 회원 대신 보낸 작업이 관리자 파드에서 돈다.
+# paid_until은 그날(서버 현지 날짜)까지 유효한 'YYYY-MM-DD', NULL이면 일반 회원. paid_usage는 관리자 파드로 보낸 작업 기록(한도·사용량).
+SCHEMA_V32 = """
+ALTER TABLE users ADD COLUMN paid_until TEXT;
+ALTER TABLE users ADD COLUMN paid_daily_images INTEGER NOT NULL DEFAULT 50;
+ALTER TABLE users ADD COLUMN paid_daily_videos INTEGER NOT NULL DEFAULT 5;
+CREATE TABLE paid_usage (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  job_id TEXT NOT NULL UNIQUE,
+  kind TEXT NOT NULL CHECK (kind IN ('image','video')),
+  units INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX paid_usage_user_day ON paid_usage(user_id, day)
+"""
+
 MIGRATIONS = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6),
               (7, SCHEMA_V7), (8, SCHEMA_V8), (9, SCHEMA_V9), (10, SCHEMA_V10), (11, SCHEMA_V11), (12, SCHEMA_V12),
               (13, SCHEMA_V13), (14, SCHEMA_V14), (15, SCHEMA_V15), (16, SCHEMA_V16), (17, SCHEMA_V17), (18, SCHEMA_V18),
               (19, SCHEMA_V19), (20, SCHEMA_V20), (21, SCHEMA_V21), (22, SCHEMA_V22), (23, SCHEMA_V23), (24, SCHEMA_V24),
               (25, SCHEMA_V25), (26, SCHEMA_V26), (27, SCHEMA_V27), (28, SCHEMA_V28),
-              (29, SCHEMA_V29), (30, SCHEMA_V30), (31, SCHEMA_V31)]
+              (29, SCHEMA_V29), (30, SCHEMA_V30), (31, SCHEMA_V31), (32, SCHEMA_V32)]
 # 표를 새로 만들어 옮기는 버전 — 외래 키 검사를 끈 채로 돌리고, 끝나기 전에 foreign_key_check로
 # 옮긴 표에 깨진 참조가 없는지 확인한다(SQLite가 권하는 "표 구조 바꾸기" 절차).
 FK_OFF_MIGRATIONS = {11, 12}

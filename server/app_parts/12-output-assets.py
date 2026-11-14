@@ -58,12 +58,18 @@ def _asset_paths_from(body: dict) -> list[str]:
 @app.get("/api/output-assets/detail")
 def asset_detail_api(path: str, request: Request):
     # 라이트박스의 정보 패널용 — 프롬프트/시드/체크포인트/파라미터와 메모·평점·태그 전부.
-    scope = auth.owner_scope(me(request))
+    user = me(request)
+    scope = auth.owner_scope(user)
     _sync_assets_quietly()
     try:
-        return asset_meta.get_detail(path, owner_id=scope)
+        detail = asset_meta.get_detail(path, owner_id=scope)
     except asset_meta.AssetNotFound:
         raise HTTPException(404, "결과물을 찾을 수 없어요.")
+    with lock:
+        job = jobs.get(detail.get("job_id")) if detail.get("job_id") else None
+    if hides_admin_pod(user, job):   # 유료 작업 결과물 — 관리자 워커 정보는 가린다
+        detail.update(pod_name=ADMIN_WORKER_LABEL, origin_pod_id=None, origin_key=None)
+    return detail
 
 
 @app.post("/api/output-assets/update")

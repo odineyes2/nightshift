@@ -215,6 +215,31 @@ def job_or_404(user: dict, job_id: str) -> dict:
     return job
 
 
+ADMIN_WORKER_LABEL = "관리자 워커"
+_URL_RE = re.compile(r"https?://[^\s'\"<>)]+")
+
+
+def hides_admin_pod(user: dict | None, job: dict | None) -> bool:
+    """유료 회원 작업(관리자 파드에서 돈 것)을 관리자가 아닌 사람이 볼 때 — 관리자 워커의 이름·주소·GPU·비용을 가린다."""
+    return bool(job) and job.get("billing") == "admin" and not auth.is_admin(user)
+
+
+def redact_admin_text(text):
+    """로그·오류 문구에 섞인 주소(관리자 파드의 ComfyUI·RunPod 주소 등)를 가린다."""
+    return _URL_RE.sub(f"[{ADMIN_WORKER_LABEL}]", text) if isinstance(text, str) else text
+
+
+def member_job_view(user: dict | None, job: dict) -> dict:
+    """회원에게 보이는 작업 — 유료 작업이면 관리자 파드 정보를 지운 복사본."""
+    if not hides_admin_pod(user, job):
+        return job
+    out = {**job, "pod_id": None, "pinned_pod_id": None, "pod_name": ADMIN_WORKER_LABEL, "pod_kind": None,
+           "pod_gpu": None, "pod_cost_per_hr": None}
+    for key in ("waiting_reason", "fetch_error"):
+        out[key] = redact_admin_text(out.get(key))
+    return out
+
+
 def job_scope(user: dict):
     """작업 목록을 거를 때 쓰는 소유자 값 — admin은 None(전부), 일반 회원은 자기 id."""
     return auth.owner_scope(user)

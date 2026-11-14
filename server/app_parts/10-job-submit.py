@@ -729,6 +729,13 @@ async def create_job(
         except Exception:
             preflight = None
 
+    # 유료 회원(paid_plan): 연동 앱이 대신 보낸 작업이고 기간·한도 안이면 관리자 파드로 예약한다.
+    billing = None
+    if via_service:
+        kind, units = paid_plan.job_kind_units({"runpod_tier": runpod_tier, "options": options})
+        if await asyncio.to_thread(paid_plan.reserve, user["id"], job_id, kind, units):
+            billing = "admin"
+
     with lock:
         jobs[job_id] = {
             "id": job_id,
@@ -762,6 +769,8 @@ async def create_job(
             "owner_id": user["id"],
             # 서비스 연동 계정이 회원 대신 보낸 작업이면 그 연동 계정 id — 관리자 파드에서도 돈다(service_tokens.pod_owner_ids_for).
             "via_service": via_service,
+            # "admin"이면 유료 회원 작업 — 관리자 파드에서만 돈다(service_tokens.pod_owner_ids_for, paid_plan).
+            "billing": billing,
             "preflight": preflight,
             # 파드는 일시적이라(지워지고 다시 안 쓴다) 나중에 "어디서 돌았나/얼마 들었나"를
             # 볼 수 있게 이 시점의 정보를 job에 찍어둔다. 파드를 안 정했으면 배정될 때 채운다.

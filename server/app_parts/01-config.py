@@ -55,6 +55,7 @@ from PIL import Image, ImageOps
 
 import auth
 import service_tokens
+import paid_plan
 import auto_power_settings
 import generate_presets
 import generate_models

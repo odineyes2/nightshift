@@ -31,7 +31,41 @@ async def test_notification_settings(request: Request):
 @app.get("/api/admin/users")
 def admin_list_users(request: Request):
     admin_only(request)
-    return {"users": auth.list_users()}
+    users = auth.list_users()
+    month = paid_plan.month_usage()
+    # 이번 달 관리자 워커에서 끝난 유료 작업의 GPU 시간·대략의 비용(작업 시간 × 그 파드의 시간당 요금). 지운 작업은 빠진다.
+    this_month = paid_plan.today()[:7]
+    gpu: dict = {}
+    with lock:
+        for j in jobs.values():
+            if j.get("billing") != "admin" or not j.get("started_at") or not j.get("finished_at"):
+                continue
+            if not str(j["finished_at"]).startswith(this_month):
+                continue
+            try:
+                hours = (datetime.fromisoformat(j["finished_at"]) - datetime.fromisoformat(j["started_at"])).total_seconds() / 3600
+            except (TypeError, ValueError):
+                continue
+            entry = gpu.setdefault(j.get("owner_id"), {"gpu_hours": 0.0, "cost_usd": 0.0})
+            entry["gpu_hours"] += max(0.0, hours)
+            entry["cost_usd"] += max(0.0, hours) * float(j.get("pod_cost_per_hr") or 0)
+    for user in users:   # 유료 회원(paid_plan): 기간·한도·오늘/이번 달 관리자 파드 사용량
+        if user["role"] != auth.ROLE_ADMIN:
+            used = gpu.get(user["id"], {"gpu_hours": 0.0, "cost_usd": 0.0})
+            user["plan"] = paid_plan.plan(user["id"]) | {"month": month.get(user["id"], {"image": 0, "video": 0})
+                                                          | {k: round(v, 2) for k, v in used.items()}}
+    return {"users": users, "today": paid_plan.today()}
+
+
+@app.put("/api/admin/users/{user_id}/plan")
+async def admin_set_user_plan(user_id: int, request: Request):
+    """유료 회원 설정 — paid_until('YYYY-MM-DD', null=해제), daily_images·daily_videos(0=무제한). 결제는 아직 없다(관리자가 손으로)."""
+    admin_only(request)
+    body = await read_json_object(request, allow_empty=False)
+    try:
+        return {"plan": await asyncio.to_thread(paid_plan.set_plan, user_id, body)}
+    except paid_plan.PlanError as e:
+        raise HTTPException(e.status, str(e))
 
 
 @app.get("/api/admin/generate-presets")

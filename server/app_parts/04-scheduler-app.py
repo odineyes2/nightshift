@@ -164,9 +164,9 @@ def schedule_once() -> None:
     templates = load_templates_map()
     # 서비스 연동으로 들어온 작업(연동 계정 것, 또는 회원 대신 보낸 것)은 관리자 파드에서도 돈다 — service_tokens.pod_owner_ids_for.
     def _group(j):
-        return (j.get("owner_id"), bool(j.get("via_service")))
-    pods_of = {g: [p for owner in service_tokens.pod_owner_ids_for_job(g[0], via_service=g[1])
-                   for p in pod_registry.list_pods(owner) if p.get("enabled")] for g in {_group(j) for j in waiting}}
+        return tuple(service_tokens.pod_owner_ids_for(j))
+    pods_of = {g: [p for owner in g for p in pod_registry.list_pods(owner) if p.get("enabled")]
+               for g in {_group(j) for j in waiting}}
 
     # 파드마다 연결 확인은 한 번만 — 파드가 꺼져 있으면 확인이 몇 초 걸릴 수 있어 나란히 돌린다.
     all_pods = {p["id"]: p for plist in pods_of.values() for p in plist}
