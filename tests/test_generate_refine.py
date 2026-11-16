@@ -1,0 +1,140 @@
+"""서비스 연동 보정(POST /api/generate/refine: 얼굴 보정·2배 업스케일) 검사 — 실제 RunPod·ComfyUI를 부르지 않는다.
+실행: python tests/test_generate_refine.py"""
+
+import base64
+import io
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+from PIL import Image
+
+ROOT = Path(__file__).resolve().parents[1]
+TMP = tempfile.TemporaryDirectory()
+for key in ("DATA", "OUTPUT", "ASSETS"):
+    os.environ[f"NIGHTSHIFT_{key}_DIR"] = str(Path(TMP.name) / key.lower())
+os.environ.pop("NIGHTSHIFT_INPUT_IMAGES_DIR", None)
+sys.path.insert(0, str(ROOT / "server"))
+os.chdir(ROOT / "server")
+
+import app as A  # noqa: E402
+import db  # noqa: E402
+import input_assets  # noqa: E402
+import model_registry  # noqa: E402
+
+A.runpod_api.RUNPOD_API_KEY = "x"
+A.runpod_api.create_pod = lambda *a, **k: (_ for _ in ()).throw(AssertionError("RunPod 호출"))
+A.runpod_api.get_runpod_info = lambda url: {}
+
+ANIMA_PARTS = {"clip": "qwen_3_06b_base.safetensors", "vae": "qwen_image_vae.safetensors"}
+
+
+def png(width=1344, height=768):
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), (40, 60, 90)).save(buf, "PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+class GenerateRefineTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        db.init()
+        with db.connect() as conn:
+            for name, role in (("refine-admin", "admin"), ("refine-bot", "user")):
+                conn.execute("INSERT INTO users(username,email,password_hash,role,status,created_at) VALUES(?,?,?,?,?,?)",
+                             (name, f"{name}@example.test", "unused", role, "active", db.now_iso()))
+            cls.ids = {row["username"]: row["id"] for row in conn.execute("SELECT id,username FROM users")}
+        for kind, filename, base in (("checkpoints", "waiIllustriousSDXL_v170.safetensors", "Illustrious"),
+                                     ("diffusion_models", "anima-base-v1.0.safetensors", "Anima"),
+                                     ("diffusion_models", "krea2_turbo_fp8_scaled.safetensors", "krea.2")):
+            model_registry.upsert(kind, filename, {"base_model": base})
+
+    def setUp(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM service_tokens")
+        A.jobs.clear()
+        self.admin = TestClient(A.app, cookies={A.auth.SESSION_COOKIE: A.auth.create_session(self.ids["refine-admin"])})
+        self.client = TestClient(A.app)
+        self.addCleanup(self.admin.close)
+        self.addCleanup(self.client.close)
+        issued = self.admin.post("/api/admin/service-tokens", headers={"X-Requested-With": "nightshift"},
+                                 json={"user_id": self.ids["refine-bot"], "name": "refine"})
+        self.assertEqual(issued.status_code, 200, issued.text)
+        self.bearer = {"Authorization": f"Bearer {issued.json()['token']}"}
+        parts = patch.object(model_registry, "unet_image_parts",
+                             lambda gid: dict(ANIMA_PARTS) if gid == "anima" else None)
+        parts.start()
+        self.addCleanup(parts.stop)
+
+    def submit(self, **body):
+        with patch.object(A, "poke_scheduler", lambda: None):
+            return self.client.post("/api/generate/refine", headers=self.bearer,
+                                    json={"op": "face", "model": "checkpoints:waiIllustriousSDXL_v170.safetensors",
+                                          "prompt": "1girl, silver hair", "image": png(), "seed": 7, **body})
+
+    def job_workflow(self, response):
+        self.assertEqual(response.status_code, 200, response.text)
+        job = A.jobs[response.json()["job_id"]]
+        self.assertEqual((job["template_id"], job["owner_id"]), ("input_image_batch", self.ids["refine-bot"]))
+        self.assertNotEqual(job.get("runpod_tier"), "video")
+        self.assertTrue(input_assets.input_dir_for(self.ids["refine-bot"]).joinpath(job["options"]["input_image"]).is_file())
+        workflow = json.loads((A.JOBS_DIR / job["workflow_filename"]).read_text(encoding="utf-8"))
+        classes = [node["class_type"] for node in workflow.values()]
+        loaders = [n for n in workflow.values() if n["class_type"] == "LoadImage"]
+        self.assertEqual([n["_meta"]["title"] for n in loaders], ["input_image"])
+        ids = set(workflow)
+        for node in workflow.values():
+            for value in node["inputs"].values():
+                if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
+                    self.assertIn(value[0], ids)
+        return workflow, classes
+
+    def test_bad_requests(self):
+        for bad in ({"op": "sharpen"}, {"model": "checkpoints:none.safetensors"}, {"image": "not-base64!"},
+                    {"prompt": 3}, {"op": "upscale", "image": png(2400, 1200)}):
+            self.assertIn(self.submit(**bad).status_code, (400, 404), bad)
+        self.assertEqual(A.jobs, {})
+
+    def test_face_on_sdxl_uses_same_checkpoint(self):
+        workflow, classes = self.job_workflow(self.submit())
+        self.assertIn("FaceDetailer", classes)
+        self.assertNotIn("KSampler", classes)
+        ckpt = next(n for n in workflow.values() if n["class_type"] == "CheckpointLoaderSimple")
+        self.assertEqual(ckpt["inputs"]["ckpt_name"], "waiIllustriousSDXL_v170.safetensors")
+
+    def test_face_on_krea_falls_back_to_anima(self):
+        response = self.submit(model="diffusion_models:krea2_turbo_fp8_scaled.safetensors")
+        workflow, classes = self.job_workflow(response)
+        self.assertEqual(response.json()["model"], "diffusion_models:anima-base-v1.0.safetensors")
+        unet = next(n for n in workflow.values() if n["class_type"] == "UNETLoader")
+        self.assertEqual(unet["inputs"]["unet_name"], "anima-base-v1.0.safetensors")
+        self.assertIn("FaceDetailer", classes)
+
+    def test_upscale_on_anima_uses_model_then_usdu(self):
+        response = self.submit(op="upscale", model="diffusion_models:anima-base-v1.0.safetensors")
+        workflow, classes = self.job_workflow(response)
+        self.assertEqual((response.json()["width"], response.json()["height"]), (2688, 1536))
+        self.assertEqual(classes.count("UltimateSDUpscaleNoUpscale"), 1)
+        upscaler = next(n for n in workflow.values() if n["class_type"] == "UpscaleModelLoader")
+        self.assertEqual(upscaler["inputs"]["model_name"], "4x_foolhardy_Remacri.safetensors")
+        scale = next(n for n in workflow.values() if n["class_type"] == "ImageScaleBy")
+        self.assertEqual(scale["inputs"]["scale_by"], 0.5)
+        usdu = next(n for n in workflow.values() if n["class_type"] == "UltimateSDUpscaleNoUpscale")
+        self.assertEqual(usdu["inputs"]["denoise"], 0.25)
+
+    def test_upscale_on_krea_does_not_redraw(self):
+        workflow, classes = self.job_workflow(self.submit(op="upscale", model="diffusion_models:krea2_turbo_fp8_scaled.safetensors", prompt=""))
+        self.assertIn("ImageUpscaleWithModel", classes)
+        self.assertFalse({"UltimateSDUpscaleNoUpscale", "UNETLoader", "KSampler"} & set(classes))
+
+    def test_service_route_allowed(self):
+        self.assertTrue(any(m == "POST" and p.fullmatch("/api/generate/refine") for m, p in A.SERVICE_TOKEN_ROUTES))
+
+
+if __name__ == "__main__":
+    unittest.main()
