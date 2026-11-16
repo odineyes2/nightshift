@@ -659,7 +659,7 @@ function buildJobCard(j){
   const startable = ['pending', 'interrupted', 'failed'].includes(j.status);
   const deletable = j.status !== 'running' && (j.status !== 'queued' || waitingForPod);
   const state = waitingForPod ? '워커 대기' : STATUS_LABEL[j.status] || j.status;
-  const worker = j.pod_id ? podName(j.pod_id) || j.pod_id : '자동 배정';
+  const worker = jobWorkerLabel(j);
   const project = j.project_id != null ? projectName(j.project_id) || '미분류' : '미분류';
 
   return `
@@ -699,6 +699,14 @@ function buildJobCard(j){
         ${startable ? `<button class="start-btn" data-start="${j.id}" title="${j.status === 'pending' ? '일시정지 중 — 누르면 실행 대기로 넘어가요(빈 워커가 있으면 바로 시작)' : '이 작업을 다시 시작해요'}" aria-label="작업 시작"><svg class="ico"><use href="#i-play"/></svg></button>` : ''}
       </div>
     </div>`;
+}
+
+// 유료 회원 작업(billing="admin" — 관리자 GPU에서 돈다): 회원에게는 관리자 워커 대신 "유료 · 관리자 GPU로 생성"을 보여 준다
+// (서버가 회원 응답에서 관리자 워커 정보를 지운다 — member_job_view). 관리자에게는 워커 이름 옆에 "유료 회원 작업"을 붙인다.
+function jobWorkerLabel(j){
+  const name = j.pod_id ? podName(j.pod_id) || j.pod_id : '자동 배정';
+  if(j.billing !== 'admin') return name;
+  return isAdminUser() ? `${name} · 유료 회원 작업` : '유료 · 관리자 GPU로 생성';
 }
 
 // ---- 작업 카드를 눌러 여는 상세 모달 ----
@@ -915,7 +923,9 @@ function renderJobDetailModalBody(){
     <div class="field"><label class="field-label">CSV</label><div>${escapeHtml(job.csv_original_name || '-')}</div></div>
     ${jobHasLoraWorkflow(job) ? jobDetailLoraHtml() : ''}
     ${job.owner_name ? `<div class="field"><label class="field-label">만든 사람</label><div>${escapeHtml(job.owner_name)}</div></div>` : ''}
-    ${job.pod_id ? `<div class="field"><label class="field-label">워커</label><div>${escapeHtml(podName(job.pod_id) || job.pod_id)}</div></div>` : ''}
+    ${job.billing === 'admin'
+      ? `<div class="field"><label class="field-label">워커</label><div>${escapeHtml(jobWorkerLabel(job))}</div>${isAdminUser() ? '' : '<div class="job-detail-empty">유료 회원 혜택으로 관리자 GPU에서 만들어요 — 내 RunPod 요금은 나가지 않아요.</div>'}</div>`
+      : job.pod_id ? `<div class="field"><label class="field-label">워커</label><div>${escapeHtml(podName(job.pod_id) || job.pod_id)}</div></div>` : ''}
     ${job.project_id != null && projectsById[job.project_id] ? `<div class="field"><label class="field-label">프로젝트</label><div>${escapeHtml(projectName(job.project_id))}</div></div>` : ''}
     <div class="field">
       <label class="field-label">시간</label>
