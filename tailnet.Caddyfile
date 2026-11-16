@@ -32,6 +32,29 @@ https://nightshift.lomebrote.com {
 	reverse_proxy 127.0.0.1:8000
 }
 
+# charchat·dev도 같은 방식(Tailscale 기기만 직통). 확인 요청은 Cloudflare 터널 → 각 앱의 /.well-known/acme-challenge/ 중계 → 8081.
+https://charchat.lomebrote.com {
+	bind {$TAILNET_IP}
+	tls {
+		issuer acme {
+			dir {$ACME_DIR}
+			disable_tlsalpn_challenge
+		}
+	}
+	reverse_proxy 127.0.0.1:8401
+}
+
+https://dev.lomebrote.com {
+	bind {$TAILNET_IP}
+	tls {
+		issuer acme {
+			dir {$ACME_DIR}
+			disable_tlsalpn_challenge
+		}
+	}
+	reverse_proxy 127.0.0.1:8300
+}
+
 https://{$TAILNET_HOST} {
 	bind {$TAILNET_IP}
 	# 이름이 환경변수라 Caddy가 *.ts.net인 줄 모르고 Let's Encrypt로 가려 한다 — Tailscale에서 받으라고 적어 준다.

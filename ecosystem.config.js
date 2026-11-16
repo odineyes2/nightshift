@@ -221,7 +221,9 @@ module.exports = {
       args: "tailnet_dns.py",
       interpreter: "none",
       cwd: SERVER_DIR,
-      env: { PYTHONUNBUFFERED: "1", TAILNET_IP: tailnet.ip },
+      // 답하는 이름 — tailnet.Caddyfile의 사이트와 Tailscale split DNS 항목을 함께 맞춘다.
+      env: { PYTHONUNBUFFERED: "1", TAILNET_IP: tailnet.ip,
+             TAILNET_DNS_NAMES: "nightshift.lomebrote.com,charchat.lomebrote.com,dev.lomebrote.com" },
       autorestart: true,
       max_restarts: 50,       // 부팅 직후 Tailscale이 늦게 뜨면 몇 번 실패한다
       restart_delay: 5000,
