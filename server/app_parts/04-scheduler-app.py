@@ -371,7 +371,7 @@ def _run_one_job(pod_id: str, job_id: str):
         extra_env["POSE_SEQUENCE_PATH"] = str((JOBS_DIR / job["pose_sequence_filename"]).resolve())
     for name, value in job.get("options", {}).items():
         extra_env[name.upper()] = str(value)
-    extra_env.update(ref_assets_job_env(job.get("owner_id")))
+    extra_env.update(ref_assets_job_env(job.get("owner_id"), job.get("via_service")))
     env = {**os.environ, **extra_env}
 
     stopped = False
@@ -415,10 +415,10 @@ def _run_one_job(pod_id: str, job_id: str):
     _sync_assets_quietly(force=True)
 
 
-def ref_assets_job_env(owner_id) -> dict[str, str]:
-    """일반 회원의 작업이 그 회원의 참조·입력 이미지 폴더만 쓰게 하는 환경변수."""
+def ref_assets_job_env(owner_id, via_service=None) -> dict[str, str]:
+    """저장 요청과 같은 폴더를 쓴다: admin 직접 작업만 공용, 서비스 대리 작업은 회원별 폴더."""
     owner = auth.get_user(owner_id) if owner_id is not None else None
-    if owner is None or auth.is_admin(owner):
+    if owner is None or (auth.is_admin(owner) and not via_service):
         return {}
     return job_env_for_owner(owner_id)
 

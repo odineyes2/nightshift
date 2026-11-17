@@ -1,17 +1,24 @@
 """서비스 연동 계정이 회원 대신 보내는 요청(X-On-Behalf-Of) 검사 — 작업·결과물이 그 회원 소유가 되고, 그 회원 파드에서만 돌며,
 "<서비스> 삽화" 프로젝트에 모인다. 가짜 데이터만 쓴다. 실행: python tests/test_service_on_behalf.py"""
 import asyncio
+import base64
+import io
 import os
 import secrets
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 TMP = tempfile.TemporaryDirectory()
 for part in ("DATA", "OUTPUT", "ASSETS"):
     os.environ[f"NIGHTSHIFT_{part}_DIR"] = str(Path(TMP.name) / part.lower())
+os.environ.pop("NIGHTSHIFT_INPUT_IMAGES_DIR", None)
 PASSWORD = secrets.token_urlsafe(18)
 os.environ["NIGHTSHIFT_ADMIN_USER"] = "admin"
 os.environ["NIGHTSHIFT_ADMIN_PASSWORD"] = PASSWORD
@@ -101,6 +108,56 @@ class OnBehalfTests(unittest.TestCase):
         self.assertEqual(self.call("/api/output-images/jobx/a.png").status_code, 403)     # 연동 계정 것이 아니다
         self.assertNotEqual(self.call("/api/output-images/jobx/a.png", self.member_id).status_code, 403)
         self.assertEqual(self.call("/api/output-images/jobx/a.png", self.admin_id).status_code, 403)
+
+    def test_saved_input_reaches_runner_for_direct_and_service_requests(self):
+        # 실제 API 저장 → 실행기 → 템플릿의 경로 해석을 별도 프로세스에서 연결한다.
+        # ComfyUI·RunPod·알림은 호출하지 않는다.
+        A.model_registry.upsert("checkpoints", "waiIllustriousSDXL_v170.safetensors",
+                                {"base_model": "Illustrious"})
+        image = io.BytesIO()
+        Image.new("RGB", (64, 64), (40, 60, 90)).save(image, "PNG")
+        body = {"op": "upscale", "model": "checkpoints:waiIllustriousSDXL_v170.safetensors",
+                "prompt": "landscape", "seed": 7, "image": base64.b64encode(image.getvalue()).decode()}
+        real_popen = A.subprocess.Popen
+        template_path = ROOT / "templates" / "input_image_batch.py"
+        probe = (
+            "import os,runpy; from pathlib import Path; "
+            f"ns=runpy.run_path({str(template_path)!r},run_name='path_probe'); "
+            "p=ns['input_images_dir']()/os.environ['INPUT_IMAGE']; "
+            "assert p.is_file(), str(p); print('INPUT_FOUND')"
+        )
+        import notify
+        for owner_id in (self.admin_id, self.member_id):
+            for delegated in (False, True):
+                with self.subTest(owner=owner_id, delegated=delegated), TestClient(A.app) as client:
+                    if delegated:
+                        headers = {"Authorization": "Bearer " + self.token, "X-On-Behalf-Of": str(owner_id)}
+                    else:
+                        client.cookies.set(A.auth.SESSION_COOKIE, A.auth.create_session(owner_id))
+                        headers = {"X-Requested-With": "nightshift"}
+                    response = client.post("/api/generate/refine", json=body, headers=headers)
+                    self.assertEqual(response.status_code, 200, response.text)
+                    job = A.jobs[response.json()["job_id"]]
+                    self.assertEqual(job["owner_id"], owner_id)
+                    self.assertEqual(job["via_service"], self.bot["id"] if delegated else None)
+                    import input_assets
+                    scoped_id = owner_id if delegated or owner_id != self.admin_id else None
+                    saved = input_assets.input_dir_for(scoped_id) / job["options"]["input_image"]
+                    self.assertEqual(saved.read_bytes(), image.getvalue())
+                    pod = {"id": "input-path-probe", "kind": "comfyui"}
+                    job.update(pod_id=pod["id"], status="queued")
+                    with patch.object(A, "wait_for_pod", return_value=("run", "http://unused")), \
+                            patch.object(A.pod_registry, "get_pod", return_value=pod), \
+                            patch.object(A, "job_missing_on_pod", return_value=[]), \
+                            patch.object(A, "driver_for", return_value=SimpleNamespace(job_env=lambda *_: {})), \
+                            patch.object(A.subprocess, "Popen", side_effect=lambda _cmd, **kw: real_popen(
+                                [sys.executable, "-c", probe], **kw)), \
+                            patch.object(notify, "job_finished"), \
+                            patch.object(A, "pull_job_outputs"), patch.object(A, "_sync_assets_quietly"):
+                        A._run_one_job(pod["id"], job["id"])
+                    log = (A.LOGS_DIR / (job["id"] + ".log")).read_text(errors="replace")
+                    self.assertEqual((job["status"], job["returncode"]), ("done", 0), log)
+                    self.assertIn("INPUT_FOUND", log)
 
 
 if __name__ == "__main__":
