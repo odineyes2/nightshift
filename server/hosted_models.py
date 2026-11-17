@@ -1,4 +1,4 @@
-"""홈서버에 보관하는 모델 파일(지금은 인물 LoRA)과, 워커(파드)가 그 파일을 받아 갈 주소를 만든다.
+"""홈서버에 보관하는 LoRA·업스케일러와, 워커(파드)가 그 파일을 받아 갈 주소를 만든다.
 
 파드는 끌 때 지워지므로 직접 학습한 LoRA는 받을 인터넷 주소가 없다. 파일을 data/hosted_models/<종류>/ 아래에 두고,
 작업이 그 모델을 찾으면 자동 설치(13-jobs-api._start_model_downloads)가 여기서 만든 주소로 파드에 받게 한다.
@@ -15,7 +15,7 @@ from pathlib import Path
 import model_download
 from data_paths import data_dir
 
-KINDS = ("loras",)
+KINDS = ("loras", "upscale_models")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}\.safetensors$")
 MAX_BYTES = 512 * 1024 * 1024
 

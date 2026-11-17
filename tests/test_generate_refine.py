@@ -171,6 +171,23 @@ class GenerateRefineTests(unittest.TestCase):
         sampler = next(n for n in workflow.values() if n["class_type"] == "KSampler")
         self.assertEqual(workflow[sampler["inputs"]["model"][0]]["class_type"], "LoraLoader")
 
+    def test_hosted_upscaler_upload_download_and_auto_install_address(self):
+        import hosted_models
+        name = "4x-UltraSharp.safetensors"
+        put = self.admin.put("/api/hosted-models/upscale_models/" + name,
+                             content=b"upscaler-bytes", headers={"X-Requested-With": "nightshift"})
+        self.assertEqual(put.status_code, 200, put.text)
+        url = hosted_models.url("https://ns.example", "upscale_models", name)
+        self.assertEqual(self.client.get(url.removeprefix("https://ns.example")).content, b"upscaler-bytes")
+        wrong_kind = url.removeprefix("https://ns.example").replace("/upscale_models/", "/loras/")
+        self.assertEqual(self.client.get(wrong_kind).status_code, 404)
+        calls = []
+        with patch.dict(os.environ, {"NIGHTSHIFT_PUBLIC_URL": "https://ns.example"}), \
+                patch.object(A.model_download, "call_node", lambda pod, method, route, body: calls.append(body)):
+            result = A.asyncio.run(A._start_model_downloads({"id": self.ids["refine-admin"]}, {"id": "p"}, [name]))
+        self.assertEqual(result, ([name], [], []))
+        self.assertEqual((calls[0]["url"], calls[0]["folder"], calls[0]["headers"]), (url, "upscale_models", {}))
+
     def test_hosted_lora_upload_download_and_auto_install_address(self):
         import hosted_models
         csrf = {"X-Requested-With": "nightshift"}
