@@ -445,7 +445,9 @@ async def comfy_restart(request):
 # output/nightshift_train/<name>.safetensors(nightshift가 /view로 받아 가는 사본)에 둔다.
 TRAIN_ROOT = "/workspace/nightshift_train"
 SD_SCRIPTS_REPO = "https://github.com/kohya-ss/sd-scripts.git"
-TORCH_PINS = ["torch==2.6.0", "torchvision==0.21.0", "--index-url", "https://download.pytorch.org/whl/cu124"]
+# 2026-11-17 수동 실험에서 되던 그대로: 시스템 python3로 venv를 만들고 cu124 torch(그때 2.6.0으로 풀림)를 받는다.
+# ComfyUI의 python으로 만든 venv에 버전을 못박았더니 pip가 의존성을 풀지 못했다(ResolutionImpossible).
+TORCH_ARGS = ["torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu124"]
 TRAIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 TRIGGER_RE = re.compile(r"^[A-Za-z0-9_]{1,40}$")
 CAPTION_MAX = 400
@@ -488,9 +490,10 @@ def _train_install():
     if not os.path.isdir(repo):
         _run_logged(["git", "clone", "--depth", "1", SD_SCRIPTS_REPO, repo], timeout=GIT_TIMEOUT)
     if not os.path.exists(venv_py):
-        _run_logged([sys.executable, "-m", "venv", os.path.join(TRAIN_ROOT, "venv")], timeout=300)
+        base_python = shutil.which("python3") or sys.executable
+        _run_logged([base_python, "-m", "venv", os.path.join(TRAIN_ROOT, "venv")], timeout=300)
     _run_logged([venv_py, "-m", "pip", "install", "-q", "--upgrade", "pip"], timeout=PIP_TIMEOUT)
-    _run_logged([venv_py, "-m", "pip", "install", "-q", *TORCH_PINS], timeout=PIP_TIMEOUT)
+    _run_logged([venv_py, "-m", "pip", "install", *TORCH_ARGS], timeout=PIP_TIMEOUT)
     _run_logged([venv_py, "-m", "pip", "install", "-q", "-r", "requirements.txt"], cwd=repo, timeout=PIP_TIMEOUT)
     open(mark, "w").close()
     return venv_py
