@@ -206,6 +206,7 @@ def job_outputs(job_id: str, request: Request):
         job = jobs.get(job_id)
         status = job.get("status") if job else None
         owner_id = job.get("owner_id") if job else None
+        progress = dict(job.get("progress") or {}) if job else None   # 진행률(학습처럼 오래 걸리는 작업을 연동 앱이 보여 준다)
     if job is None:
         raise HTTPException(404, "없는 작업이에요.")
     if not auth.can_access(user, owner_id):
@@ -223,7 +224,7 @@ def job_outputs(job_id: str, request: Request):
         if path.is_file():
             found[row["kind"]].append({"name": row["path"], "size": path.stat().st_size,
                                        "url": f"/api/output-{row['kind']}s/" + urllib.parse.quote(row["path"], safe="/")})
-    return {"status": status, "images": found["image"], "videos": found["video"]}
+    return {"status": status, "progress": progress, "images": found["image"], "videos": found["video"]}
 
 
 @app.get("/api/jobs/{job_id}/log")
