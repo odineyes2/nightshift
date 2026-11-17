@@ -295,10 +295,12 @@
 
 <main id="tab-dashboard" style="display:none;">
   <div class="dash-totals" id="dash-totals"></div>
+  <div class="dash-archive-hint">보관 포함 전체</div>
 
   <div class="dash-actions">
     <button class="submit-btn" id="pod-add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg> 워커 추가</button>
     <button class="load-btn" id="dash-refresh-btn" type="button" title="새로고침"><svg class="ico"><use href="#i-refresh-cw"/></svg></button>
+    <button class="load-btn dash-archive-filter" id="dash-archive-filter" type="button" aria-pressed="false">보관함</button>
     <!-- 로컬 워커(이 서버 자신) 보기 — 이 서버에 GPU가 생길 때를 위해 남겨 둔 워커라 평소엔 숨긴다(NS-7). 로컬 워커가 있을 때만 보인다. -->
     <label class="dash-local-toggle" id="dash-local-toggle" hidden><button type="button" class="pod-switch" id="dash-show-local" role="switch" aria-checked="false" aria-label="로컬 워커 보기"></button> 로컬 워커 보기</label>
   </div>
@@ -307,6 +309,7 @@
        지금은 파드 카드 하나뿐이지만, 통계·최근 산출물·메모 같은 카드를 나중에 같은
        그리드에 얹을 수 있게 이 구조로 둔다. -->
   <div class="dash-longpress-hint">워커 카드를 길게 누르면 삭제할 수 있어요.</div>
+  <div id="pod-archive-notice" class="pod-archive-notice" role="status" hidden></div>
   <div class="card-canvas" id="dash-canvas"></div>
   <div class="empty" id="dash-empty" style="display:none;">등록된 워커가 없어요</div>
 
@@ -1910,6 +1913,10 @@
         </div>
       </div>
       <div class="enhance-status" id="pod-edit-status" style="text-align:left; max-width:none;"></div>
+      <div class="pod-archive-action" id="pod-archive-action" hidden>
+        <span>목록에서 숨겨요. 워커 사용·전원 설정은 유지돼요.</span>
+        <button class="modal-btn-secondary" id="pod-edit-archive" type="button">보관</button>
+      </div>
       <div class="upload-error" id="pod-edit-error"></div>
     </div>
     <div class="modal-footer">
