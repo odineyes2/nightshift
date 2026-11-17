@@ -5,6 +5,65 @@
 // 이 구조로 둔다(카드가 자기 크기를 span으로 정한다).
 let dashSummary = { pods: [], totals: {} };
 let dashTimer = null;
+let dashArchived = false;
+let podArchiveNoticeTimer = null;
+const podArchivePending = new Set();
+
+function renderPodArchiveAction(){
+  const pod = podsById[podEditId];
+  document.getElementById('pod-archive-action').hidden = !pod;
+  const button = document.getElementById('pod-edit-archive');
+  button.disabled = podArchivePending.has(podEditId);
+  button.textContent = button.disabled ? '저장 중…' : pod && pod.archived ? '복원' : '보관';
+}
+
+async function setPodArchived(podId, archived){
+  if(podArchivePending.has(podId)) return;
+  podArchivePending.add(podId);
+  renderPodArchiveAction();
+  renderDashboard();
+  const notice = document.getElementById('pod-archive-notice');
+  clearTimeout(podArchiveNoticeTimer);
+  notice.querySelectorAll('button').forEach(button => { button.disabled = true; });
+  try{
+    const response = await fetch(`/api/pods/${encodeURIComponent(podId)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if(!response.ok) throw new Error(data.detail || '저장하지 못했어요. 다시 시도해 주세요.');
+    // 갱신 요청이 늦어져도 이미 저장된 상태로 표시한다.
+    if(podsById[podId]) podsById[podId].archived = archived;
+    for(const pod of dashSummary.pods || []) if(pod.id === podId) pod.archived = archived;
+    await fetchPods();
+    await fetchDashboard();
+    showTab('pods');
+    notice.replaceChildren(document.createTextNode(archived ? '워커를 보관했어요. ' : '워커를 복원했어요.'));
+    if(archived){
+      const undo = document.createElement('button');
+      undo.type = 'button'; undo.className = 'load-btn'; undo.textContent = '되돌리기';
+      undo.addEventListener('click', () => setPodArchived(podId, false));
+      notice.appendChild(undo);
+    }
+    notice.hidden = false;
+    podArchiveNoticeTimer = setTimeout(() => { notice.hidden = true; }, 3000);
+  }catch(error){
+    notice.textContent = error.message || '저장하지 못했어요. 다시 시도해 주세요.';
+    notice.hidden = false;
+    document.getElementById('pod-edit-error').textContent = notice.textContent;
+  }finally{
+    podArchivePending.delete(podId);
+    renderPodArchiveAction();
+    renderDashboard();
+  }
+}
+document.getElementById('pod-edit-archive').addEventListener('click', () => {
+  const pod = podsById[podEditId];
+  if(pod) setPodArchived(pod.id, !pod.archived);
+});
+document.getElementById('dash-archive-filter').addEventListener('click', () => {
+  dashArchived = !dashArchived;
+  renderDashboard();
+});
 
 const POD_STATE = {
   disabled: { cls: 'disabled', label: '사용 안 함' },
@@ -187,6 +246,7 @@ async function runpodPower(podId, action){
 // 워커 사용·작업 처리는 기존 워커일 때만. RunPod 줄은 RunPod 정보만 있어도 보인다(새 워커 추가 중
 // "RunPod 정보 테스트"를 눌렀을 때 — 이때 스위치는 없다).
 function renderPodControls(){
+  renderPodArchiveAction();
   const p = podEditId && (dashSummary.pods || []).find(x => x.id === podEditId);
   const hasInfo = document.getElementById('pod-edit-runpod-fields').children.length > 0;
   const power = p ? runpodPowerState(p) : null;
@@ -387,7 +447,7 @@ function renderPodCard(p){
       </div>
       ${thumbs ? `<div class="dash-thumbs">${thumbs}</div>` : ''}
       <div class="dash-card-actions">
-        ${renderPodChips(p)}
+        ${p.archived ? `<button type="button" class="load-btn pod-archive-restore" data-pod-restore="${escapeHtml(p.id)}" ${podArchivePending.has(p.id) ? 'disabled' : ''}>${podArchivePending.has(p.id) ? '저장 중…' : '복원'}</button>` : renderPodChips(p)}
       </div>
     </div>`;
 }
@@ -460,14 +520,21 @@ function renderDashboard(){
   const allPods = dashSummary.pods || [];
   const hasLocal = allPods.some(p => isLocalWorker(podsById[p.id] || p));
   const showLocal = showLocalWorkers();
-  document.getElementById('dash-local-toggle').hidden = !hasLocal;
+  document.getElementById('dash-local-toggle').hidden = dashArchived || !hasLocal;
+  document.getElementById('dash-archive-filter').setAttribute('aria-pressed', String(dashArchived));
   document.getElementById('dash-show-local').setAttribute('aria-checked', String(showLocal));
-  const cards = allPods.filter(p => showLocal || !isLocalWorker(podsById[p.id] || p)).map(p => ({ type: 'pod', data: p }));
+  const cards = allPods.filter(p => !!p.archived === dashArchived && (dashArchived || showLocal || !isLocalWorker(podsById[p.id] || p))).map(p => ({ type: 'pod', data: p }));
+  const workerCount = cards.length;
   cards.push({ type: 'recent-jobs' });
   const canvas = document.getElementById('dash-canvas');
-  document.getElementById('dash-empty').style.display = cards.length ? 'none' : '';
+  document.getElementById('dash-empty').style.display = workerCount ? 'none' : '';
+  document.getElementById('dash-empty').textContent = dashArchived ? '보관한 워커가 없어요.' : '표시할 워커가 없어요. 보관함이나 로컬 워커 보기를 확인해 주세요.';
   canvas.innerHTML = cards.map(c => (CARD_RENDERERS[c.type] || (() => ''))(c.data)).join('');
 
+  canvas.querySelectorAll('[data-pod-restore]').forEach(btn => btn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setPodArchived(btn.dataset.podRestore, false);
+  }));
   canvas.querySelectorAll('[data-pod-edit]').forEach(btn => btn.addEventListener('click', () => {
     showTab('psettings', { podId: btn.dataset.podEdit });
   }));
@@ -661,6 +728,7 @@ function closePodSettingsPage(){
 function openPodEditModal(podId){
   if(!podId && podEditInline()) closePodSettingsPage();   // 워커 추가는 모달로
   podEditId = podId || null;
+  renderPodArchiveAction();
   const pod = podId ? (podsById[podId] || {}) : {};
   document.getElementById('pod-edit-title').innerHTML = podId ? ico('settings') + ' Worker settings' : ico('plus') + ' Add worker';
   document.getElementById('pod-edit-name').value = pod.name || '';
