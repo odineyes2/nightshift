@@ -171,6 +171,29 @@ class GenerateRefineTests(unittest.TestCase):
         sampler = next(n for n in workflow.values() if n["class_type"] == "KSampler")
         self.assertEqual(workflow[sampler["inputs"]["model"][0]]["class_type"], "LoraLoader")
 
+    def test_generate_regions_split_the_picture_left_to_right(self):
+        body = {"preset": "checkpoints:waiIllustriousSDXL_v170.safetensors", "prompt": "1girl, 1boy, castle", "aspect": "16:9", "seed": 3}
+        with patch.object(A, "poke_scheduler", lambda: None):
+            ok = self.client.post("/api/generate", headers=self.bearer, json={**body, "regions": ["1girl, silver hair", "1boy, red hair"]})
+            bad = [self.client.post("/api/generate", headers=self.bearer, json={**body, **extra}).status_code
+                   for extra in ({"regions": ["only one"]}, {"regions": ["a", ""]}, {"regions": ["a"] * 4},
+                                 {"regions": ["a", "b"], "preset": "diffusion_models:krea2_turbo_fp8_scaled.safetensors"})]
+        self.assertEqual(ok.status_code, 200, ok.text)
+        self.assertEqual(bad, [400, 400, 400, 400])
+        job = A.jobs[ok.json()["job_id"]]
+        workflow = json.loads((A.JOBS_DIR / job["workflow_filename"]).read_text(encoding="utf-8"))
+        areas = [n["inputs"] for n in workflow.values() if n["class_type"] == "ConditioningSetArea"]
+        self.assertEqual([(a["x"], a["width"], a["height"]) for a in areas], [(0, 672, 768), (672, 672, 768)])
+        texts = [workflow[a["conditioning"][0]]["inputs"]["text"] for a in areas]
+        self.assertEqual(texts, ["1girl, silver hair", "1boy, red hair"])
+        sampler = next(n for n in workflow.values() if n["class_type"] == "KSampler")
+        self.assertEqual(workflow[sampler["inputs"]["positive"][0]]["class_type"], "ConditioningCombine")
+        main = next(n for n in workflow.values() if n["_meta"]["title"] == "main_prompt")   # 실행 템플릿이 다시 넣는 메인 프롬프트는 그대로
+        self.assertIn("castle", main["inputs"]["text"])
+        for node in workflow.values():
+            if node["class_type"] in ("ConditioningSetArea", "ConditioningCombine") or node["_meta"]["title"].startswith("칸"):
+                self.assertFalse(any(word in node["_meta"]["title"] for word in ("main_prompt", "negative_prompt", "KSampler", "Save", "latent")))
+
     def test_hosted_upscaler_upload_download_and_auto_install_address(self):
         import hosted_models
         name = "4x-UltraSharp.safetensors"

@@ -99,10 +99,48 @@ def _lora_spec(loras):
     return [{"name": name, "strength_model": strength, "strength_clip": strength} for name, strength in loras]
 
 
-def build(entry, prompt, negative_prompt, aspect, seed, loras=()):
+MAX_REGIONS = 3
+
+
+def clean_regions(raw):
+    """요청의 regions([문자열])을 검사한다 — 그림을 가로로 똑같이 나눈 칸마다(왼쪽부터) 그 칸에 그릴 인물의 묘사.
+    두 인물 그림에서 누가 왼쪽인지 정해 두면 얼굴별 보정(refine faces)이 그 순서로 인물을 맞출 수 있다."""
+    if raw in (None, []):
+        return []
+    if not isinstance(raw, list) or not 2 <= len(raw) <= MAX_REGIONS:
+        raise ModelError(f"regions는 2~{MAX_REGIONS}개의 목록이어야 해요.")
+    if any(not isinstance(text, str) or not text.strip() or len(text) > 1000 for text in raw):
+        raise ModelError("regions의 각 칸은 1~1000자 묘사여야 해요.")
+    return [text.strip() for text in raw]
+
+
+def _apply_regions(workflow, regions, width, height):
+    """메인 긍정 조건에 칸별 조건(ConditioningSetArea)을 더해 모든 KSampler에 넣는다. 노드 제목에는 실행 템플릿이
+    부분일치로 집는 낱말(main_prompt·negative_prompt·KSampler·Save·latent)을 넣지 않는다."""
+    samplers = [node for node in workflow.values() if isinstance(node, dict) and node.get("class_type") == "KSampler"]
+    if not samplers:
+        raise ModelError("이 생성 모델은 칸 나누기를 할 수 없어요.")
+    positive = samplers[0]["inputs"]["positive"]
+    clip = workflow[str(positive[0])]["inputs"]["clip"]
+    next_id = max(int(key) for key in workflow) + 1
+    combined, step = positive, width // len(regions) // 8 * 8
+    for index, text in enumerate(regions):
+        encode, area, merge = str(next_id), str(next_id + 1), str(next_id + 2)
+        next_id += 3
+        workflow[encode] = {"inputs": {"text": text, "clip": clip}, "class_type": "CLIPTextEncode", "_meta": {"title": f"칸 {index + 1} 묘사"}}
+        workflow[area] = {"inputs": {"conditioning": [encode, 0], "width": step, "height": height, "x": index * step, "y": 0,
+                                     "strength": 1.0}, "class_type": "ConditioningSetArea", "_meta": {"title": f"칸 {index + 1} 자리"}}
+        workflow[merge] = {"inputs": {"conditioning_1": combined, "conditioning_2": [area, 0]}, "class_type": "ConditioningCombine",
+                           "_meta": {"title": f"칸 {index + 1} 합치기"}}
+        combined = [merge, 0]
+    for sampler in samplers:
+        sampler["inputs"]["positive"] = list(combined)
+
+
+def build(entry, prompt, negative_prompt, aspect, seed, loras=(), regions=()):
     """(workflow, width, height, steps, positive) — 프롬프트·시드·크기를 넣은 t2i 워크플로우.
     positive는 스윗 포인트 접두어까지 붙은 실제 프롬프트다(실행 템플릿이 main_prompt로 다시 넣는다).
-    loras는 clean_loras가 돌려준 [(파일 이름, 강도)]."""
+    loras는 clean_loras가 돌려준 [(파일 이름, 강도)], regions는 clean_regions가 돌려준 칸별 묘사(왼쪽부터)."""
     if aspect not in ASPECTS:
         raise ModelError("허용되지 않은 비율이에요.")
     width, height = ASPECTS[aspect]
@@ -123,6 +161,10 @@ def build(entry, prompt, negative_prompt, aspect, seed, loras=()):
             workflow = workflow_builder_krea2.build_workflow({**spec, "refine_prompt": False})
     except workflow_builder.WorkflowBuildError as exc:
         raise ModelError(str(exc)) from exc
+    if regions:
+        if architecture not in ("sdxl", "unet"):
+            raise ModelError("이 생성 모델은 칸 나누기를 할 수 없어요.")
+        _apply_regions(workflow, regions, width, height)
     sampler = next((node for node in workflow.values()
                     if isinstance(node, dict) and node.get("class_type") == "KSampler"), None)
     steps = sampler["inputs"].get("steps") if sampler else spec.get("steps")
