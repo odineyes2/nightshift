@@ -27,14 +27,27 @@ async def generate_refine(request: Request):
     if op == "upscale" and max(width, height) * generate_models.REFINE_UPSCALE_BY > 4096:
         raise HTTPException(400, "이미 충분히 커서 더 키울 수 없어요(긴 변 4096px까지).")
     try:
-        used = generate_models.refine_entry(entry, op)
-        face_defaults = None
-        if op == "face":
-            arch = generate_models.architecture(used)
-            face_defaults = face_detailer_defaults_for(generate_models.family_id(used), "unet" if arch == "unet" else "sdxl")
-        workflow, used = generate_models.build_refine(entry, op, prompt.strip(), negative, seed, face_defaults)
+        if op == "faces":
+            # 얼굴마다 그 인물의 프롬프트·LoRA로 다시 그린다 — faces는 그림의 왼쪽 얼굴부터 [{prompt, loras}].
+            raw = body.get("faces")
+            if not isinstance(raw, list) or not 1 <= len(raw) <= generate_models.MAX_FACES:
+                raise generate_models.ModelError(f"faces는 1~{generate_models.MAX_FACES}개의 목록이어야 해요.")
+            faces = []
+            for item in raw:
+                text = item.get("prompt") if isinstance(item, dict) else None
+                if not isinstance(text, str) or not text.strip() or len(text) > 4000:
+                    raise generate_models.ModelError("얼굴마다 프롬프트(1~4000자)가 필요해요.")
+                faces.append((text.strip(), generate_models.clean_loras(entry, item.get("loras"))))
+            workflow, used = generate_models.build_faces(entry, faces, negative, seed), entry
+        else:
+            used = generate_models.refine_entry(entry, op)
+            face_defaults = None
+            if op == "face":
+                arch = generate_models.architecture(used)
+                face_defaults = face_detailer_defaults_for(generate_models.family_id(used), "unet" if arch == "unet" else "sdxl")
+            workflow, used = generate_models.build_refine(entry, op, prompt.strip(), negative, seed, face_defaults)
     except generate_models.ModelError as exc:
-        raise HTTPException(409 if "등록부에 없어요" in str(exc) else 400, str(exc)) from exc
+        raise HTTPException(409 if "등록부에 없어요" in str(exc) and op != "faces" else 400, str(exc)) from exc
     try:
         image_name = await asyncio.to_thread(save_input_image, f"refine_{uuid.uuid4().hex[:12]}.{ext}", data)
     except InputAssetError as exc:

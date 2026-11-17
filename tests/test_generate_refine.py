@@ -132,6 +132,67 @@ class GenerateRefineTests(unittest.TestCase):
         self.assertIn("ImageUpscaleWithModel", classes)
         self.assertFalse({"UltimateSDUpscaleNoUpscale", "UNETLoader", "KSampler"} & set(classes))
 
+    def test_faces_redraws_each_face_with_its_own_lora(self):
+        model_registry.upsert("loras", "actor_a.safetensors", {"base_model": "Illustrious"})
+        model_registry.upsert("loras", "actor_b.safetensors", {"base_model": "Illustrious"})
+        model_registry.upsert("loras", "anima_only.safetensors", {"base_model": "Anima"})
+        faces = [{"prompt": "1girl, silver hair", "loras": [{"name": "actor_a.safetensors", "strength": 0.9}]},
+                 {"prompt": "1boy, red hair", "loras": [{"name": "actor_b.safetensors"}]}]
+        workflow, classes = self.job_workflow(self.submit(op="faces", prompt="", faces=faces))
+        self.assertEqual(classes.count("DetailerForEach"), 2)
+        self.assertEqual(classes.count("ImpactSEGSOrderedFilter"), 3)   # 큰 얼굴 2개 고르기 + 왼쪽부터 하나씩
+        self.assertNotIn("KSampler", classes)
+        loras = [n["inputs"] for n in workflow.values() if n["class_type"] == "LoraLoaderModelOnly"]
+        self.assertEqual([(n["lora_name"], n["strength_model"]) for n in loras],
+                         [("actor_a.safetensors", 0.9), ("actor_b.safetensors", 1.0)])
+        details = [n["inputs"] for n in workflow.values() if n["class_type"] == "DetailerForEach"]
+        self.assertEqual(details[1]["image"][0], next(k for k, n in workflow.items() if n["inputs"] is details[0]))
+        texts = [n["inputs"]["text"] for n in workflow.values() if n["class_type"] == "CLIPTextEncode"]
+        self.assertTrue(any("silver hair" in t for t in texts) and any("red hair" in t for t in texts))
+        for bad in ({"faces": []}, {"faces": [{"prompt": ""}]}, {"faces": [{"prompt": "a"}] * 4},
+                    {"faces": [{"prompt": "a", "loras": [{"name": "none.safetensors"}]}]},
+                    {"faces": [{"prompt": "a", "loras": [{"name": "anima_only.safetensors"}]}]},
+                    {"faces": [{"prompt": "a", "loras": [{"name": "actor_a.safetensors", "strength": 9}]}]},
+                    {"faces": faces, "model": "diffusion_models:krea2_turbo_fp8_scaled.safetensors"}):
+            self.assertEqual(self.submit(op="faces", prompt="", **bad).status_code, 400, bad)
+
+    def test_generate_takes_registered_loras(self):
+        model_registry.upsert("loras", "actor_a.safetensors", {"base_model": "Illustrious"})
+        body = {"preset": "checkpoints:waiIllustriousSDXL_v170.safetensors", "prompt": "1girl", "aspect": "16:9", "seed": 3}
+        with patch.object(A, "poke_scheduler", lambda: None):
+            ok = self.client.post("/api/generate", headers=self.bearer,
+                                  json={**body, "loras": [{"name": "actor_a.safetensors", "strength": 0.8}]})
+            bad = self.client.post("/api/generate", headers=self.bearer, json={**body, "loras": [{"name": "x.safetensors"}]})
+        self.assertEqual((ok.status_code, bad.status_code), (200, 400), ok.text)
+        job = A.jobs[ok.json()["job_id"]]
+        workflow = json.loads((A.JOBS_DIR / job["workflow_filename"]).read_text(encoding="utf-8"))
+        lora = next(n for n in workflow.values() if n["class_type"] == "LoraLoader")
+        self.assertEqual((lora["inputs"]["lora_name"], lora["inputs"]["strength_model"]), ("actor_a.safetensors", 0.8))
+        sampler = next(n for n in workflow.values() if n["class_type"] == "KSampler")
+        self.assertEqual(workflow[sampler["inputs"]["model"][0]]["class_type"], "LoraLoader")
+
+    def test_hosted_lora_upload_download_and_auto_install_address(self):
+        import hosted_models
+        csrf = {"X-Requested-With": "nightshift"}
+        put = self.admin.put("/api/hosted-models/loras/studio_test.safetensors?base_model=Illustrious&trigger=test_actor",
+                             content=b"lora-bytes", headers=csrf)
+        self.assertEqual(put.status_code, 200, put.text)
+        entry = model_registry.get_entry("loras", "studio_test.safetensors")
+        self.assertEqual((entry["trigger_keyword"], entry["base_model"]), ("test_actor", "Illustrious"))
+        self.assertEqual(self.client.put("/api/hosted-models/loras/x.safetensors", content=b"x", headers=self.bearer).status_code, 403)
+        self.assertEqual(self.admin.put("/api/hosted-models/loras/..x.safetensors", content=b"x", headers=csrf).status_code, 400)
+        url = hosted_models.url("https://ns.example", "loras", "studio_test.safetensors")
+        path = url.removeprefix("https://ns.example")
+        self.assertEqual(self.client.get(path).content, b"lora-bytes")   # 로그인 없이 파일별 열쇠로
+        self.assertEqual(self.client.get(path.replace("studio_test", "studio_other")).status_code, 404)
+        self.assertEqual(self.client.get("/api/hosted-models/loras/" + "0" * 40 + "/studio_test.safetensors").status_code, 404)
+        calls = []
+        with patch.dict(os.environ, {"NIGHTSHIFT_PUBLIC_URL": "https://ns.example"}), \
+                patch.object(A.model_download, "call_node", lambda pod, method, route, body: calls.append(body)):
+            started, no_url, failed = A.asyncio.run(A._start_model_downloads({"id": self.ids["refine-admin"]}, {"id": "p"}, ["studio_test.safetensors"]))
+        self.assertEqual((started, no_url, failed), (["studio_test.safetensors"], [], []))
+        self.assertEqual((calls[0]["url"], calls[0]["folder"]), (url, "loras"))
+
     def test_service_route_allowed(self):
         self.assertTrue(any(m == "POST" and p.fullmatch("/api/generate/refine") for m, p in A.SERVICE_TOKEN_ROUTES))
 

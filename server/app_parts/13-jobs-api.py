@@ -544,11 +544,21 @@ async def _start_model_downloads(user: dict, pod: dict, names: list[str]) -> tup
             failed.append({"name": name, "detail": "커스텀 노드는 모델 받기로 설치할 수 없어요 — 노드팩을 모델 탭에 등록하면 워커 모델 탭의 \"노드팩 설치\"나 자동 설치로 설치돼요."})
             continue
         entry = _registry_entry_for(name)
-        if not entry or not entry.get("download_url"):
+        hosted_name = name.replace("\\", "/").rsplit("/", 1)[-1]
+        if entry and hosted_models.exists(entry["kind"], hosted_name):
+            # 홈서버에 보관한 파일(직접 학습한 인물 LoRA) — 받을 인터넷 주소가 없으니 nightshift가 내준다.
+            public = os.environ.get("NIGHTSHIFT_PUBLIC_URL", "").strip()
+            if not public:
+                failed.append({"name": name, "detail": "NIGHTSHIFT_PUBLIC_URL이 없어 보관한 파일을 워커로 보낼 수 없어요."})
+                continue
+            body = {"url": hosted_models.url(public, entry["kind"], hosted_name), "folder": entry["kind"], "filename": name,
+                    "overwrite": False, "headers": {}}
+        elif not entry or not entry.get("download_url"):
             no_url.append(name)
             continue
-        body = {"url": entry["download_url"], "folder": entry["kind"], "filename": name, "overwrite": False,
-                "headers": model_download.auth_header_for(entry["download_url"], token)}
+        else:
+            body = {"url": entry["download_url"], "folder": entry["kind"], "filename": name, "overwrite": False,
+                    "headers": model_download.auth_header_for(entry["download_url"], token)}
         try:
             await asyncio.to_thread(model_download.call_node, pod, "POST", "/nightshift/dl/start", body)
             started.append(name)

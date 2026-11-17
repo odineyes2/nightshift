@@ -66,9 +66,43 @@ def find(value):
     return entry
 
 
-def build(entry, prompt, negative_prompt, aspect, seed):
+MAX_LORAS = 3
+
+
+def clean_loras(entry, raw):
+    """요청의 loras([{name, strength}])를 검사해 [(파일 이름, 강도)]로 — 등록부에 있는 LoRA만, 생성 모델과 계열이 맞아야 한다.
+    계열을 적지 않은 LoRA는 그대로 받는다. 인물 LoRA(캐릭터 스튜디오)를 연동 서비스가 고를 때 쓴다."""
+    if raw in (None, []):
+        return []
+    if not isinstance(raw, list) or len(raw) > MAX_LORAS:
+        raise ModelError(f"loras는 {MAX_LORAS}개까지의 목록이어야 해요.")
+    family = family_id(entry)
+    out = []
+    for item in raw:
+        name = item.get("name") if isinstance(item, dict) else None
+        lora = model_registry.get_entry("loras", name) if isinstance(name, str) and name else None
+        if lora is None:
+            raise ModelError("등록부에 없는 LoRA예요.")
+        bases = {model_registry.base_id(b) for b in lora.get("base_models") or []}
+        if bases and family not in bases:
+            raise ModelError(f"이 생성 모델에는 쓸 수 없는 LoRA예요: {name}")
+        strength = item.get("strength", 1.0)
+        if isinstance(strength, bool) or not isinstance(strength, (int, float)) or not 0 < strength <= 1.5:
+            raise ModelError("LoRA 강도는 0보다 크고 1.5 이하여야 해요.")
+        if name in [n for n, _ in out]:
+            raise ModelError("같은 LoRA를 두 번 넣을 수 없어요.")
+        out.append((name, float(strength)))
+    return out
+
+
+def _lora_spec(loras):
+    return [{"name": name, "strength_model": strength, "strength_clip": strength} for name, strength in loras]
+
+
+def build(entry, prompt, negative_prompt, aspect, seed, loras=()):
     """(workflow, width, height, steps, positive) — 프롬프트·시드·크기를 넣은 t2i 워크플로우.
-    positive는 스윗 포인트 접두어까지 붙은 실제 프롬프트다(실행 템플릿이 main_prompt로 다시 넣는다)."""
+    positive는 스윗 포인트 접두어까지 붙은 실제 프롬프트다(실행 템플릿이 main_prompt로 다시 넣는다).
+    loras는 clean_loras가 돌려준 [(파일 이름, 강도)]."""
     if aspect not in ASPECTS:
         raise ModelError("허용되지 않은 비율이에요.")
     width, height = ASPECTS[aspect]
@@ -78,7 +112,7 @@ def build(entry, prompt, negative_prompt, aspect, seed):
     spec = {"base": "txt2img", "checkpoint": entry["filename"],
             "positive": f"{prefix}, {prompt}" if prefix else prompt,
             "negative": negative_prompt or sweet.get("negative") or workflow_builder.DEFAULT_NEGATIVE,
-            "seed": seed, "width": width, "height": height, "batch_size": 1,
+            "seed": seed, "width": width, "height": height, "batch_size": 1, "loras": _lora_spec(loras),
             **{key: sweet[key] for key in ("steps", "cfg", "sampler_name", "scheduler") if sweet.get(key) not in (None, "")}}
     try:
         if architecture == "sdxl":
@@ -96,11 +130,15 @@ def build(entry, prompt, negative_prompt, aspect, seed):
 
 
 # ── 기존 그림 한 장 보정(POST /api/generate/refine) ─────────────────────
+# faces: 얼굴마다 그 인물의 프롬프트·LoRA로 다시 그린다(왼쪽부터). 두 인물 그림에서 LoRA를 함께 걸면 눈색 같은
+#       세부가 서로 섞이는 것을 고친다. 큰 얼굴부터 얼굴 수만큼 고르고(뒤쪽 군중 제외) 왼쪽→오른쪽으로 나눈다.
 # face: FaceDetailer 단독 그래프(workflow_builder base="face_detailer"). krea.2는 FaceDetailer 빌더가 없어
 #       등록부의 Anima(UNet형) 모델로 대신 한다 — 얼굴 조각만 다시 그리므로 그림체 차이가 작다.
 # upscale: 2배 고정. 확대 모델(4배)로 키운 뒤 절반으로 줄이고, SDXL·UNet형은 같은 모델로 Ultimate SD Upscale을
 #       낮은 denoise로 한 번 더 돌려 디테일을 채운다. krea.2는 확대 모델만 쓴다(다시 그리지 않는다).
-REFINE_OPS = ("face", "upscale")
+REFINE_OPS = ("face", "upscale", "faces")
+MAX_FACES = 3
+FACES_DENOISE = 0.5
 REFINE_UPSCALE_MODEL = "4x_foolhardy_Remacri.safetensors"
 REFINE_UPSCALE_BY = 2.0
 REFINE_USDU_DENOISE = 0.25
@@ -203,3 +241,56 @@ def build_refine(entry, op, prompt, negative_prompt, seed, face_defaults=None):
         result = [usdu, 0]
     add("SaveImage", {"filename_prefix": "refine_upscale", "images": result}, "Save Image")
     return workflow, used
+
+
+def build_faces(entry, faces, negative_prompt, seed):
+    """얼굴별 보정 워크플로우 — faces는 왼쪽부터 [(프롬프트, [(LoRA 파일, 강도)])]. 입력 그림은 제목 "input_image"인 LoadImage."""
+    arch, parts = _architecture(entry)
+    if arch not in ("sdxl", "unet"):
+        raise ModelError("이 생성 모델은 얼굴별 보정을 할 수 없어요.")
+    if not faces or len(faces) > MAX_FACES:
+        raise ModelError(f"얼굴은 1~{MAX_FACES}개까지 넣을 수 있어요.")
+    sweet = entry.get("sweet") or {}
+    prefix = str(sweet.get("positive_prefix") or "").strip()
+    negative = negative_prompt or sweet.get("negative") or workflow_builder.DEFAULT_NEGATIVE
+    sampling = _sampling(entry, arch)
+    workflow, counter = {}, [0]
+
+    def add(class_type, inputs, title):
+        counter[0] += 1
+        workflow[str(counter[0])] = {"inputs": inputs, "class_type": class_type, "_meta": {"title": title}}
+        return str(counter[0])
+
+    image = [add("LoadImage", {"image": ""}, "input_image"), 0]
+    try:
+        if arch == "unet":
+            model, clip, vae = workflow_builder_unet._unet_loader({"checkpoint": entry["filename"], **parts}, add)
+        else:
+            model, clip, vae = workflow_builder._checkpoint_loader({"checkpoint": entry["filename"]}, add)
+    except workflow_builder.WorkflowBuildError as exc:
+        raise ModelError(str(exc)) from exc
+    neg = add("CLIPTextEncode", {"text": negative, "clip": clip}, "얼굴 부정")
+    detector = add("UltralyticsDetectorProvider", {"model_name": workflow_builder.FACE_DETECTOR_MODEL}, "얼굴 탐지 모델")
+    found = add("BboxDetectorSEGS", {"bbox_detector": [detector, 0], "image": image, "threshold": 0.5, "dilation": 10,
+                                     "crop_factor": 3.0, "drop_size": 10, "labels": "all"}, "얼굴 찾기")
+    rest = [add("ImpactSEGSOrderedFilter", {"segs": [found, 0], "target": "area(=w*h)", "order": True,
+                                            "take_start": 0, "take_count": len(faces)}, "큰 얼굴 고르기"), 0]
+    for index, (prompt, loras) in enumerate(faces, start=1):
+        if not prompt:
+            raise ModelError("얼굴마다 프롬프트가 필요해요.")
+        pick = add("ImpactSEGSOrderedFilter", {"segs": rest, "target": "x1", "order": False, "take_start": 0, "take_count": 1},
+                   f"얼굴 {index} 고르기")
+        rest = [pick, 1]
+        face_model = model
+        for name, strength in loras:
+            face_model = [add("LoraLoaderModelOnly", {"lora_name": name, "strength_model": strength, "model": face_model},
+                              f"얼굴 {index} LoRA"), 0]
+        pos = add("CLIPTextEncode", {"text": f"{prefix}, {prompt}" if prefix else prompt, "clip": clip}, f"얼굴 {index} 긍정")
+        image = [add("DetailerForEach", {
+            "image": image, "segs": [pick, 0], "model": face_model, "clip": clip, "vae": vae, "guide_size": 512,
+            "guide_size_for": True, "max_size": 1024, "seed": seed + index, "steps": 20, "cfg": float(sampling["cfg"]),
+            "sampler_name": "euler", "scheduler": "simple", "positive": [pos, 0], "negative": [neg, 0],
+            "denoise": FACES_DENOISE, "feather": 5, "noise_mask": True, "force_inpaint": True, "wildcard": "", "cycle": 1,
+            "inpaint_model": False, "noise_mask_feather": 20}, f"얼굴 {index} 다시 그리기"), 0]
+    add("SaveImage", {"filename_prefix": "refine_faces", "images": image}, "Save Image")
+    return workflow
