@@ -23,7 +23,7 @@ comfyui 파드의 url이 비어 있으면 "COMFY_URL 환경변수 → 127.0.0.1 
 
 ## 저장 형식 (pods.json)
 
-    {"pods": [{id, name, kind, url, enabled, tags, max_concurrent, pull_outputs,
+    {"pods": [{id, name, kind, url, enabled, archived, tags, max_concurrent, pull_outputs,
                note, created_at, updated_at}, ...]}
 
 환경변수:
@@ -110,6 +110,10 @@ def normalize_pod(raw: dict) -> dict:
 
     kind = str(raw.get("kind") or DEFAULT_KIND).strip() or DEFAULT_KIND
 
+    archived = raw.get("archived", False)
+    if not isinstance(archived, bool):
+        raise PodError("archived는 JSON boolean이어야 해요.")
+
     tags = raw.get("tags") or []
     if not isinstance(tags, list) or any(not isinstance(t, str) for t in tags):
         raise PodError("tags는 문자열 배열이어야 해요.")
@@ -141,6 +145,7 @@ def normalize_pod(raw: dict) -> dict:
         "kind": kind,
         "url": normalize_pod_url(raw.get("url", ""), kind),
         "enabled": bool(raw.get("enabled", True)),
+        "archived": archived,  # 목록 정리 상태. 실행·전원 설정과 독립적이다.
         "tags": [t.strip() for t in tags if t.strip()],
         "max_concurrent": max_concurrent,
         "pull_outputs": bool(raw.get("pull_outputs")),
