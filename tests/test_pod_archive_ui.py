@@ -31,6 +31,42 @@ function showTab(tab, opts={}){
 """
 
 
+def check_action(page, label, icon, busy=False):
+    button = page.locator('#pod-edit-archive')
+    expect(button).to_have_text('')
+    expect(button).to_have_attribute('title', label)
+    expect(button).to_have_attribute('aria-label', label)
+    expect(button).to_have_attribute('aria-busy', str(busy).lower())
+    expect(button).to_have_attribute('aria-describedby', 'pod-archive-description')
+    expect(button.locator('svg')).to_have_attribute('aria-hidden', 'true')
+    expect(button.locator('use')).to_have_attribute('href', '#i-' + icon)
+    if busy:
+        expect(button).to_be_disabled()
+        expect(button.locator('svg')).to_have_class('ico ico-spin')
+    else:
+        expect(button).to_be_enabled()
+
+
+def check_layout(page):
+    delete = page.locator('#pod-edit-delete')
+    archive = page.locator('#pod-edit-archive')
+    a, b = delete.bounding_box(), archive.bounding_box()
+    assert a['width'] >= 40 and a['height'] >= 40
+    assert b['width'] >= 40 and b['height'] >= 40
+    assert abs(a['y'] - b['y']) < 1 and 0 <= b['x'] - (a['x'] + a['width']) <= 12
+    assert page.evaluate("document.getElementById('pod-edit-delete').nextElementSibling.id") == 'pod-edit-archive'
+    for selector in ('#pod-edit-test', '#pod-edit-runpod-test', '#pod-edit-save'):
+        other = page.locator(selector)
+        if other.is_visible():
+            c = other.bounding_box()
+            assert c['x'] >= b['x'] + b['width'] or c['y'] >= b['y'] + b['height']
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    delete.focus()
+    page.keyboard.press('Tab')
+    expect(archive).to_be_focused()
+    assert archive.evaluate("el => getComputedStyle(el).outlineStyle") != 'none'
+
+
 def main():
     with sync_playwright() as pw, tempfile.TemporaryDirectory(prefix='ns-archive-ui-') as captures:
         # Uses installed Chromium only. No install/download command is issued.
@@ -50,6 +86,7 @@ def main():
                         path = req.url.split('/api/')[1]
                         if req.method == 'GET':
                             if path == 'pods': route.fulfill(json=pods)
+                            elif path == 'runpod/tiers': route.fulfill(json={})
                             elif path == 'pods/summary': route.fulfill(json={'pods': pods, 'totals': {'pods':len(pods),'online':1}})
                             else: raise AssertionError(path)
                         else:
@@ -73,15 +110,17 @@ def main():
                     cards = page.locator('[data-card-type="pod"]')
                     expect(cards).to_have_count(1)
                     page.locator('[data-pod-edit="remote"]').first.click()
-                    expect(page.locator('#pod-edit-archive')).to_have_text('보관')
+                    check_action(page, '보관', 'archive')
+                    check_layout(page)
                     state['fail'] = True
                     page.locator('#pod-edit-archive').click()
                     expect(page.locator('#pod-edit-error')).to_contain_text('저장 실패')
+                    check_action(page, '보관', 'archive')
                     assert not pods[0]['archived']
                     assert page.evaluate('currentTab') == 'psettings'
                     state.update(fail=False,hold=True)
                     page.locator('#pod-edit-archive').click()
-                    expect(page.locator('#pod-edit-archive')).to_be_disabled()
+                    check_action(page, '저장 중…', 'loader-circle', busy=True)
                     page.evaluate("setPodArchived('remote',true)")
                     assert len(requests)==2
                     pods[0]['archived']=True
@@ -121,18 +160,30 @@ def main():
                     assert page.evaluate('currentTab')=='pods'
                     # Settings also provides restore for direct worker routes.
                     page.locator('[data-pod-edit="remote"]').first.click()
-                    expect(page.locator('#pod-edit-archive')).to_have_text('복원')
+                    check_action(page, '복원', 'undo-2')
+                    check_layout(page)
+                    state['fail'] = True
+                    page.keyboard.press('Enter')
+                    expect(page.locator('#pod-edit-error')).to_contain_text('저장 실패')
+                    check_action(page, '복원', 'undo-2')
+                    state['fail'] = False
                     box=page.locator('#pod-edit-archive').bounding_box()
                     assert box['height']>=40
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     page.screenshot(path=str(capture_dir/f'{width}-{theme}-settings.png'),full_page=True)
-                    page.locator('#pod-edit-archive').click()
+                    check_layout(page)
+                    page.keyboard.press('Space')
                     expect(cards).to_have_count(0)
                     expect(page.locator('#dash-empty')).to_have_text('보관한 워커가 없어요.')
                     page.locator('#dash-archive-filter').click()
                     expect(cards).to_have_count(1)  # restored local is still hidden by normal local filter
                     assert not any(p['archived'] for p in pods)
                     assert all(p['enabled']==(p['id']=='remote') for p in pods)
+                    page.evaluate('openPodEditModal(null)')
+                    expect(page.locator('#pod-edit-archive')).to_be_hidden()
+                    expect(page.locator('#pod-archive-action')).to_be_hidden()
+                    expect(page.locator('#pod-edit-delete')).to_be_hidden()
+                    assert page.locator('#pod-edit-archive').count() == 1
                     # A fresh page/script starts in the regular list.
                     assert not errors, errors
                     page.close()

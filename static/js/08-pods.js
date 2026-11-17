@@ -14,7 +14,13 @@ function renderPodArchiveAction(){
   document.getElementById('pod-archive-action').hidden = !pod;
   const button = document.getElementById('pod-edit-archive');
   button.disabled = podArchivePending.has(podEditId);
-  button.textContent = button.disabled ? '저장 중…' : pod && pod.archived ? '복원' : '보관';
+  button.hidden = !pod;
+  const label = button.disabled ? '저장 중…' : pod && pod.archived ? '복원' : '보관';
+  const icon = button.disabled ? 'loader-circle' : pod && pod.archived ? 'undo-2' : 'archive';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.setAttribute('aria-busy', String(button.disabled));
+  button.innerHTML = `<svg class="ico${button.disabled ? ' ico-spin' : ''}" aria-hidden="true"><use href="#i-${icon}"/></svg>`;
 }
 
 async function setPodArchived(podId, archived){
