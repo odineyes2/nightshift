@@ -480,6 +480,12 @@ def _run_logged(cmd, cwd=None, timeout=None, env=None):
         raise RuntimeError(_tail(tail, 800))
 
 
+def _clean_env():
+    """학습용 venv에는 ComfyUI 이미지의 pip 설정을 물려주지 않는다 — PIP_CONSTRAINT가 ComfyUI의 torch 버전을 못박아
+    학습 도구의 torch를 깔 수 없었다(2026-11-17 실제 파드)."""
+    return {k: v for k, v in os.environ.items() if not k.upper().startswith(("PIP_", "UV_", "VIRTUAL_ENV", "PYTHON"))}
+
+
 def _train_install():
     venv_py = os.path.join(TRAIN_ROOT, "venv", "bin", "python")
     mark = os.path.join(TRAIN_ROOT, ".installed")
@@ -490,11 +496,12 @@ def _train_install():
     if not os.path.isdir(repo):
         _run_logged(["git", "clone", "--depth", "1", SD_SCRIPTS_REPO, repo], timeout=GIT_TIMEOUT)
     if not os.path.exists(venv_py):
-        base_python = shutil.which("python3") or sys.executable
-        _run_logged([base_python, "-m", "venv", os.path.join(TRAIN_ROOT, "venv")], timeout=300)
-    _run_logged([venv_py, "-m", "pip", "install", "-q", "--upgrade", "pip"], timeout=PIP_TIMEOUT)
-    _run_logged([venv_py, "-m", "pip", "install", *TORCH_ARGS], timeout=PIP_TIMEOUT)
-    _run_logged([venv_py, "-m", "pip", "install", "-q", "-r", "requirements.txt"], cwd=repo, timeout=PIP_TIMEOUT)
+        base_python = shutil.which("python3", path="/usr/bin:/bin") or sys.executable
+        _run_logged([base_python, "-m", "venv", os.path.join(TRAIN_ROOT, "venv")], timeout=300, env=_clean_env())
+    env = _clean_env()
+    _run_logged([venv_py, "-m", "pip", "install", "-q", "--upgrade", "pip"], timeout=PIP_TIMEOUT, env=env)
+    _run_logged([venv_py, "-m", "pip", "install", *TORCH_ARGS], timeout=PIP_TIMEOUT, env=env)
+    _run_logged([venv_py, "-m", "pip", "install", "-q", "-r", "requirements.txt"], cwd=repo, timeout=PIP_TIMEOUT, env=env)
     open(mark, "w").close()
     return venv_py
 
@@ -563,7 +570,7 @@ def _train_run(spec):
                "--min_snr_gamma=5", "--seed=%d" % spec["seed"], "--save_model_as=safetensors",
                "--output_dir=" + loras, "--output_name=" + out_name]
         _run_logged(cmd, cwd=os.path.join(TRAIN_ROOT, "sd-scripts"), timeout=spec["timeout"],
-                    env={**os.environ, "PYTHONUNBUFFERED": "1"})
+                    env={**_clean_env(), "PYTHONUNBUFFERED": "1"})
         result = os.path.join(loras, out_name + ".safetensors")
         if not os.path.isfile(result):
             raise RuntimeError("학습은 끝났는데 결과 파일이 없어요.")
