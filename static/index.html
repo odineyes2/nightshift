@@ -1914,13 +1914,15 @@
       </div>
       <div class="enhance-status" id="pod-edit-status" style="text-align:left; max-width:none;"></div>
       <div class="pod-archive-action" id="pod-archive-action" hidden>
-        <span>목록에서 숨겨요. 워커 사용·전원 설정은 유지돼요.</span>
-        <button class="modal-btn-secondary" id="pod-edit-archive" type="button">보관</button>
+        <span id="pod-archive-description">목록에서 숨겨요. 워커 사용·전원 설정은 유지돼요.</span>
       </div>
       <div class="upload-error" id="pod-edit-error"></div>
     </div>
     <div class="modal-footer">
-      <button class="del-btn" id="pod-edit-delete" type="button" style="margin-right:auto;" title="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label"> 삭제</span></button>
+      <div class="pod-edit-left-actions">
+      <button class="del-btn" id="pod-edit-delete" type="button" title="삭제" aria-label="삭제"><svg class="ico"><use href="#i-trash-2"/></svg><span class="btn-label"> 삭제</span></button>
+      <button class="modal-btn-secondary" id="pod-edit-archive" type="button" title="보관" aria-label="보관" aria-describedby="pod-archive-description" hidden><svg class="ico" aria-hidden="true"><use href="#i-archive"/></svg></button>
+      </div>
       <button class="modal-btn-secondary manual-only" id="pod-edit-test" type="button" title="연결 테스트"><svg class="ico"><use href="#i-plug-zap"/></svg><span class="btn-label"> 연결 테스트</span></button>
       <button class="modal-btn-secondary manual-only" id="pod-edit-runpod-test" type="button" title="RunPod 정보 테스트"><svg class="ico"><use href="#i-cloud"/></svg><span class="btn-label"> RunPod 정보 테스트</span></button>
       <button class="modal-btn-secondary" id="pod-edit-cancel" type="button" title="취소"><svg class="ico"><use href="#i-x"/></svg><span class="btn-label"> 취소</span></button>

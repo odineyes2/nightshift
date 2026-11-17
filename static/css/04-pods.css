@@ -261,7 +261,11 @@
 .dash-archive-filter, .pod-archive-restore, #pod-edit-archive, .pod-archive-notice button{ min-width:40px; min-height:40px; }
 .dash-archive-filter[aria-pressed="true"]{ color:var(--accent); border-color:var(--accent); background:var(--panel-2); }
 .pod-archive-action, .pod-archive-notice{ display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px; border:1px solid var(--border); border-radius:8px; color:var(--text); background:var(--panel); font-size:13px; overflow-wrap:anywhere; }
-.pod-archive-action span{ flex:1 1 200px; color:var(--text-dim); }
+.pod-archive-action span{ color:var(--text-dim); }
+.pod-edit-left-actions{ display:flex; align-items:center; gap:8px; margin-right:auto; flex-shrink:0; }
+.pod-edit-left-actions button{ min-width:40px; min-height:40px; }
+#pod-edit-archive[hidden]{ display:none; }
+#pod-edit-archive:focus-visible{ outline:2px solid var(--queued); outline-offset:2px; }
 .pod-archive-action[hidden], .pod-archive-notice[hidden]{ display:none; }
 .pod-archive-notice{ margin-bottom:12px; }
 
