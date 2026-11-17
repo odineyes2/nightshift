@@ -20,7 +20,7 @@ NODE = Path(__file__).resolve().parent.parent / "templates" / "comfy_nodes" / "n
 spec = importlib.util.spec_from_file_location("ns_downloader", NODE)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-assert m.VERSION == 5
+assert m.VERSION == 6
 
 tmp = Path(tempfile.mkdtemp())
 m.HERE = str(tmp / "custom_nodes" / "nightshift_downloader")   # 노드팩은 HERE의 부모(custom_nodes)에 깔린다
@@ -70,6 +70,32 @@ assert item2["status"] == "done", item2
 item3 = {"name": "PackB", "url": str(tmp / "missing"), "status": "queued", "error": None}
 m._install_packs([item3])
 assert item3["status"] == "error" and "git clone" in item3["error"] and not (tmp / "custom_nodes" / "PackB").exists(), item3
+
+# USDU처럼 하위 저장소가 필요한 팩: 새 clone과 이미 clone된 폴더 모두 채운다.
+child = tmp / "child"
+child.mkdir()
+(child / "upscale.py").write_text("# submodule payload\n")
+for cmd in (["init", "-q"], ["add", "."], ["commit", "-q", "-m", "child"]):
+    subprocess.run(git + cmd, cwd=child, check=True, capture_output=True)
+subprocess.run(git + ["-c", "protocol.file.allow=always", "submodule", "add", str(child), "repositories/upscale"],
+               cwd=repo, check=True, capture_output=True)
+subprocess.run(git + ["commit", "-qm", "submodule"], cwd=repo, check=True, capture_output=True)
+old_protocol = os.environ.get("GIT_ALLOW_PROTOCOL")
+os.environ["GIT_ALLOW_PROTOCOL"] = "file"   # 로컬 테스트 저장소에만 허용
+try:
+    for name, existing in (("PackRecursive", False), ("PackExisting", True)):
+        target = tmp / "custom_nodes" / name
+        if existing:
+            subprocess.run(["git", "clone", str(repo), str(target)], check=True, capture_output=True)
+        result = {"name": name, "url": str(repo), "status": "queued", "error": None}
+        m._install_packs([result])
+        assert result["status"] == "done", result
+        assert (target / "repositories/upscale/upscale.py").is_file()
+finally:
+    if old_protocol is None:
+        os.environ.pop("GIT_ALLOW_PROTOCOL", None)
+    else:
+        os.environ["GIT_ALLOW_PROTOCOL"] = old_protocol
 
 # 설치 중에는 겹쳐 시작·재시작 못 한다(설치 스레드는 돌리지 않는다)
 started = []

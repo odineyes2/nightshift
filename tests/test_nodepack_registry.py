@@ -50,6 +50,12 @@ missing = ns["job_missing_on_pod"](job, pod)
 assert "노드팩 없음 (ComfyUI-Impact-Pack)" in missing, missing
 assert "bbox/face_yolov8m.pt" in missing, missing
 assert ns["missing_node_label"]("Foo") == "노드 Foo"
+reg.upsert("custom_nodes", "ComfyUI_UltimateSDUpscale",
+           {"download_url": "https://github.com/ssitu/ComfyUI_UltimateSDUpscale"})
+for cls in ("UltimateSDUpscale", "UltimateSDUpscaleNoUpscale", "UltimateSDUpscaleCustomSample", "UltimateSDUpscaleGuider"):
+    label = ns["missing_node_label"](cls)
+    packs, unknown = ns["_missing_packs"]([label])
+    assert [p["name"] for p in packs] == ["ComfyUI_UltimateSDUpscale"] and not unknown
 
 # 자동 받기는 노드팩을 빼고 탐지 모델만 받는다
 got = []

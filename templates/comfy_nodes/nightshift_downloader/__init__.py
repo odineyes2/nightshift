@@ -40,7 +40,7 @@ from aiohttp import web
 import folder_paths
 from server import PromptServer
 
-VERSION = 5   # 3: 노드팩 설치·ComfyUI 재시작, 4: 이어 받기, 5: 모델 크기 조회
+VERSION = 6   # 6: 노드팩의 Git 서브모듈도 설치
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # nightshift의 종류 이름 -> ComfyUI folder_paths 이름 후보(버전마다 이름이 달랐다).
@@ -346,12 +346,17 @@ def _install_pack(item):
     if not os.path.isdir(d):
         tmp = d + ".nstmp"
         shutil.rmtree(tmp, ignore_errors=True)
-        r = subprocess.run(["git", "clone", "--depth", "1", item["url"], tmp],
+        r = subprocess.run(["git", "clone", "--depth", "1", "--recurse-submodules", "--shallow-submodules", item["url"], tmp],
                            capture_output=True, text=True, timeout=GIT_TIMEOUT)
         if r.returncode:
             shutil.rmtree(tmp, ignore_errors=True)
             raise RuntimeError("git clone 실패: " + _tail(r.stderr))
         os.replace(tmp, d)
+    if os.path.isfile(os.path.join(d, ".gitmodules")):
+        r = subprocess.run(["git", "submodule", "update", "--init", "--recursive", "--depth", "1"],
+                           capture_output=True, text=True, timeout=GIT_TIMEOUT, cwd=d)
+        if r.returncode:
+            raise RuntimeError("서브모듈 설치 실패: " + _tail(r.stderr or r.stdout))
     req, mark = os.path.join(d, "requirements.txt"), os.path.join(d, ".nightshift_pip_ok")
     if os.path.isfile(req) and not os.path.exists(mark):
         item["status"] = "pip"

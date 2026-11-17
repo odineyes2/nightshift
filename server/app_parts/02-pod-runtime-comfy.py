@@ -126,6 +126,10 @@ NODE_PACKS = {
     "FaceDetailer": "ComfyUI-Impact-Pack",
     "UltralyticsDetectorProvider": "ComfyUI-Impact-Subpack",
     "DWPreprocessor": "comfyui_controlnet_aux",
+    "UltimateSDUpscale": "ComfyUI_UltimateSDUpscale",
+    "UltimateSDUpscaleNoUpscale": "ComfyUI_UltimateSDUpscale",
+    "UltimateSDUpscaleCustomSample": "ComfyUI_UltimateSDUpscale",
+    "UltimateSDUpscaleGuider": "ComfyUI_UltimateSDUpscale",
 }
 
 

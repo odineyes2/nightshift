@@ -28,7 +28,7 @@ import db
 from drivers.comfyui import COMFY_USER_AGENT, ComfyUIDriver
 
 NODE_DIR = Path(__file__).resolve().parent.parent / "templates" / "comfy_nodes" / "nightshift_downloader"
-NODE_VERSION = 5   # 2: ultralytics 폴더, 3: 노드팩, 4: 이어 받기, 5: 모델 크기 조회
+NODE_VERSION = 6   # 6: 노드팩의 Git 서브모듈도 설치
 FETCH_TIMEOUT = 15
 UNREACHABLE = 424   # 파드에 연결 못 함 — 응답 코드로 그대로 나간다
 MODEL_EXT = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf")
@@ -140,7 +140,10 @@ nightshift_nodepack() {{
   local dir="$COMFY_DIR/custom_nodes/$1"
   if [ ! -d "$dir" ]; then
     rm -rf "$dir.nstmp"
-    git clone --depth 1 "$2" "$dir.nstmp" && mv "$dir.nstmp" "$dir" || {{ echo "[nightshift] 노드팩 받기 실패: $1"; return 0; }}
+    git clone --depth 1 --recurse-submodules --shallow-submodules "$2" "$dir.nstmp" && mv "$dir.nstmp" "$dir" || {{ echo "[nightshift] 노드팩 받기 실패: $1"; return 0; }}
+  fi
+  if [ -f "$dir/.gitmodules" ]; then
+    git -C "$dir" submodule update --init --recursive --depth 1 || {{ echo "[nightshift] 노드팩 서브모듈 설치 실패: $1"; return 0; }}
   fi
   if [ -f "$dir/requirements.txt" ] && [ ! -f "$dir/.nightshift_pip_ok" ]; then
     "$PY" -m pip install -r "$dir/requirements.txt" && touch "$dir/.nightshift_pip_ok" || echo "[nightshift] 노드팩 패키지 설치 실패: $1"
