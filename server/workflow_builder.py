@@ -420,7 +420,7 @@ def build_workflow(spec: dict, loader=_checkpoint_loader, face_defaults: dict = 
         usdu_id = add(
             "UltimateSDUpscaleNoUpscale",
             {
-                "image": [scaled_id, 0],
+                "upscaled_image": [scaled_id, 0],
                 "model": model_src,
                 "positive": [positive_id, 0],
                 "negative": [negative_id, 0],
@@ -443,6 +443,7 @@ def build_workflow(spec: dict, loader=_checkpoint_loader, face_defaults: dict = 
                 "seam_fix_padding": 16,
                 "force_uniform_tiles": True,
                 "tiled_decode": False,
+                "batch_size": 1,
             },
             "Ultimate SD Upscale",
         )

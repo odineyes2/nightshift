@@ -57,7 +57,8 @@ class UnetBuilderTests(unittest.TestCase):
         (scale, sc), = by_class(wf, "ImageScaleBy")
         self.assertEqual(sc["inputs"]["image"], [dec, 0])
         (usdu, un), = by_class(wf, "UltimateSDUpscaleNoUpscale")
-        self.assertEqual((un["inputs"]["image"], un["inputs"]["vae"]), ([scale, 0], [vae, 0]))
+        self.assertEqual((un["inputs"]["upscaled_image"], un["inputs"]["vae"]), ([scale, 0], [vae, 0]))
+        self.assertEqual(un["inputs"]["batch_size"], 1)
         (_, save), = by_class(wf, "SaveImage")
         self.assertEqual(save["inputs"]["images"], [usdu, 0])
 

@@ -231,12 +231,13 @@ def build_refine(entry, op, prompt, negative_prompt, seed, face_defaults=None):
         pos = add("CLIPTextEncode", {"text": positive, "clip": clip}, "업스케일 긍정")
         neg = add("CLIPTextEncode", {"text": negative, "clip": clip}, "업스케일 부정")
         usdu = add("UltimateSDUpscaleNoUpscale", {
-            "image": result, "model": model, "positive": [pos, 0], "negative": [neg, 0], "vae": vae,
+            "upscaled_image": result, "model": model, "positive": [pos, 0], "negative": [neg, 0], "vae": vae,
             "seed": seed, "steps": int(sampling["steps"]), "cfg": float(sampling["cfg"]),
             "sampler_name": str(sampling["sampler_name"]), "scheduler": str(sampling["scheduler"]),
             "denoise": REFINE_USDU_DENOISE, "mode_type": "Linear", "tile_width": 1024, "tile_height": 1024,
             "mask_blur": 8, "tile_padding": 32, "seam_fix_mode": "None", "seam_fix_denoise": 1.0, "seam_fix_width": 64,
             "seam_fix_mask_blur": 8, "seam_fix_padding": 16, "force_uniform_tiles": True, "tiled_decode": False,
+            "batch_size": 1,
         }, "Ultimate SD Upscale")
         result = [usdu, 0]
     add("SaveImage", {"filename_prefix": "refine_upscale", "images": result}, "Save Image")
