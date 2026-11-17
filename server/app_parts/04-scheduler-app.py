@@ -372,6 +372,10 @@ def _run_one_job(pod_id: str, job_id: str):
     for name, value in job.get("options", {}).items():
         extra_env[name.upper()] = str(value)
     extra_env.update(ref_assets_job_env(job.get("owner_id"), job.get("via_service")))
+    if job.get("template_id") == "lora_train":
+        # 인물 LoRA 학습은 파드의 nightshift 노드를 직접 부르고, 결과를 홈서버 보관 폴더에 둔다(10e-generate-train).
+        extra_env["NIGHTSHIFT_POD_TOKEN"] = model_download.pod_token(pod_id)
+        extra_env["NIGHTSHIFT_HOSTED_DIR"] = str(data_dir("hosted_models") / "loras")
     env = {**os.environ, **extra_env}
 
     stopped = False
@@ -406,6 +410,8 @@ def _run_one_job(pod_id: str, job_id: str):
         import notify
         notify.job_finished(job, jobs)
     save_state()
+    if job.get("template_id") == "lora_train" and returncode == 0:
+        register_trained_lora(job)   # 10e-generate-train
 
     # 워커가 원격이면 결과물은 그쪽 디스크에만 있다 — 갤러리/zip/이메일은 전부 로컬
     # 출력 폴더를 읽으므로, 작업이 끝난 직후 그 작업 몫만 끌어온다. 중간에 실패했더라도

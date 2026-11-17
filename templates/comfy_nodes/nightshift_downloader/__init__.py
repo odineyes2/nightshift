@@ -13,6 +13,8 @@ ComfyUI에는 모델 파일을 내려받는 API가 없어서, nightshift가 파�
   POST /nightshift/nodepacks/install {packs: [{name, url}]} 노드팩 설치 시작(git clone + pip, v3)
   GET  /nightshift/nodepacks/status  설치 진행
   POST /nightshift/restart     ComfyUI만 다시 시작(같은 프로세스 자리에서 다시 실행 — 파드·파일은 그대로)
+  POST /nightshift/train/start {name, trigger, checkpoint, images: [{file, caption}], ...} 인물 LoRA 학습 시작(v7)
+  GET  /nightshift/train/status 학습 진행(단계·스텝·로그 끝부분·결과 파일)
 
 파드 주소는 인터넷에 열려 있으므로 모든 라우트는 X-Nightshift-Token 헤더가 같은 폴더의 token 파일과
 같아야만 동작한다(토큰은 nightshift가 설치 스크립트에 넣어 준다). 받는 곳은 ComfyUI가 그 종류에
@@ -40,7 +42,7 @@ from aiohttp import web
 import folder_paths
 from server import PromptServer
 
-VERSION = 6   # 6: 노드팩의 Git 서브모듈도 설치
+VERSION = 7   # 7: 인물 LoRA 학습(kohya sd-scripts)
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # nightshift의 종류 이름 -> ComfyUI folder_paths 이름 후보(버전마다 이름이 달랐다).
@@ -433,6 +435,214 @@ async def comfy_restart(request):
             return web.json_response({"error": "노드팩을 설치하는 중이에요 — 끝난 뒤 다시 시작하세요."}, status=409)
     threading.Thread(target=_reexec, daemon=True).start()
     return web.json_response({"ok": True})
+
+
+# ---- 인물 LoRA 학습(v7) ---------------------------------------------------------
+# 캐릭터 스튜디오의 배우 LoRA를 이 파드에서 학습한다. 학습 자료는 nightshift가 /upload/image로 input/ 아래에 올려 두고,
+# 이 라우트가 그 그림을 학습 폴더로 옮겨 캡션을 붙인 뒤 kohya sd-scripts(SDXL LoRA)로 학습한다. 설치는 처음 한 번
+# /workspace/nightshift_train/ 아래 따로 만든 venv에 한다(ComfyUI의 python 패키지는 건드리지 않는다).
+# 학습 전에 얼굴이 정확히 하나 보이지 않는 그림은 뺀다(뒷모습·여럿·얼굴 잘림). 결과는 models/loras/<name>.safetensors와
+# output/nightshift_train/<name>.safetensors(nightshift가 /view로 받아 가는 사본)에 둔다.
+TRAIN_ROOT = "/workspace/nightshift_train"
+SD_SCRIPTS_REPO = "https://github.com/kohya-ss/sd-scripts.git"
+TORCH_PINS = ["torch==2.6.0", "torchvision==0.21.0", "--index-url", "https://download.pytorch.org/whl/cu124"]
+TRAIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+TRIGGER_RE = re.compile(r"^[A-Za-z0-9_]{1,40}$")
+CAPTION_MAX = 400
+MIN_IMAGES, MAX_IMAGES = 8, 80
+_train = {"status": "idle", "phase": "", "name": None, "step": 0, "total": 0, "kept": 0, "dropped": [],
+          "error": None, "log": "", "started_at": None, "finished_at": None, "output": None}
+STEP_RE = re.compile(r"steps:\s+\d+%\|.*?\|\s*(\d+)/(\d+)")
+
+
+def _train_set(**values):
+    with _lock:
+        _train.update(values)
+
+
+def _run_logged(cmd, cwd=None, timeout=None, env=None):
+    """명령을 돌리며 출력 끝부분과 학습 스텝을 상태에 적는다. 실패하면 RuntimeError."""
+    proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    tail, started = "", time.time()
+    for line in proc.stdout:
+        tail = (tail + line)[-4000:]
+        for chunk in line.split("\r"):
+            m = STEP_RE.search(chunk)
+            if m:
+                _train_set(step=int(m.group(1)), total=int(m.group(2)))
+        _train_set(log=tail[-1500:])
+        if timeout and time.time() - started > timeout:
+            proc.kill()
+            raise RuntimeError("시간 안에 끝나지 않았어요.")
+    if proc.wait():
+        raise RuntimeError(_tail(tail, 800))
+
+
+def _train_install():
+    venv_py = os.path.join(TRAIN_ROOT, "venv", "bin", "python")
+    mark = os.path.join(TRAIN_ROOT, ".installed")
+    if os.path.exists(mark):
+        return venv_py
+    os.makedirs(TRAIN_ROOT, exist_ok=True)
+    repo = os.path.join(TRAIN_ROOT, "sd-scripts")
+    if not os.path.isdir(repo):
+        _run_logged(["git", "clone", "--depth", "1", SD_SCRIPTS_REPO, repo], timeout=GIT_TIMEOUT)
+    if not os.path.exists(venv_py):
+        _run_logged([sys.executable, "-m", "venv", os.path.join(TRAIN_ROOT, "venv")], timeout=300)
+    _run_logged([venv_py, "-m", "pip", "install", "-q", "--upgrade", "pip"], timeout=PIP_TIMEOUT)
+    _run_logged([venv_py, "-m", "pip", "install", "-q", *TORCH_PINS], timeout=PIP_TIMEOUT)
+    _run_logged([venv_py, "-m", "pip", "install", "-q", "-r", "requirements.txt"], cwd=repo, timeout=PIP_TIMEOUT)
+    open(mark, "w").close()
+    return venv_py
+
+
+def _count_faces(paths):
+    """그림마다 얼굴 수(Impact-Subpack의 얼굴 탐지 모델). 모델이나 ultralytics가 없으면 None — 거르지 않는다."""
+    model_path = os.path.join(_folder_base("ultralytics") or "", "bbox", "face_yolov8m.pt")
+    try:
+        from ultralytics import YOLO
+        if not os.path.isfile(model_path):
+            return None
+        model = YOLO(model_path)
+        return [sum(1 for box in r.boxes if float(box.conf) >= 0.5) for r in model(paths, verbose=False)]
+    except Exception:
+        return None
+
+
+def _free_vram():
+    try:
+        import comfy.model_management as mm
+        mm.unload_all_models()
+        mm.soft_empty_cache()
+    except Exception:
+        pass
+
+
+def _train_run(spec):
+    name, trigger = spec["name"], spec["trigger"]
+    try:
+        _train_set(phase="dataset")
+        data_dir = os.path.join(TRAIN_ROOT, "data", name)
+        shutil.rmtree(data_dir, ignore_errors=True)
+        dest = os.path.join(data_dir, "%d_%s" % (spec["repeats"], trigger))
+        os.makedirs(dest)
+        sources = [os.path.join(folder_paths.get_input_directory(), *item["file"].split("/")) for item in spec["images"]]
+        faces = _count_faces(sources) if spec["one_face"] else None
+        kept, dropped = 0, []
+        for index, (item, src) in enumerate(zip(spec["images"], sources)):
+            if faces is not None and faces[index] != 1:
+                dropped.append({"file": item["file"], "faces": faces[index]})
+                continue
+            ext = os.path.splitext(src)[1].lower() or ".png"
+            shutil.copyfile(src, os.path.join(dest, "%03d%s" % (index, ext)))
+            with open(os.path.join(dest, "%03d.txt" % index), "w", encoding="utf-8") as f:
+                f.write(("%s, %s" % (trigger, item["caption"])).strip(", "))
+            kept += 1
+        _train_set(kept=kept, dropped=dropped)
+        if kept < MIN_IMAGES:
+            raise RuntimeError("얼굴이 하나만 보이는 그림이 %d장뿐이라 학습할 수 없어요(%d장 이상 필요)." % (kept, MIN_IMAGES))
+        _train_set(phase="install")
+        venv_py = _train_install()
+        _train_set(phase="train", step=0, total=0)
+        _free_vram()
+        loras = _folder_base("loras")
+        ckpt = os.path.join(_folder_base("checkpoints"), *spec["checkpoint"].split("/"))
+        if not os.path.isfile(ckpt):
+            raise RuntimeError("학습할 바탕 모델이 이 파드에 없어요: " + spec["checkpoint"])
+        out_name = name
+        cmd = [os.path.join(TRAIN_ROOT, "venv", "bin", "accelerate"), "launch", "--num_cpu_threads_per_process", "4",
+               "sdxl_train_network.py", "--pretrained_model_name_or_path=" + ckpt, "--train_data_dir=" + data_dir,
+               "--resolution=1024,1024", "--train_batch_size=2", "--network_module=networks.lora",
+               "--network_dim=%d" % spec["dim"], "--network_alpha=%d" % spec["alpha"], "--network_train_unet_only",
+               "--optimizer_type=AdamW8bit", "--learning_rate=%g" % spec["lr"], "--lr_scheduler=cosine", "--lr_warmup_steps=50",
+               "--max_train_epochs=%d" % spec["epochs"], "--mixed_precision=bf16", "--save_precision=fp16",
+               "--cache_latents", "--cache_text_encoder_outputs", "--gradient_checkpointing", "--sdpa", "--no_half_vae",
+               "--min_snr_gamma=5", "--seed=%d" % spec["seed"], "--save_model_as=safetensors",
+               "--output_dir=" + loras, "--output_name=" + out_name]
+        _run_logged(cmd, cwd=os.path.join(TRAIN_ROOT, "sd-scripts"), timeout=spec["timeout"],
+                    env={**os.environ, "PYTHONUNBUFFERED": "1"})
+        result = os.path.join(loras, out_name + ".safetensors")
+        if not os.path.isfile(result):
+            raise RuntimeError("학습은 끝났는데 결과 파일이 없어요.")
+        copy_dir = os.path.join(folder_paths.get_output_directory(), "nightshift_train")
+        os.makedirs(copy_dir, exist_ok=True)
+        shutil.copyfile(result, os.path.join(copy_dir, out_name + ".safetensors"))
+        _train_set(status="done", phase="done", finished_at=time.time(),
+                   output={"name": out_name + ".safetensors", "size": os.path.getsize(result), "subfolder": "nightshift_train"})
+    except subprocess.TimeoutExpired:
+        _train_set(status="error", error="시간 안에 끝나지 않았어요.", finished_at=time.time())
+    except Exception as e:
+        _train_set(status="error", error=str(e)[:1000], finished_at=time.time())
+
+
+def _int_in(value, default, low, high):
+    try:
+        value = int(value if value is not None else default)
+    except (TypeError, ValueError):
+        raise ValueError("숫자 값이 올바르지 않아요.")
+    if not low <= value <= high:
+        raise ValueError("값은 %d~%d여야 해요." % (low, high))
+    return value
+
+
+@routes.post("/nightshift/train/start")
+async def train_start(request):
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON이 아니에요."}, status=400)
+    name, trigger, checkpoint = body.get("name"), body.get("trigger"), body.get("checkpoint")
+    if not (isinstance(name, str) and TRAIN_NAME_RE.match(name)):
+        return web.json_response({"error": "LoRA 이름은 영문·숫자·밑줄·하이픈 64자까지예요."}, status=400)
+    if not (isinstance(trigger, str) and TRIGGER_RE.match(trigger)):
+        return web.json_response({"error": "트리거는 영문·숫자·밑줄 40자까지예요."}, status=400)
+    if not (isinstance(checkpoint, str) and checkpoint.endswith(".safetensors")
+            and all(p not in ("", ".", "..") and SEGMENT_RE.match(p) for p in checkpoint.split("/"))):
+        return web.json_response({"error": "바탕 모델 이름이 올바르지 않아요."}, status=400)
+    images = body.get("images")
+    if not isinstance(images, list) or not MIN_IMAGES <= len(images) <= MAX_IMAGES:
+        return web.json_response({"error": "학습 그림은 %d~%d장이어야 해요." % (MIN_IMAGES, MAX_IMAGES)}, status=400)
+    clean = []
+    input_dir = os.path.realpath(folder_paths.get_input_directory())
+    for item in images:
+        file, caption = (item or {}).get("file"), (item or {}).get("caption", "")
+        parts = file.split("/") if isinstance(file, str) else []
+        if not parts or any(p in ("", ".", "..") or not SEGMENT_RE.match(p) for p in parts) \
+                or not parts[-1].lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+            return web.json_response({"error": "학습 그림 이름이 올바르지 않아요."}, status=400)
+        path = os.path.realpath(os.path.join(input_dir, *parts))
+        if os.path.commonpath([input_dir, path]) != input_dir or not os.path.isfile(path):
+            return web.json_response({"error": "올라오지 않은 학습 그림이 있어요: " + file}, status=400)
+        if not isinstance(caption, str) or len(caption) > CAPTION_MAX or "\n" in caption:
+            return web.json_response({"error": "캡션은 한 줄 %d자까지예요." % CAPTION_MAX}, status=400)
+        clean.append({"file": file, "caption": caption.strip()})
+    try:
+        spec = {"name": name, "trigger": trigger, "checkpoint": checkpoint, "images": clean,
+                "repeats": _int_in(body.get("repeats"), 10, 1, 40), "epochs": _int_in(body.get("epochs"), 8, 1, 40),
+                "dim": _int_in(body.get("dim"), 16, 4, 128), "alpha": _int_in(body.get("alpha"), 8, 1, 128),
+                "seed": _int_in(body.get("seed"), 42, 0, 2**31 - 1), "timeout": _int_in(body.get("timeout"), 3 * 3600, 600, 12 * 3600),
+                "lr": float(body.get("lr") or 1e-4), "one_face": body.get("one_face", True) is not False}
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    if not 1e-6 <= spec["lr"] <= 1e-2:
+        return web.json_response({"error": "학습률이 올바르지 않아요."}, status=400)
+    with _lock:
+        if _train["status"] == "running":
+            return web.json_response({"error": "이미 학습하는 중이에요."}, status=409)
+        _train.update(status="running", phase="queued", name=name, step=0, total=0, kept=0, dropped=[], error=None, log="",
+                      started_at=time.time(), finished_at=None, output=None)
+    threading.Thread(target=_train_run, args=(spec,), daemon=True).start()
+    return web.json_response({"ok": True})
+
+
+@routes.get("/nightshift/train/status")
+async def train_status(request):
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    with _lock:
+        return web.json_response(dict(_train))
 
 
 NODE_CLASS_MAPPINGS = {}

@@ -140,7 +140,9 @@ class GenerateRefineTests(unittest.TestCase):
                  {"prompt": "1boy, red hair", "loras": [{"name": "actor_b.safetensors"}]}]
         workflow, classes = self.job_workflow(self.submit(op="faces", prompt="", faces=faces))
         self.assertEqual(classes.count("DetailerForEach"), 2)
-        self.assertEqual(classes.count("ImpactSEGSOrderedFilter"), 3)   # 큰 얼굴 2개 고르기 + 왼쪽부터 하나씩
+        self.assertEqual(classes.count("ImpactSEGSOrderedFilter"), 1)   # 큰 얼굴 2개 고르기
+        ranges = [n["inputs"] for n in workflow.values() if n["class_type"] == "ImpactSEGSRangeFilter"]
+        self.assertEqual([(r["target"], r["min_value"], r["max_value"]) for r in ranges], [("x1", 0, 587), ("x1", 588, 1344 * 4)])
         self.assertNotIn("KSampler", classes)
         loras = [n["inputs"] for n in workflow.values() if n["class_type"] == "LoraLoaderModelOnly"]
         self.assertEqual([(n["lora_name"], n["strength_model"]) for n in loras],
@@ -233,7 +235,42 @@ class GenerateRefineTests(unittest.TestCase):
         self.assertEqual((started, no_url, failed), (["studio_test.safetensors"], [], []))
         self.assertEqual((calls[0]["url"], calls[0]["folder"]), (url, "loras"))
 
+    def test_train_saves_images_and_queues_a_lora_train_job(self):
+        import hosted_models
+        images = [{"image": png(1024, 1024), "caption": f"1girl, pose {i}"} for i in range(8)]
+        body = {"name": "studio_test_actor", "trigger": "test_actor", "model": "checkpoints:waiIllustriousSDXL_v170.safetensors",
+                "images": images, "epochs": 6}
+        with patch.object(A, "poke_scheduler", lambda: None):
+            ok = self.client.post("/api/generate/train", headers=self.bearer, json=body)
+            bad = [self.client.post("/api/generate/train", headers=self.bearer, json={**body, **extra}).status_code
+                   for extra in ({"images": images[:7]}, {"name": "bad name"}, {"trigger": "bad trigger"},
+                                 {"model": "diffusion_models:krea2_turbo_fp8_scaled.safetensors"}, {"epochs": 99},
+                                 {"images": [{**images[0], "caption": "a" + chr(10) + "b"}] * 8})]
+        self.assertEqual(ok.status_code, 200, ok.text)
+        self.assertEqual(bad, [400, 400, 400, 400, 400, 400])
+        job = A.jobs[ok.json()["job_id"]]
+        self.assertEqual((job["template_id"], job["owner_id"]), ("lora_train", self.ids["refine-bot"]))
+        manifest = json.loads(Path(job["options"]["train_manifest"]).read_text(encoding="utf-8"))
+        self.assertEqual((manifest["name"], manifest["trigger"], manifest["checkpoint"], manifest["epochs"], len(manifest["images"])),
+                         ("studio_test_actor", "test_actor", "waiIllustriousSDXL_v170.safetensors", 6, 8))
+        self.assertEqual(manifest["images"][3]["caption"], "1girl, pose 3")
+        folder = input_assets.input_dir_for(self.ids["refine-bot"])
+        self.assertTrue(all(folder.joinpath(item["file"]).is_file() for item in manifest["images"]))
+        workflow = json.loads((A.JOBS_DIR / job["workflow_filename"]).read_text(encoding="utf-8"))
+        self.assertEqual([n["inputs"]["ckpt_name"] for n in workflow.values()], ["waiIllustriousSDXL_v170.safetensors"])
+        # 끝나면 러너가 보관 폴더의 결과를 등록부에 적는다.
+        hosted_models.path("loras", "studio_test_actor.safetensors").parent.mkdir(parents=True, exist_ok=True)
+        hosted_models.path("loras", "studio_test_actor.safetensors").write_bytes(b"trained")
+        A.register_trained_lora(job)
+        entry = model_registry.get_entry("loras", "studio_test_actor.safetensors")
+        self.assertEqual((entry["trigger_keyword"], entry["base_models"], entry["size_bytes"]), ("test_actor", ["Illustrious"], 7))
+        with patch.object(A, "poke_scheduler", lambda: None):
+            self.assertEqual(self.client.post("/api/generate/train", headers=self.bearer, json=body).status_code, 409)   # 같은 이름
+
     def test_service_route_allowed(self):
+        self.assertTrue(any(m == "POST" and p.fullmatch("/api/generate/train") for m, p in A.SERVICE_TOKEN_ROUTES))
+
+    def test_service_route_allowed_refine(self):
         self.assertTrue(any(m == "POST" and p.fullmatch("/api/generate/refine") for m, p in A.SERVICE_TOKEN_ROUTES))
 
 

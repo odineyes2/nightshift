@@ -466,5 +466,6 @@
       { "name": "ref_audio_3", "label": "참조 오디오 3", "required": false },
       { "name": "video_duration", "label": "영상 길이(초)", "required": false, "note": "비워두면 15초(기본값)를 사용해요" }
     ]
-  }
+  },
+  {"id": "lora_train", "label": "인물 LoRA 학습(캐릭터 스튜디오)", "script_filename": "lora_train.py", "requires_csv": false, "options": [{"name": "train_manifest", "label": "학습 정보 파일(내부용)", "type": "textarea", "default": ""}]}
 ]

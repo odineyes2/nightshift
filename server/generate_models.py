@@ -173,7 +173,9 @@ def build(entry, prompt, negative_prompt, aspect, seed, loras=(), regions=()):
 
 # ── 기존 그림 한 장 보정(POST /api/generate/refine) ─────────────────────
 # faces: 얼굴마다 그 인물의 프롬프트·LoRA로 다시 그린다(왼쪽부터). 두 인물 그림에서 LoRA를 함께 걸면 눈색 같은
-#       세부가 서로 섞이는 것을 고친다. 큰 얼굴부터 얼굴 수만큼 고르고(뒤쪽 군중 제외) 왼쪽→오른쪽으로 나눈다.
+#       세부가 서로 섞이는 것을 고친다. 큰 얼굴부터 얼굴 수만큼 고르고(뒤쪽 군중 제외), 그림을 가로로 얼굴 수만큼 나눈
+#       칸(생성의 regions와 같은 칸)에 왼쪽 끝이 들어가는 얼굴만 그 인물로 다시 그린다. 한 사람이 뒤돌아 얼굴이 하나뿐이면
+#       그 얼굴은 자기 칸의 인물로만 다시 그린다 — 순서로 짝지으면 남의 얼굴로 바뀌었다(2026-11-17 실제 생성).
 # face: FaceDetailer 단독 그래프(workflow_builder base="face_detailer"). krea.2는 FaceDetailer 빌더가 없어
 #       등록부의 Anima(UNet형) 모델로 대신 한다 — 얼굴 조각만 다시 그리므로 그림체 차이가 작다.
 # upscale: 2배 고정. 확대 모델(4배)로 키운 뒤 절반으로 줄이고, SDXL·UNet형은 같은 모델로 Ultimate SD Upscale을
@@ -286,7 +288,7 @@ def build_refine(entry, op, prompt, negative_prompt, seed, face_defaults=None):
     return workflow, used
 
 
-def build_faces(entry, faces, negative_prompt, seed):
+def build_faces(entry, faces, negative_prompt, seed, width=1344):
     """얼굴별 보정 워크플로우 — faces는 왼쪽부터 [(프롬프트, [(LoRA 파일, 강도)])]. 입력 그림은 제목 "input_image"인 LoadImage."""
     arch, parts = _architecture(entry)
     if arch not in ("sdxl", "unet"):
@@ -318,12 +320,14 @@ def build_faces(entry, faces, negative_prompt, seed):
                                      "crop_factor": 3.0, "drop_size": 10, "labels": "all"}, "얼굴 찾기")
     rest = [add("ImpactSEGSOrderedFilter", {"segs": [found, 0], "target": "area(=w*h)", "order": True,
                                             "take_start": 0, "take_count": len(faces)}, "큰 얼굴 고르기"), 0]
+    step, shift = width / len(faces), width / 16   # 얼굴 왼쪽 끝은 얼굴 가운데보다 왼쪽이라 경계를 조금 당긴다
     for index, (prompt, loras) in enumerate(faces, start=1):
         if not prompt:
             raise ModelError("얼굴마다 프롬프트가 필요해요.")
-        pick = add("ImpactSEGSOrderedFilter", {"segs": rest, "target": "x1", "order": False, "take_start": 0, "take_count": 1},
+        low = 0 if index == 1 else int(step * (index - 1) - shift)
+        high = width * 4 if index == len(faces) else int(step * index - shift) - 1
+        pick = add("ImpactSEGSRangeFilter", {"segs": rest, "target": "x1", "mode": True, "min_value": low, "max_value": high},
                    f"얼굴 {index} 고르기")
-        rest = [pick, 1]
         face_model = model
         for name, strength in loras:
             face_model = [add("LoraLoaderModelOnly", {"lora_name": name, "strength_model": strength, "model": face_model},
