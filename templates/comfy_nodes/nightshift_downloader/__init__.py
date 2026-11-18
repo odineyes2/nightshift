@@ -663,6 +663,7 @@ async def train_status(request):
 GENDER_TAGGER_REPO = "p1atdev/wd-swinv2-tagger-v3-hf"
 GENDER_TAGGER_REVISION = "b09fdef86a3f9d4bf974ccaa5c87dcf846d3a2fd"
 GENDER_MIN = 0.35   # 두 조각을 비교해 나눌 때도 그 성별 점수가 이만큼은 돼야 그 배우를 입힌다
+GENDER_GAP = 0.3    # 두 조각의 (1boy - 1girl) 차이가 이만큼은 돼야 누가 남자인지 분명하다고 본다
 _tagger = {}
 
 
@@ -741,9 +742,12 @@ class NightshiftSEGSGenderSplit:
             if len(items) == 2:
                 # 두 사람이면 서로 비교한다 — 붙어 선 두 사람은 남자 조각에도 여자 머리카락이 들어가 1girl이 높게 나왔다(2026-11-18).
                 # 다만 남자 쪽은 1boy, 여자 쪽은 1girl 점수가 GENDER_MIN 이상일 때만 — 둘 다 여자(또는 남자)면 한쪽을 비운다.
+                # 판정이 분명할 때만 둘 다 입히고 아니면 둘 다 건너뛴다 — 기대 앉은 두 사람에서 여자 머리가 들어간 남자 조각이
+                # 여자 쪽으로 판정돼 남자에게 여자 배우가 입혀졌다(2026-11-19). 한쪽만 입히다 틀리는 것보다 원본이 낫다.
                 order = sorted(range(2), key=lambda i: margins[i], reverse=True)
-                male = [items[order[0]]] if boys[order[0]] >= GENDER_MIN else []
-                female = [items[order[1]]] if girls[order[1]] >= GENDER_MIN else []
+                m, f = order
+                if boys[m] >= GENDER_MIN and girls[f] >= GENDER_MIN and margins[m] - margins[f] >= GENDER_GAP:
+                    male, female = [items[m]], [items[f]]
             else:
                 for seg, margin in zip(items, margins):
                     (male if margin > 0 else female).append(seg)
