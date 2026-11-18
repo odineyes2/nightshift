@@ -68,6 +68,14 @@ class OnBehalfTests(unittest.TestCase):
         self.assertEqual(self.call("/api/generate/auto-power").status_code, 200)
         self.assertEqual(self.call("/api/generate/auto-power", self.member_id).status_code, 200)
         self.assertEqual(self.call("/api/generate/auto-power", self.pending_id).status_code, 403)
+
+    def test_billing_tells_own_key_and_paid_only(self):
+        # charchat이 회원 대신 묻는다: 자기 RunPod 키가 있는지·유료인지 두 값만(키·한도는 주지 않는다)
+        with patch.object(A.runpod_api, "key_for_owner", lambda owner: "rpa_x" if owner == self.member_id else None):
+            data = self.call("/api/generate/billing", self.member_id).json()
+        self.assertEqual(data, {"own_runpod": True, "paid": False})
+        with patch.object(A.runpod_api, "key_for_owner", lambda owner: None):
+            self.assertEqual(self.call("/api/generate/billing", self.member_id).json()["own_runpod"], False)
         self.assertEqual(self.call("/api/generate/auto-power", "x").status_code, 403)
         # 쿠키 로그인 요청에는 헤더가 아무 효과가 없다(연동 토큰일 때만 읽는다)
         member = TestClient(A.app)

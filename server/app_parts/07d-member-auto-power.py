@@ -152,6 +152,15 @@ def member_runpod_status(owner_id: int) -> dict:
             "auto_off_minutes": MEMBER_AUTO_OFF_MINUTES, "tiers": tiers}
 
 
+@app.get("/api/generate/billing")
+def generate_billing(request: Request):
+    """연동 앱(charchat)이 회원 대신 묻는 읽기 전용 값 둘 — 그 회원이 자기 RunPod 키를 넣었는지(own_runpod), 유료 회원인지(paid).
+    charchat은 '키 있음 + 무료'인 회원에게만 하루 삽화 횟수를 스스로 정하게 한다(그 그림은 회원 자기 RunPod에서 돈다).
+    키 자체나 한도·사용량은 주지 않는다(서비스 토큰 허용 경로)."""
+    user = me(request)
+    return {"own_runpod": bool(runpod_api.key_for_owner(user["id"])), "paid": paid_plan.plan(user["id"])["paid"]}
+
+
 @app.get("/api/auth/runpod-status")
 def auth_runpod_status(request: Request):
     user = me(request)
