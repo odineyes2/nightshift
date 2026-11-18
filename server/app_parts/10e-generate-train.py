@@ -35,6 +35,13 @@ async def generate_train(request: Request):
                 raise HTTPException(exc.status, str(exc)) from exc
     if "one_face" in body:
         params["one_face"] = body["one_face"] is not False
+    # 공개(관리자만 정할 수 있음, 연동 앱의 운영진 전속 배우) / 비공개(기본, 학습을 맡긴 회원만 씀).
+    visibility = body.get("visibility", "private")
+    if visibility not in lora_access.VISIBILITIES:
+        raise HTTPException(400, "visibility는 public 또는 private이어야 해요.")
+    if visibility == "public" and not auth.is_admin(auth.get_user(user["id"])):
+        raise HTTPException(403, "공개 LoRA는 관리자만 만들 수 있어요.")
+    params["visibility"] = visibility
     saved = []
     for index, item in enumerate(images, start=1):
         caption = item.get("caption", "") if isinstance(item, dict) else ""
@@ -66,6 +73,7 @@ def register_trained_lora(job: dict) -> None:
         filename = manifest["name"] + ".safetensors"
         if not hosted_models.exists("loras", filename):
             return
+        lora_access.set_access(filename, job.get("owner_id"), manifest.get("visibility", "private"))
         model_registry.upsert("loras", filename, {
             "base_models": manifest.get("base_models") or [], "trigger_keyword": manifest["trigger"],
             "size_bytes": hosted_models.path("loras", filename).stat().st_size,

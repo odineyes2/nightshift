@@ -1053,7 +1053,7 @@ async def _generate_with_model(user, model, body):
         raise HTTPException(exc.status, str(exc)) from exc
     aspect = body.get("aspect") or "1:1"
     try:
-        loras = generate_models.clean_loras(model, body.get("loras"))
+        loras = generate_models.clean_loras(model, body.get("loras"), user["id"])
         regions = generate_models.clean_regions(body.get("regions"))
         workflow, width, height, steps, positive = generate_models.build(model, prompt, negative, aspect, seed, loras, regions)
     except generate_models.ModelError as exc:

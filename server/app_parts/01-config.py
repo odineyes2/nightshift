@@ -60,6 +60,7 @@ import auto_power_settings
 import generate_presets
 import generate_models
 import hosted_models
+import lora_access
 import comfy_outputs
 from comfy_outputs import OutputSyncError, forget_downloaded, sync_outputs, sync_state_summary, synced_pod_ids
 from data_paths import data_dir, data_path

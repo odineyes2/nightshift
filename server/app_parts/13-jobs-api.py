@@ -546,6 +546,10 @@ async def _start_model_downloads(user: dict, pod: dict, names: list[str]) -> tup
             continue
         entry = _registry_entry_for(name)
         hosted_name = name.replace("\\", "/").rsplit("/", 1)[-1]
+        if entry and entry["kind"] == "loras" and not lora_access.can_use(hosted_name, user.get("id")):
+            # 다른 회원의 비공개 인물 LoRA는 그 작업의 워커로 보내지 않는다(워크플로우에 이름만 적어 받아 가는 길을 막는다).
+            failed.append({"name": name, "detail": "이 LoRA는 주인만 쓸 수 있어요."})
+            continue
         if entry and hosted_models.exists(entry["kind"], hosted_name):
             # 홈서버에 보관한 파일(직접 학습한 인물 LoRA) — 받을 인터넷 주소가 없으니 nightshift가 내준다.
             public = os.environ.get("NIGHTSHIFT_PUBLIC_URL", "").strip()

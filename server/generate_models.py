@@ -4,6 +4,7 @@
 조립은 "워크플로우 빌더" 탭과 같은 빌더(workflow_builder*.py)를 쓰고, 칸이 비면 등록부의 스윗 포인트를 쓴다.
 """
 
+import lora_access
 import model_registry
 import workflow_builder
 import workflow_builder_krea2
@@ -69,7 +70,7 @@ def find(value):
 MAX_LORAS = 3
 
 
-def clean_loras(entry, raw):
+def clean_loras(entry, raw, user_id=None):
     """요청의 loras([{name, strength}])를 검사해 [(파일 이름, 강도)]로 — 등록부에 있는 LoRA만, 생성 모델과 계열이 맞아야 한다.
     계열을 적지 않은 LoRA는 그대로 받는다. 인물 LoRA(캐릭터 스튜디오)를 연동 서비스가 고를 때 쓴다."""
     if raw in (None, []):
@@ -83,6 +84,8 @@ def clean_loras(entry, raw):
         lora = model_registry.get_entry("loras", name) if isinstance(name, str) and name else None
         if lora is None:
             raise ModelError("등록부에 없는 LoRA예요.")
+        if not lora_access.can_use(name, user_id):   # 다른 회원이 학습한 비공개 인물 LoRA
+            raise ModelError(f"쓸 수 없는 LoRA예요: {name}")
         bases = {model_registry.base_id(b) for b in lora.get("base_models") or []}
         if bases and family not in bases:
             raise ModelError(f"이 생성 모델에는 쓸 수 없는 LoRA예요: {name}")

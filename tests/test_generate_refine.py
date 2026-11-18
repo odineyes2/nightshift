@@ -268,6 +268,47 @@ class GenerateRefineTests(unittest.TestCase):
         with patch.object(A, "poke_scheduler", lambda: None):
             self.assertEqual(self.client.post("/api/generate/train", headers=self.bearer, json=body).status_code, 409)   # 같은 이름
 
+    def test_private_loras_are_only_for_their_owner(self):
+        import lora_access
+        with db.connect() as conn:
+            conn.execute("INSERT INTO users(username,email,password_hash,role,status,created_at) VALUES('other','o@example.test','x','user','active',?)", (db.now_iso(),))
+            other = conn.execute("SELECT id FROM users WHERE username='other'").fetchone()[0]
+        for name in ("mine.safetensors", "theirs.safetensors", "shared.safetensors", "legacy.safetensors"):
+            model_registry.upsert("loras", name, {"base_model": "Illustrious"})
+        lora_access.set_access("mine.safetensors", self.ids["refine-bot"], "private")
+        lora_access.set_access("theirs.safetensors", other, "private")
+        lora_access.set_access("shared.safetensors", self.ids["refine-admin"], "public")
+        body = {"preset": "checkpoints:waiIllustriousSDXL_v170.safetensors", "prompt": "1girl", "aspect": "16:9", "seed": 3}
+        with patch.object(A, "poke_scheduler", lambda: None):
+            codes = {name: self.client.post("/api/generate", headers=self.bearer, json={**body, "loras": [{"name": name}]}).status_code
+                     for name in ("mine.safetensors", "theirs.safetensors", "shared.safetensors", "legacy.safetensors")}
+            face = self.submit(op="faces", prompt="", faces=[{"prompt": "a", "loras": [{"name": "theirs.safetensors"}]}])
+        self.assertEqual(codes, {"mine.safetensors": 200, "theirs.safetensors": 400, "shared.safetensors": 200, "legacy.safetensors": 200})
+        self.assertEqual(face.status_code, 400)
+        self.assertTrue(lora_access.can_use("theirs.safetensors", self.ids["refine-admin"]))   # 관리자는 언제나
+        # 워커 자동 설치도 주인이 아닌 작업에는 비공개 LoRA를 보내지 않는다.
+        import hosted_models
+        for name in ("theirs.safetensors", "mine.safetensors"):
+            hosted_models.path("loras", name).parent.mkdir(parents=True, exist_ok=True)
+            hosted_models.path("loras", name).write_bytes(b"x")
+        with patch.dict(os.environ, {"NIGHTSHIFT_PUBLIC_URL": "https://ns.example"}),                 patch.object(A.model_download, "call_node", lambda pod, method, route, body: None):
+            started, no_url, failed = A.asyncio.run(A._start_model_downloads({"id": self.ids["refine-bot"]}, {"id": "p"},
+                                                                             ["theirs.safetensors", "mine.safetensors"]))
+        self.assertEqual((started, [f["name"] for f in failed]), (["mine.safetensors"], ["theirs.safetensors"]))
+
+    def test_train_visibility_public_is_admin_only(self):
+        import lora_access
+        images = [{"image": png(1024, 1024), "caption": "1girl"} for _ in range(8)]
+        body = {"name": "pub_try", "trigger": "pub_try", "model": "checkpoints:waiIllustriousSDXL_v170.safetensors", "images": images}
+        with patch.object(A, "poke_scheduler", lambda: None):
+            self.assertEqual(self.client.post("/api/generate/train", headers=self.bearer, json={**body, "visibility": "public"}).status_code, 403)
+            self.assertEqual(self.client.post("/api/generate/train", headers=self.bearer, json={**body, "visibility": "x"}).status_code, 400)
+            job_id = self.client.post("/api/generate/train", headers=self.bearer, json=body).json()["job_id"]
+        import hosted_models
+        hosted_models.path("loras", "pub_try.safetensors").write_bytes(b"t")
+        A.register_trained_lora(A.jobs[job_id])
+        self.assertEqual(tuple(lora_access.lookup("pub_try.safetensors")), (self.ids["refine-bot"], "private"))
+
     def test_service_route_allowed(self):
         self.assertTrue(any(m == "POST" and p.fullmatch("/api/generate/train") for m, p in A.SERVICE_TOKEN_ROUTES))
 

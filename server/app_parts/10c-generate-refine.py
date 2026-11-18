@@ -37,7 +37,7 @@ async def generate_refine(request: Request):
                 text = item.get("prompt") if isinstance(item, dict) else None
                 if not isinstance(text, str) or not text.strip() or len(text) > 4000:
                     raise generate_models.ModelError("얼굴마다 프롬프트(1~4000자)가 필요해요.")
-                faces.append((text.strip(), generate_models.clean_loras(entry, item.get("loras"))))
+                faces.append((text.strip(), generate_models.clean_loras(entry, item.get("loras"), user["id"])))
             workflow, used = generate_models.build_faces(entry, faces, negative, seed, width), entry
         else:
             used = generate_models.refine_entry(entry, op)
