@@ -117,7 +117,16 @@ def clean_regions(raw):
     return [text.strip() for text in raw]
 
 
-def _apply_regions(workflow, regions, width, height):
+def clean_region_strength(raw):
+    """칸 묘사의 세기(0.1~1.0, 기본 1.0). 모델마다 맞는 값이 다르다 — Animagine은 1.0이면 구도가 무너졌다(2026-11-18)."""
+    if raw is None:
+        return 1.0
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not 0.1 <= raw <= 1.0:
+        raise ModelError("region_strength는 0.1~1.0이어야 해요.")
+    return float(raw)
+
+
+def _apply_regions(workflow, regions, width, height, strength=1.0):
     """메인 긍정 조건에 칸별 조건(ConditioningSetArea)을 더해 모든 KSampler에 넣는다. 노드 제목에는 실행 템플릿이
     부분일치로 집는 낱말(main_prompt·negative_prompt·KSampler·Save·latent)을 넣지 않는다."""
     samplers = [node for node in workflow.values() if isinstance(node, dict) and node.get("class_type") == "KSampler"]
@@ -132,7 +141,7 @@ def _apply_regions(workflow, regions, width, height):
         next_id += 3
         workflow[encode] = {"inputs": {"text": text, "clip": clip}, "class_type": "CLIPTextEncode", "_meta": {"title": f"칸 {index + 1} 묘사"}}
         workflow[area] = {"inputs": {"conditioning": [encode, 0], "width": step, "height": height, "x": index * step, "y": 0,
-                                     "strength": 1.0}, "class_type": "ConditioningSetArea", "_meta": {"title": f"칸 {index + 1} 자리"}}
+                                     "strength": strength}, "class_type": "ConditioningSetArea", "_meta": {"title": f"칸 {index + 1} 자리"}}
         workflow[merge] = {"inputs": {"conditioning_1": combined, "conditioning_2": [area, 0]}, "class_type": "ConditioningCombine",
                            "_meta": {"title": f"칸 {index + 1} 합치기"}}
         combined = [merge, 0]
@@ -140,7 +149,7 @@ def _apply_regions(workflow, regions, width, height):
         sampler["inputs"]["positive"] = list(combined)
 
 
-def build(entry, prompt, negative_prompt, aspect, seed, loras=(), regions=()):
+def build(entry, prompt, negative_prompt, aspect, seed, loras=(), regions=(), region_strength=1.0):
     """(workflow, width, height, steps, positive) — 프롬프트·시드·크기를 넣은 t2i 워크플로우.
     positive는 스윗 포인트 접두어까지 붙은 실제 프롬프트다(실행 템플릿이 main_prompt로 다시 넣는다).
     loras는 clean_loras가 돌려준 [(파일 이름, 강도)], regions는 clean_regions가 돌려준 칸별 묘사(왼쪽부터)."""
@@ -167,7 +176,7 @@ def build(entry, prompt, negative_prompt, aspect, seed, loras=(), regions=()):
     if regions:
         if architecture not in ("sdxl", "unet"):
             raise ModelError("이 생성 모델은 칸 나누기를 할 수 없어요.")
-        _apply_regions(workflow, regions, width, height)
+        _apply_regions(workflow, regions, width, height, region_strength)
     sampler = next((node for node in workflow.values()
                     if isinstance(node, dict) and node.get("class_type") == "KSampler"), None)
     steps = sampler["inputs"].get("steps") if sampler else spec.get("steps")

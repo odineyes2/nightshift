@@ -186,6 +186,13 @@ class GenerateRefineTests(unittest.TestCase):
         workflow = json.loads((A.JOBS_DIR / job["workflow_filename"]).read_text(encoding="utf-8"))
         areas = [n["inputs"] for n in workflow.values() if n["class_type"] == "ConditioningSetArea"]
         self.assertEqual([(a["x"], a["width"], a["height"]) for a in areas], [(0, 672, 768), (672, 672, 768)])
+        self.assertEqual({a["strength"] for a in areas}, {1.0})
+        with patch.object(A, "poke_scheduler", lambda: None):
+            weak = self.client.post("/api/generate", headers=self.bearer, json={**body, "regions": ["a", "b"], "region_strength": 0.5})
+            wrong = self.client.post("/api/generate", headers=self.bearer, json={**body, "regions": ["a", "b"], "region_strength": 2})
+        self.assertEqual(wrong.status_code, 400)
+        weak_flow = json.loads((A.JOBS_DIR / A.jobs[weak.json()["job_id"]]["workflow_filename"]).read_text(encoding="utf-8"))
+        self.assertEqual({n["inputs"]["strength"] for n in weak_flow.values() if n["class_type"] == "ConditioningSetArea"}, {0.5})
         texts = [workflow[a["conditioning"][0]]["inputs"]["text"] for a in areas]
         self.assertEqual(texts, ["1girl, silver hair", "1boy, red hair"])
         sampler = next(n for n in workflow.values() if n["class_type"] == "KSampler")

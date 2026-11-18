@@ -1055,7 +1055,8 @@ async def _generate_with_model(user, model, body):
     try:
         loras = generate_models.clean_loras(model, body.get("loras"), user["id"])
         regions = generate_models.clean_regions(body.get("regions"))
-        workflow, width, height, steps, positive = generate_models.build(model, prompt, negative, aspect, seed, loras, regions)
+        strength = generate_models.clean_region_strength(body.get("region_strength"))
+        workflow, width, height, steps, positive = generate_models.build(model, prompt, negative, aspect, seed, loras, regions, strength)
     except generate_models.ModelError as exc:
         raise HTTPException(400, str(exc)) from exc
     options = {"main_prompt": positive, "negative_prompt": negative, "seed_count": str(count),
