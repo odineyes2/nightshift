@@ -72,9 +72,10 @@ class MemberAutoPowerTests(unittest.TestCase):
         A._member_auto_path().unlink(missing_ok=True)
         for pod in A.pod_registry.list_pods(self.member_id) + A.pod_registry.list_pods(self.nokey_id):
             try:
+                A.pod_registry.update_pod(pod["id"], {"enabled": False, "url": "", "note": "runpod:off"})   # 켜진 워커는 지워지지 않는다
                 A.pod_registry.delete_pod(pod["id"])
-            except A.pod_registry.PodError:
-                pass
+            except A.pod_registry.PodError:   # 마지막 워커는 지울 수 없다 — 자동 켜기 대상에서만 뺀다
+                A.pod_registry.update_pod(pod["id"], {"runpod_tier": ""})
 
     def queue(self, owner, n=1, via=True, tier=None):
         for _ in range(n):
@@ -137,13 +138,44 @@ class MemberAutoPowerTests(unittest.TestCase):
         self.assertEqual(A._member_auto_power_check(NOW + timedelta(minutes=5))[f"{self.member_id}:image"], "backoff")
         fail["err"] = None
         moment = NOW + timedelta(minutes=11)
-        for _ in range(3):   # 하루 3번
+        self.assertEqual(self.member.put("/api/auth/runpod-auto-limit", json={"daily": 3}, headers=H).status_code, 200)
+        for _ in range(3):   # 회원이 정한 하루 3번
             self.assertEqual(A._member_auto_power_check(moment)[f"{self.member_id}:image"], "started")
             w = A._member_workers(self.member_id, "image")[0]
             A.pod_registry.update_pod(w["id"], {"enabled": False, "url": "", "note": "runpod:off"})   # 자동 끄기가 껐다고 치고
             moment += timedelta(minutes=1)
         self.assertEqual(A._member_auto_power_check(moment)[f"{self.member_id}:image"], "limit")
         self.assertIsNone(self.member.get("/api/auth/runpod-status").json()["tiers"]["image"]["last_error"])   # 성공하면 지운다
+
+    def off(self):
+        w = A._member_workers(self.member_id, "image")[0]
+        A.pod_registry.update_pod(w["id"], {"enabled": False, "url": "", "note": "runpod:off"})
+
+    def test_member_sets_daily_start_limit(self):
+        self.save_key()
+        status = self.member.get("/api/auth/runpod-status").json()
+        self.assertEqual((status["daily_limit"], status["daily_limit_custom"]), (10, False))   # 기본 10번
+        for bad in ({"daily": -1}, {"daily": 101}, {"daily": "5"}, {"daily": True}, {"other": 1}):
+            self.assertEqual(self.member.put("/api/auth/runpod-auto-limit", json=bad, headers=H).status_code, 422, bad)
+        r = self.member.put("/api/auth/runpod-auto-limit", json={"daily": 1}, headers=H)
+        self.assertEqual((r.json()["daily_limit"], r.json()["daily_limit_custom"]), (1, True))
+        now = datetime.now(timezone.utc)
+        self.queue(self.member_id)
+        self.assertEqual(A._member_auto_power_check(now)[f"{self.member_id}:image"], "started")
+        self.off()
+        self.assertEqual(A._member_auto_power_check(now)[f"{self.member_id}:image"], "limit")
+        image = self.member.get("/api/auth/runpod-status").json()["tiers"]["image"]
+        self.assertEqual((image["starts_today"], image["limit_reached"], image["waiting"]), (1, True, 1))   # 화면이 이유를 보여 줄 수 있다
+        self.member.put("/api/auth/runpod-auto-limit", json={"daily": 0}, headers=H)   # 무제한
+        for _ in range(12):
+            self.assertEqual(A._member_auto_power_check(now)[f"{self.member_id}:image"], "started")
+            self.off()
+        self.assertFalse(self.member.get("/api/auth/runpod-status").json()["tiers"]["image"]["limit_reached"])
+        r = self.member.put("/api/auth/runpod-auto-limit", json={"daily": None}, headers=H)   # 기본값으로
+        self.assertEqual((r.json()["daily_limit"], r.json()["daily_limit_custom"]), (10, False))
+        self.assertEqual(A._member_auto_power_check(now)[f"{self.member_id}:image"], "limit")   # 오늘 13번 > 10
+        admin = login("admin")
+        self.assertEqual(admin.put("/api/auth/runpod-auto-limit", json={"daily": 5}, headers=H).status_code, 400)
 
     def test_manual_worker_on_counts_as_running(self):
         self.save_key()

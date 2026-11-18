@@ -1,9 +1,12 @@
 # 회원 워커 자동 켜기 — charchat처럼 연동 앱이 회원 대신 보낸 작업이 대기하면, 그 회원의 RunPod 키로 그 회원의 워커에 파드를 만든다.
 # 2026-11-15 사용자 결정: 각자 자기 계정으로 생성한다. 워커 기록은 키를 저장할 때(꺼진 채) 만들어 두고(ensure_member_worker),
 # 파드는 작업이 대기할 때 바로 켜며(기다리는 작가가 있으니 개수를 모으지 않는다), 끄기는 기존 자동 끄기(07-pods, 15분)가 파드를 지운다.
-# 안전장치: 회원·등급마다 하루 3번, 실패하면 10→30→60분 뒤 다시. 실패 이유(잔액 부족 등)는 /api/auth/runpod-status로 보여 준다.
+# 안전장치: 회원·등급마다 하루 켜기 횟수(기본 10번, 회원이 1~100번 또는 무제한으로 직접 정함 — 자기 RunPod 돈이라서, 2026-11-19 사용자 결정.
+# 처음엔 3번 고정이었는데 15분 쉬면 꺼지니 하루 작업 중에 금방 차서 작업이 다음 날까지 멈췄다), 실패하면 10→30→60분 뒤 다시.
+# 실패 이유(잔액 부족 등)와 한도에 걸렸는지는 /api/auth/runpod-status로 보여 준다.
 # 대상은 연동 앱이 보낸 작업(job.via_service)뿐 — nightshift를 직접 쓰는 회원은 워커를 직접 관리한다. 관리자는 07c(대기열 자동 켜기)가 맡는다.
-MEMBER_AUTO_DAILY_LIMIT = 3
+MEMBER_AUTO_DAILY_LIMIT = 10
+MEMBER_AUTO_DAILY_MAX = 100
 MEMBER_AUTO_BACKOFF_MIN = (10, 30, 60)
 MEMBER_AUTO_OFF_MINUTES = 15
 _member_auto_lock = threading.Lock()
@@ -28,6 +31,23 @@ def _member_auto_save(data: dict) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def _member_daily_limit(data: dict, owner_id: int) -> int:
+    """그 회원의 하루 자동 켜기 횟수(0 = 무제한). 직접 정하지 않았으면 기본값."""
+    value = (data.get("limits") or {}).get(str(owner_id))
+    return value if isinstance(value, int) and 0 <= value <= MEMBER_AUTO_DAILY_MAX else MEMBER_AUTO_DAILY_LIMIT
+
+
+def _member_starts_today(state: dict, now: datetime) -> int:
+    today = now.astimezone().date()
+    count = 0
+    for stamp in state.get("starts") or []:
+        try:
+            count += datetime.fromisoformat(stamp).astimezone().date() == today
+        except ValueError:
+            pass
+    return count
 
 
 def _member_tier_of(job: dict) -> str:
@@ -102,8 +122,8 @@ def _member_auto_power_check(now: datetime | None = None) -> dict:
             if _member_running(owner, tier):
                 results[key] = "on"
                 continue
-            starts_today = sum(1 for s in state["starts"] if datetime.fromisoformat(s).astimezone().date() == today)
-            if starts_today >= MEMBER_AUTO_DAILY_LIMIT:
+            limit = _member_daily_limit(data, owner)
+            if limit and _member_starts_today(state, now) >= limit:
                 results[key] = "limit"
                 continue
             if state.get("retry_after") and now < datetime.fromisoformat(state["retry_after"]):
@@ -135,12 +155,18 @@ def member_runpod_status(owner_id: int) -> dict:
     with lock:
         waiting = [j for j in jobs.values() if j["status"] == "queued" and not j.get("pod_id") and not j.get("deleted")
                    and j.get("owner_id") == owner_id]
-    state = _member_auto_load().get(str(owner_id), {})
+    data = _member_auto_load()
+    state = data.get(str(owner_id), {})
+    limit = _member_daily_limit(data, owner_id)
+    now = datetime.now(timezone.utc)
     tiers = {}
     for tier in ("image", "video"):
         workers = _member_workers(owner_id, tier)
         s = state.get(tier, {})
+        starts = _member_starts_today(s, now)
         tiers[tier] = {
+            "starts_today": starts,
+            "limit_reached": bool(limit) and starts >= limit,
             "worker": bool(workers),
             "on": any(p.get("enabled") for p in workers),
             "starting": any(p.get("note") == "runpod:creating" for p in workers),
@@ -148,8 +174,31 @@ def member_runpod_status(owner_id: int) -> dict:
             "last_error": s.get("last_error"),
             "retry_after": s.get("retry_after"),
         }
-    return {"has_key": bool(runpod_api.key_for_owner(owner_id)), "daily_limit": MEMBER_AUTO_DAILY_LIMIT,
-            "auto_off_minutes": MEMBER_AUTO_OFF_MINUTES, "tiers": tiers}
+    return {"has_key": bool(runpod_api.key_for_owner(owner_id)), "daily_limit": limit,
+            "daily_limit_custom": str(owner_id) in (data.get("limits") or {}), "daily_limit_default": MEMBER_AUTO_DAILY_LIMIT,
+            "daily_limit_max": MEMBER_AUTO_DAILY_MAX, "auto_off_minutes": MEMBER_AUTO_OFF_MINUTES, "tiers": tiers}
+
+
+@app.put("/api/auth/runpod-auto-limit")
+async def auth_runpod_auto_limit(request: Request):
+    """회원이 자기 워커의 하루 자동 켜기 횟수를 정한다(자기 RunPod 계정 돈). {"daily": 0(무제한)~100 | null(기본값)}.
+    관리자 워커는 관리 화면 자동 켜기 설정이 맡는다."""
+    user = me(request)
+    if user["role"] == auth.ROLE_ADMIN:
+        raise HTTPException(400, "관리자 워커는 관리 화면의 대기열 자동 켜기에서 정해요.")
+    body = await read_json_object(request, allow_empty=False)
+    daily = body.get("daily", "missing")
+    if set(body) != {"daily"} or not (daily is None or (type(daily) is int and 0 <= daily <= MEMBER_AUTO_DAILY_MAX)):
+        raise HTTPException(422, f"daily는 0(무제한)~{MEMBER_AUTO_DAILY_MAX} 사이 정수 또는 null(기본값)이어야 해요.")
+    with _member_auto_lock:
+        data = _member_auto_load()
+        limits = data.setdefault("limits", {})
+        if daily is None:
+            limits.pop(str(user["id"]), None)
+        else:
+            limits[str(user["id"])] = daily
+        _member_auto_save(data)
+    return member_runpod_status(user["id"]) | {"plan": paid_plan.plan(user["id"])}
 
 
 @app.get("/api/generate/billing")
