@@ -257,7 +257,8 @@ class GenerateRefineTests(unittest.TestCase):
         folder = input_assets.input_dir_for(self.ids["refine-bot"])
         self.assertTrue(all(folder.joinpath(item["file"]).is_file() for item in manifest["images"]))
         workflow = json.loads((A.JOBS_DIR / job["workflow_filename"]).read_text(encoding="utf-8"))
-        self.assertEqual([n["inputs"]["ckpt_name"] for n in workflow.values()], ["waiIllustriousSDXL_v170.safetensors"])
+        self.assertEqual([next(iter(n["inputs"].values())) for n in workflow.values()],
+                         ["waiIllustriousSDXL_v170.safetensors", "bbox/face_yolov8m.pt"])   # 바탕 모델 + 얼굴 탐지 모델(자동 설치되게)
         # 끝나면 러너가 보관 폴더의 결과를 등록부에 적는다.
         hosted_models.path("loras", "studio_test_actor.safetensors").parent.mkdir(parents=True, exist_ok=True)
         hosted_models.path("loras", "studio_test_actor.safetensors").write_bytes(b"trained")

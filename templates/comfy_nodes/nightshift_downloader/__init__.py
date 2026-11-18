@@ -452,7 +452,7 @@ TRAIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 TRIGGER_RE = re.compile(r"^[A-Za-z0-9_]{1,40}$")
 CAPTION_MAX = 400
 MIN_IMAGES, MAX_IMAGES = 8, 80
-_train = {"status": "idle", "phase": "", "name": None, "step": 0, "total": 0, "kept": 0, "dropped": [],
+_train = {"status": "idle", "phase": "", "face_filter": "", "name": None, "step": 0, "total": 0, "kept": 0, "dropped": [],
           "error": None, "log": "", "started_at": None, "finished_at": None, "output": None}
 STEP_RE = re.compile(r"steps:\s+\d+%\|.*?\|\s*(\d+)/(\d+)")
 
@@ -538,6 +538,7 @@ def _train_run(spec):
         os.makedirs(dest)
         sources = [os.path.join(folder_paths.get_input_directory(), *item["file"].split("/")) for item in spec["images"]]
         faces = _count_faces(sources) if spec["one_face"] else None
+        _train_set(face_filter="on" if faces is not None else ("off" if not spec["one_face"] else "unavailable"))
         kept, dropped = 0, []
         for index, (item, src) in enumerate(zip(spec["images"], sources)):
             if faces is not None and faces[index] != 1:

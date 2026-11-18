@@ -50,7 +50,10 @@ async def generate_train(request: Request):
                 "images": saved, **params}
     manifest_path = JOBS_DIR / f"train_{name}_{uuid.uuid4().hex[:8]}.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
-    workflow = {"1": {"inputs": {"ckpt_name": entry["filename"]}, "class_type": "CheckpointLoaderSimple", "_meta": {"title": "학습 바탕 모델"}}}
+    # 얼굴 탐지 모델도 넣어 둔다 — 새 파드엔 이 파일이 없어 얼굴 수 거르기가 조용히 건너뛰어졌다(2026-11-18 실제 파드).
+    workflow = {"1": {"inputs": {"ckpt_name": entry["filename"]}, "class_type": "CheckpointLoaderSimple", "_meta": {"title": "학습 바탕 모델"}},
+                "2": {"inputs": {"model_name": generate_models.workflow_builder.FACE_DETECTOR_MODEL}, "class_type": "UltralyticsDetectorProvider",
+                      "_meta": {"title": "학습 그림 얼굴 거르기"}}}
     job = await create_job(resolve_template("lora_train"), json.dumps(workflow).encode(), f"train_{name}.json", None, None,
                            {"train_manifest": str(manifest_path.resolve())}, user=user, parse_inline_options=False)
     return {"job_id": job["id"], "status": job["status"], "lora": filename}

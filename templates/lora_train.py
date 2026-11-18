@@ -134,7 +134,8 @@ def main():
             fail("파드에서 다른 학습이 돌고 있어요.")
         if status.get("phase") != last_phase:
             last_phase = status.get("phase")
-            print(f"[lora_train] 단계: {last_phase} (쓰는 그림 {status.get('kept')}장, 뺀 그림 {len(status.get('dropped') or [])}장)", flush=True)
+            print(f"[lora_train] 단계: {last_phase} (쓰는 그림 {status.get('kept')}장, 뺀 그림 {len(status.get('dropped') or [])}장, "
+                  f"얼굴 거르기 {status.get('face_filter') or '?'})", flush=True)
         if status.get("total"):
             report(status.get("step") or 0, status["total"])
         if status.get("status") == "error":
