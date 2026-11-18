@@ -201,6 +201,10 @@ MAX_FACES = 3
 FACES_DENOISE = 0.5
 PEOPLE_DENOISE = 0.6
 PERSON_DETECTOR_MODEL = "segm/person_yolov8m-seg.pt"
+# 남녀 한 명씩이면 위치 대신 성별로 짝짓는다 — LoRA 없이 그린 구도에서 남녀가 어느 쪽에 설지는 칸 나누기로도 반반이었다(2026-11-18).
+# 애니메이션 그림은 일반 성별 분류(Impact Pack 프리셋 NTQAI 전신)가 미남을 여자로 봤다 → 파드의 nightshift 노드(v8)가
+# Danbooru 태거로 1boy·1girl 점수를 비교해 나눈다(templates/comfy_nodes/nightshift_downloader의 NightshiftSEGSGenderSplit).
+GENDERS = ("male", "female")
 REFINE_UPSCALE_MODEL = "4x_foolhardy_Remacri.safetensors"
 REFINE_UPSCALE_BY = 2.0
 REFINE_USDU_DENOISE = 0.25
@@ -306,7 +310,7 @@ def build_refine(entry, op, prompt, negative_prompt, seed, face_defaults=None):
     return workflow, used
 
 
-def build_faces(entry, faces, negative_prompt, seed, width=1344, target="face", denoise=None):
+def build_faces(entry, faces, negative_prompt, seed, width=1344, target="face", denoise=None, genders=None):
     """얼굴별(target="face")·사람별(target="people") 보정 워크플로우 — faces는 왼쪽부터 [(프롬프트, [(LoRA 파일, 강도)])].
     입력 그림은 제목 "input_image"인 LoadImage."""
     people = target == "people"
@@ -346,11 +350,18 @@ def build_faces(entry, faces, negative_prompt, seed, width=1344, target="face", 
                                          "crop_factor": 3.0, "drop_size": 10, "labels": "all"}, "얼굴 찾기")
     rest = [add("ImpactSEGSOrderedFilter", {"segs": [found, 0], "target": "area(=w*h)", "order": True,
                                             "take_start": 0, "take_count": len(faces)}, f"큰 {what} 고르기"), 0]
+    by_gender = None
+    if people and genders and len(faces) == 2 and sorted(genders) == ["female", "male"]:
+        split = add("NightshiftSEGSGenderSplit", {"segs": rest}, "남녀 나누기")
+        by_gender = {"male": [split, 0], "female": [split, 1]}
     step, shift = width / len(faces), width / 16   # 얼굴 왼쪽 끝은 얼굴 가운데보다 왼쪽이라 경계를 조금 당긴다
     for index, (prompt, loras) in enumerate(faces, start=1):
         if not prompt:
             raise ModelError(f"{what}마다 프롬프트가 필요해요.")
-        if people:   # 왼쪽부터 index번째 사람
+        if by_gender:   # 그 성별 쪽에서 가장 큰 사람
+            pick = add("ImpactSEGSOrderedFilter", {"segs": by_gender[genders[index - 1]], "target": "area(=w*h)", "order": True,
+                                                   "take_start": 0, "take_count": 1}, f"사람 {index} 고르기({genders[index - 1]})")
+        elif people:   # 왼쪽부터 index번째 사람
             pick = add("ImpactSEGSOrderedFilter", {"segs": rest, "target": "x1", "order": False, "take_start": index - 1,
                                                    "take_count": 1}, f"사람 {index} 고르기")
         else:

@@ -1,5 +1,5 @@
 """
-Nightshift model downloader — ComfyUI 커스텀 노드(노드는 없고 HTTP 라우트만 추가한다).
+Nightshift model downloader — ComfyUI 커스텀 노드(HTTP 라우트 + 노드 하나: 사람 조각 남녀로 나누기, v8).
 
 ComfyUI에는 모델 파일을 내려받는 API가 없어서, nightshift가 파드에 모델을 받으려면 파드 안에서
 다운로드를 대신 해 줄 프로그램이 필요하다. 이 폴더를 ComfyUI/custom_nodes/ 에 두고 ComfyUI를 다시
@@ -42,7 +42,7 @@ from aiohttp import web
 import folder_paths
 from server import PromptServer
 
-VERSION = 7   # 7: 인물 LoRA 학습(kohya sd-scripts)
+VERSION = 8   # 7: 인물 LoRA 학습(kohya sd-scripts) · 8: 사람 조각 남녀로 나누기 노드(NightshiftSEGSGenderSplit)
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # nightshift의 종류 이름 -> ComfyUI folder_paths 이름 후보(버전마다 이름이 달랐다).
@@ -656,5 +656,78 @@ async def train_status(request):
         return web.json_response(dict(_train))
 
 
-NODE_CLASS_MAPPINGS = {}
-NODE_DISPLAY_NAME_MAPPINGS = {}
+# ── 노드: 사람 조각(SEGS)을 남녀로 나누기(v8) ──
+# 두 인물 그림을 LoRA 없이 그린 뒤 사람마다 배우를 입힐 때, 남녀가 어느 쪽에 섰는지는 칸 나누기로도 반반이었다. 일반 성별 분류
+# (Impact Pack 프리셋)는 애니메이션 미남을 여자로 봐서 Danbooru 태거로 1boy·1girl 점수를 비교한다. 모델 파일은 표준 transformers
+# Swinv2라 원격 코드 없이 고정 커밋에서 받고, 저장소의 사용자 정의 전처리(흰 바탕 정사각형·448px·BGR·-1~1)는 여기 옮겨 적었다.
+GENDER_TAGGER_REPO = "p1atdev/wd-swinv2-tagger-v3-hf"
+GENDER_TAGGER_REVISION = "b09fdef86a3f9d4bf974ccaa5c87dcf846d3a2fd"
+_tagger = {}
+
+
+def _gender_tagger():
+    if "model" not in _tagger:
+        import torch
+        from transformers import AutoModelForImageClassification
+        model = AutoModelForImageClassification.from_pretrained(GENDER_TAGGER_REPO, revision=GENDER_TAGGER_REVISION)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        labels = {name: int(i) for i, name in model.config.id2label.items()}
+        _tagger.update(model=model.to(device).eval(), device=device, boy=labels["1boy"], girl=labels["1girl"])
+    return _tagger
+
+
+def _tagger_input(crop, mask):
+    """사람 조각(0~1, H×W×3) → 태거 입력. 사람 마스크 밖은 흰색으로(옆 사람이 조각에 같이 들어와도 섞이지 않게)."""
+    import numpy as np
+    from PIL import Image
+    image = np.asarray(crop, dtype=np.float32)
+    if image.ndim == 4:
+        image = image[0]
+    if mask is not None:
+        m = np.asarray(mask, dtype=np.float32)
+        if m.ndim == 3:
+            m = m[0]
+        if m.shape == image.shape[:2]:
+            image = image * m[..., None] + (1.0 - m[..., None])
+    pil = Image.fromarray((image.clip(0, 1) * 255).astype(np.uint8))
+    side = max(pil.size)
+    square = Image.new("RGB", (side, side), (255, 255, 255))
+    square.paste(pil, ((side - pil.size[0]) // 2, (side - pil.size[1]) // 2))
+    array = np.asarray(square.resize((448, 448), Image.BICUBIC), dtype=np.float32)[:, :, ::-1]   # RGB → BGR
+    array = (array / 255.0 - 0.5) / 0.5
+    return array.transpose(2, 0, 1).copy()
+
+
+class NightshiftSEGSGenderSplit:
+    """사람 조각마다 1boy·1girl 점수를 비교해 남자 쪽(1boy가 더 높음)과 나머지로 나눈다."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"segs": ("SEGS",)}}
+
+    RETURN_TYPES = ("SEGS", "SEGS", "STRING")
+    RETURN_NAMES = ("male_segs", "female_segs", "scores")
+    FUNCTION = "split"
+    CATEGORY = "nightshift"
+
+    def split(self, segs):
+        import numpy as np
+        import torch
+        shape, items = segs
+        male, female, scores = [], [], []
+        if items:
+            tagger = _gender_tagger()
+            batch = np.stack([_tagger_input(seg.cropped_image, seg.cropped_mask) for seg in items])
+            with torch.no_grad():
+                logits = tagger["model"](pixel_values=torch.from_numpy(batch).to(tagger["device"])).logits
+                probs = torch.sigmoid(logits).float().cpu().numpy()
+            for seg, row in zip(items, probs):
+                boy, girl = float(row[tagger["boy"]]), float(row[tagger["girl"]])
+                (male if boy > girl else female).append(seg)
+                scores.append(f"x={seg.crop_region[0]} 1boy={boy:.2f} 1girl={girl:.2f}")
+        print("[nightshift] 남녀 나누기:", "; ".join(scores), flush=True)
+        return ((shape, male), (shape, female), "; ".join(scores))
+
+
+NODE_CLASS_MAPPINGS = {"NightshiftSEGSGenderSplit": NightshiftSEGSGenderSplit}
+NODE_DISPLAY_NAME_MAPPINGS = {"NightshiftSEGSGenderSplit": "Nightshift: 사람 조각 남녀로 나누기"}

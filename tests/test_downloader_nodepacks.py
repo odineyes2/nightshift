@@ -20,7 +20,7 @@ NODE = Path(__file__).resolve().parent.parent / "templates" / "comfy_nodes" / "n
 spec = importlib.util.spec_from_file_location("ns_downloader", NODE)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-assert m.VERSION == 7
+assert m.VERSION == 8
 
 tmp = Path(tempfile.mkdtemp())
 m.HERE = str(tmp / "custom_nodes" / "nightshift_downloader")   # 노드팩은 HERE의 부모(custom_nodes)에 깔린다

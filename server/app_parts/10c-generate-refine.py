@@ -35,14 +35,19 @@ async def generate_refine(request: Request):
             denoise = body.get("denoise")
             if denoise is not None and (isinstance(denoise, bool) or not isinstance(denoise, (int, float)) or not 0.2 <= denoise <= 0.9):
                 raise generate_models.ModelError("denoise는 0.2~0.9 사이 숫자여야 해요.")
-            faces = []
+            faces, genders = [], []
             for item in raw:
                 text = item.get("prompt") if isinstance(item, dict) else None
                 if not isinstance(text, str) or not text.strip() or len(text) > 4000:
                     raise generate_models.ModelError("얼굴마다 프롬프트(1~4000자)가 필요해요.")
                 faces.append((text.strip(), generate_models.clean_loras(entry, item.get("loras"), user["id"])))
+                gender = item.get("gender")
+                if gender is not None and gender not in generate_models.GENDERS:
+                    raise generate_models.ModelError("gender는 male 또는 female이어야 해요.")
+                genders.append(gender)
             workflow, used = generate_models.build_faces(entry, faces, negative, seed, width, target="people" if op == "people" else "face",
-                                                         denoise=float(denoise) if denoise is not None else None), entry
+                                                         denoise=float(denoise) if denoise is not None else None,
+                                                         genders=genders if op == "people" and all(genders) else None), entry
         else:
             used = generate_models.refine_entry(entry, op)
             face_defaults = None

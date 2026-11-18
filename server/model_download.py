@@ -28,7 +28,7 @@ import db
 from drivers.comfyui import COMFY_USER_AGENT, ComfyUIDriver
 
 NODE_DIR = Path(__file__).resolve().parent.parent / "templates" / "comfy_nodes" / "nightshift_downloader"
-NODE_VERSION = 7   # 7: 인물 LoRA 학습(kohya sd-scripts)
+NODE_VERSION = 8   # 7: 인물 LoRA 학습(kohya sd-scripts) · 8: 사람 조각 남녀로 나누기 노드
 FETCH_TIMEOUT = 15
 UNREACHABLE = 424   # 파드에 연결 못 함 — 응답 코드로 그대로 나간다
 MODEL_EXT = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf")

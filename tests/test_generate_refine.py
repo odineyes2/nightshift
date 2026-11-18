@@ -174,7 +174,17 @@ class GenerateRefineTests(unittest.TestCase):
                          [("area(=w*h)", 0, 2), ("x1", 0, 1), ("x1", 1, 1)])
         details = [n["inputs"] for n in workflow.values() if n["class_type"] == "DetailerForEach"]
         self.assertEqual([(d["denoise"], d["guide_size"]) for d in details], [(0.65, 1024), (0.65, 1024)])
-        for bad in ({"people": []}, {"people": people, "denoise": 1.5}, {"people": people, "denoise": True}):
+        # 남녀 한 명씩이면 위치 대신 성별로 짝짓는다
+        mixed = [{**people[0], "gender": "male"}, {**people[1], "gender": "female"}]
+        workflow, classes = self.job_workflow(self.submit(op="people", prompt="", people=mixed))
+        split = next(k for k, n in workflow.items() if n["class_type"] == "NightshiftSEGSGenderSplit")
+        picks = [n["inputs"] for n in workflow.values() if n["class_type"] == "ImpactSEGSOrderedFilter"][1:]
+        self.assertEqual([p["segs"] for p in picks], [[split, 0], [split, 1]])
+        same = [{**people[0], "gender": "male"}, {**people[1], "gender": "male"}]
+        _, classes = self.job_workflow(self.submit(op="people", prompt="", people=same))
+        self.assertNotIn("NightshiftSEGSGenderSplit", classes)   # 같은 성별이면 왼쪽부터
+        for bad in ({"people": []}, {"people": people, "denoise": 1.5}, {"people": people, "denoise": True},
+                    {"people": [{**people[0], "gender": "x"}, people[1]]}):
             self.assertEqual(self.submit(op="people", prompt="", **bad).status_code, 400, bad)
 
     def test_generate_takes_registered_loras(self):
