@@ -199,7 +199,7 @@ def build(entry, prompt, negative_prompt, aspect, seed, loras=(), regions=(), re
 REFINE_OPS = ("face", "upscale", "faces", "people")
 MAX_FACES = 3
 FACES_DENOISE = 0.5
-PEOPLE_DENOISE = 0.6
+PEOPLE_DENOISE = 0.7   # 0.6은 진한 붉은 머리를 은발로 못 바꿨다(2026-11-18 실사용), 시험은 0.7로 8장 중 6장 성공
 PERSON_DETECTOR_MODEL = "segm/person_yolov8m-seg.pt"
 # 남녀 한 명씩이면 위치 대신 성별로 짝짓는다 — LoRA 없이 그린 구도에서 남녀가 어느 쪽에 설지는 칸 나누기로도 반반이었다(2026-11-18).
 # 애니메이션 그림은 일반 성별 분류(Impact Pack 프리셋 NTQAI 전신)가 미남을 여자로 봤다 → 파드의 nightshift 노드(v8)가
