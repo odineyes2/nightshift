@@ -703,18 +703,23 @@ class NightshiftSEGSGenderSplit:
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {"segs": ("SEGS",)}}
+        return {"required": {"segs": ("SEGS",)},
+                "optional": {"expected": ("INT", {"default": 0, "min": 0, "max": 8})}}
 
     RETURN_TYPES = ("SEGS", "SEGS", "STRING")
     RETURN_NAMES = ("male_segs", "female_segs", "scores")
     FUNCTION = "split"
     CATEGORY = "nightshift"
 
-    def split(self, segs):
+    def split(self, segs, expected=0):
         import numpy as np
         import torch
         shape, items = segs
         male, female, scores = [], [], []
+        if expected and len(items) != expected:
+            # 사람 수만큼 따로 잡히지 않았다(겹친 두 사람이 한 덩어리 등) — 누가 누군지 모르니 다시 그리지 않게 비운다.
+            print(f"[nightshift] 남녀 나누기: 조각 {len(items)}개(기대 {expected}개) — 건너뜀", flush=True)
+            return ((shape, []), (shape, []), f"skipped {len(items)}/{expected}")
         if items:
             tagger = _gender_tagger()
             batch = np.stack([_tagger_input(seg.cropped_image, seg.cropped_mask) for seg in items])

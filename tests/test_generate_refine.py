@@ -177,9 +177,14 @@ class GenerateRefineTests(unittest.TestCase):
         # 남녀 한 명씩이면 위치 대신 성별로 짝짓는다
         mixed = [{**people[0], "gender": "male"}, {**people[1], "gender": "female"}]
         workflow, classes = self.job_workflow(self.submit(op="people", prompt="", people=mixed))
-        split = next(k for k, n in workflow.items() if n["class_type"] == "NightshiftSEGSGenderSplit")
-        picks = [n["inputs"] for n in workflow.values() if n["class_type"] == "ImpactSEGSOrderedFilter"][1:]
-        self.assertEqual([p["segs"] for p in picks], [[split, 0], [split, 1]])
+        # 몸 단계와 얼굴 단계 모두 남녀로 짝짓는다(겹친 두 사람은 몸이 한 덩어리로 잡혀 노드가 비우고 얼굴만 다시 그린다)
+        splits = [k for k, n in workflow.items() if n["class_type"] == "NightshiftSEGSGenderSplit"]
+        self.assertEqual([workflow[k]["inputs"]["expected"] for k in splits], [2, 2])
+        picks = [n["inputs"] for n in workflow.values() if n["class_type"] == "ImpactSEGSOrderedFilter" and n["inputs"]["take_count"] == 1]
+        self.assertEqual([p["segs"] for p in picks], [[splits[0], 0], [splits[0], 1], [splits[1], 0], [splits[1], 1]])
+        self.assertEqual(classes.count("DetailerForEach"), 4)
+        self.assertEqual(classes.count("LoraLoaderModelOnly"), 2)   # LoRA는 인물마다 한 번만 불러 두 단계가 같이 쓴다
+        self.assertIn("BboxDetectorSEGS", classes)
         same = [{**people[0], "gender": "male"}, {**people[1], "gender": "male"}]
         _, classes = self.job_workflow(self.submit(op="people", prompt="", people=same))
         self.assertNotIn("NightshiftSEGSGenderSplit", classes)   # 같은 성별이면 왼쪽부터

@@ -312,18 +312,22 @@ def build_refine(entry, op, prompt, negative_prompt, seed, face_defaults=None):
 
 def build_faces(entry, faces, negative_prompt, seed, width=1344, target="face", denoise=None, genders=None):
     """얼굴별(target="face")·사람별(target="people") 보정 워크플로우 — faces는 왼쪽부터 [(프롬프트, [(LoRA 파일, 강도)])].
-    입력 그림은 제목 "input_image"인 LoadImage."""
+    입력 그림은 제목 "input_image"인 LoadImage.
+    people에 남녀 한 명씩(genders)이면 몸 단계 뒤에 얼굴 단계를 더 돈다 — 둘 다 태거로 남녀를 나눠 짝짓는다. 두 사람이 겹쳐
+    한 덩어리로 잡히면 몸 단계는 건너뛰고(노드가 두 조각이 아니면 비운다) 얼굴 단계만 맞는 배우로 다시 그린다."""
     people = target == "people"
-    what = "사람" if people else "얼굴"
     arch, parts = _architecture(entry)
     if arch not in ("sdxl", "unet"):
         raise ModelError("이 생성 모델은 얼굴별 보정을 할 수 없어요.")
     if not faces or len(faces) > MAX_FACES:
         raise ModelError(f"얼굴은 1~{MAX_FACES}개까지 넣을 수 있어요.")
+    if any(not prompt for prompt, _ in faces):
+        raise ModelError(f"{'사람' if people else '얼굴'}마다 프롬프트가 필요해요.")
     sweet = entry.get("sweet") or {}
     prefix = str(sweet.get("positive_prefix") or "").strip()
     negative = negative_prompt or sweet.get("negative") or workflow_builder.DEFAULT_NEGATIVE
     sampling = _sampling(entry, arch)
+    mixed = people and genders and len(faces) == 2 and sorted(genders) == ["female", "male"]
     workflow, counter = {}, [0]
 
     def add(class_type, inputs, title):
@@ -339,46 +343,58 @@ def build_faces(entry, faces, negative_prompt, seed, width=1344, target="face", 
             model, clip, vae = workflow_builder._checkpoint_loader({"checkpoint": entry["filename"]}, add)
     except workflow_builder.WorkflowBuildError as exc:
         raise ModelError(str(exc)) from exc
-    neg = add("CLIPTextEncode", {"text": negative, "clip": clip}, f"{what} 부정")
-    if people:
-        detector = add("UltralyticsDetectorProvider", {"model_name": PERSON_DETECTOR_MODEL}, "사람 탐지 모델")
-        found = add("SegmDetectorSEGS", {"segm_detector": [detector, 1], "image": image, "threshold": 0.4, "dilation": 12,
-                                         "crop_factor": 1.2, "drop_size": 64, "labels": "all"}, "사람 찾기")
-    else:
-        detector = add("UltralyticsDetectorProvider", {"model_name": workflow_builder.FACE_DETECTOR_MODEL}, "얼굴 탐지 모델")
-        found = add("BboxDetectorSEGS", {"bbox_detector": [detector, 0], "image": image, "threshold": 0.5, "dilation": 10,
-                                         "crop_factor": 3.0, "drop_size": 10, "labels": "all"}, "얼굴 찾기")
-    rest = [add("ImpactSEGSOrderedFilter", {"segs": [found, 0], "target": "area(=w*h)", "order": True,
-                                            "take_start": 0, "take_count": len(faces)}, f"큰 {what} 고르기"), 0]
-    by_gender = None
-    if people and genders and len(faces) == 2 and sorted(genders) == ["female", "male"]:
-        split = add("NightshiftSEGSGenderSplit", {"segs": rest}, "남녀 나누기")
-        by_gender = {"male": [split, 0], "female": [split, 1]}
-    step, shift = width / len(faces), width / 16   # 얼굴 왼쪽 끝은 얼굴 가운데보다 왼쪽이라 경계를 조금 당긴다
-    for index, (prompt, loras) in enumerate(faces, start=1):
-        if not prompt:
-            raise ModelError(f"{what}마다 프롬프트가 필요해요.")
-        if by_gender:   # 그 성별 쪽에서 가장 큰 사람
-            pick = add("ImpactSEGSOrderedFilter", {"segs": by_gender[genders[index - 1]], "target": "area(=w*h)", "order": True,
-                                                   "take_start": 0, "take_count": 1}, f"사람 {index} 고르기({genders[index - 1]})")
-        elif people:   # 왼쪽부터 index번째 사람
-            pick = add("ImpactSEGSOrderedFilter", {"segs": rest, "target": "x1", "order": False, "take_start": index - 1,
-                                                   "take_count": 1}, f"사람 {index} 고르기")
-        else:
-            low = 0 if index == 1 else int(step * (index - 1) - shift)
-            high = width * 4 if index == len(faces) else int(step * index - shift) - 1
-            pick = add("ImpactSEGSRangeFilter", {"segs": rest, "target": "x1", "mode": True, "min_value": low, "max_value": high},
-                       f"얼굴 {index} 고르기")
-        face_model = model
+    neg = add("CLIPTextEncode", {"text": negative, "clip": clip}, "보정 부정")
+    lora_models = []
+    for index, (_, loras) in enumerate(faces, start=1):
+        person_model = model
         for name, strength in loras:
-            face_model = [add("LoraLoaderModelOnly", {"lora_name": name, "strength_model": strength, "model": face_model},
-                              f"{what} {index} LoRA"), 0]
-        pos = add("CLIPTextEncode", {"text": f"{prefix}, {prompt}" if prefix else prompt, "clip": clip}, f"{what} {index} 긍정")
-        image = [add("DetailerForEach", {
-            "image": image, "segs": [pick, 0], "model": face_model, "clip": clip, "vae": vae, "guide_size": 1024 if people else 512,
-            "guide_size_for": True, "max_size": 1536 if people else 1024, "seed": seed + index, "steps": 24 if people else 20,
-            "cfg": float(sampling["cfg"]), "sampler_name": "euler", "scheduler": "simple", "positive": [pos, 0], "negative": [neg, 0],
-            "denoise": denoise or (PEOPLE_DENOISE if people else FACES_DENOISE), "feather": 5, "noise_mask": True, "force_inpaint": True,
-            "wildcard": "", "cycle": 1, "inpaint_model": False, "noise_mask_feather": 20}, f"{what} {index} 다시 그리기"), 0]
+            person_model = [add("LoraLoaderModelOnly", {"lora_name": name, "strength_model": strength, "model": person_model},
+                                f"인물 {index} LoRA"), 0]
+        lora_models.append(person_model)
+
+    def stage(image, body, by_gender, strength, words=""):
+        """몸(body=True) 또는 얼굴 한 단계: 찾기 → 고르기 → 인물마다 다시 그리기."""
+        what = "사람" if body else "얼굴"
+        if body:
+            detector = add("UltralyticsDetectorProvider", {"model_name": PERSON_DETECTOR_MODEL}, "사람 탐지 모델")
+            found = add("SegmDetectorSEGS", {"segm_detector": [detector, 1], "image": image, "threshold": 0.4, "dilation": 12,
+                                             "crop_factor": 1.2, "drop_size": 64, "labels": "all"}, "사람 찾기")
+        else:
+            detector = add("UltralyticsDetectorProvider", {"model_name": workflow_builder.FACE_DETECTOR_MODEL}, "얼굴 탐지 모델")
+            found = add("BboxDetectorSEGS", {"bbox_detector": [detector, 0], "image": image, "threshold": 0.5, "dilation": 10,
+                                             "crop_factor": 3.0, "drop_size": 10, "labels": "all"}, "얼굴 찾기")
+        rest = [add("ImpactSEGSOrderedFilter", {"segs": [found, 0], "target": "area(=w*h)", "order": True,
+                                                "take_start": 0, "take_count": len(faces)}, f"큰 {what} 고르기"), 0]
+        split = add("NightshiftSEGSGenderSplit", {"segs": rest, "expected": len(faces)}, f"{what} 남녀 나누기") if by_gender else None
+        step, shift = width / len(faces), width / 16   # 얼굴 왼쪽 끝은 얼굴 가운데보다 왼쪽이라 경계를 조금 당긴다
+        for index, (prompt, _) in enumerate(faces, start=1):
+            if split:   # 그 성별 쪽에서 가장 큰 조각
+                gender = genders[index - 1]
+                pick = add("ImpactSEGSOrderedFilter", {"segs": [split, 0 if gender == "male" else 1], "target": "area(=w*h)", "order": True,
+                                                       "take_start": 0, "take_count": 1}, f"{what} {index} 고르기({gender})")
+            elif body:   # 왼쪽부터 index번째 사람
+                pick = add("ImpactSEGSOrderedFilter", {"segs": rest, "target": "x1", "order": False, "take_start": index - 1,
+                                                       "take_count": 1}, f"사람 {index} 고르기")
+            else:
+                low = 0 if index == 1 else int(step * (index - 1) - shift)
+                high = width * 4 if index == len(faces) else int(step * index - shift) - 1
+                pick = add("ImpactSEGSRangeFilter", {"segs": rest, "target": "x1", "mode": True, "min_value": low, "max_value": high},
+                           f"얼굴 {index} 고르기")
+            text = ", ".join(part for part in (prefix, prompt, words) if part)
+            pos = add("CLIPTextEncode", {"text": text, "clip": clip}, f"{what} {index} 긍정")
+            image = [add("DetailerForEach", {
+                "image": image, "segs": [pick, 0], "model": lora_models[index - 1], "clip": clip, "vae": vae,
+                "guide_size": 1024 if body else 512, "guide_size_for": True, "max_size": 1536 if body else 1024, "seed": seed + index,
+                "steps": 24 if body else 20, "cfg": float(sampling["cfg"]), "sampler_name": "euler", "scheduler": "simple",
+                "positive": [pos, 0], "negative": [neg, 0], "denoise": strength, "feather": 5, "noise_mask": True, "force_inpaint": True,
+                "wildcard": "", "cycle": 1, "inpaint_model": False, "noise_mask_feather": 20}, f"{what} {index} 다시 그리기"), 0]
+        return image
+
+    if people:
+        image = stage(image, True, mixed, denoise or PEOPLE_DENOISE)
+        if mixed:
+            image = stage(image, False, True, FACES_DENOISE, "detailed face")
+    else:
+        image = stage(image, False, False, denoise or FACES_DENOISE)
     add("SaveImage", {"filename_prefix": "refine_people" if people else "refine_faces", "images": image}, "Save Image")
     return workflow
