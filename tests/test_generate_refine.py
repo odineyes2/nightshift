@@ -158,6 +158,25 @@ class GenerateRefineTests(unittest.TestCase):
                     {"faces": faces, "model": "diffusion_models:krea2_turbo_fp8_scaled.safetensors"}):
             self.assertEqual(self.submit(op="faces", prompt="", **bad).status_code, 400, bad)
 
+    def test_people_redraws_each_person_from_the_left_with_its_own_lora(self):
+        # 2단계 두 인물: LoRA 없이 그린 그림에서 사람 모양 마스크를 따고, 큰 사람부터 인원수만큼 골라 왼쪽부터 그 인물로 다시 그린다.
+        model_registry.upsert("loras", "actor_a.safetensors", {"base_model": "Illustrious"})
+        model_registry.upsert("loras", "actor_b.safetensors", {"base_model": "Illustrious"})
+        people = [{"prompt": "1boy, red hair, armor", "loras": [{"name": "actor_a.safetensors", "strength": 0.7}]},
+                  {"prompt": "1girl, silver hair, robe", "loras": [{"name": "actor_b.safetensors", "strength": 0.7}]}]
+        workflow, classes = self.job_workflow(self.submit(op="people", prompt="", people=people, denoise=0.65))
+        self.assertIn("SegmDetectorSEGS", classes)
+        self.assertNotIn("BboxDetectorSEGS", classes)
+        self.assertEqual([n["inputs"]["model_name"] for n in workflow.values() if n["class_type"] == "UltralyticsDetectorProvider"],
+                         ["segm/person_yolov8m-seg.pt"])
+        picks = [n["inputs"] for n in workflow.values() if n["class_type"] == "ImpactSEGSOrderedFilter"]
+        self.assertEqual([(p["target"], p["take_start"], p["take_count"]) for p in picks],
+                         [("area(=w*h)", 0, 2), ("x1", 0, 1), ("x1", 1, 1)])
+        details = [n["inputs"] for n in workflow.values() if n["class_type"] == "DetailerForEach"]
+        self.assertEqual([(d["denoise"], d["guide_size"]) for d in details], [(0.65, 1024), (0.65, 1024)])
+        for bad in ({"people": []}, {"people": people, "denoise": 1.5}, {"people": people, "denoise": True}):
+            self.assertEqual(self.submit(op="people", prompt="", **bad).status_code, 400, bad)
+
     def test_generate_takes_registered_loras(self):
         model_registry.upsert("loras", "actor_a.safetensors", {"base_model": "Illustrious"})
         body = {"preset": "checkpoints:waiIllustriousSDXL_v170.safetensors", "prompt": "1girl", "aspect": "16:9", "seed": 3}
