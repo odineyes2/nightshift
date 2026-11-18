@@ -699,7 +699,7 @@ def _tagger_input(crop, mask):
 
 
 class NightshiftSEGSGenderSplit:
-    """사람 조각마다 1boy·1girl 점수를 비교해 남자 쪽(1boy가 더 높음)과 나머지로 나눈다."""
+    """사람 조각을 남녀로 나눈다. 두 조각이면 (1boy - 1girl)이 큰 쪽이 남자, 그 밖에는 조각마다 1boy가 더 높으면 남자."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -721,10 +721,16 @@ class NightshiftSEGSGenderSplit:
             with torch.no_grad():
                 logits = tagger["model"](pixel_values=torch.from_numpy(batch).to(tagger["device"])).logits
                 probs = torch.sigmoid(logits).float().cpu().numpy()
+            margins = [float(row[tagger["boy"]]) - float(row[tagger["girl"]]) for row in probs]
+            if len(items) == 2:
+                # 두 사람이면 서로 비교한다 — 붙어 선 두 사람은 남자 조각에도 여자 머리카락이 들어가 1girl이 높게 나왔다(2026-11-18).
+                order = sorted(range(2), key=lambda i: margins[i], reverse=True)
+                male, female = [items[order[0]]], [items[order[1]]]
+            else:
+                for seg, margin in zip(items, margins):
+                    (male if margin > 0 else female).append(seg)
             for seg, row in zip(items, probs):
-                boy, girl = float(row[tagger["boy"]]), float(row[tagger["girl"]])
-                (male if boy > girl else female).append(seg)
-                scores.append(f"x={seg.crop_region[0]} 1boy={boy:.2f} 1girl={girl:.2f}")
+                scores.append(f"x={seg.crop_region[0]} 1boy={float(row[tagger['boy']]):.2f} 1girl={float(row[tagger['girl']]):.2f}")
         print("[nightshift] 남녀 나누기:", "; ".join(scores), flush=True)
         return ((shape, male), (shape, female), "; ".join(scores))
 
