@@ -365,7 +365,8 @@ def build_faces(entry, faces, negative_prompt, seed, width=1344, target="face", 
                                              "crop_factor": 3.0, "drop_size": 10, "labels": "all"}, "얼굴 찾기")
         rest = [add("ImpactSEGSOrderedFilter", {"segs": [found, 0], "target": "area(=w*h)", "order": True,
                                                 "take_start": 0, "take_count": len(faces)}, f"큰 {what} 고르기"), 0]
-        split = add("NightshiftSEGSGenderSplit", {"segs": rest, "expected": len(faces)}, f"{what} 남녀 나누기") if by_gender else None
+        # 남녀 나누기는 잡힌 전체를 받는다 — 세 번째 인물이 있는지 노드가 보고 건너뛴다
+        split = add("NightshiftSEGSGenderSplit", {"segs": [found, 0], "expected": len(faces)}, f"{what} 남녀 나누기") if by_gender else None
         step, shift = width / len(faces), width / 16   # 얼굴 왼쪽 끝은 얼굴 가운데보다 왼쪽이라 경계를 조금 당긴다
         for index, (prompt, _) in enumerate(faces, start=1):
             if split:   # 그 성별 쪽에서 가장 큰 조각

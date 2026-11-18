@@ -662,6 +662,7 @@ async def train_status(request):
 # Swinv2라 원격 코드 없이 고정 커밋에서 받고, 저장소의 사용자 정의 전처리(흰 바탕 정사각형·448px·BGR·-1~1)는 여기 옮겨 적었다.
 GENDER_TAGGER_REPO = "p1atdev/wd-swinv2-tagger-v3-hf"
 GENDER_TAGGER_REVISION = "b09fdef86a3f9d4bf974ccaa5c87dcf846d3a2fd"
+GENDER_MIN = 0.35   # 두 조각을 비교해 나눌 때도 그 성별 점수가 이만큼은 돼야 그 배우를 입힌다
 _tagger = {}
 
 
@@ -716,21 +717,33 @@ class NightshiftSEGSGenderSplit:
         import torch
         shape, items = segs
         male, female, scores = [], [], []
-        if expected and len(items) != expected:
-            # 사람 수만큼 따로 잡히지 않았다(겹친 두 사람이 한 덩어리 등) — 누가 누군지 모르니 다시 그리지 않게 비운다.
-            print(f"[nightshift] 남녀 나누기: 조각 {len(items)}개(기대 {expected}개) — 건너뜀", flush=True)
-            return ((shape, []), (shape, []), f"skipped {len(items)}/{expected}")
+        if expected:
+            # 잡힌 사람 전체에서 큰 순으로 고른다. 따로 잡히지 않았거나(겹친 두 사람이 한 덩어리) 세 번째 사람이 진짜 인물 크기면
+            # 누가 누군지 모르니 다시 그리지 않게 비운다(2026-11-19: 세 사람 그림에서 여자에게 남자 배우가 입혀졌다).
+            def area(seg):
+                x1, y1, x2, y2 = seg.crop_region
+                return max(0, x2 - x1) * max(0, y2 - y1)
+            items = sorted(items, key=area, reverse=True)
+            crowded = len(items) > expected and area(items[expected]) > 0.3 * area(items[expected - 1])
+            if len(items) < expected or crowded:
+                print(f"[nightshift] 남녀 나누기: 조각 {len(items)}개(기대 {expected}개) — 건너뜀", flush=True)
+                return ((shape, []), (shape, []), f"skipped {len(items)}/{expected}")
+            items = items[:expected]
         if items:
             tagger = _gender_tagger()
             batch = np.stack([_tagger_input(seg.cropped_image, seg.cropped_mask) for seg in items])
             with torch.no_grad():
                 logits = tagger["model"](pixel_values=torch.from_numpy(batch).to(tagger["device"])).logits
                 probs = torch.sigmoid(logits).float().cpu().numpy()
-            margins = [float(row[tagger["boy"]]) - float(row[tagger["girl"]]) for row in probs]
+            boys = [float(row[tagger["boy"]]) for row in probs]
+            girls = [float(row[tagger["girl"]]) for row in probs]
+            margins = [b - g for b, g in zip(boys, girls)]
             if len(items) == 2:
                 # 두 사람이면 서로 비교한다 — 붙어 선 두 사람은 남자 조각에도 여자 머리카락이 들어가 1girl이 높게 나왔다(2026-11-18).
+                # 다만 남자 쪽은 1boy, 여자 쪽은 1girl 점수가 GENDER_MIN 이상일 때만 — 둘 다 여자(또는 남자)면 한쪽을 비운다.
                 order = sorted(range(2), key=lambda i: margins[i], reverse=True)
-                male, female = [items[order[0]]], [items[order[1]]]
+                male = [items[order[0]]] if boys[order[0]] >= GENDER_MIN else []
+                female = [items[order[1]]] if girls[order[1]] >= GENDER_MIN else []
             else:
                 for seg, margin in zip(items, margins):
                     (male if margin > 0 else female).append(seg)
