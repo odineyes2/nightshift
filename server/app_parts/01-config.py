@@ -404,4 +404,5 @@ UPSTREAM_ERROR = 424
 
 jobs: dict[str, dict] = {}
 lock = threading.Lock()
+idle_stopping_pods: set[str] = set()   # 유휴 종료 중인 워커에는 새 작업을 배정하지 않는다
 

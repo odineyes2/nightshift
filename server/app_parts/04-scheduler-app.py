@@ -248,6 +248,9 @@ def schedule_once() -> None:
         with lock:
             if job["status"] != "queued" or job.get("pod_id") or job.get("deleted"):
                 continue   # 그 사이 사용자가 지웠거나 옮겼다
+            current_pod = pod_registry.get_pod(chosen["id"])
+            if chosen["id"] in idle_stopping_pods or not current_pod or not current_pod.get("enabled"):
+                continue   # 연결 확인 중 워커가 꺼졌거나 유휴 종료를 시작했다
             job["pod_id"] = chosen["id"]
             job["auto_assigned"] = True
             job["waiting_reason"] = None

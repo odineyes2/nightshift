@@ -210,10 +210,38 @@ def generate_billing(request: Request):
     return {"own_runpod": bool(runpod_api.key_for_owner(user["id"])), "paid": paid_plan.plan(user["id"])["paid"]}
 
 
+def shared_runpod_status(owner_id):
+    """유료 회원에게는 관리자 공용 워커의 상태만 공개한다(식별자·키·다른 회원 작업은 제외)."""
+    admins = _admin_owner_ids()
+    pods = pod_registry.list_pods(pod_registry.ALL)
+    with lock:
+        waiting = [j for j in jobs.values() if j.get("owner_id") == owner_id and j.get("billing") == "admin"
+                   and j.get("status") in ("pending", "queued") and not j.get("deleted")]
+    result = {}
+    for tier in ("image", "video"):
+        workers = [p for p in pods if p.get("owner_id") in admins and p.get("kind") == pod_registry.DEFAULT_KIND
+                   and (p.get("runpod_tier") == "video") == (tier == "video")]
+        settings, state = auto_power_settings.load(tier), auto_power_settings.load_state(tier)
+        on = any(p.get("enabled") and p.get("note") != "runpod:creating" for p in workers)
+        starting = not on and any(p.get("note") == "runpod:creating" for p in workers)
+        result[tier] = {"on": on, "starting": starting,
+                        "waiting": sum(_member_tier_of(j) == tier for j in waiting),
+                        "enabled": bool(runpod_api.admin_key()) and bool(settings["enabled"] or settings.get("paid_immediate", True))
+                                   and (tier != "video" or bool(settings.get("video_jobs"))),
+                        "limit_reached": not on and _auto_power_starts_today(state, datetime.now(timezone.utc)) >= settings["daily_limit"],
+                        "last_error": "공용 워커 기동이 지연되고 있어요. 운영자에게 문의해 주세요." if state.get("last_error") else None,
+                        "auto_off_minutes": None}
+    return result
+
+
 @app.get("/api/auth/runpod-status")
 def auth_runpod_status(request: Request):
     user = me(request)
-    return member_runpod_status(user["id"]) | {"plan": paid_plan.plan(user["id"])}
+    plan = paid_plan.plan(user["id"])
+    result = member_runpod_status(user["id"]) | {"plan": plan}
+    if plan["paid"]:
+        result["shared_tiers"] = shared_runpod_status(user["id"])
+    return result
 
 
 def _paid_promote_waiting() -> int:
