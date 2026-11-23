@@ -15,6 +15,8 @@ ComfyUI에는 모델 파일을 내려받는 API가 없어서, nightshift가 파�
   POST /nightshift/restart     ComfyUI만 다시 시작(같은 프로세스 자리에서 다시 실행 — 파드·파일은 그대로)
   POST /nightshift/train/start {name, trigger, checkpoint, images: [{file, caption}], ...} 인물 LoRA 학습 시작(v7)
   GET  /nightshift/train/status 학습 진행(단계·스텝·로그 끝부분·결과 파일)
+  POST /nightshift/tts/start {name, model, speaker, language, items: [{id, text}]} 낭독 음성 만들기 시작(v9)
+  GET  /nightshift/tts/status  낭독 진행(만든 구간 수·결과 파일 목록)
 
 파드 주소는 인터넷에 열려 있으므로 모든 라우트는 X-Nightshift-Token 헤더가 같은 폴더의 token 파일과
 같아야만 동작한다(토큰은 nightshift가 설치 스크립트에 넣어 준다). 받는 곳은 ComfyUI가 그 종류에
@@ -42,7 +44,7 @@ from aiohttp import web
 import folder_paths
 from server import PromptServer
 
-VERSION = 8   # 7: 인물 LoRA 학습(kohya sd-scripts) · 8: 사람 조각 남녀로 나누기 노드(NightshiftSEGSGenderSplit)
+VERSION = 9   # 7: 인물 LoRA 학습(kohya sd-scripts) · 8: 사람 조각 남녀로 나누기 노드(NightshiftSEGSGenderSplit) · 9: 낭독 음성(Qwen3-TTS)
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # nightshift의 종류 이름 -> ComfyUI folder_paths 이름 후보(버전마다 이름이 달랐다).
@@ -642,6 +644,8 @@ async def train_start(request):
     with _lock:
         if _train["status"] == "running":
             return web.json_response({"error": "이미 학습하는 중이에요."}, status=409)
+        if globals().get("_tts", {}).get("status") == "running":
+            return web.json_response({"error": "이 파드에서 낭독 음성을 만들고 있어요."}, status=409)
         _train.update(status="running", phase="queued", name=name, step=0, total=0, kept=0, dropped=[], error=None, log="",
                       started_at=time.time(), finished_at=None, output=None)
     threading.Thread(target=_train_run, args=(spec,), daemon=True).start()
@@ -654,6 +658,189 @@ async def train_status(request):
         return web.json_response({"error": "unauthorized"}, status=401)
     with _lock:
         return web.json_response(dict(_train))
+
+
+# ---- 낭독 음성(v9) --------------------------------------------------------------
+# 연동 앱(charchat)의 작가가 미리 만들어 두는 낭독 음성. Qwen3-TTS는 ComfyUI와 transformers 버전이 달라
+# /workspace/nightshift_tts/ 아래 따로 만든 venv에서 별도 프로세스로 돌린다(학습과 같은 방식). 결과는
+# output/nightshift_tts/<name>/<id>.mp3에 두고 nightshift가 /view로 받아 간다.
+# 패키지 버전은 2026-11-23 RTX 4090 실제 파드에서 한국어 생성이 되던 조합 그대로다(qwen-tts가 풀어 준 torch·transformers).
+TTS_ROOT = "/workspace/nightshift_tts"
+TTS_PACKAGES = ["qwen-tts==0.1.1", "torch==2.15.0", "transformers==4.57.3", "soundfile>=0.13,<1"]
+TTS_MODELS = {"Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"}
+TTS_LANGUAGES = {"Korean", "English", "Chinese", "Japanese"}
+TTS_SPEAKER_RE = re.compile(r"^[A-Za-z][A-Za-z_]{0,39}$")
+TTS_ID_RE = re.compile(r"^[a-f0-9]{64}$")
+TTS_MAX_ITEMS, TTS_MAX_TEXT = 2000, 400
+TTS_TIMEOUT = 4 * 3600
+_tts = {"status": "idle", "phase": "", "name": None, "done": 0, "total": 0, "error": None, "log": "",
+        "started_at": None, "finished_at": None, "outputs": []}
+TTS_PROGRESS_RE = re.compile(r"^NSTTS (\d+) (\d+)$")
+
+# 별도 venv에서 도는 생성 스크립트. 사양 JSON 경로를 받아 묶음(batch)으로 만들고, 구간마다 MP3와 길이를 남긴다.
+# float16은 샘플링 중 확률이 NaN이 되어 멈췄다(2026-11-23) — bfloat16을 쓴다. 메모리가 모자라면 묶음을 반으로 줄인다.
+TTS_RUNNER = r'''
+import json, os, shutil, subprocess, sys
+import numpy as np, soundfile as sf, torch
+from qwen_tts import Qwen3TTSModel
+
+spec = json.load(open(sys.argv[1], encoding="utf-8"))
+out = spec["out_dir"]
+os.makedirs(out, exist_ok=True)
+model = Qwen3TTSModel.from_pretrained(spec["model"], device_map="cuda", dtype=torch.bfloat16, attn_implementation="sdpa")
+if spec["speaker"].lower() not in {s.lower() for s in model.get_supported_speakers()}:
+    raise SystemExit("unsupported speaker")
+ffmpeg = shutil.which("ffmpeg")
+items, done, batch, results = spec["items"], 0, int(spec.get("batch") or 8), {}
+print("NSTTS 0 %d" % len(items), flush=True)
+
+def save(item, wav, rate):
+    wav = np.asarray(wav, dtype=np.float32).reshape(-1)
+    target = os.path.join(out, item["id"] + ".mp3")
+    if ffmpeg:
+        tmp = os.path.join(out, item["id"] + ".wav")
+        sf.write(tmp, wav, rate, subtype="PCM_16")
+        subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-i", tmp, "-ac", "1", "-b:a", "64k", target], check=True)
+        os.remove(tmp)
+    else:
+        sf.write(target, wav, rate, format="MP3")
+    results[item["id"]] = {"duration": round(len(wav) / rate, 3), "size": os.path.getsize(target)}
+
+while done < len(items):
+    group = items[done:done + batch]
+    try:
+        with torch.inference_mode():
+            wavs, rate = model.generate_custom_voice(text=[i["text"] for i in group], speaker=[spec["speaker"]] * len(group),
+                                                     language=[spec["language"]] * len(group))
+    except torch.cuda.OutOfMemoryError:
+        torch.cuda.empty_cache()
+        if batch == 1:
+            raise
+        batch = max(1, batch // 2)
+        continue
+    for item, wav in zip(group, wavs):
+        save(item, wav, rate)
+    done += len(group)
+    print("NSTTS %d %d" % (done, len(items)), flush=True)
+json.dump(results, open(os.path.join(out, "result.json"), "w"), ensure_ascii=False)
+'''
+
+
+def _tts_set(**values):
+    with _lock:
+        _tts.update(values)
+
+
+def _tts_install():
+    venv_py = os.path.join(TTS_ROOT, "venv", "bin", "python")
+    mark = os.path.join(TTS_ROOT, ".installed-" + "-".join(p.replace("=", "").replace("<", "").replace(">", "").replace(",", "")
+                                                           for p in TTS_PACKAGES))
+    if os.path.exists(mark):
+        return venv_py
+    os.makedirs(TTS_ROOT, exist_ok=True)
+    if not os.path.exists(venv_py):
+        base_python = shutil.which("python3", path="/usr/bin:/bin") or sys.executable
+        subprocess.run([base_python, "-m", "venv", os.path.join(TTS_ROOT, "venv")], check=True, timeout=300, env=_clean_env(),
+                       capture_output=True)
+    env = _clean_env()
+    for args in (["--upgrade", "pip"], TTS_PACKAGES):
+        r = subprocess.run([venv_py, "-m", "pip", "install", "-q", *args], capture_output=True, text=True, timeout=PIP_TIMEOUT, env=env)
+        if r.returncode:
+            raise RuntimeError("설치 실패: " + _tail(r.stdout + r.stderr, 800))
+    open(mark, "w").close()
+    return venv_py
+
+
+def _tts_run(spec):
+    name = spec["name"]
+    try:
+        _tts_set(phase="install")
+        venv_py = _tts_install()
+        _tts_set(phase="generate")
+        _free_vram()
+        out_dir = os.path.join(folder_paths.get_output_directory(), "nightshift_tts", name)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        os.makedirs(out_dir)
+        work = os.path.join(TTS_ROOT, "jobs")
+        os.makedirs(work, exist_ok=True)
+        runner = os.path.join(TTS_ROOT, "run_tts.py")
+        with open(runner, "w", encoding="utf-8") as f:
+            f.write(TTS_RUNNER)
+        spec_path = os.path.join(work, name + ".json")
+        with open(spec_path, "w", encoding="utf-8") as f:
+            json.dump({**spec, "out_dir": out_dir}, f, ensure_ascii=False)
+        env = {**_clean_env(), "PYTHONUNBUFFERED": "1", "HF_HOME": os.path.join(TTS_ROOT, "hf")}
+        proc = subprocess.Popen([venv_py, runner, spec_path], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, bufsize=1)
+        tail, started = "", time.time()
+        for line in proc.stdout:
+            tail = (tail + line)[-4000:]
+            m = TTS_PROGRESS_RE.match(line.strip())
+            if m:
+                _tts_set(done=int(m.group(1)), total=int(m.group(2)))
+            _tts_set(log=tail[-1500:])
+            if time.time() - started > TTS_TIMEOUT:
+                proc.kill()
+                raise RuntimeError("시간 안에 끝나지 않았어요.")
+        if proc.wait():
+            raise RuntimeError(_tail(tail, 800))
+        with open(os.path.join(out_dir, "result.json"), encoding="utf-8") as f:
+            results = json.load(f)
+        outputs = [{"id": item["id"], "name": item["id"] + ".mp3", "subfolder": "nightshift_tts/" + name,
+                    **results[item["id"]]} for item in spec["items"] if item["id"] in results]
+        if len(outputs) != len(spec["items"]):
+            raise RuntimeError("만들지 못한 구간이 있어요.")
+        _tts_set(status="done", phase="done", finished_at=time.time(), outputs=outputs)
+    except subprocess.TimeoutExpired:
+        _tts_set(status="error", error="설치가 시간 안에 끝나지 않았어요.", finished_at=time.time())
+    except Exception as e:
+        _tts_set(status="error", error=str(e)[:1000], finished_at=time.time())
+
+
+@routes.post("/nightshift/tts/start")
+async def tts_start(request):
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON이 아니에요."}, status=400)
+    name, model, speaker, language = body.get("name"), body.get("model"), body.get("speaker"), body.get("language")
+    if not (isinstance(name, str) and TRAIN_NAME_RE.match(name)):
+        return web.json_response({"error": "작업 이름이 올바르지 않아요."}, status=400)
+    if model not in TTS_MODELS or language not in TTS_LANGUAGES or not (isinstance(speaker, str) and TTS_SPEAKER_RE.match(speaker)):
+        return web.json_response({"error": "모델·언어·성우가 올바르지 않아요."}, status=400)
+    items = body.get("items")
+    if not isinstance(items, list) or not 1 <= len(items) <= TTS_MAX_ITEMS:
+        return web.json_response({"error": "구간은 1~%d개여야 해요." % TTS_MAX_ITEMS}, status=400)
+    clean, seen = [], set()
+    for item in items:
+        item_id, text = (item or {}).get("id"), (item or {}).get("text")
+        if not (isinstance(item_id, str) and TTS_ID_RE.match(item_id)) or item_id in seen \
+                or not isinstance(text, str) or not 1 <= len(text.strip()) <= TTS_MAX_TEXT:
+            return web.json_response({"error": "구간 id·글이 올바르지 않아요."}, status=400)
+        seen.add(item_id)
+        clean.append({"id": item_id, "text": text.strip()})
+    try:
+        batch = _int_in(body.get("batch"), 8, 1, 32)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    with _lock:
+        if _tts["status"] == "running" or _train["status"] == "running":
+            return web.json_response({"error": "이 파드에서 다른 일을 하고 있어요."}, status=409)
+        _tts.update(status="running", phase="queued", name=name, done=0, total=len(clean), error=None, log="",
+                    started_at=time.time(), finished_at=None, outputs=[])
+    spec = {"name": name, "model": model, "speaker": speaker, "language": language, "items": clean, "batch": batch}
+    threading.Thread(target=_tts_run, args=(spec,), daemon=True).start()
+    return web.json_response({"ok": True})
+
+
+@routes.get("/nightshift/tts/status")
+async def tts_status(request):
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    with _lock:
+        return web.json_response(dict(_tts))
 
 
 # ── 노드: 사람 조각(SEGS)을 남녀로 나누기(v8) ──

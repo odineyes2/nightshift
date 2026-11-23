@@ -467,5 +467,6 @@
       { "name": "video_duration", "label": "영상 길이(초)", "required": false, "note": "비워두면 15초(기본값)를 사용해요" }
     ]
   },
-  {"id": "lora_train", "label": "인물 LoRA 학습(캐릭터 스튜디오)", "script_filename": "lora_train.py", "requires_csv": false, "options": [{"name": "train_manifest", "label": "학습 정보 파일(내부용)", "type": "textarea", "default": ""}]}
+  {"id": "lora_train", "label": "인물 LoRA 학습(캐릭터 스튜디오)", "script_filename": "lora_train.py", "requires_csv": false, "options": [{"name": "train_manifest", "label": "학습 정보 파일(내부용)", "type": "textarea", "default": ""}]},
+  {"id": "tts_batch", "label": "낭독 음성 만들기(Qwen3-TTS)", "script_filename": "tts_batch.py", "requires_csv": false, "options": [{"name": "tts_manifest", "label": "낭독 정보 파일(내부용)", "type": "textarea", "default": ""}]}
 ]

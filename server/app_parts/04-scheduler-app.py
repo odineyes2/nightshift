@@ -379,6 +379,10 @@ def _run_one_job(pod_id: str, job_id: str):
         # 인물 LoRA 학습은 파드의 nightshift 노드를 직접 부르고, 결과를 홈서버 보관 폴더에 둔다(10e-generate-train).
         extra_env["NIGHTSHIFT_POD_TOKEN"] = model_download.pod_token(pod_id)
         extra_env["NIGHTSHIFT_HOSTED_DIR"] = str(data_dir("hosted_models") / "loras")
+    elif job.get("template_id") == "tts_batch":
+        # 낭독 음성도 파드의 nightshift 노드를 직접 부르고, 결과 MP3를 작업별 폴더에 둔다(10f-generate-tts).
+        extra_env["NIGHTSHIFT_POD_TOKEN"] = model_download.pod_token(pod_id)
+        extra_env["NIGHTSHIFT_TTS_DIR"] = str(tts_job_dir(job_id))
     env = {**os.environ, **extra_env}
 
     stopped = False
