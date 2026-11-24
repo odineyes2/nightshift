@@ -41,3 +41,8 @@ tests/shots/
 
 # 실행 에이전트 화면 캡처(scripts/capture_ui.py)의 PNG·manifest·로그·임시 코드/DB 사본(NS-55-1)
 .ui-captures/
+
+# 화면 캡처 결과물 — 저장소에 넣지 않는다
+/screens-*/
+/shots/
+/*.png
